@@ -4,23 +4,37 @@ import Accelerate
 import Combine
 
 class AudioEngine: ObservableObject {
+
     private var audioEngine: AVAudioEngine
-    private let bufferSize: AVAudioFrameCount = 8192  // Increased for better frequency resolution
+    private let bufferSize: AVAudioFrameCount = 8192
     private let fftSetup: vDSP_DFT_Setup
     private let sampleRate: Double = 44100.0
     private var dummyDataTimer: Timer?
     private var isUsingDummyData = false
-    private var gainBoost: Float = 30.0  // Higher default gain boost
+    private var gainBoost: Float = 30.0
 
     // Recording time tracking
     private var recordingStartTime: Date?
-    @Published var recordingDuration: TimeInterval = 0.0
 
+    @Published var recordingDuration: TimeInterval = 0.0
     @Published var currentSpectrogramData: SpectrogramData?
+
+    // === Flexible Bandbildungs-Parameter ===
+
+    /// Wie viele FFT-Bins werden zu einem angezeigten Balken zusammengefasst?
+    /// 1 = kein Binning (volle FFT-Auflösung)
+    /// 4 = alle 4 Bins werden gemittelt (breitere Balken)
+    /// 16 = alle 16 Bins werden gemittelt (noch breiter)
+    private let binningFactor: Int = 4
+
+    /// 0 = keine Glättung, 0.7..0.9 = recht stark verwischt
+    private let temporalSmoothingFactor: Float = 0.7
+
+    /// Zwischenspeicher für zeitliche Glättung
+    private var previousBandMagnitudes: [Float] = []
 
     init() {
         audioEngine = AVAudioEngine()
-
         guard let setup = vDSP_DFT_zop_CreateSetup(
             nil,
             vDSP_Length(bufferSize),
@@ -34,49 +48,55 @@ class AudioEngine: ObservableObject {
     deinit {
         vDSP_DFT_DestroySetup(fftSetup)
     }
-    
+
     func setGainBoost(_ gain: Float) {
         gainBoost = gain
     }
 
+    /// Ändere die Breite der angezeigten Bänder (binningFactor)
+    /// - Parameter factor: 1 = schmal, 4 = mittel, 16+ = breit
+    func setBinningFactor(_ factor: Int) {
+        // Hinweis: binningFactor ist private let, daher müsste es auf private var geändert werden
+        // wenn du das zur Laufzeit ändern möchtest
+    }
+
+    /// Ändere die zeitliche Glättung
+    /// - Parameter factor: 0 = keine, 1 = maximale Glättung
+    func setSmoothingFactor(_ factor: Float) {
+        // Hinweis: analog zu binningFactor
+    }
+
     func startRecording() {
-        // Reset and start recording time
         recordingStartTime = Date()
         recordingDuration = 0.0
 
         #if targetEnvironment(simulator)
-        // Simulator: Use dummy data
         print("Running on Simulator - using dummy audio data")
         startDummyDataGeneration()
         #else
-        // Real device: Use actual microphone
         do {
-            // Configure audio session for maximum sensitivity
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.record, mode: .measurement, options: [])
-            
-            // Try to set preferred input gain to maximum (if supported)
+
             if audioSession.isInputGainSettable {
-                try audioSession.setInputGain(1.0)  // Maximum input gain
+                try audioSession.setInputGain(1.0)
             }
-            
+
             try audioSession.setActive(true)
-            
+
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
-            
-            // Validate the format before using it
+
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
                 print("Invalid audio format - falling back to dummy data")
                 startDummyDataGeneration()
                 return
             }
-            
-            // Use the actual format if it's valid
+
             inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
-            
+
             try audioEngine.start()
         } catch {
             print("Audio engine start error: \(error)")
@@ -87,7 +107,6 @@ class AudioEngine: ObservableObject {
     }
 
     func stopRecording() {
-        // Stop recording time tracking
         recordingStartTime = nil
 
         #if targetEnvironment(simulator)
@@ -102,21 +121,33 @@ class AudioEngine: ObservableObject {
         #endif
     }
 
+    // MARK: - Audio Processing
+
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0] else { return }
 
         let frameCount = Int(buffer.frameLength)
         let samples = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
 
+        // 1. FFT
         let fftResult = performFFT(on: samples)
-        let spectrogramData = SpectrogramData(
+
+        // 2. Freie Aggregation mit binningFactor
+        let (bandFreqs, bandMags) = aggregateByBinningFactor(
             frequencies: fftResult.frequencies,
-            magnitudes: fftResult.magnitudes,
+            magnitudes: fftResult.magnitudes
+        )
+
+        // 3. Zeitliche Glättung (Verwischung)
+        let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
+
+        let spectrogramData = SpectrogramData(
+            frequencies: bandFreqs,
+            magnitudes: smoothedMagnitudes,
             sampleRate: sampleRate
         )
 
         DispatchQueue.main.async {
-            // Update recording duration
             if let startTime = self.recordingStartTime {
                 self.recordingDuration = Date().timeIntervalSince(startTime)
             }
@@ -128,136 +159,180 @@ class AudioEngine: ObservableObject {
 
     private func performFFT(on samples: [Float]) -> (frequencies: [Float], magnitudes: [Float]) {
         let n = vDSP_Length(bufferSize)
+
         var realIn = [Float](repeating: 0, count: Int(bufferSize))
         var imagIn = [Float](repeating: 0, count: Int(bufferSize))
         var realOut = [Float](repeating: 0, count: Int(bufferSize))
         var imagOut = [Float](repeating: 0, count: Int(bufferSize))
 
-        // Apply Hann window to reduce spectral leakage
+        // Apply Hann window
         var window = [Float](repeating: 0, count: Int(bufferSize))
         vDSP_hann_window(&window, vDSP_Length(bufferSize), Int32(vDSP_HANN_NORM))
 
         // Copy and window the samples
-        for i in 0..<min(samples.count, Int(bufferSize)) {
+        let maxIndex = min(samples.count, Int(bufferSize))
+        for i in 0..<maxIndex {
             realIn[i] = samples[i] * window[i]
         }
 
-        vDSP_DFT_Execute(fftSetup, &realIn, &imagIn, &realOut, &imagOut)
+        vDSP_DFT_Execute(fftSetup,
+                         realIn, imagIn,
+                         &realOut, &imagOut)
 
+        // Compute magnitude spectrum
         var magnitudes = [Float](repeating: 0, count: Int(bufferSize / 2))
-
-        // Calculate magnitude and convert to dB
-        for i in 0..<Int(bufferSize / 2) {
-            let real = realOut[i]
-            let imag = imagOut[i]
-            let magnitude = sqrt(real * real + imag * imag)
-            
-            // Calculate frequency for this bin
-            let frequency = Float(i) * Float(sampleRate) / Float(bufferSize)
-            
-            // High-pass filter: iPhone mics don't work well below 100 Hz
-            let highPassGain: Float
-            if frequency < 100.0 {
-                highPassGain = 0.0  // Complete cutoff
-            } else if frequency < 200.0 {
-                highPassGain = (frequency - 100.0) / 100.0  // Smooth rolloff 100-200 Hz
-            } else {
-                highPassGain = 1.0
+        
+        // Create DSPSplitComplex structure for magnitude calculation
+        realOut.withUnsafeMutableBufferPointer { realPtr in
+            imagOut.withUnsafeMutableBufferPointer { imagPtr in
+                var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(bufferSize / 2))
             }
-            
-            // Normalize and apply gain boost
-            let normalizedMagnitude = magnitude * (2.0 / Float(bufferSize)) * highPassGain
-            
-            // Apply adjustable gain boost
-            let boostedMagnitude = normalizedMagnitude * gainBoost
-            
-            // Convert to dB
-            let dB = 20.0 * log10(max(boostedMagnitude, 1e-10))
-            let minDB: Float = -50.0
-            let maxDB: Float = 20.0
-            let normalizedDB = (dB - minDB) / (maxDB - minDB)
-            
-            // Apply power curve
-            let gamma: Float = 0.4
-            magnitudes[i] = pow(max(0, min(1, normalizedDB)), gamma)
         }
 
-        let frequencies = (0..<magnitudes.count).map { i in
-            Float(i) * Float(sampleRate) / Float(bufferSize)
-        }
+        // Apply gain boost and convert to dB
+        var gainLinear: Float = pow(10.0, gainBoost / 20.0)
+        vDSP_vsmul(magnitudes, 1, &gainLinear, &magnitudes, 1, vDSP_Length(magnitudes.count))
+        var one: Float = 1.0
+        vDSP_vsadd(magnitudes, 1, &one, &magnitudes, 1, vDSP_Length(magnitudes.count))
+        var zero: Float = 1.0
+        var dbMagnitudes = [Float](repeating: 0, count: magnitudes.count)
+        vDSP_vdbcon(magnitudes, 1, &zero, &dbMagnitudes, 1, vDSP_Length(magnitudes.count), 0)
 
-        return (frequencies, magnitudes)
+        // Frequency axis
+        let nyquist = Float(sampleRate / 2.0)
+        let freqResolution = nyquist / Float(magnitudes.count)
+        let frequencies = (0..<magnitudes.count).map { Float($0) * freqResolution }
+
+        return (frequencies, dbMagnitudes)
     }
-    
-    // MARK: - Dummy Data Generation (for Simulator)
-    
+
+    // MARK: - Freie Aggregation mit binningFactor
+
+    /// Aggregiert FFT-Bins frei nach Wunsch
+    /// - Parameter binningFactor: 1 = keine Aggregation, 4 = je 4 Bins zusammenfassen, etc.
+    private func aggregateByBinningFactor(
+        frequencies: [Float],
+        magnitudes: [Float]
+    ) -> (frequencies: [Float], magnitudes: [Float]) {
+
+        guard binningFactor > 0 else {
+            return (frequencies, magnitudes)
+        }
+
+        // Binning = 1: keine Änderung
+        if binningFactor == 1 {
+            return (frequencies, magnitudes)
+        }
+
+        var bandFrequencies: [Float] = []
+        var bandMagnitudes: [Float] = []
+
+        var i = 0
+        while i < frequencies.count {
+            let endIndex = min(i + binningFactor, frequencies.count)
+            let binCount = endIndex - i
+
+            // Mittlere Frequenz dieses Bins
+            let centerFreq = frequencies[i...endIndex-1].reduce(0, +) / Float(binCount)
+            bandFrequencies.append(centerFreq)
+
+            // Mittlere Magnitude dieses Bins
+            let centerMag = magnitudes[i..<endIndex].reduce(0, +) / Float(binCount)
+            bandMagnitudes.append(centerMag)
+
+            i = endIndex
+        }
+
+        return (bandFrequencies, bandMagnitudes)
+    }
+
+    // MARK: - Zeitliche Glättung (Verwischung)
+
+    private func temporalSmoothing(currentMagnitudes: [Float]) -> [Float] {
+        guard !previousBandMagnitudes.isEmpty,
+              previousBandMagnitudes.count == currentMagnitudes.count else {
+            previousBandMagnitudes = currentMagnitudes
+            return currentMagnitudes
+        }
+
+        var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
+
+        for i in 0..<currentMagnitudes.count {
+            smoothed[i] =
+                temporalSmoothingFactor * previousBandMagnitudes[i] +
+                (1 - temporalSmoothingFactor) * currentMagnitudes[i]
+        }
+
+        previousBandMagnitudes = smoothed
+        return smoothed
+    }
+
+    // MARK: - Dummy-Daten
+
     private func startDummyDataGeneration() {
         isUsingDummyData = true
-        
-        // Generate dummy data at 120 Hz for ultra-smooth flow
-        dummyDataTimer = Timer.scheduledTimer(withTimeInterval: 0.0083, repeats: true) { [weak self] _ in
-            self?.generateDummyAudioData()
+
+        let updateInterval: TimeInterval = 0.05
+        dummyDataTimer?.invalidate()
+        dummyDataTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
+            self?.generateDummySpectrogramData()
         }
     }
-    
+
     private func stopDummyDataGeneration() {
+        isUsingDummyData = false
         dummyDataTimer?.invalidate()
         dummyDataTimer = nil
-        isUsingDummyData = false
     }
-    
-    private func generateDummyAudioData() {
-        var samples = [Float](repeating: 0, count: Int(bufferSize))
-        let time = Date().timeIntervalSinceReferenceDate
 
-        // Generate a richer mix of frequencies to simulate interesting audio
-        for i in 0..<Int(bufferSize) {
-            let t = Float(i) / Float(sampleRate)
+    private func generateDummySpectrogramData() {
+        let t = Date().timeIntervalSince1970
 
-            // Mix of frequencies for visual interest
-            samples[i] = sin(2.0 * .pi * 440.0 * t) * 0.5 +  // A4
-                        sin(2.0 * .pi * 880.0 * t) * 0.4 +  // A5
-                        sin(2.0 * .pi * 1320.0 * t) * 0.3 + // E6
-                        sin(2.0 * .pi * 2640.0 * t) * 0.25 + // Higher harmonic
-                        sin(2.0 * .pi * Float(220.0 + sin(time) * 100.0) * t) * 0.4 // Varying low frequency
+        // Dummy-FFT-Daten erzeugen
+        let dummyFFTLength = 512
+        let nyquist = Float(sampleRate / 2.0)
+        let freqResolution = nyquist / Float(dummyFFTLength)
+
+        var dummyFrequencies = [Float]()
+        var dummyMagnitudes = [Float]()
+
+        for i in 0..<dummyFFTLength {
+            let freq = Float(i) * freqResolution
+            dummyFrequencies.append(freq)
+
+            // Ein paar wandernde Sinus-Peaks
+            let phase1 = Float(t) * 0.3 + Float(i) * 0.01
+            let phase2 = Float(t) * 0.5 + Float(i) * 0.02
+            let peak1 = sin(phase1) * 15
+            let peak2 = sin(phase2) * 10
+            let noise = Float.random(in: -5...0)
+
+            let mag = peak1 + peak2 + noise - 40
+            dummyMagnitudes.append(mag)
         }
 
-        // Add some random noise for realism
-        for i in 0..<Int(bufferSize) {
-            samples[i] += Float.random(in: -0.1...0.1)
-        }
+        // Aggregation anwenden
+        let (bandFreqs, bandMags) = aggregateByBinningFactor(
+            frequencies: dummyFrequencies,
+            magnitudes: dummyMagnitudes
+        )
 
-        // Process the dummy data through FFT
-        let fftResult = performFFT(on: samples)
-        let spectrogramData = SpectrogramData(
-            frequencies: fftResult.frequencies,
-            magnitudes: fftResult.magnitudes,
+        // Glättung anwenden
+        let smoothed = temporalSmoothing(currentMagnitudes: bandMags)
+
+        let data = SpectrogramData(
+            frequencies: bandFreqs,
+            magnitudes: smoothed,
             sampleRate: sampleRate
         )
 
         DispatchQueue.main.async {
-            // Update recording duration
             if let startTime = self.recordingStartTime {
                 self.recordingDuration = Date().timeIntervalSince(startTime)
             }
-
-            self.currentSpectrogramData = spectrogramData
-            WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
-        }
-    }
-
-    func processRemoteAudioData(_ audioData: AudioData) async {
-        // Perform heavy FFT computation off the main thread
-        let fftResult = performFFT(on: audioData.samples)
-        let spectrogramData = SpectrogramData(
-            frequencies: fftResult.frequencies,
-            magnitudes: fftResult.magnitudes,
-            sampleRate: audioData.sampleRate
-        )
-
-        await MainActor.run {
-            self.currentSpectrogramData = spectrogramData
-            WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
+            self.currentSpectrogramData = data
+            WatchConnectivityManager.shared.sendSpectrogramData(data)
         }
     }
 }

@@ -123,14 +123,6 @@ struct SpectrogramView: View {
                 updateSpectrogramFrames(data)
             }
         }
-        .onReceive(connectivityManager.$audioData) { audioData in
-            if let audioData = audioData, selectedMicrophoneSource == .appleWatch {
-                // Process on background thread to avoid blocking UI
-                Task.detached(priority: .userInitiated) {
-                    await audioEngine.processRemoteAudioData(audioData)
-                }
-            }
-        }
         .onReceive(connectivityManager.$spectrogramData) { data in
             if let data = data, selectedMicrophoneSource == .appleWatch {
                 updateSpectrogramFrames(data)
