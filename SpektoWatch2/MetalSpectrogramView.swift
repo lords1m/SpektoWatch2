@@ -38,7 +38,7 @@ struct MetalSpectrogramWithAxes: View {
 
     // Configuration for time axis
     var showTimeAxis: Bool = true  // Toggle to show/hide time axis
-    var showOnlyNow: Bool = true   // If true, only show "Now" label (right side)
+    var showOnlyNow: Bool = false  // Changed to false to show full dynamic time axis
     
     var body: some View {
         GeometryReader { geometry in
@@ -63,16 +63,18 @@ struct MetalSpectrogramWithAxes: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
-                    // X-Axis (Time) - RTL: Now is on the right
+                    // X-Axis (Time) - RTL: Now is on the right, dynamically expands with recording
                     if showTimeAxis {
                         HStack(spacing: 0) {
                             if !showOnlyNow {
-                                Text("-10s")
+                                // Left label: start of recording (negative duration)
+                                Text(formatTimeLabel(-audioEngine.recordingDuration))
                                     .font(.caption2)
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Text("-5s")
+                                // Middle label: half of recording duration
+                                Text(formatTimeLabel(-audioEngine.recordingDuration / 2.0))
                                     .font(.caption2)
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity, alignment: .center)
@@ -95,14 +97,35 @@ struct MetalSpectrogramWithAxes: View {
     private func frequencyLabel(index: Int) -> String {
         // Logarithmic frequency labels from 31.5 Hz to 16 kHz
         let frequencies: [Float] = [16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63]
-        
+
         guard index < frequencies.count else { return "" }
         let freq = frequencies[index]
-        
+
         if freq >= 1000 {
             return String(format: "%.0f kHz", freq / 1000)
         } else {
             return String(format: "%.0f Hz", freq)
+        }
+    }
+
+    private func formatTimeLabel(_ seconds: TimeInterval) -> String {
+        let absSeconds = abs(seconds)
+
+        if absSeconds < 60 {
+            // Less than 1 minute: show seconds
+            return String(format: "%.0fs", seconds)
+        } else if absSeconds < 3600 {
+            // Less than 1 hour: show minutes and seconds
+            let minutes = Int(absSeconds) / 60
+            let secs = Int(absSeconds) % 60
+            let sign = seconds < 0 ? "-" : ""
+            return String(format: "%@%d:%02d", sign, minutes, secs)
+        } else {
+            // 1 hour or more: show hours, minutes
+            let hours = Int(absSeconds) / 3600
+            let minutes = (Int(absSeconds) % 3600) / 60
+            let sign = seconds < 0 ? "-" : ""
+            return String(format: "%@%d:%02d:00", sign, hours, minutes)
         }
     }
 }

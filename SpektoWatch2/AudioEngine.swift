@@ -12,6 +12,10 @@ class AudioEngine: ObservableObject {
     private var isUsingDummyData = false
     private var gainBoost: Float = 30.0  // Higher default gain boost
 
+    // Recording time tracking
+    private var recordingStartTime: Date?
+    @Published var recordingDuration: TimeInterval = 0.0
+
     @Published var currentSpectrogramData: SpectrogramData?
 
     init() {
@@ -36,6 +40,10 @@ class AudioEngine: ObservableObject {
     }
 
     func startRecording() {
+        // Reset and start recording time
+        recordingStartTime = Date()
+        recordingDuration = 0.0
+
         #if targetEnvironment(simulator)
         // Simulator: Use dummy data
         print("Running on Simulator - using dummy audio data")
@@ -79,6 +87,9 @@ class AudioEngine: ObservableObject {
     }
 
     func stopRecording() {
+        // Stop recording time tracking
+        recordingStartTime = nil
+
         #if targetEnvironment(simulator)
         stopDummyDataGeneration()
         #else
@@ -105,6 +116,11 @@ class AudioEngine: ObservableObject {
         )
 
         DispatchQueue.main.async {
+            // Update recording duration
+            if let startTime = self.recordingStartTime {
+                self.recordingDuration = Date().timeIntervalSince(startTime)
+            }
+
             self.currentSpectrogramData = spectrogramData
             WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
         }
@@ -220,6 +236,11 @@ class AudioEngine: ObservableObject {
         )
 
         DispatchQueue.main.async {
+            // Update recording duration
+            if let startTime = self.recordingStartTime {
+                self.recordingDuration = Date().timeIntervalSince(startTime)
+            }
+
             self.currentSpectrogramData = spectrogramData
             WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
         }

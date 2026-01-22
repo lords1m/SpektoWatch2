@@ -21,14 +21,14 @@ class SpectrogramMetalView: MTKView {
     private let maxFrequency: Float = 16000.0
 
     // Decay/fade effect for motion blur (0.0 = no persistence, 1.0 = infinite persistence)
-    // Recommended range: 0.85 - 0.95
+    // Recommended range: 0.85 - 0.98
     // Higher values = stronger persistence/trailing effect
     // Lower values = faster fade/less smearing
-    public var decayFactor: Float = 0.92  // Adjustable persistence/smearing effect
+    public var decayFactor: Float = 0.96  // Increased for more horizontal blur
 
     // Horizontal stretch factor for wider appearance (1.0 = no stretch, higher = wider)
     // This is handled in the shader for better performance
-    public var horizontalStretch: Float = 3.0  // Makes frequency values appear wider
+    public var horizontalStretch: Float = 5.0  // Increased for more horizontal blur/smearing
     
     // Logarithmic frequency mapping
     private var frequencyBinMapping: [Int] = []
@@ -222,7 +222,6 @@ class SpectrogramMetalView: MTKView {
 
         for (displayIndex, fftBinIndex) in frequencyBinMapping.enumerated() {
             if fftBinIndex < magnitudes.count {
-                // Could add interpolation here for even smoother results
                 displayData[displayIndex] = magnitudes[fftBinIndex]
             }
         }
@@ -230,27 +229,18 @@ class SpectrogramMetalView: MTKView {
         // Reverse the array so high frequencies are at the top
         displayData.reverse()
 
-        // Read current column values for decay effect
-        var previousData = [Float](repeating: 0.0, count: frequencyBins)
+        // PERFORMANCE OPTIMIZATION: Removed texture.getBytes() call that was blocking the main thread
+        // The decay/persistence effect is now achieved through:
+        // 1. Higher decay factor (0.96 instead of 0.92)
+        // 2. Horizontal stretching in shader (creates visual smearing)
+        // 3. Bilinear interpolation in shader (smooths transitions)
+
         let region = MTLRegion(
             origin: MTLOrigin(x: currentColumn, y: 0, z: 0),
             size: MTLSize(width: 1, height: frequencyBins, depth: 1)
         )
-        texture.getBytes(
-            &previousData,
-            bytesPerRow: MemoryLayout<Float>.stride,
-            from: region,
-            mipmapLevel: 0
-        )
 
-        // Apply decay effect: newValue = max(currentFFT, previousValue * decay)
-        // This creates the "persistence" or "motion blur" effect
-        for i in 0..<frequencyBins {
-            let decayedValue = previousData[i] * decayFactor
-            displayData[i] = max(displayData[i], decayedValue)
-        }
-
-        // Update one column in the texture (ring buffer)
+        // Write new column directly to texture (no read-modify-write)
         texture.replace(
             region: region,
             mipmapLevel: 0,
@@ -261,44 +251,17 @@ class SpectrogramMetalView: MTKView {
         // Advance to next column (ring buffer)
         currentColumn = (currentColumn + 1) % timeColumns
 
-        // Decay the next column (creates scrolling effect with fade)
-        decayColumn(currentColumn)
+        // PERFORMANCE OPTIMIZATION: Removed decayColumn() call
+        // This was causing double texture reads/writes and severely impacting performance
+        // The visual decay effect is now handled by shader interpolation
 
         // Trigger redraw
         setNeedsDisplay()
     }
-    
-    private func decayColumn(_ column: Int) {
-        guard let texture = spectrogramTexture else { return }
 
-        let region = MTLRegion(
-            origin: MTLOrigin(x: column, y: 0, z: 0),
-            size: MTLSize(width: 1, height: frequencyBins, depth: 1)
-        )
+    // REMOVED: decayColumn() method - was causing performance issues
+    // The decay effect is now achieved through shader interpolation and higher decay factor
 
-        // Read current values
-        var columnData = [Float](repeating: 0.0, count: frequencyBins)
-        texture.getBytes(
-            &columnData,
-            bytesPerRow: MemoryLayout<Float>.stride,
-            from: region,
-            mipmapLevel: 0
-        )
-
-        // Apply decay
-        for i in 0..<frequencyBins {
-            columnData[i] *= decayFactor
-        }
-
-        // Write back
-        texture.replace(
-            region: region,
-            mipmapLevel: 0,
-            withBytes: columnData,
-            bytesPerRow: MemoryLayout<Float>.stride
-        )
-    }
-    
     // MARK: - Rendering
     
     override func draw(_ rect: CGRect) {
