@@ -6,14 +6,53 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		379523752F22353E0079C93F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 379523532F2234F90079C93F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3795236C2F22353C0079C93F;
+			remoteInfo = "SpektoWatch Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		3795237B2F22353E0079C93F /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		3795235B2F2234F90079C93F /* SpektoWatch2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpektoWatch2.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SpektoWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3795235D2F2234F90079C93F /* SpektoWatch2 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SpektoWatch2;
+			sourceTree = "<group>";
+		};
+		3795236E2F22353C0079C93F /* SpektoWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "SpektoWatch Watch App";
+			sourceTree = "<group>";
+		};
+		379523902F22373C0079C93F /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +65,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		3795236A2F22353C0079C93F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		379523522F2234F90079C93F = {
 			isa = PBXGroup;
 			children = (
+				379523902F22373C0079C93F /* Shared */,
 				3795235D2F2234F90079C93F /* SpektoWatch2 */,
+				3795236E2F22353C0079C93F /* SpektoWatch Watch App */,
 				3795235C2F2234F90079C93F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				3795235B2F2234F90079C93F /* SpektoWatch2.app */,
+				3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,19 +104,45 @@
 				379523572F2234F90079C93F /* Sources */,
 				379523582F2234F90079C93F /* Frameworks */,
 				379523592F2234F90079C93F /* Resources */,
+				3795237B2F22353E0079C93F /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				379523762F22353E0079C93F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				3795235D2F2234F90079C93F /* SpektoWatch2 */,
+				379523902F22373C0079C93F /* Shared */,
 			);
 			name = SpektoWatch2;
 			packageProductDependencies = (
 			);
 			productName = SpektoWatch2;
 			productReference = 3795235B2F2234F90079C93F /* SpektoWatch2.app */;
+			productType = "com.apple.product-type.application";
+		};
+		3795236C2F22353C0079C93F /* SpektoWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 379523782F22353E0079C93F /* Build configuration list for PBXNativeTarget "SpektoWatch Watch App" */;
+			buildPhases = (
+				379523692F22353C0079C93F /* Sources */,
+				3795236A2F22353C0079C93F /* Frameworks */,
+				3795236B2F22353C0079C93F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3795236E2F22353C0079C93F /* SpektoWatch Watch App */,
+				379523902F22373C0079C93F /* Shared */,
+			);
+			name = "SpektoWatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "SpektoWatch Watch App";
+			productReference = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -81,6 +156,9 @@
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					3795235A2F2234F90079C93F = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					3795236C2F22353C0079C93F = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -100,12 +178,20 @@
 			projectRoot = "";
 			targets = (
 				3795235A2F2234F90079C93F /* SpektoWatch2 */,
+				3795236C2F22353C0079C93F /* SpektoWatch Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		379523592F2234F90079C93F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3795236B2F22353C0079C93F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +208,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		379523692F22353C0079C93F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		379523762F22353E0079C93F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3795236C2F22353C0079C93F /* SpektoWatch Watch App */;
+			targetProxy = 379523752F22353E0079C93F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		379523642F2234FB0079C93F /* Debug */ = {
@@ -254,6 +355,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -298,6 +400,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -329,6 +432,73 @@
 			};
 			name = Release;
 		};
+		379523792F22353E0079C93F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8B6UH762R2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = BrandtAcoustics.SpektoWatch2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BrandtAcoustics.SpektoWatch2.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		3795237A2F22353E0079C93F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8B6UH762R2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = BrandtAcoustics.SpektoWatch2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BrandtAcoustics.SpektoWatch2.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -346,6 +516,15 @@
 			buildConfigurations = (
 				379523672F2234FB0079C93F /* Debug */,
 				379523682F2234FB0079C93F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		379523782F22353E0079C93F /* Build configuration list for PBXNativeTarget "SpektoWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				379523792F22353E0079C93F /* Debug */,
+				3795237A2F22353E0079C93F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
