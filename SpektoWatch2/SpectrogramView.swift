@@ -262,14 +262,17 @@ struct SpectrogramCanvasWithAxes: View {
     }
 
     private func timeLabel(isStart: Bool) -> String {
-        guard !frames.isEmpty else { return "0s" }
+        guard !frames.isEmpty else { return "Now" }
 
+        // RTL: Now is on the right, old data on the left
         if isStart {
+            // Left side: oldest data
             let oldestFrame = frames.first!
             let elapsed = Date().timeIntervalSince(oldestFrame.timestamp)
-            return String(format: "-%.1fs", elapsed)
+            return String(format: "-%.0fs", elapsed)
         } else {
-            return "0s"
+            // Right side: current time
+            return "Now"
         }
     }
 }

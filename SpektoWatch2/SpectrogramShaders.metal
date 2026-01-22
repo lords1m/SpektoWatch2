@@ -103,22 +103,39 @@ fragment float4 spectrogramFragmentShader(
 }
 
 // Alternative: Direct sampling with Metal's built-in linear filtering
+// RTL (Right-to-Left) version with horizontal stretching
 fragment float4 spectrogramFragmentShaderSimple(
     VertexOut in [[stage_in]],
-    texture2d<float> spectrogramTexture [[texture(0)]]
+    texture2d<float> spectrogramTexture [[texture(0)]],
+    constant float& stretchFactor [[buffer(0)]]
 ) {
     constexpr sampler textureSampler(
         mag_filter::linear,
         min_filter::linear,
         address::clamp_to_edge
     );
-    
-    // Sample texture with built-in bilinear filtering
-    float value = spectrogramTexture.sample(textureSampler, in.texCoord).r;
-    
+
+    // Reverse X direction (RTL: newest data on the right, old data on left)
+    float2 rtlTexCoord = float2(1.0 - in.texCoord.x, in.texCoord.y);
+
+    // Horizontal stretching factor (makes each column wider)
+    // Sample multiple neighboring pixels and average them
+    float pixelWidth = 1.0 / float(spectrogramTexture.get_width());
+
+    float value = 0.0;
+    int sampleCount = max(1, int(stretchFactor));
+
+    // Sample horizontally with offset to create wider appearance
+    for (int i = 0; i < sampleCount; i++) {
+        float offset = (float(i) - float(sampleCount) / 2.0) * pixelWidth * 0.5;
+        float2 sampleCoord = rtlTexCoord + float2(offset, 0.0);
+        value += spectrogramTexture.sample(textureSampler, sampleCoord).r;
+    }
+    value /= float(sampleCount);
+
     // Apply colormap
     float3 color = spectrogramColormap(value);
-    
+
     return float4(color, 1.0);
 }
 

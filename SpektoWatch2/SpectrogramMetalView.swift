@@ -8,6 +8,7 @@ class SpectrogramMetalView: MTKView {
     private var pipelineState: MTLRenderPipelineState!
     private var vertexBuffer: MTLBuffer!
     private var textureSizeBuffer: MTLBuffer!
+    private var stretchFactorBuffer: MTLBuffer!
     
     // Spectrogram texture (ring buffer for time axis)
     private var spectrogramTexture: MTLTexture!
@@ -18,6 +19,16 @@ class SpectrogramMetalView: MTKView {
     private let timeColumns: Int = 600    // ~10 seconds at 60 FPS
     private let minFrequency: Float = 31.5
     private let maxFrequency: Float = 16000.0
+
+    // Decay/fade effect for motion blur (0.0 = no persistence, 1.0 = infinite persistence)
+    // Recommended range: 0.85 - 0.95
+    // Higher values = stronger persistence/trailing effect
+    // Lower values = faster fade/less smearing
+    public var decayFactor: Float = 0.92  // Adjustable persistence/smearing effect
+
+    // Horizontal stretch factor for wider appearance (1.0 = no stretch, higher = wider)
+    // This is handled in the shader for better performance
+    public var horizontalStretch: Float = 3.0  // Makes frequency values appear wider
     
     // Logarithmic frequency mapping
     private var frequencyBinMapping: [Int] = []
@@ -130,6 +141,14 @@ class SpectrogramMetalView: MTKView {
             length: MemoryLayout<SIMD2<Float>>.stride,
             options: .storageModeShared
         )
+
+        // Stretch factor buffer
+        var stretch = horizontalStretch
+        stretchFactorBuffer = device.makeBuffer(
+            bytes: &stretch,
+            length: MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
     }
     
     private func setupSpectrogramTexture() {
@@ -197,57 +216,85 @@ class SpectrogramMetalView: MTKView {
     /// - Parameter magnitudes: Array of magnitude values from FFT (normalized 0-1)
     func updateWithFFTData(_ magnitudes: [Float]) {
         guard let texture = spectrogramTexture else { return }
-        
+
         // Apply logarithmic frequency mapping
         var displayData = [Float](repeating: 0.0, count: frequencyBins)
-        
+
         for (displayIndex, fftBinIndex) in frequencyBinMapping.enumerated() {
             if fftBinIndex < magnitudes.count {
                 // Could add interpolation here for even smoother results
                 displayData[displayIndex] = magnitudes[fftBinIndex]
             }
         }
-        
+
         // Reverse the array so high frequencies are at the top
         displayData.reverse()
-        
-        // Update one column in the texture (ring buffer)
+
+        // Read current column values for decay effect
+        var previousData = [Float](repeating: 0.0, count: frequencyBins)
         let region = MTLRegion(
             origin: MTLOrigin(x: currentColumn, y: 0, z: 0),
             size: MTLSize(width: 1, height: frequencyBins, depth: 1)
         )
-        
+        texture.getBytes(
+            &previousData,
+            bytesPerRow: MemoryLayout<Float>.stride,
+            from: region,
+            mipmapLevel: 0
+        )
+
+        // Apply decay effect: newValue = max(currentFFT, previousValue * decay)
+        // This creates the "persistence" or "motion blur" effect
+        for i in 0..<frequencyBins {
+            let decayedValue = previousData[i] * decayFactor
+            displayData[i] = max(displayData[i], decayedValue)
+        }
+
+        // Update one column in the texture (ring buffer)
         texture.replace(
             region: region,
             mipmapLevel: 0,
             withBytes: displayData,
             bytesPerRow: MemoryLayout<Float>.stride
         )
-        
+
         // Advance to next column (ring buffer)
         currentColumn = (currentColumn + 1) % timeColumns
-        
-        // Clear the next column (creates scrolling effect)
-        clearColumn(currentColumn)
-        
+
+        // Decay the next column (creates scrolling effect with fade)
+        decayColumn(currentColumn)
+
         // Trigger redraw
         setNeedsDisplay()
     }
     
-    private func clearColumn(_ column: Int) {
+    private func decayColumn(_ column: Int) {
         guard let texture = spectrogramTexture else { return }
-        
-        var clearData = [Float](repeating: 0.0, count: frequencyBins)
-        
+
         let region = MTLRegion(
             origin: MTLOrigin(x: column, y: 0, z: 0),
             size: MTLSize(width: 1, height: frequencyBins, depth: 1)
         )
-        
+
+        // Read current values
+        var columnData = [Float](repeating: 0.0, count: frequencyBins)
+        texture.getBytes(
+            &columnData,
+            bytesPerRow: MemoryLayout<Float>.stride,
+            from: region,
+            mipmapLevel: 0
+        )
+
+        // Apply decay
+        for i in 0..<frequencyBins {
+            columnData[i] *= decayFactor
+        }
+
+        // Write back
         texture.replace(
             region: region,
             mipmapLevel: 0,
-            withBytes: &clearData,
+            withBytes: columnData,
             bytesPerRow: MemoryLayout<Float>.stride
         )
     }
@@ -262,15 +309,15 @@ class SpectrogramMetalView: MTKView {
         else { return }
         
         renderEncoder.setRenderPipelineState(pipelineState)
-        
+
         // Set vertex buffer
         renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        
+
         // Set texture
         renderEncoder.setFragmentTexture(spectrogramTexture, index: 0)
-        
-        // Set texture size buffer (if using custom interpolation shader)
-        // renderEncoder.setFragmentBuffer(textureSizeBuffer, offset: 0, index: 0)
+
+        // Set stretch factor buffer
+        renderEncoder.setFragmentBuffer(stretchFactorBuffer, offset: 0, index: 0)
         
         // Draw full-screen quad (triangle strip)
         renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
@@ -281,7 +328,29 @@ class SpectrogramMetalView: MTKView {
     }
     
     // MARK: - Utility
-    
+
+    /// Update the horizontal stretch factor
+    /// - Parameter factor: Stretch factor (1.0 = no stretch, higher = wider)
+    func updateStretchFactor(_ factor: Float) {
+        self.horizontalStretch = max(1.0, factor)
+
+        guard let device = device else { return }
+
+        // Update buffer
+        var stretch = horizontalStretch
+        stretchFactorBuffer = device.makeBuffer(
+            bytes: &stretch,
+            length: MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+    }
+
+    /// Update the decay/persistence factor
+    /// - Parameter factor: Decay factor (0.0 = no persistence, 1.0 = infinite)
+    func updateDecayFactor(_ factor: Float) {
+        self.decayFactor = max(0.0, min(1.0, factor))
+    }
+
     /// Get frequency for a given Y position (for axis labels)
     func frequencyForYPosition(_ normalizedY: Float) -> Float {
         let logMin = log2(minFrequency)

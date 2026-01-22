@@ -32,9 +32,13 @@ struct MetalSpectrogramView: UIViewRepresentable {
 struct MetalSpectrogramWithAxes: View {
     @ObservedObject var audioEngine: AudioEngine
     @State private var metalView: SpectrogramMetalView?
-    
+
     let axisWidth: CGFloat = 60
     let axisHeight: CGFloat = 30
+
+    // Configuration for time axis
+    var showTimeAxis: Bool = true  // Toggle to show/hide time axis
+    var showOnlyNow: Bool = true   // If true, only show "Now" label (right side)
     
     var body: some View {
         GeometryReader { geometry in
@@ -59,24 +63,30 @@ struct MetalSpectrogramWithAxes: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
-                    // X-Axis (Time)
-                    HStack(spacing: 0) {
-                        Text("10s")
-                            .font(.caption2)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        Text("5s")
-                            .font(.caption2)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        
-                        Text("Now")
-                            .font(.caption2)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    // X-Axis (Time) - RTL: Now is on the right
+                    if showTimeAxis {
+                        HStack(spacing: 0) {
+                            if !showOnlyNow {
+                                Text("-10s")
+                                    .font(.caption2)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Text("-5s")
+                                    .font(.caption2)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+
+                            Spacer()
+
+                            Text("Now")
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                                .padding(.trailing, 4)
+                        }
+                        .frame(height: axisHeight)
                     }
-                    .frame(height: axisHeight)
                 }
             }
         }
