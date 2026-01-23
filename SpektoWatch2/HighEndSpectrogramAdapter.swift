@@ -147,7 +147,9 @@ class HighEndSpectrogramAdapter: MTKView {
         guard let texture = spectrogramTexture else { return }
 
         let bytesPerRow = texture.width * MemoryLayout<Float>.stride
-        var data = [Float](repeating: 0.0, count: texture.width * texture.height)
+        // CRITICAL FIX: Initialize with very small values (1e-10) instead of 0.0
+        // This prevents the orange background on startup
+        var data = [Float](repeating: 1e-10, count: texture.width * texture.height)
 
         let region = MTLRegion(
             origin: MTLOrigin(x: 0, y: 0, z: 0),
@@ -193,15 +195,25 @@ class HighEndSpectrogramAdapter: MTKView {
 
     /// Accept pre-computed FFT magnitudes from AudioEngine
     /// This is called by the SwiftUI wrapper when new spectrogram data arrives
-    func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
+    /// NOTE: AudioEngine provides magnitudes in dB scale, we need to convert to linear
+    func updateWithFFTMagnitudes(_ magnitudesInDB: [Float]) {
         guard let texture = spectrogramTexture else { return }
+
+        // CRITICAL FIX: Convert dB values back to linear magnitudes
+        // AudioEngine outputs: 20 * log10(magnitude)
+        // We need to reverse this: magnitude = 10^(dB/20)
+        var linearMagnitudes = [Float](repeating: 0.0, count: magnitudesInDB.count)
+        for i in 0..<magnitudesInDB.count {
+            // Convert dB to linear: magnitude = 10^(dB/20)
+            linearMagnitudes[i] = pow(10.0, magnitudesInDB[i] / 20.0)
+        }
 
         // Resample FFT data to texture resolution
         var columnData = [Float](repeating: 0.0, count: frequencyBins)
 
         for i in 0..<frequencyBins {
-            let fftIndex = Int(Float(i) / Float(frequencyBins) * Float(magnitudes.count))
-            columnData[i] = magnitudes[min(fftIndex, magnitudes.count - 1)]
+            let fftIndex = Int(Float(i) / Float(frequencyBins) * Float(linearMagnitudes.count))
+            columnData[i] = linearMagnitudes[min(fftIndex, linearMagnitudes.count - 1)]
         }
 
         // Reverse for proper orientation (high freq at top)
