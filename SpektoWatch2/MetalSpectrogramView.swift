@@ -32,6 +32,7 @@ struct MetalSpectrogramView: UIViewRepresentable {
 struct MetalSpectrogramWithAxes: View {
     @ObservedObject var audioEngine: AudioEngine
     @State private var metalView: SpectrogramMetalView?
+    @State private var previousRecordingDuration: TimeInterval = 0
 
     let axisWidth: CGFloat = 60
     let axisHeight: CGFloat = 30
@@ -65,35 +66,46 @@ struct MetalSpectrogramWithAxes: View {
                     
                     // X-Axis (Time) - RTL: Now is on the right, dynamically expands with recording
                     if showTimeAxis {
-                        HStack(spacing: 0) {
-                            if !showOnlyNow {
-                                // Left label: start of recording (negative duration)
-                                Text(formatTimeLabel(-audioEngine.recordingDuration))
-                                    .font(.caption2)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                        GeometryReader { geo in
+                            Canvas { context, size in
+                                let duration = audioEngine.recordingDuration
+                                guard duration > 0 else { return }
 
-                                // Middle label: half of recording duration
-                                Text(formatTimeLabel(-audioEngine.recordingDuration / 2.0))
-                                    .font(.caption2)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity, alignment: .center)
+                                // Cap display duration at 60 seconds for axis labels
+                                let displayDuration = min(duration, 60.0)
+
+                                // Calculate appropriate time intervals for labels
+                                let (interval, labelCount) = calculateTimeInterval(duration: displayDuration, width: size.width)
+
+                                // Draw time labels
+                                for i in 0...labelCount {
+                                    let timeValue = -displayDuration + Double(i) * interval
+                                    let xPos = (Double(i) / Double(labelCount)) * size.width
+
+                                    let label = i == labelCount ? "Now" : formatTimeLabel(timeValue)
+
+                                    // Draw label
+                                    context.draw(Text(label)
+                                        .font(.caption2)
+                                        .foregroundColor(.white),
+                                        at: CGPoint(x: xPos, y: size.height / 2))
+                                }
                             }
-
-                            Spacer()
-
-                            Text("Now")
-                                .font(.caption2)
-                                .foregroundColor(.white)
-                                .padding(.trailing, 4)
                         }
                         .frame(height: axisHeight)
                     }
                 }
             }
         }
+        .onChange(of: audioEngine.recordingDuration) { newDuration in
+            // Reset the metal view when recording restarts (duration goes to 0)
+            if newDuration < previousRecordingDuration && newDuration < 1.0 {
+                metalView?.resetRecording()
+            }
+            previousRecordingDuration = newDuration
+        }
     }
-    
+
     private func frequencyLabel(index: Int) -> String {
         // Logarithmic frequency labels from 31.5 Hz to 16 kHz
         let frequencies: [Float] = [16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63]
@@ -127,6 +139,33 @@ struct MetalSpectrogramWithAxes: View {
             let sign = seconds < 0 ? "-" : ""
             return String(format: "%@%d:%02d:00", sign, hours, minutes)
         }
+    }
+
+    private func calculateTimeInterval(duration: TimeInterval, width: CGFloat) -> (interval: TimeInterval, labelCount: Int) {
+        // Determine appropriate time interval and label count based on duration
+        // Goal: 3-5 labels across the width
+
+        let targetLabels = 4
+        let rawInterval = duration / Double(targetLabels)
+
+        // Round to nice intervals
+        let niceIntervals: [TimeInterval] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]
+
+        var bestInterval: TimeInterval = 1
+        for interval in niceIntervals {
+            if rawInterval <= interval {
+                bestInterval = interval
+                break
+            }
+        }
+
+        // If duration is too large, use the largest interval
+        if rawInterval > niceIntervals.last! {
+            bestInterval = niceIntervals.last!
+        }
+
+        let count = Int(ceil(duration / bestInterval))
+        return (bestInterval, max(count, 2))
     }
 }
 

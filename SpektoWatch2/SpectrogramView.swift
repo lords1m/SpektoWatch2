@@ -7,7 +7,7 @@ struct SpectrogramView: View {
     @State private var isRecording = false
     @State private var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @State private var lastUpdateTime: Date = .distantPast
-    @State private var gainBoost: Double = 30.0  // Higher default gain
+    @State private var gainBoost: Double = 5.0  // Default gain for 1-10x range
     @State private var useMetalRenderer = true  // Toggle between Metal and Canvas
 
     let maxFrames = 600  // Many frames for smooth flow
@@ -56,18 +56,18 @@ struct SpectrogramView: View {
                     Text("Verstärkung: \(Int(gainBoost))x")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    
+
                     HStack {
-                        Text("5x")
+                        Text("1x")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                        
-                        Slider(value: $gainBoost, in: 5...100, step: 5)
+
+                        Slider(value: $gainBoost, in: 1...10, step: 1)
                             .onChange(of: gainBoost) { newGain in
                                 audioEngine.setGainBoost(Float(newGain))
                             }
-                        
-                        Text("100x")
+
+                        Text("10x")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -83,8 +83,9 @@ struct SpectrogramView: View {
                         .foregroundColor(.gray)
                 } else {
                     if useMetalRenderer {
-                        // Use Metal renderer for smooth, GPU-accelerated rendering
-                        MetalSpectrogramWithAxes(audioEngine: audioEngine)
+                        // Use OPTIMIZED Metal renderer with bugfixes
+                        // (Bilinear interpolation, noise gate, gamma correction, log compression)
+                        HighEndSpectrogramAdapterWithAxes(audioEngine: audioEngine)
                     } else {
                         // Use Canvas renderer (original implementation)
                         SpectrogramCanvasWithAxes(frames: spectrogramFrames, maxFrames: maxFrames)

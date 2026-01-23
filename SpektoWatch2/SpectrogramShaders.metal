@@ -104,10 +104,12 @@ fragment float4 spectrogramFragmentShader(
 
 // Alternative: Direct sampling with Metal's built-in linear filtering
 // RTL (Right-to-Left) version with horizontal stretching
+// Supports dynamic scaling (first 60s) and scrolling (after 60s)
 fragment float4 spectrogramFragmentShaderSimple(
     VertexOut in [[stage_in]],
     texture2d<float> spectrogramTexture [[texture(0)]],
-    constant float& stretchFactor [[buffer(0)]]
+    constant float& stretchFactor [[buffer(0)]],
+    constant float4& displayParams [[buffer(1)]]  // (fillRatio, currentColumn, isScrolling, padding)
 ) {
     constexpr sampler textureSampler(
         mag_filter::linear,
@@ -115,20 +117,47 @@ fragment float4 spectrogramFragmentShaderSimple(
         address::clamp_to_edge
     );
 
-    // Reverse X direction (RTL: newest data on the right, old data on left)
-    float2 rtlTexCoord = float2(1.0 - in.texCoord.x, in.texCoord.y);
+    float fillRatio = displayParams.x;
+    float currentColumn = displayParams.y;
+    bool isScrolling = displayParams.z > 0.5;
 
-    // Horizontal stretching factor (makes each column wider)
-    // Sample multiple neighboring pixels and average them
-    float pixelWidth = 1.0 / float(spectrogramTexture.get_width());
+    float textureWidth = float(spectrogramTexture.get_width());
+    float pixelWidth = 1.0 / textureWidth;
 
+    // Calculate texture coordinate based on mode
+    float texX;
+
+    if (isScrolling) {
+        // SCROLLING MODE (after 60s): Ring buffer, newest on right
+        // Map screen X (0 to 1) to texture coordinates with ring buffer wrap
+        float normalizedCurrentCol = currentColumn / textureWidth;
+
+        // RTL: x=0 (left/old) should map to (currentColumn + 1), x=1 (right/now) should map to currentColumn
+        texX = fmod(normalizedCurrentCol + (1.0 - in.texCoord.x), 1.0);
+    } else {
+        // DYNAMIC SCALING MODE (first 60s): Stretch written data across full width
+        // Only use the filled portion of the texture
+        // RTL: x=0 (left/old) maps to texture x=0, x=1 (right/now) maps to fillRatio
+        texX = (1.0 - in.texCoord.x) * fillRatio;
+    }
+
+    float2 baseTexCoord = float2(texX, in.texCoord.y);
+
+    // Horizontal stretching for blur effect
     float value = 0.0;
     int sampleCount = max(1, int(stretchFactor));
 
-    // Sample horizontally with offset to create wider appearance
     for (int i = 0; i < sampleCount; i++) {
         float offset = (float(i) - float(sampleCount) / 2.0) * pixelWidth * 0.5;
-        float2 sampleCoord = rtlTexCoord + float2(offset, 0.0);
+        float2 sampleCoord = baseTexCoord + float2(offset, 0.0);
+
+        // Handle wrapping for scrolling mode
+        if (isScrolling) {
+            sampleCoord.x = fmod(sampleCoord.x + 1.0, 1.0);
+        } else {
+            sampleCoord.x = clamp(sampleCoord.x, 0.0, fillRatio);
+        }
+
         value += spectrogramTexture.sample(textureSampler, sampleCoord).r;
     }
     value /= float(sampleCount);

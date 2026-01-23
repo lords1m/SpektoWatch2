@@ -25,10 +25,10 @@ class AudioEngine: ObservableObject {
     /// 1 = kein Binning (volle FFT-Auflösung)
     /// 4 = alle 4 Bins werden gemittelt (breitere Balken)
     /// 16 = alle 16 Bins werden gemittelt (noch breiter)
-    private let binningFactor: Int = 4
+    private let binningFactor: Int = 2
 
     /// 0 = keine Glättung, 0.7..0.9 = recht stark verwischt
-    private let temporalSmoothingFactor: Float = 0.7
+    private let temporalSmoothingFactor: Float = 0.6
 
     /// Zwischenspeicher für zeitliche Glättung
     private var previousBandMagnitudes: [Float] = []

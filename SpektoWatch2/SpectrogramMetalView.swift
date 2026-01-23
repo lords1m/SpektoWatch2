@@ -9,26 +9,30 @@ class SpectrogramMetalView: MTKView {
     private var vertexBuffer: MTLBuffer!
     private var textureSizeBuffer: MTLBuffer!
     private var stretchFactorBuffer: MTLBuffer!
+    private var displayParamsBuffer: MTLBuffer!
     
     // Spectrogram texture (ring buffer for time axis)
     private var spectrogramTexture: MTLTexture!
     private var currentColumn: Int = 0
-    
+    private var totalColumnsWritten: Int = 0  // Track total columns for dynamic scaling
+
     // Configuration
-    private let frequencyBins: Int = 512  // Display bins (after log scaling)
-    private let timeColumns: Int = 600    // ~10 seconds at 60 FPS
+    private let frequencyBins: Int = 256  // Display bins (after log scaling) - reduced for coarser resolution
+    private let timeColumns: Int = 600    // Fixed buffer size (60 seconds at ~10 updates/sec)
     private let minFrequency: Float = 31.5
     private let maxFrequency: Float = 16000.0
+    private var recordingStartTime: Date?
+    private let maxDisplayTime: TimeInterval = 60.0  // After 60s, switch to scrolling mode
 
     // Decay/fade effect for motion blur (0.0 = no persistence, 1.0 = infinite persistence)
     // Recommended range: 0.85 - 0.98
     // Higher values = stronger persistence/trailing effect
     // Lower values = faster fade/less smearing
-    public var decayFactor: Float = 0.96  // Increased for more horizontal blur
+    public var decayFactor: Float = 0.98  // Increased for stronger horizontal blur
 
     // Horizontal stretch factor for wider appearance (1.0 = no stretch, higher = wider)
     // This is handled in the shader for better performance
-    public var horizontalStretch: Float = 5.0  // Increased for more horizontal blur/smearing
+    public var horizontalStretch: Float = 10.0  // Increased for more horizontal blur/smearing
     
     // Logarithmic frequency mapping
     private var frequencyBinMapping: [Int] = []
@@ -149,6 +153,14 @@ class SpectrogramMetalView: MTKView {
             length: MemoryLayout<Float>.stride,
             options: .storageModeShared
         )
+
+        // Display params buffer (fillRatio, currentColumn, isScrolling, padding)
+        var displayParams = SIMD4<Float>(0.0, 0.0, 0.0, 0.0)
+        displayParamsBuffer = device.makeBuffer(
+            bytes: &displayParams,
+            length: MemoryLayout<SIMD4<Float>>.stride,
+            options: .storageModeShared
+        )
     }
     
     private func setupSpectrogramTexture() {
@@ -217,6 +229,12 @@ class SpectrogramMetalView: MTKView {
     func updateWithFFTData(_ magnitudes: [Float]) {
         guard let texture = spectrogramTexture else { return }
 
+        // Start recording timer if not started
+        if recordingStartTime == nil {
+            recordingStartTime = Date()
+            totalColumnsWritten = 0
+        }
+
         // Apply logarithmic frequency mapping
         var displayData = [Float](repeating: 0.0, count: frequencyBins)
 
@@ -231,7 +249,7 @@ class SpectrogramMetalView: MTKView {
 
         // PERFORMANCE OPTIMIZATION: Removed texture.getBytes() call that was blocking the main thread
         // The decay/persistence effect is now achieved through:
-        // 1. Higher decay factor (0.96 instead of 0.92)
+        // 1. Higher decay factor (0.98 instead of 0.92)
         // 2. Horizontal stretching in shader (creates visual smearing)
         // 3. Bilinear interpolation in shader (smooths transitions)
 
@@ -248,8 +266,18 @@ class SpectrogramMetalView: MTKView {
             bytesPerRow: MemoryLayout<Float>.stride
         )
 
-        // Advance to next column (ring buffer)
-        currentColumn = (currentColumn + 1) % timeColumns
+        // Increment total columns written
+        totalColumnsWritten += 1
+
+        // Advance to next column
+        // Before 60s: fill buffer sequentially, after 60s: use ring buffer
+        if totalColumnsWritten < timeColumns {
+            // Dynamic scaling phase: just advance
+            currentColumn = totalColumnsWritten % timeColumns
+        } else {
+            // Scrolling phase: ring buffer with faster scrolling
+            currentColumn = (currentColumn + 2) % timeColumns
+        }
 
         // PERFORMANCE OPTIMIZATION: Removed decayColumn() call
         // This was causing double texture reads/writes and severely impacting performance
@@ -257,6 +285,21 @@ class SpectrogramMetalView: MTKView {
 
         // Trigger redraw
         setNeedsDisplay()
+    }
+
+    /// Reset recording state
+    func resetRecording() {
+        recordingStartTime = nil
+        currentColumn = 0
+        totalColumnsWritten = 0
+        clearTexture()
+    }
+
+    /// Get the current display mode and parameters for shader
+    func getDisplayInfo() -> (isScrolling: Bool, fillRatio: Float, currentColumn: Int) {
+        let isScrolling = totalColumnsWritten >= timeColumns
+        let fillRatio = isScrolling ? 1.0 : Float(totalColumnsWritten) / Float(timeColumns)
+        return (isScrolling, fillRatio, currentColumn)
     }
 
     // REMOVED: decayColumn() method - was causing performance issues
@@ -270,7 +313,7 @@ class SpectrogramMetalView: MTKView {
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
         else { return }
-        
+
         renderEncoder.setRenderPipelineState(pipelineState)
 
         // Set vertex buffer
@@ -279,12 +322,29 @@ class SpectrogramMetalView: MTKView {
         // Set texture
         renderEncoder.setFragmentTexture(spectrogramTexture, index: 0)
 
-        // Set stretch factor buffer
+        // Update display params
+        let (isScrolling, fillRatio, currentCol) = getDisplayInfo()
+        var displayParams = SIMD4<Float>(
+            fillRatio,
+            Float(currentCol),
+            isScrolling ? 1.0 : 0.0,
+            0.0  // padding
+        )
+
+        guard let device = device else { return }
+        displayParamsBuffer = device.makeBuffer(
+            bytes: &displayParams,
+            length: MemoryLayout<SIMD4<Float>>.stride,
+            options: .storageModeShared
+        )
+
+        // Set buffers
         renderEncoder.setFragmentBuffer(stretchFactorBuffer, offset: 0, index: 0)
-        
+        renderEncoder.setFragmentBuffer(displayParamsBuffer, offset: 0, index: 1)
+
         // Draw full-screen quad (triangle strip)
         renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
-        
+
         renderEncoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
