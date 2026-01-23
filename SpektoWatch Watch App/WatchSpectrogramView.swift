@@ -177,9 +177,9 @@ struct WatchSpectrogramCanvas: View {
     }
 
     private func spectrogramColor(for normalizedMagnitude: Float) -> Color {
-        // Farbschema ähnlich der Referenz-App (Blau-Grün-Gelb-Rot)
-        let value = Double(normalizedMagnitude)
-
+        // Logarithmische Skalierung für besseren Dynamikbereich
+        let value = Double(log10(max(normalizedMagnitude, 0.001) + 1) / log10(2))
+        
         if value < 0.1 {
             // Dunkelblau für niedrige Werte
             return Color(red: 0, green: 0, blue: value * 5)
