@@ -22,6 +22,9 @@ vertex VertexOut spectrogramVertexShader(VertexIn in [[stage_in]]) {
 
 // Smooth colormap: Black → Blue → Cyan → Green → Yellow → Red
 float3 spectrogramColormap(float value) {
+    // Logarithmic scaling for better dynamic range
+    value = log10(max(value, 0.001) + 1.0) / log10(2.0);
+    
     // Clamp value to [0, 1]
     value = clamp(value, 0.0, 1.0);
     
