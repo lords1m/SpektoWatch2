@@ -116,23 +116,21 @@ struct WatchSpectrogramCanvas: View {
             Canvas { context, size in
                 // Mehr Frames für flüssigere Darstellung
                 let frameWidth = max(1.0, size.width / CGFloat(frames.count))
-                let maxMagnitude = frames.flatMap { $0.magnitudes }.max() ?? 1.0
 
                 // Höhere vertikale Auflösung
                 let targetBins = 120
 
                 for (frameIndex, frame) in frames.enumerated() {
                     let x = CGFloat(frameIndex) * frameWidth
-
                     let sampledMagnitudes = sampleMagnitudesSmooth(frame.magnitudes, targetCount: targetBins)
 
                     for (binIndex, magnitude) in sampledMagnitudes.enumerated() {
-                        let normalizedMagnitude = magnitude / maxMagnitude
+                        // Nutze die Magnitude direkt für die Farbberechnung
                         let binHeight = size.height / CGFloat(sampledMagnitudes.count)
                         let y = size.height - (CGFloat(binIndex + 1) * binHeight)
 
                         // Verbesserte Farbpalette für besseren Kontrast
-                        let color = spectrogramColor(for: normalizedMagnitude)
+                        let color = spectrogramColor(for: magnitude)
 
                         // Wichtig: ceil() auf width/height für lückenlose Darstellung
                         let rect = CGRect(
@@ -176,28 +174,36 @@ struct WatchSpectrogramCanvas: View {
         return result
     }
 
-    private func spectrogramColor(for normalizedMagnitude: Float) -> Color {
-        // Logarithmische Skalierung für besseren Dynamikbereich
-        let value = Double(log10(max(normalizedMagnitude, 0.001) + 1) / log10(2))
+    private func spectrogramColor(for dbValue: Float) -> Color {
+        // Definiere eine feste dB-Range für die Watch
+        let minDB: Float = -100.0
+        let maxDB: Float = -20.0
         
-        if value < 0.1 {
+        // 1. Normalisierung auf [0, 1]
+        var normalized = (dbValue - minDB) / (maxDB - minDB)
+        normalized = max(0, min(1, normalized))
+        
+        // 2. Logarithmische Kompression für bessere Spreizung der Farben (wie im Bugfix Guide)
+        let curvedValue = log10(1.0 + 9.0 * Double(normalized)) / log10(10.0)
+        
+        if curvedValue < 0.2 {
             // Dunkelblau für niedrige Werte
-            return Color(red: 0, green: 0, blue: value * 5)
-        } else if value < 0.3 {
+            return Color(red: 0, green: 0, blue: curvedValue * 2)
+        } else if curvedValue < 0.4 {
             // Blau zu Cyan
-            let t = (value - 0.1) / 0.2
+            let t = (curvedValue - 0.2) / 0.2
             return Color(red: 0, green: t * 0.5, blue: 0.5 + t * 0.5)
-        } else if value < 0.6 {
+        } else if curvedValue < 0.6 {
             // Cyan zu Grün
-            let t = (value - 0.3) / 0.3
+            let t = (curvedValue - 0.4) / 0.2
             return Color(red: 0, green: 0.5 + t * 0.5, blue: 1.0 - t)
-        } else if value < 0.85 {
+        } else if curvedValue < 0.8 {
             // Grün zu Gelb
-            let t = (value - 0.6) / 0.25
+            let t = (curvedValue - 0.6) / 0.2
             return Color(red: t, green: 1.0, blue: 0)
         } else {
             // Gelb zu Rot
-            let t = (value - 0.85) / 0.15
+            let t = (curvedValue - 0.8) / 0.2
             return Color(red: 1.0, green: 1.0 - t, blue: 0)
         }
     }

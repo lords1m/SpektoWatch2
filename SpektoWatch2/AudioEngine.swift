@@ -11,7 +11,7 @@ class AudioEngine: ObservableObject {
     private let sampleRate: Double = 44100.0
     private var dummyDataTimer: Timer?
     private var isUsingDummyData = false
-    private var gainBoost: Float = 30.0
+    private var gainBoost: Float = 20.0
 
     // Recording time tracking
     private var recordingStartTime: Date?
@@ -193,11 +193,12 @@ class AudioEngine: ObservableObject {
         // Apply gain boost and convert to dB
         var gainLinear: Float = pow(10.0, gainBoost / 20.0)
         vDSP_vsmul(magnitudes, 1, &gainLinear, &magnitudes, 1, vDSP_Length(magnitudes.count))
-        var one: Float = 1.0
-        vDSP_vsadd(magnitudes, 1, &one, &magnitudes, 1, vDSP_Length(magnitudes.count))
-        var zero: Float = 1.0
+        
+        var epsilon: Float = 1e-9
+        vDSP_vsadd(magnitudes, 1, &epsilon, &magnitudes, 1, vDSP_Length(magnitudes.count))
+        var reference: Float = 1.0
         var dbMagnitudes = [Float](repeating: 0, count: magnitudes.count)
-        vDSP_vdbcon(magnitudes, 1, &zero, &dbMagnitudes, 1, vDSP_Length(magnitudes.count), 0)
+        vDSP_vdbcon(magnitudes, 1, &reference, &dbMagnitudes, 1, vDSP_Length(magnitudes.count), 0)
 
         // Frequency axis
         let nyquist = Float(sampleRate / 2.0)

@@ -61,7 +61,7 @@ class HighEndSpectrogramView: MTKView {
     var colormapType: Int = 0                    // 0 = Turbo, 1 = Jet, 2 = Viridis
     var noiseFloor: Float = -100.0               // Noise gate threshold (dB) - adjusted for new range
     var kneeWidth: Float = 15.0                  // Soft-knee width (dB) - wider for smoother transition
-    var gamma: Float = 0.5                       // Gamma correction (lowered to spread colors better)
+    var gamma: Float = 0.75                       // Gamma correction (adjusted to balance colors)
     var useInterpolation: Bool = true            // Bilinear interpolation on/off
     var debugMode: Int = 0                       // 0=normal, 1=grayscale, 2=colormap test, 3=raw
 
