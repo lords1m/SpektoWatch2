@@ -7,7 +7,7 @@ Diese Implementierung verwendet **Metal** (Apple's GPU-Framework) für ein flüs
 ## Architektur
 
 ### 1. **SpectrogramShaders.metal**
-Metal Shader für GPU-beschleunigtes Rendering:
+Metal Shader für GPU-beschleunigtes Rendering:ˆ
 - **Vertex Shader**: Rendert ein Full-Screen Quad
 - **Fragment Shader**: Wendet Farbinterpolation und Colormap an
 - **Bilineare Interpolation**: Erzeugt glatte Übergänge zwischen Datenpunkten

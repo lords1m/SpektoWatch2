@@ -2,209 +2,110 @@ import SwiftUI
 
 struct WatchSpectrogramView: View {
     @StateObject private var connectivityManager = WatchConnectivityManager.shared
-    @State private var spectrogramFrames: [SpectrogramFrame] = []
-
-    let maxFrames = 150
-
+    @State private var frames: [[Float]] = []
+    
+    // Konfiguration für Watch-Display
+    private let maxFrames = 60    // Ca. 6 Sekunden Historie (bei 10 FPS Update vom iPhone)
+    private let displayBins = 40  // Reduzierte vertikale Auflösung für Performance/Lesbarkeit
+    
     var body: some View {
-        VStack {
-            if spectrogramFrames.isEmpty {
-                VStack {
-                    Image(systemName: "waveform")
-                        .font(.largeTitle)
-                        .foregroundColor(.gray)
-                    Text("Warte auf Daten...")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+        VStack(spacing: 4) {
+            // Spektrogramm Canvas
+            Canvas { context, size in
+                let width = size.width
+                let height = size.height
+                let colWidth = width / CGFloat(maxFrames)
+                let rowHeight = height / CGFloat(displayBins)
+                
+                for (t, magnitudes) in frames.enumerated() {
+                    let x = CGFloat(t) * colWidth
+                    
+                    for (f, mag) in magnitudes.enumerated() {
+                        // dB Normalisierung (-100 bis -10 dB)
+                        let normalized = (mag + 100.0) / 90.0
+                        
+                        if normalized > 0.1 { // Noise Gate
+                            let color = spectrogramColor(Double(normalized))
+                            // Y invertieren (tiefste Frequenz unten)
+                            let y = height - CGFloat(f + 1) * rowHeight
+                            
+                            let rect = CGRect(x: x, y: y, width: colWidth + 0.5, height: rowHeight + 0.5)
+                            context.fill(Path(rect), with: .color(color))
+                        }
+                    }
                 }
-            } else {
-                WatchSpectrogramCanvasWithAxes(frames: spectrogramFrames, maxFrames: maxFrames)
             }
+            .background(Color.black)
+            .cornerRadius(8)
+            .frame(maxHeight: .infinity)
+            
+            // Status & Steuerung
+            HStack {
+                Circle()
+                    .fill(connectivityManager.isReachable ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+                
+                Spacer()
+                
+                // Aufnahme-Steuerung (sendet Befehl an iPhone)
+                Button(action: {
+                    connectivityManager.requestRecordingStart()
+                }) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12))
+                }
+                .frame(width: 30, height: 30)
+                .background(Color.green.opacity(0.3))
+                .clipShape(Circle())
+                
+                Button(action: {
+                    connectivityManager.requestRecordingStop()
+                }) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 12))
+                }
+                .frame(width: 30, height: 30)
+                .background(Color.red.opacity(0.3))
+                .clipShape(Circle())
+            }
+            .padding(.horizontal, 4)
+            .frame(height: 30)
         }
         .onReceive(connectivityManager.$spectrogramData) { data in
-            if let data = data {
-                updateSpectrogramFrames(data)
+            guard let data = data else { return }
+            
+            // Downsampling für Watch-Performance (Max-Pooling)
+            let downsampled = downsample(data.magnitudes, targetCount: displayBins)
+            
+            frames.append(downsampled)
+            if frames.count > maxFrames {
+                frames.removeFirst()
             }
         }
     }
-
-    private func updateSpectrogramFrames(_ data: SpectrogramData) {
-        let frame = SpectrogramFrame(magnitudes: data.magnitudes, timestamp: data.timestamp)
-
-        spectrogramFrames.append(frame)
-
-        if spectrogramFrames.count > maxFrames {
-            spectrogramFrames.removeFirst()
-        }
-    }
-}
-
-struct WatchSpectrogramCanvasWithAxes: View {
-    let frames: [SpectrogramFrame]
-    let maxFrames: Int
-
-    let axisWidth: CGFloat = 30
-    let axisHeight: CGFloat = 20
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 2) {
-                // Y-Achse (Frequenz)
-                VStack(spacing: 0) {
-                    ForEach(0..<3) { i in
-                        Spacer()
-                        Text(frequencyLabel(index: i))
-                            .font(.system(size: 8))
-                            .foregroundColor(.white)
-                            .frame(width: axisWidth)
-                    }
-                    Spacer()
-                    Text("0")
-                        .font(.system(size: 8))
-                        .foregroundColor(.white)
-                        .frame(width: axisWidth)
-                        .padding(.bottom, axisHeight)
-                }
-
-                VStack(spacing: 0) {
-                    // Spektrogramm
-                    WatchSpectrogramCanvas(frames: frames)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    // X-Achse (Zeit)
-                    HStack(spacing: 0) {
-                        Text(timeLabel(isStart: true))
-                            .font(.system(size: 8))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text(timeLabel(isStart: false))
-                            .font(.system(size: 8))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    .frame(height: axisHeight)
-                }
-            }
-        }
-    }
-
-    private func frequencyLabel(index: Int) -> String {
-        let maxFreq = 22.0
-        let freq = maxFreq * Double(3 - index) / 3.0
-        return String(format: "%.0fk", freq)
-    }
-
-    private func timeLabel(isStart: Bool) -> String {
-        guard !frames.isEmpty else { return "0s" }
-
-        if isStart {
-            let oldestFrame = frames.first!
-            let elapsed = Date().timeIntervalSince(oldestFrame.timestamp)
-            return String(format: "-%.1fs", elapsed)
-        } else {
-            return "0s"
-        }
-    }
-}
-
-struct WatchSpectrogramCanvas: View {
-    let frames: [SpectrogramFrame]
-
-    var body: some View {
-        GeometryReader { geometry in
-            Canvas { context, size in
-                // Mehr Frames für flüssigere Darstellung
-                let frameWidth = max(1.0, size.width / CGFloat(frames.count))
-
-                // Höhere vertikale Auflösung
-                let targetBins = 120
-
-                for (frameIndex, frame) in frames.enumerated() {
-                    let x = CGFloat(frameIndex) * frameWidth
-                    let sampledMagnitudes = sampleMagnitudesSmooth(frame.magnitudes, targetCount: targetBins)
-
-                    for (binIndex, magnitude) in sampledMagnitudes.enumerated() {
-                        // Nutze die Magnitude direkt für die Farbberechnung
-                        let binHeight = size.height / CGFloat(sampledMagnitudes.count)
-                        let y = size.height - (CGFloat(binIndex + 1) * binHeight)
-
-                        // Verbesserte Farbpalette für besseren Kontrast
-                        let color = spectrogramColor(for: magnitude)
-
-                        // Wichtig: ceil() auf width/height für lückenlose Darstellung
-                        let rect = CGRect(
-                            x: x,
-                            y: y,
-                            width: ceil(frameWidth + 0.5),
-                            height: ceil(binHeight + 0.5)
-                        )
-
-                        context.fill(Path(rect), with: .color(color))
-                    }
-                }
-            }
-            .drawingGroup() // GPU-Beschleunigung für flüssigere Darstellung
-        }
-    }
-
-    private func sampleMagnitudesSmooth(_ magnitudes: [Float], targetCount: Int) -> [Float] {
-        guard magnitudes.count > targetCount else { return magnitudes }
-
+    
+    private func downsample(_ data: [Float], targetCount: Int) -> [Float] {
+        guard !data.isEmpty else { return Array(repeating: -120, count: targetCount) }
+        let chunkSize = data.count / targetCount
         var result = [Float]()
-        let ratio = Float(magnitudes.count) / Float(targetCount)
-
+        
         for i in 0..<targetCount {
-            let startIdx = Float(i) * ratio
-            let endIdx = Float(i + 1) * ratio
-
-            let startInt = Int(floor(startIdx))
-            let endInt = min(Int(ceil(endIdx)), magnitudes.count - 1)
-
-            // Interpolation für glattere Übergänge
-            if startInt == endInt {
-                result.append(magnitudes[startInt])
-            } else {
-                let sum = magnitudes[startInt...endInt].reduce(0, +)
-                let count = Float(endInt - startInt + 1)
-                result.append(sum / count)
-            }
+            let start = i * chunkSize
+            let end = min(start + chunkSize, data.count)
+            // Max-Pooling um Peaks zu erhalten
+            let maxVal = (start < end) ? (data[start..<end].max() ?? -120.0) : -120.0
+            result.append(maxVal)
         }
-
         return result
     }
-
-    private func spectrogramColor(for dbValue: Float) -> Color {
-        // Definiere eine feste dB-Range für die Watch
-        let minDB: Float = -100.0
-        let maxDB: Float = -20.0
-        
-        // 1. Normalisierung auf [0, 1]
-        var normalized = (dbValue - minDB) / (maxDB - minDB)
-        normalized = max(0, min(1, normalized))
-        
-        // 2. Logarithmische Kompression für bessere Spreizung der Farben (wie im Bugfix Guide)
-        let curvedValue = log10(1.0 + 9.0 * Double(normalized)) / log10(10.0)
-        
-        if curvedValue < 0.2 {
-            // Dunkelblau für niedrige Werte
-            return Color(red: 0, green: 0, blue: curvedValue * 2)
-        } else if curvedValue < 0.4 {
-            // Blau zu Cyan
-            let t = (curvedValue - 0.2) / 0.2
-            return Color(red: 0, green: t * 0.5, blue: 0.5 + t * 0.5)
-        } else if curvedValue < 0.6 {
-            // Cyan zu Grün
-            let t = (curvedValue - 0.4) / 0.2
-            return Color(red: 0, green: 0.5 + t * 0.5, blue: 1.0 - t)
-        } else if curvedValue < 0.8 {
-            // Grün zu Gelb
-            let t = (curvedValue - 0.6) / 0.2
-            return Color(red: t, green: 1.0, blue: 0)
-        } else {
-            // Gelb zu Rot
-            let t = (curvedValue - 0.8) / 0.2
-            return Color(red: 1.0, green: 1.0 - t, blue: 0)
-        }
+    
+    private func spectrogramColor(_ value: Double) -> Color {
+        // Turbo-ähnliche Colormap (Blau -> Grün -> Rot)
+        let v = max(0, min(1, value))
+        return Color(
+            red: max(0, min(1, 4 * v - 2)),
+            green: max(0, min(1, 2 - abs(4 * v - 2))),
+            blue: max(0, min(1, 2 - 4 * v))
+        )
     }
 }

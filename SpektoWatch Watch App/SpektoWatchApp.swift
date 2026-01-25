@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct SpektoWatch_Watch_AppApp: App {
+struct SpektoWatchWatchApp: App {
     var body: some Scene {
         WindowGroup {
             WatchContentView()

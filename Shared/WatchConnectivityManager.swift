@@ -16,6 +16,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
 
     var onMicrophoneSourceChanged: ((MicrophoneSource) -> Void)?
+    private var hasLoggedUnreachability = false
 
     private override init() {
         super.init()
@@ -29,9 +30,13 @@ class WatchConnectivityManager: NSObject, ObservableObject {
 
     func sendSpectrogramData(_ data: SpectrogramData) {
         guard WCSession.default.isReachable else {
-            print("Watch not reachable")
+            if !hasLoggedUnreachability {
+                print("Watch not reachable")
+                hasLoggedUnreachability = true
+            }
             return
         }
+        hasLoggedUnreachability = false
 
         do {
             let encoder = JSONEncoder()

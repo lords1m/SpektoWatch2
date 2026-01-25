@@ -42,25 +42,29 @@ class WatchAudioEngine: NSObject, ObservableObject {
     }
 
     func startRecording() {
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let session = AVAudioSession.sharedInstance()
+        session.requestRecordPermission { [weak self] granted in
+            guard granted, let self = self else { return }
+            
+            let inputNode = self.audioEngine.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: recordingFormat) { [weak self] buffer, _ in
-            self?.processAudioBuffer(buffer)
-        }
-
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.record, mode: .measurement)
-            try audioSession.setActive(true)
-
-            try audioEngine.start()
-
-            DispatchQueue.main.async {
-                self.isRecording = true
+            inputNode.installTap(onBus: 0, bufferSize: self.bufferSize, format: recordingFormat) { [weak self] buffer, _ in
+                self?.processAudioBuffer(buffer)
             }
-        } catch {
-            print("Watch audio engine start error: \(error)")
+
+            do {
+                try session.setCategory(.record, mode: .measurement)
+                try session.setActive(true)
+
+                try self.audioEngine.start()
+
+                DispatchQueue.main.async {
+                    self.isRecording = true
+                }
+            } catch {
+                print("Watch audio engine start error: \(error)")
+            }
         }
     }
 

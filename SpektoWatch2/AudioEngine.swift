@@ -3,21 +3,57 @@ import AVFoundation
 import Accelerate
 import Combine
 
+enum TimeWeighting: String, CaseIterable {
+    case fast = "Fast"
+    case slow = "Slow"
+}
+
+enum FrequencyWeighting: String, CaseIterable {
+    case z = "Linear (Z)"
+    case a = "A-Weighting"
+    case c = "C-Weighting"
+}
+
+enum ScrollSpeed: Int, CaseIterable {
+    case verySlow = 4096  // ~10 FPS
+    case slow = 2048      // ~21 FPS
+    case normal = 1024    // ~43 FPS
+    case fast = 512       // ~86 FPS
+    
+    var label: String {
+        switch self {
+        case .verySlow: return "Sehr Langsam"
+        case .slow: return "Langsam"
+        case .normal: return "Normal"
+        case .fast: return "Schnell"
+        }
+    }
+}
+
 class AudioEngine: ObservableObject {
 
     private var audioEngine: AVAudioEngine
-    private let bufferSize: AVAudioFrameCount = 8192
+    private let fftSize: Int = 8192 // Maximale Frequenzauflösung (für mehr Details)
+    private let tapBlockSize: AVAudioFrameCount = 512 // Sehr hohe Update-Rate (~86 FPS)
+    private var sampleBuffer: [Float] = []
     private let fftSetup: vDSP_DFT_Setup
     private let sampleRate: Double = 44100.0
     private var dummyDataTimer: Timer?
     private var isUsingDummyData = false
-    private var gainBoost: Float = 20.0
+    private var gainBoost: Float = 10.0 // Erhöht für bessere Sichtbarkeit normaler Signale
+    private var hasLoggedSilence = false
+    private var debugPrintCounter = 0
+    private var lastWatchUpdate: TimeInterval = 0
 
     // Recording time tracking
     private var recordingStartTime: Date?
 
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var currentSpectrogramData: SpectrogramData?
+
+    @Published var selectedTimeWeighting: TimeWeighting = .fast
+    @Published var selectedFrequencyWeighting: FrequencyWeighting = .a
+    @Published var scrollSpeed: ScrollSpeed = .fast
 
     // === Flexible Bandbildungs-Parameter ===
 
@@ -28,25 +64,54 @@ class AudioEngine: ObservableObject {
     private let binningFactor: Int = 2
 
     /// 0 = keine Glättung, 0.7..0.9 = recht stark verwischt
-    private let temporalSmoothingFactor: Float = 0.6
+    private var temporalSmoothingFactor: Float = 0.0
 
     /// Zwischenspeicher für zeitliche Glättung
     private var previousBandMagnitudes: [Float] = []
+
+    // PERFORMANCE: Wiederverwendbare Puffer um Allokationen zu vermeiden
+    private var realIn: [Float]
+    private var imagIn: [Float]
+    private var realOut: [Float]
+    private var imagOut: [Float]
+    private var window: [Float]
+    private var fftMagnitudes: [Float]
 
     init() {
         audioEngine = AVAudioEngine()
         guard let setup = vDSP_DFT_zop_CreateSetup(
             nil,
-            vDSP_Length(bufferSize),
+            vDSP_Length(fftSize),
             vDSP_DFT_Direction.FORWARD
         ) else {
             fatalError("Failed to create FFT setup")
         }
         fftSetup = setup
+        
+        // Puffer einmalig initialisieren
+        realIn = [Float](repeating: 0, count: fftSize)
+        imagIn = [Float](repeating: 0, count: fftSize)
+        realOut = [Float](repeating: 0, count: fftSize)
+        imagOut = [Float](repeating: 0, count: fftSize)
+        window = [Float](repeating: 0, count: fftSize)
+        fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
     }
 
     deinit {
         vDSP_DFT_DestroySetup(fftSetup)
+    }
+
+    func setTimeWeighting(_ weighting: TimeWeighting) {
+        selectedTimeWeighting = weighting
+        // Update-Rate ist jetzt ca. 11.6ms (512 / 44100)
+        // Reduzierte Werte um "Schmieren" zu verhindern:
+        // Fast -> 0.5 (sehr reaktiv), Slow -> 0.9 (ruhiger)
+        temporalSmoothingFactor = (weighting == .fast) ? 0.5 : 0.9
+    }
+
+    func setFrequencyWeighting(_ weighting: FrequencyWeighting) {
+        selectedFrequencyWeighting = weighting
     }
 
     func setGainBoost(_ gain: Float) {
@@ -69,6 +134,7 @@ class AudioEngine: ObservableObject {
     func startRecording() {
         recordingStartTime = Date()
         recordingDuration = 0.0
+        hasLoggedSilence = false
 
         #if targetEnvironment(simulator)
         print("Running on Simulator - using dummy audio data")
@@ -76,7 +142,24 @@ class AudioEngine: ObservableObject {
         #else
         do {
             let audioSession = AVAudioSession.sharedInstance()
+            
+            // Berechtigung prüfen
+            if audioSession.recordPermission == .undetermined {
+                audioSession.requestRecordPermission { [weak self] granted in
+                    if granted { DispatchQueue.main.async { self?.startRecording() } }
+                }
+                return
+            }
+            if audioSession.recordPermission == .denied {
+                print("❌ Mikrofon-Berechtigung verweigert. Bitte in Einstellungen aktivieren.")
+                return
+            }
+
             try audioSession.setCategory(.record, mode: .measurement, options: [])
+            
+            // LATENCY FIX: Set preferred buffer duration to match tapBlockSize (512 samples = ~11.6ms)
+            // This ensures callbacks happen frequently (low latency) and at the expected 86Hz rate
+            try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / sampleRate)
 
             if audioSession.isInputGainSettable {
                 try audioSession.setInputGain(1.0)
@@ -93,7 +176,7 @@ class AudioEngine: ObservableObject {
                 return
             }
 
-            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: recordingFormat) { [weak self] buffer, _ in
+            inputNode.installTap(onBus: 0, bufferSize: tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
 
@@ -127,50 +210,87 @@ class AudioEngine: ObservableObject {
         guard let channelData = buffer.floatChannelData?[0] else { return }
 
         let frameCount = Int(buffer.frameLength)
-        let samples = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+        let newSamples = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+        
+        // DEBUG: Signalstärke prüfen (RMS)
+        var rms: Float = 0
+        // Prüfe nur die neuen Samples auf Stille
+        vDSP_rmsqv(newSamples, 1, &rms, vDSP_Length(newSamples.count))
+        let signalDB = 20 * log10(rms + 1e-9) // + Epsilon um log(0) zu vermeiden
 
-        // 1. FFT
-        let fftResult = performFFT(on: samples)
+        // DEBUG: Signalstärke ausgeben (gedrosselt)
+        debugPrintCounter += 1
+        if debugPrintCounter % 240 == 0 { // Seltener loggen da 8x mehr Updates
+            print("🎤 Signalstärke: \(String(format: "%.1f", signalDB)) dB")
+        }
+        
+        if signalDB < -120 {
+            if !hasLoggedSilence {
+                print("⚠️ Audio-Buffer ist still/leer: \(String(format: "%.1f", signalDB)) dB (Prüfe Berechtigungen)")
+                hasLoggedSilence = true
+            }
+        }
 
-        // 2. Freie Aggregation mit binningFactor
-        let (bandFreqs, bandMags) = aggregateByBinningFactor(
-            frequencies: fftResult.frequencies,
-            magnitudes: fftResult.magnitudes
-        )
+        // Sliding Window: Samples sammeln
+        sampleBuffer.append(contentsOf: newSamples)
+        
+        // Process all complete windows
+        while sampleBuffer.count >= fftSize {
+            let samples = Array(sampleBuffer.prefix(fftSize))
 
-        // 3. Zeitliche Glättung (Verwischung)
-        let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
+            // 1. FFT
+            let fftResult = performFFT(on: samples)
 
-        let spectrogramData = SpectrogramData(
-            frequencies: bandFreqs,
-            magnitudes: smoothedMagnitudes,
-            sampleRate: sampleRate
-        )
-
-        DispatchQueue.main.async {
-            if let startTime = self.recordingStartTime {
-                self.recordingDuration = Date().timeIntervalSince(startTime)
+            // DEBUG: FFT Output Range prüfen
+            if debugPrintCounter % 240 == 0 {
+                let minMag = fftResult.magnitudes.min() ?? 0
+                let maxMag = fftResult.magnitudes.max() ?? 0
+                print("📊 FFT Output (dB): min=\(String(format: "%.1f", minMag)), max=\(String(format: "%.1f", maxMag))")
             }
 
-            self.currentSpectrogramData = spectrogramData
-            WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
+            // 2. Freie Aggregation mit binningFactor
+            let (bandFreqs, bandMags) = aggregateByBinningFactor(
+                frequencies: fftResult.frequencies,
+                magnitudes: fftResult.magnitudes
+            )
+
+            // 3. Zeitliche Glättung (Verwischung)
+            let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
+
+            let spectrogramData = SpectrogramData(
+                frequencies: bandFreqs,
+                magnitudes: smoothedMagnitudes,
+                sampleRate: sampleRate
+            )
+
+            DispatchQueue.main.async {
+                if let startTime = self.recordingStartTime {
+                    self.recordingDuration = Date().timeIntervalSince(startTime)
+                }
+
+                self.currentSpectrogramData = spectrogramData
+                
+                // PERFORMANCE: Throttle Watch updates to ~10 FPS to reduce main thread latency
+                let now = Date().timeIntervalSince1970
+                if now - self.lastWatchUpdate > 0.1 {
+                    WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
+                    self.lastWatchUpdate = now
+                }
+            }
+            
+            // Advance window by hop size
+            sampleBuffer.removeFirst(scrollSpeed.rawValue)
         }
     }
 
     private func performFFT(on samples: [Float]) -> (frequencies: [Float], magnitudes: [Float]) {
-        let n = vDSP_Length(bufferSize)
+        let n = vDSP_Length(fftSize)
 
-        var realIn = [Float](repeating: 0, count: Int(bufferSize))
-        var imagIn = [Float](repeating: 0, count: Int(bufferSize))
-        var realOut = [Float](repeating: 0, count: Int(bufferSize))
-        var imagOut = [Float](repeating: 0, count: Int(bufferSize))
-
-        // Apply Hann window
-        var window = [Float](repeating: 0, count: Int(bufferSize))
-        vDSP_hann_window(&window, vDSP_Length(bufferSize), Int32(vDSP_HANN_NORM))
+        // Reset imaginary parts (wichtig, da Puffer wiederverwendet werden)
+        vDSP_vclr(&imagIn, 1, vDSP_Length(fftSize))
 
         // Copy and window the samples
-        let maxIndex = min(samples.count, Int(bufferSize))
+        let maxIndex = min(samples.count, fftSize)
         for i in 0..<maxIndex {
             realIn[i] = samples[i] * window[i]
         }
@@ -180,30 +300,68 @@ class AudioEngine: ObservableObject {
                          &realOut, &imagOut)
 
         // Compute magnitude spectrum
-        var magnitudes = [Float](repeating: 0, count: Int(bufferSize / 2))
+        // Nutze Member-Variable statt Neu-Allokation
         
         // Create DSPSplitComplex structure for magnitude calculation
         realOut.withUnsafeMutableBufferPointer { realPtr in
             imagOut.withUnsafeMutableBufferPointer { imagPtr in
                 var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(bufferSize / 2))
+                vDSP_zvabs(&splitComplex, 1, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
             }
         }
 
         // Apply gain boost and convert to dB
-        var gainLinear: Float = pow(10.0, gainBoost / 20.0)
-        vDSP_vsmul(magnitudes, 1, &gainLinear, &magnitudes, 1, vDSP_Length(magnitudes.count))
+        // FIX: Normalisierung (2/N) um korrekte Amplitude zu erhalten
+        let normalization = 2.0 / Float(fftSize)
+        var scale = normalization * pow(10.0, gainBoost / 20.0)
+        vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
         
         var epsilon: Float = 1e-9
-        vDSP_vsadd(magnitudes, 1, &epsilon, &magnitudes, 1, vDSP_Length(magnitudes.count))
+        vDSP_vsadd(fftMagnitudes, 1, &epsilon, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
         var reference: Float = 1.0
-        var dbMagnitudes = [Float](repeating: 0, count: magnitudes.count)
-        vDSP_vdbcon(magnitudes, 1, &reference, &dbMagnitudes, 1, vDSP_Length(magnitudes.count), 0)
+        // Wir nutzen fftMagnitudes direkt weiter für die dB Konversion (In-Place ist bei vdbcon nicht immer sicher, aber hier nutzen wir es als Source für die Rückgabe, wir brauchen aber einen dB Puffer)
+        // Da wir fftMagnitudes als Member haben, nutzen wir es als Source und erstellen ein temporäres Array für die Rückgabe oder nutzen einen zweiten Puffer.
+        // Um Allocations zu sparen, wäre ein dbBuffer gut. Aber die Rückgabe der Funktion erwartet [Float].
+        // Swift Arrays sind COW. Wenn wir fftMagnitudes zurückgeben, wird kopiert, sobald wir es im nächsten Frame ändern.
+        // Wir machen die dB Konversion direkt in einen neuen Puffer für die Rückgabe, das ist der saubere Weg für die API.
+        var dbMagnitudes = [Float](repeating: 0, count: fftMagnitudes.count)
+        vDSP_vdbcon(fftMagnitudes, 1, &reference, &dbMagnitudes, 1, vDSP_Length(fftMagnitudes.count), 1)
 
         // Frequency axis
         let nyquist = Float(sampleRate / 2.0)
-        let freqResolution = nyquist / Float(magnitudes.count)
-        let frequencies = (0..<magnitudes.count).map { Float($0) * freqResolution }
+        let freqResolution = nyquist / Float(dbMagnitudes.count)
+        let frequencies = (0..<dbMagnitudes.count).map { Float($0) * freqResolution }
+
+        // Apply Frequency Weighting
+        if selectedFrequencyWeighting != .z {
+            var weightingOffsets = [Float](repeating: 0.0, count: frequencies.count)
+            
+            for (i, f) in frequencies.enumerated() {
+                let f2 = f * f
+                var offset: Float = 0.0
+                
+                if selectedFrequencyWeighting == .a {
+                    // A-Weighting Formula
+                    let num = 12194.0 * 12194.0 * f2 * f2
+                    let den = (f2 + 20.6 * 20.6) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0)
+                    if den > 0 {
+                        offset = 20.0 * log10(num / den) + 2.0
+                    }
+                } else if selectedFrequencyWeighting == .c {
+                    // C-Weighting Formula
+                    let num = 12194.0 * 12194.0 * f2
+                    let den = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
+                    if den > 0 {
+                        offset = 20.0 * log10(num / den) + 0.06
+                    }
+                }
+                
+                weightingOffsets[i] = Float(offset)
+            }
+            
+            // Add offsets to dbMagnitudes
+            vDSP_vadd(dbMagnitudes, 1, weightingOffsets, 1, &dbMagnitudes, 1, vDSP_Length(dbMagnitudes.count))
+        }
 
         return (frequencies, dbMagnitudes)
     }
