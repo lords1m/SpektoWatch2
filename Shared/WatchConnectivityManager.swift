@@ -5,6 +5,7 @@ import Combine
 extension Notification.Name {
     static let startRecordingCommand = Notification.Name("startRecordingCommand")
     static let stopRecordingCommand = Notification.Name("stopRecordingCommand")
+    static let gainOrBandwidthChangedNotification = Notification.Name("gainOrBandwidthChangedNotification")
 }
 
 class WatchConnectivityManager: NSObject, ObservableObject {
@@ -87,8 +88,9 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     }
 
     func requestRecordingStart() {
+        print("[WCM] Requesting Start")
         guard WCSession.default.isReachable else {
-            print("Watch not reachable")
+            print("[WCM] Error: Not reachable")
             return
         }
 
@@ -99,14 +101,22 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     }
 
     func requestRecordingStop() {
+        print("[WCM] Requesting Stop")
         guard WCSession.default.isReachable else {
-            print("Watch not reachable")
+            print("[WCM] Error: Not reachable")
             return
         }
 
         let message = ["command": "stopRecording"]
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending stop command: \(error.localizedDescription)")
+        }
+    }
+
+    func sendGainValue(_ gain: Float) {
+        let message = ["gain": gain]
+        WCSession.default.sendMessage(message, replyHandler: nil) { error in
+            print("Error sending gain: \(error.localizedDescription)")
         }
     }
 }
@@ -150,16 +160,20 @@ extension WatchConnectivityManager: WCSessionDelegate {
                 self.onMicrophoneSourceChanged?(source)
             }
         } else if let command = message["command"] as? String {
+            print("[WCM] Received command '\(command)'")
             if command == "startRecording" {
                 NotificationCenter.default.post(name: .startRecordingCommand, object: nil)
             } else if command == "stopRecording" {
                 NotificationCenter.default.post(name: .stopRecordingCommand, object: nil)
             }
+        } else if let gain = message["gain"] as? Float {
+            NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
         }
     }
 
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
+            print("[WCM] Reachability: \(session.isReachable)")
             self.isReachable = session.isReachable
         }
     }

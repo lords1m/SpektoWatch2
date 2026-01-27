@@ -8,6 +8,7 @@ struct SpectrogramSettingsView: View {
     @Binding var frequencyWeighting: FrequencyWeighting
     @Binding var timeSpan: SpectrogramTimeSpan
     @Binding var scrollSpeed: ScrollSpeed
+    @Binding var watchGain: Float
     
     @Environment(\.dismiss) var dismiss
 
@@ -22,6 +23,20 @@ struct SpectrogramSettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+
+                if selectedMicrophoneSource == .appleWatch {
+                    Section(header: Text("Watch-Verstärkung: \(String(format: "%.1f", watchGain))x")) {
+                        HStack {
+                            Text("0x")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Slider(value: $watchGain, in: 0...10, step: 0.1)
+                            Text("10x")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
                 
                 Section(header: Text("Darstellung")) {

@@ -290,11 +290,10 @@ class HighEndSpectrogramView: MTKView {
 
     private func performFFT(on samples: [Float]) -> [Float] {
         // ZERO-PADDING: Take 4096 audio samples, pad to 8192 for 2x frequency resolution
-        let n = vDSP_Length(fftSize)
 
         // Allocate FFT buffers (full padded size)
         var realIn = [Float](repeating: 0, count: fftSize)   // 8192 elements
-        var imagIn = [Float](repeating: 0, count: fftSize)   // All zeros (no imaginary input)
+        let imagIn = [Float](repeating: 0, count: fftSize)   // All zeros (no imaginary input)
         var realOut = [Float](repeating: 0, count: fftSize)
         var imagOut = [Float](repeating: 0, count: fftSize)
 
@@ -329,7 +328,7 @@ class HighEndSpectrogramView: MTKView {
             let minDB = 20.0 * log10(minMagnitude + 1e-10)
             let avgDB = 20.0 * log10(avgMagnitude + 1e-10)
 
-            print("📊 FFT dB Range: min=\(String(format: "%.1f", minDB)) avg=\(String(format: "%.1f", avgDB)) max=\(String(format: "%.1f", maxDB))")
+            print("[HighEndSpectrogram] FFT dB Range: min=\(String(format: "%.1f", minDB)) avg=\(String(format: "%.1f", avgDB)) max=\(String(format: "%.1f", maxDB))")
         }
         #endif
 

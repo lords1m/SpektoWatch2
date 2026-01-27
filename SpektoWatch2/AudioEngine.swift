@@ -50,10 +50,22 @@ class AudioEngine: ObservableObject {
 
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var currentSpectrogramData: SpectrogramData?
+    @Published var currentLevel: Float = -120.0
+    @Published var levelHistory: [Float] = []
+    @Published var currentPeakLevel: Float = -120.0
+    @Published var currentStereoPhase: Float = 1.0 // +1 = Mono/In-Phase, -1 = Out-of-Phase, 0 = Stereo/Uncorrelated
+    @Published var currentOctaveBands: [Float] = Array(repeating: -120.0, count: 31) // 1/3 Octave Bands
+    @Published var currentSpectrum: [Float] = [] // Raw FFT for Frequency Display
 
     @Published var selectedTimeWeighting: TimeWeighting = .fast
     @Published var selectedFrequencyWeighting: FrequencyWeighting = .a
     @Published var scrollSpeed: ScrollSpeed = .fast
+
+    // Level meter
+    private var smoothedLevel: Float = -120.0
+
+    // LAF calculation
+    private var lafEnergy: Float = 1e-12
 
     // === Flexible Bandbildungs-Parameter ===
 
@@ -132,9 +144,17 @@ class AudioEngine: ObservableObject {
     }
 
     func startRecording() {
+        print("[AudioEngine] Start")
         recordingStartTime = Date()
         recordingDuration = 0.0
         hasLoggedSilence = false
+
+        // Reset history
+        DispatchQueue.main.async {
+            self.levelHistory.removeAll()
+            self.currentLevel = -120.0
+            self.smoothedLevel = -120.0
+        }
 
         #if targetEnvironment(simulator)
         print("Running on Simulator - using dummy audio data")
@@ -151,7 +171,7 @@ class AudioEngine: ObservableObject {
                 return
             }
             if audioSession.recordPermission == .denied {
-                print("❌ Mikrofon-Berechtigung verweigert. Bitte in Einstellungen aktivieren.")
+                print("[AudioEngine] Error: Microphone permission denied. Please enable in settings.")
                 return
             }
 
@@ -190,6 +210,7 @@ class AudioEngine: ObservableObject {
     }
 
     func stopRecording() {
+        print("[AudioEngine] Stop")
         recordingStartTime = nil
 
         #if targetEnvironment(simulator)
@@ -202,31 +223,72 @@ class AudioEngine: ObservableObject {
             stopDummyDataGeneration()
         }
         #endif
+        
+        // Clear history on stop
+        DispatchQueue.main.async {
+            self.levelHistory.removeAll()
+            self.currentLevel = -120.0
+        }
     }
 
     // MARK: - Audio Processing
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-
+        guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
-        let newSamples = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+        let channels = Int(buffer.format.channelCount)
         
+        // Channel 0 (Left/Mono)
+        let newSamples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+        
+        // Stereo Phase Calculation
+        var phase: Float = 1.0
+        if channels > 1 {
+            let rightSamples = Array(UnsafeBufferPointer(start: channelData[1], count: frameCount))
+            // Simple correlation: sum(L*R) / sqrt(sum(L^2)*sum(R^2))
+            var dotProd: Float = 0
+            var sumSqL: Float = 0
+            var sumSqR: Float = 0
+            vDSP_dotpr(newSamples, 1, rightSamples, 1, &dotProd, vDSP_Length(frameCount))
+            vDSP_svesq(newSamples, 1, &sumSqL, vDSP_Length(frameCount))
+            vDSP_svesq(newSamples, 1, &sumSqR, vDSP_Length(frameCount))
+            phase = dotProd / (sqrt(sumSqL * sumSqR) + 1e-9)
+        }
+
+        processSamples(newSamples)
+        
+        // Update Phase on Main Thread
+        if channels > 1 {
+            DispatchQueue.main.async {
+                self.currentStereoPhase = phase
+            }
+        }
+    }
+    
+    func processExternalAudio(_ samples: [Float]) {
+        processSamples(samples)
+    }
+    
+    private func processSamples(_ newSamples: [Float]) {
         // DEBUG: Signalstärke prüfen (RMS)
         var rms: Float = 0
         // Prüfe nur die neuen Samples auf Stille
         vDSP_rmsqv(newSamples, 1, &rms, vDSP_Length(newSamples.count))
         let signalDB = 20 * log10(rms + 1e-9) // + Epsilon um log(0) zu vermeiden
+        let peakVal = newSamples.max() ?? 0
+        let peakDB = 20 * log10(abs(peakVal) + 1e-9)
 
         // DEBUG: Signalstärke ausgeben (gedrosselt)
         debugPrintCounter += 1
         if debugPrintCounter % 240 == 0 { // Seltener loggen da 8x mehr Updates
-            print("🎤 Signalstärke: \(String(format: "%.1f", signalDB)) dB")
+            let minSample = newSamples.min() ?? 0
+            let maxSample = newSamples.max() ?? 0
+            print("[AudioEngine] Input RMS: \(String(format: "%.1f", signalDB)) dB, Samples: [\(String(format: "%.3f", minSample)) ... \(String(format: "%.3f", maxSample))]")
         }
         
         if signalDB < -120 {
             if !hasLoggedSilence {
-                print("⚠️ Audio-Buffer ist still/leer: \(String(format: "%.1f", signalDB)) dB (Prüfe Berechtigungen)")
+                print("[AudioEngine] WARNING: Audio buffer silent/empty: \(String(format: "%.1f", signalDB)) dB (Check permissions)")
                 hasLoggedSilence = true
             }
         }
@@ -245,8 +307,12 @@ class AudioEngine: ObservableObject {
             if debugPrintCounter % 240 == 0 {
                 let minMag = fftResult.magnitudes.min() ?? 0
                 let maxMag = fftResult.magnitudes.max() ?? 0
-                print("📊 FFT Output (dB): min=\(String(format: "%.1f", minMag)), max=\(String(format: "%.1f", maxMag))")
+                print("[AudioEngine] FFT Processed (dB): min=\(String(format: "%.1f", minMag)), max=\(String(format: "%.1f", maxMag))")
             }
+            
+            // Calculate 1/3 Octave Bands
+            let octaveBands = calculateOctaveBands(frequencies: fftResult.frequencies, magnitudes: fftResult.magnitudes)
+            let spectrum = fftResult.magnitudes // Raw spectrum
 
             // 2. Freie Aggregation mit binningFactor
             let (bandFreqs, bandMags) = aggregateByBinningFactor(
@@ -257,9 +323,28 @@ class AudioEngine: ObservableObject {
             // 3. Zeitliche Glättung (Verwischung)
             let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
 
+            // 4. Calculate Broadband Level (LAF approximation)
+            // Sum energy from FFT bins (Parseval's theorem approximation)
+            // Note: This uses the weighted magnitudes from performFFT
+            var frameEnergy: Float = 0.0
+            for magDB in fftResult.magnitudes {
+                frameEnergy += pow(10.0, magDB / 10.0)
+            }
+            
+            // Apply Fast Time Weighting (125ms)
+            // Update rate = sampleRate / scrollSpeed
+            // dt = scrollSpeed / sampleRate
+            // alpha = 1 - exp(-dt / 0.125)
+            let dt = Float(scrollSpeed.rawValue) / Float(sampleRate)
+            let alpha = 1.0 - exp(-dt / 0.125)
+            
+            lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
+            let broadbandLevel = 10.0 * log10(lafEnergy + 1e-12)
+
             let spectrogramData = SpectrogramData(
                 frequencies: bandFreqs,
                 magnitudes: smoothedMagnitudes,
+                broadbandLevel: broadbandLevel,
                 sampleRate: sampleRate
             )
 
@@ -269,6 +354,11 @@ class AudioEngine: ObservableObject {
                 }
 
                 self.currentSpectrogramData = spectrogramData
+                
+                self.currentOctaveBands = octaveBands
+                self.currentSpectrum = spectrum
+                self.currentPeakLevel = peakDB
+                self.currentLevel = broadbandLevel // Use LAF as main level
                 
                 // PERFORMANCE: Throttle Watch updates to ~10 FPS to reduce main thread latency
                 let now = Date().timeIntervalSince1970
@@ -284,7 +374,6 @@ class AudioEngine: ObservableObject {
     }
 
     private func performFFT(on samples: [Float]) -> (frequencies: [Float], magnitudes: [Float]) {
-        let n = vDSP_Length(fftSize)
 
         // Reset imaginary parts (wichtig, da Puffer wiederverwendet werden)
         vDSP_vclr(&imagIn, 1, vDSP_Length(fftSize))
@@ -426,6 +515,54 @@ class AudioEngine: ObservableObject {
         previousBandMagnitudes = smoothed
         return smoothed
     }
+    
+    // MARK: - 1/3 Octave Band Calculation
+    
+    private func calculateOctaveBands(frequencies: [Float], magnitudes: [Float]) -> [Float] {
+        // Standard 1/3 Octave Center Frequencies
+        let centerFreqs: [Float] = [
+            20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
+            1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
+        ]
+        
+        var bands = [Float](repeating: -120.0, count: centerFreqs.count)
+        
+        // Simple mapping: Find max magnitude in the band range
+        // Band edges are approx +/- 11% of center freq
+        for (i, center) in centerFreqs.enumerated() {
+            let lower = center * 0.89
+            let upper = center * 1.12
+            
+            // Find indices in FFT
+            // Assuming linear frequency distribution from 0 to Nyquist
+            // Index = Freq / Resolution
+            // Resolution = Nyquist / (magnitudes.count)
+            let nyquist = Float(sampleRate / 2.0)
+            let resolution = nyquist / Float(magnitudes.count)
+            
+            let startIdx = Int(lower / resolution)
+            let endIdx = Int(upper / resolution)
+            
+            if startIdx < magnitudes.count {
+                let safeEnd = min(endIdx, magnitudes.count - 1)
+                if startIdx <= safeEnd {
+                    // Energy Sum (Power)
+                    var energySum: Float = 0.0
+                    for j in startIdx...safeEnd {
+                        energySum += pow(10.0, magnitudes[j] / 10.0)
+                    }
+                    // Average energy in band or Sum? Standard is Sum for bands.
+                    // But magnitudes are already somewhat normalized. Let's take Max for peak visualization or Sum for energy.
+                    // Let's use Max for cleaner visualization in this context, or Sum for correct physics.
+                    // Using Max to avoid "noise accumulation" in display for now.
+                    // Actually, let's use a safe max to represent the peak in that band.
+                    let bandMax = magnitudes[startIdx...safeEnd].max() ?? -120.0
+                    bands[i] = bandMax
+                }
+            }
+        }
+        return bands
+    }
 
     // MARK: - Dummy-Daten
 
@@ -483,6 +620,7 @@ class AudioEngine: ObservableObject {
         let data = SpectrogramData(
             frequencies: bandFreqs,
             magnitudes: smoothed,
+            broadbandLevel: -40.0 + Float.random(in: -5...5),
             sampleRate: sampleRate
         )
 

@@ -442,6 +442,7 @@
 				DEVELOPMENT_TEAM = 8B6UH762R2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SpektoWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = BrandtAcoustics.SpektoWatch2;
@@ -475,6 +476,7 @@
 				DEVELOPMENT_TEAM = 8B6UH762R2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SpektoWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = BrandtAcoustics.SpektoWatch2;

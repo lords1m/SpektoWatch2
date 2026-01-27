@@ -8,24 +8,8 @@ struct WatchContentView: View {
     var body: some View {
         VStack(spacing: 8) {
             WatchSpectrogramView()
+                .environmentObject(audioEngine)
                 .frame(maxHeight: .infinity)
-
-            if connectivityManager.selectedMicrophoneSource == .appleWatch {
-                Button(action: toggleRecording) {
-                    HStack {
-                        Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                        Text(isRecording ? "Stop" : "Start")
-                            .font(.caption)
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .background(isRecording ? Color.red : Color.green)
-                    .cornerRadius(20)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 4)
-            }
         }
     }
 

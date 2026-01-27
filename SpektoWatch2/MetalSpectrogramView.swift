@@ -97,7 +97,7 @@ struct MetalSpectrogramWithAxes: View {
                 }
             }
         }
-        .onChange(of: audioEngine.recordingDuration) { newDuration in
+        .onChange(of: audioEngine.recordingDuration) { _, newDuration in
             // Reset the metal view when recording restarts (duration goes to 0)
             if newDuration < previousRecordingDuration && newDuration < 1.0 {
                 metalView?.resetRecording()
