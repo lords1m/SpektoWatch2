@@ -32,70 +32,7 @@ struct ModularDashboardView: View {
             // Scrollable Grid
             GeometryReader { geo in
                 ScrollView {
-                if dashboardManager.widgets.isEmpty {
-                    VStack(spacing: 20) {
-                        Image(systemName: "waveform.circle.fill")
-                            .font(.system(size: 80))
-                            .foregroundColor(.gray.opacity(0.5))
-                        Text("Keine Widgets")
-                            .font(.title2)
-                            .foregroundColor(.gray)
-                        Button(action: { showWidgetPicker = true }) {
-                            Label("Widget hinzufügen", systemImage: "plus.circle.fill")
-                                .padding()
-                                .background(Color.blue)
-                                .cornerRadius(10)
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
-                    .padding(.top, 50)
-                } else {
-                    let colCount = max(1, Int(geo.size.width / 160))
-                    let rows = computeRows(widgets: dashboardManager.widgets, columns: colCount)
-                    let columnWidth = (geo.size.width - CGFloat(colCount - 1) * 12) / CGFloat(colCount)
-                    
-                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-                        ForEach(0..<rows.count, id: \.self) { rowIndex in
-                            GridRow {
-                                ForEach(rows[rowIndex]) { widget in
-                                    let span = getSpan(for: widget, colCount: colCount)
-                                    
-                                    WidgetCardView(
-                                        widget: widget,
-                                        audioEngine: audioEngine,
-                                        isEditMode: dashboardManager.isEditMode,
-                                        columnWidth: columnWidth,
-                                        onDelete: { 
-                                            print("[ModularDashboardView] Delete requested for widget: \(widget.id)")
-                                            withAnimation(.spring()) {
-                                                dashboardManager.removeWidget(id: widget.id)
-                                            }
-                                        },
-                                        onResize: { newSize in 
-                                            print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
-                                            withAnimation(.spring()) {
-                                                dashboardManager.resizeWidget(id: widget.id, to: newSize)
-                                            }
-                                        },
-                                        onUpdateSettings: { newSettings in
-                                            dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
-                                        }
-                                    )
-                                    .gridCellColumns(span)
-                                    .onDrag {
-                                        self.draggedWidget = widget
-                                        return NSItemProvider(object: widget.id.uuidString as NSString)
-                                    }
-                                    .onDrop(of: [UTType.text], delegate: WidgetDropDelegate(item: widget, items: $dashboardManager.widgets, draggedItem: $draggedWidget, onSave: dashboardManager.saveConfiguration))
-                                    .transition(WidgetAnimations.cardTransition)
-                                }
-                            }
-                        }
-                    }
-                    .padding()
-                }
+                    dashboardGrid(geo: geo)
                 }
             }
             
@@ -111,8 +48,8 @@ struct ModularDashboardView: View {
                 selectedMicrophoneSource: $selectedMicrophoneSource,
                 selectedColormap: $dummyColormap, // Hat im Dashboard keine globale Auswirkung
                 sensitivity: $sensitivity,
-                timeWeighting: $audioEngine.selectedTimeWeighting,
-                frequencyWeighting: $audioEngine.selectedFrequencyWeighting,
+                timeWeighting: $audioEngine.timeWeighting,
+                frequencyWeighting: $audioEngine.frequencyWeighting,
                 timeSpan: $dummyTimeSpan, // Hat im Dashboard keine globale Auswirkung
                 scrollSpeed: $audioEngine.scrollSpeed,
                 watchGain: $watchGain,
@@ -134,6 +71,74 @@ struct ModularDashboardView: View {
         }
         .onChange(of: dashboardManager.isEditMode) { newValue in
             print("[ModularDashboardView] Edit mode changed: \(newValue)")
+        }
+    }
+    
+    @ViewBuilder
+    private func dashboardGrid(geo: GeometryProxy) -> some View {
+        if dashboardManager.widgets.isEmpty {
+            VStack(spacing: 20) {
+                Image(systemName: "waveform.circle.fill")
+                    .font(.system(size: 80))
+                    .foregroundColor(.gray.opacity(0.5))
+                Text("Keine Widgets")
+                    .font(.title2)
+                    .foregroundColor(.gray)
+                Button(action: { showWidgetPicker = true }) {
+                    Label("Widget hinzufügen", systemImage: "plus.circle.fill")
+                        .padding()
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                        .foregroundColor(.white)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
+            .padding(.top, 50)
+        } else {
+            let colCount = max(1, Int(geo.size.width / 160))
+            let rows = computeRows(widgets: dashboardManager.widgets, columns: colCount)
+            let columnWidth = (geo.size.width - CGFloat(colCount - 1) * 12) / CGFloat(colCount)
+            
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                ForEach(0..<rows.count, id: \.self) { rowIndex in
+                    GridRow {
+                        ForEach(rows[rowIndex]) { widget in
+                            let span = getSpan(for: widget, colCount: colCount)
+                            
+                            WidgetCardView(
+                                widget: widget,
+                                audioEngine: audioEngine,
+                                isEditMode: dashboardManager.isEditMode,
+                                columnWidth: columnWidth,
+                                onDelete: {
+                                    print("[ModularDashboardView] Delete requested for widget: \(widget.id)")
+                                    withAnimation(.spring()) {
+                                        dashboardManager.removeWidget(id: widget.id)
+                                    }
+                                },
+                                onResize: { newSize in
+                                    print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
+                                    withAnimation(.spring()) {
+                                        dashboardManager.resizeWidget(id: widget.id, to: newSize)
+                                    }
+                                },
+                                onUpdateSettings: { newSettings in
+                                    dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+                                }
+                            )
+                            .gridCellColumns(span)
+                            .onDrag {
+                                self.draggedWidget = widget
+                                return NSItemProvider(object: widget.id.uuidString as NSString)
+                            }
+                            .onDrop(of: [UTType.text], delegate: WidgetDropDelegate(item: widget, items: $dashboardManager.widgets, draggedItem: $draggedWidget, onSave: dashboardManager.saveConfiguration))
+                            .transition(WidgetAnimations.cardTransition)
+                        }
+                    }
+                }
+            }
+            .padding()
         }
     }
     
