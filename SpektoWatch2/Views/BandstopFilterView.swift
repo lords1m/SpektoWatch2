@@ -116,7 +116,7 @@ struct FrequencyRangeSlider: View {
                             }
                     )
                 
-                // Low Frequency Thumb - GRÖßER & BESSER SICHTBAR
+                // Low Frequency Thumb - GRÖSSER & BESSER SICHTBAR
                 Circle()
                     .fill(
                         LinearGradient(
@@ -152,7 +152,7 @@ struct FrequencyRangeSlider: View {
                             }
                     )
                 
-                // High Frequency Thumb - GRÖßER & BESSER SICHTBAR
+                // High Frequency Thumb - GRÖSSER & BESSER SICHTBAR
                 Circle()
                     .fill(
                         LinearGradient(
@@ -195,10 +195,10 @@ struct FrequencyRangeSlider: View {
     // LOGARITHMISCHE SKALIERUNG
     private func frequencyToPosition(_ frequency: Float, width: CGFloat) -> Float {
         if useLogScale {
-            let minLog = log10(range.lowerBound)
-            let maxLog = log10(range.upperBound)
-            let freqLog = log10(max(range.lowerBound, min(range.upperBound, frequency)))
-            let normalized = (freqLog - minLog) / (maxLog - minLog)
+            let minLog = log10(Double(range.lowerBound))
+            let maxLog = log10(Double(range.upperBound))
+            let freqLog = log10(Double(max(range.lowerBound, min(range.upperBound, frequency))))
+            let normalized = Float((freqLog - minLog) / (maxLog - minLog))
             return Float(width) * normalized
         } else {
             let normalized = (frequency - range.lowerBound) / (range.upperBound - range.lowerBound)
@@ -210,10 +210,10 @@ struct FrequencyRangeSlider: View {
         let normalized = position / Float(width)
         
         if useLogScale {
-            let minLog = log10(range.lowerBound)
-            let maxLog = log10(range.upperBound)
-            let freqLog = minLog + normalized * (maxLog - minLog)
-            return pow(10, freqLog)
+            let minLog = log10(Double(range.lowerBound))
+            let maxLog = log10(Double(range.upperBound))
+            let freqLog = minLog + Double(normalized) * (maxLog - minLog)
+            return Float(pow(10, freqLog))
         } else {
             return range.lowerBound + normalized * (range.upperBound - range.lowerBound)
         }
@@ -538,7 +538,7 @@ struct BandstopVisualizationView: View {
     private func logPosition(for frequency: Float, width: CGFloat) -> CGFloat {
         let minLog = log10(20.0)
         let maxLog = log10(20000.0)
-        let freqLog = log10(max(20, min(20000, frequency)))
+        let freqLog = log10(Double(max(20, min(20000, frequency))))
         let normalized = (freqLog - minLog) / (maxLog - minLog)
         return CGFloat(normalized) * width
     }
