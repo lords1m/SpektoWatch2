@@ -63,12 +63,6 @@ struct ControlBarView: View {
             Color(UIColor.systemBackground)
                 .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -2)
         )
-        .onReceive(NotificationCenter.default.publisher(for: .startRecordingCommand)) { _ in
-            if !isRecording { toggleRecording() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .stopRecordingCommand)) { _ in
-            if isRecording { toggleRecording() }
-        }
     }
     
     private func toggleRecording() {
@@ -90,10 +84,4 @@ struct ControlBarView: View {
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
-}
-
-// Notification Extensions
-extension Notification.Name {
-    static let startRecordingCommand = Notification.Name("startRecordingCommand")
-    static let stopRecordingCommand = Notification.Name("stopRecordingCommand")
 }
