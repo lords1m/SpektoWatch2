@@ -30,11 +30,17 @@ enum ScrollSpeed: Int, CaseIterable {
     }
 }
 
-enum EngineStatus {
+enum EngineStatus: Equatable {
     case idle
     case starting
     case running
     case error(String)
+}
+
+enum StereoInputMode: String, CaseIterable {
+    case bottomBack = "Unten / Hinten"
+    case frontBack = "Vorne / Hinten"
+    case frontBottom = "Vorne / Unten"
 }
 
 class AudioEngine: ObservableObject {
@@ -55,6 +61,8 @@ class AudioEngine: ObservableObject {
 
     // Recording time tracking
     private var recordingStartTime: Date?
+    private var audioFile: AVAudioFile?
+    var lastRecordingURL: URL?
 
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var engineStatus: EngineStatus = .idle
@@ -97,6 +105,21 @@ class AudioEngine: ObservableObject {
     private var currentTaktMax: Float = -1000.0
     private var lastTaktTime: TimeInterval = 0
     private var taktValues: [Float] = []
+    
+    // Microphone Selection
+    @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
+    @Published var selectedDataSource: AVAudioSessionDataSourceDescription? {
+        didSet {
+            if let dataSource = selectedDataSource, engineStatus == .running {
+                try? AVAudioSession.sharedInstance().setInputDataSource(dataSource)
+            }
+        }
+    }
+    @Published var selectedStereoMode: StereoInputMode = .frontBottom {
+        didSet {
+            applyStereoMode()
+        }
+    }
 
     // === Flexible Bandbildungs-Parameter ===
 
@@ -274,6 +297,27 @@ class AudioEngine: ObservableObject {
             }
 
             try audioSession.setActive(true)
+            
+            // Configure Microphone Data Source (Front/Back/Bottom)
+            if let inputs = audioSession.availableInputs,
+               let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
+                try audioSession.setPreferredInput(builtInMic)
+                
+                // Update available sources
+                DispatchQueue.main.async {
+                    self.availableDataSources = builtInMic.dataSources ?? []
+                    
+                    // Select default if none selected
+                    if self.selectedDataSource == nil {
+                        self.selectedDataSource = audioSession.inputDataSource ?? self.availableDataSources.first
+                    }
+                }
+                
+                // Apply selection
+                if let source = self.selectedDataSource {
+                    try audioSession.setInputDataSource(source)
+                }
+            }
 
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -284,6 +328,11 @@ class AudioEngine: ObservableObject {
                 engineStatus = .running
                 return
             }
+
+            // Setup Audio File for Recording
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
+            self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
+            self.lastRecordingURL = tempURL
 
             inputNode.installTap(onBus: 0, bufferSize: tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
@@ -304,6 +353,7 @@ class AudioEngine: ObservableObject {
     func stopRecording() {
         print("[AudioEngine] Stop")
         recordingStartTime = nil
+        audioFile = nil // Close file
         engineStatus = .idle
 
         #if targetEnvironment(simulator)
@@ -323,12 +373,62 @@ class AudioEngine: ObservableObject {
             self.currentLevel = -120.0
         }
     }
+    
+    func checkAvailableInputs() {
+        let session = AVAudioSession.sharedInstance()
+        if let inputs = session.availableInputs,
+           let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
+            DispatchQueue.main.async {
+                self.availableDataSources = builtInMic.dataSources ?? []
+                if self.selectedDataSource == nil {
+                    self.selectedDataSource = session.inputDataSource ?? self.availableDataSources.first
+                }
+            }
+        }
+    }
+    
+    func applyStereoMode() {
+        guard !availableDataSources.isEmpty else { return }
+        
+        var targetOrientation: AVAudioSession.Orientation?
+        
+        switch selectedStereoMode {
+        case .frontBottom:
+            targetOrientation = .front
+        case .bottomBack:
+            targetOrientation = .back
+        case .frontBack:
+            targetOrientation = .bottom
+        }
+        
+        if let targetOrientation = targetOrientation,
+           let source = availableDataSources.first(where: { $0.orientation == targetOrientation }) {
+            
+            // Set stereo if supported
+            if let supported = source.supportedPolarPatterns, supported.contains(.stereo) {
+                try? source.setPreferredPolarPattern(.stereo)
+            }
+            
+            // Update selectedDataSource
+            DispatchQueue.main.async {
+                if self.selectedDataSource?.dataSourceID != source.dataSourceID {
+                    self.selectedDataSource = source
+                }
+            }
+        }
+    }
 
     // MARK: - Audio Processing
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
+        
+        // Write to file
+        if let audioFile = audioFile {
+            try? audioFile.write(from: buffer)
+        }
+        
         let channels = Int(buffer.format.channelCount)
         
         // Channel 0 (Left/Mono)

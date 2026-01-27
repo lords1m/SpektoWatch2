@@ -7,6 +7,14 @@ struct ModularDashboardView: View {
     @State private var showWidgetPicker = false
     @State private var draggedWidget: WidgetConfiguration?
     
+    // Global Settings State
+    @State private var showSettings = false
+    @State private var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    @State private var sensitivity: Double = 10.0
+    @State private var watchGain: Float = 1.0
+    @State private var dummyColormap: Int = 0 // Nur für Binding-Kompatibilität
+    @State private var dummyTimeSpan: SpectrogramTimeSpan = .seconds5 // Nur für Binding-Kompatibilität
+    
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -15,6 +23,9 @@ struct ModularDashboardView: View {
                 onAddWidget: { 
                     print("[ModularDashboardView] Add widget button tapped")
                     showWidgetPicker = true 
+                },
+                onShowSettings: {
+                    showSettings = true
                 }
             )
             
@@ -95,12 +106,52 @@ struct ModularDashboardView: View {
         .sheet(isPresented: $showWidgetPicker) {
             WidgetPickerView(dashboardManager: dashboardManager)
         }
+        .sheet(isPresented: $showSettings) {
+            SpectrogramSettingsView(
+                selectedMicrophoneSource: $selectedMicrophoneSource,
+                selectedColormap: $dummyColormap, // Hat im Dashboard keine globale Auswirkung
+                sensitivity: $sensitivity,
+                timeWeighting: $audioEngine.selectedTimeWeighting,
+                frequencyWeighting: $audioEngine.selectedFrequencyWeighting,
+                timeSpan: $dummyTimeSpan, // Hat im Dashboard keine globale Auswirkung
+                scrollSpeed: $audioEngine.scrollSpeed,
+                watchGain: $watchGain,
+                audioEngine: audioEngine
+            )
+        }
+        .onChange(of: selectedMicrophoneSource) { _, newSource in
+            handleMicrophoneSourceChange(newSource)
+        }
+        .onChange(of: sensitivity) { _, newVal in
+            audioEngine.setGainBoost(Float(newVal))
+        }
+        .onChange(of: watchGain) { _, newValue in
+            WatchConnectivityManager.shared.sendGainValue(newValue)
+        }
         .onAppear {
             // Ensure audio engine is ready or started if needed
             print("[ModularDashboardView] View appeared. Widgets count: \(dashboardManager.widgets.count)")
         }
         .onChange(of: dashboardManager.isEditMode) { newValue in
             print("[ModularDashboardView] Edit mode changed: \(newValue)")
+        }
+    }
+    
+    private func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {
+        let connectivityManager = WatchConnectivityManager.shared
+        connectivityManager.selectedMicrophoneSource = newSource
+        connectivityManager.sendMicrophoneSourceSelection(newSource)
+        
+        if audioEngine.engineStatus == .running {
+            audioEngine.stopRecording()
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if newSource == .iPhone {
+                    audioEngine.startRecording()
+                } else {
+                    connectivityManager.requestRecordingStart()
+                }
+            }
         }
     }
     

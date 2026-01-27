@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
@@ -9,8 +10,10 @@ struct SpectrogramSettingsView: View {
     @Binding var timeSpan: SpectrogramTimeSpan
     @Binding var scrollSpeed: ScrollSpeed
     @Binding var watchGain: Float
+    @ObservedObject var audioEngine: AudioEngine
     
     @Environment(\.dismiss) var dismiss
+    @State private var isStereo = false
 
     var body: some View {
         NavigationView {
@@ -23,6 +26,27 @@ struct SpectrogramSettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    
+                    if selectedMicrophoneSource == .iPhone && !audioEngine.availableDataSources.isEmpty {
+                        Picker("Aufnahmemodus", selection: $isStereo) {
+                            Text("Mono").tag(false)
+                            Text("Stereo").tag(true)
+                        }
+                        
+                        if isStereo {
+                            Picker("Stereo-Konfiguration", selection: $audioEngine.selectedStereoMode) {
+                                ForEach(StereoInputMode.allCases, id: \.self) { mode in
+                                    Text(mode.rawValue).tag(mode)
+                                }
+                            }
+                        } else {
+                            Picker("Mikrofon", selection: $audioEngine.selectedDataSource) {
+                                ForEach(audioEngine.availableDataSources, id: \.dataSourceID) { source in
+                                    Text(source.dataSourceName).tag(source as AVAudioSessionDataSourceDescription?)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if selectedMicrophoneSource == .appleWatch {
@@ -95,6 +119,14 @@ struct SpectrogramSettingsView: View {
                         dismiss()
                     }
                 }
+            }
+        }
+        .onAppear {
+            audioEngine.checkAvailableInputs()
+        }
+        .onChange(of: isStereo) { _, newValue in
+            if newValue {
+                audioEngine.applyStereoMode()
             }
         }
     }

@@ -3,6 +3,7 @@ import SwiftUI
 struct DashboardHeaderView: View {
     @Binding var isEditMode: Bool
     var onAddWidget: () -> Void
+    var onShowSettings: () -> Void
     
     var body: some View {
         VStack(spacing: 0) {
@@ -12,6 +13,15 @@ struct DashboardHeaderView: View {
                     .bold()
                 
                 Spacer()
+                
+                if !isEditMode {
+                    Button(action: onShowSettings) {
+                        Image(systemName: "gear")
+                            .font(.title2)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.trailing, 16)
+                }
                 
                 if isEditMode {
                     Button(action: onAddWidget) {

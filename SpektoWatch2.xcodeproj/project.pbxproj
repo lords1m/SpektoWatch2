@@ -39,9 +39,22 @@
 		3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SpektoWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Managers/RecordingManager.swift,
+			);
+			target = 3795235A2F2234F90079C93F /* SpektoWatch2 */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3795235D2F2234F90079C93F /* SpektoWatch2 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */,
+			);
 			path = SpektoWatch2;
 			sourceTree = "<group>";
 		};

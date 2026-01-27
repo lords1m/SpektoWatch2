@@ -1,13 +1,16 @@
 import SwiftUI
 import AVFoundation
+import Combine
 
 struct RecordingDetailView: View {
     @Environment(\.dismiss) var dismiss
-    let recording: Recording
+    let recording: AudioRecording
     
     @StateObject private var audioPlayer = AudioPlayerManager()
+    @StateObject private var vizAudioEngine = AudioEngine()
     @State private var showEditSheet = false
     @State private var showShareSheet = false
+    @State private var isDraggingSlider = false
     
     var body: some View {
         NavigationView {
@@ -33,7 +36,7 @@ struct RecordingDetailView: View {
                 .padding()
             }
             .background(Color(UIColor.systemGroupedBackground))
-            .navigationTitle(recording.name)
+            .navigationTitle(recording.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -58,8 +61,11 @@ struct RecordingDetailView: View {
             }
         }
         .onAppear {
-            let url = RecordingManager.shared.getAudioURL(for: recording)
+            let url = recording.url
             audioPlayer.loadAudio(url: url)
+            audioPlayer.onAudioSamples = { samples in
+                vizAudioEngine.processExternalAudio(samples)
+            }
         }
         .onDisappear {
             audioPlayer.stop()
@@ -74,7 +80,7 @@ struct RecordingDetailView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.blue)
             
-            Text(recording.name)
+            Text(recording.title)
                 .font(.title2)
                 .fontWeight(.bold)
                 .multilineTextAlignment(.center)
@@ -93,16 +99,11 @@ struct RecordingDetailView: View {
     
     private var audioPlayerCard: some View {
         VStack(spacing: 16) {
-            // Waveform-Symbol (Platzhalter für spätere Waveform-Darstellung)
-            Rectangle()
-                .fill(Color.blue.opacity(0.1))
-                .frame(height: 60)
-                .overlay(
-                    Image(systemName: "waveform")
-                        .font(.largeTitle)
-                        .foregroundColor(.blue.opacity(0.3))
-                )
-                .cornerRadius(8)
+            // Spectrogram Visualization
+            HighEndSpectrogramAdapterWithAxes(audioEngine: vizAudioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
+                .frame(height: 200)
+                .background(Color.black)
+                .cornerRadius(12)
             
             // Playback Controls
             HStack(spacing: 20) {
@@ -139,15 +140,22 @@ struct RecordingDetailView: View {
             VStack(spacing: 4) {
                 Slider(
                     value: Binding(
-                        get: { audioPlayer.currentTime },
-                        set: { audioPlayer.seek(to: $0) }
+                        get: { isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime },
+                        set: { 
+                            audioPlayer.scrubTime = $0
+                            audioPlayer.seek(to: $0)
+                        }
                     ),
-                    in: 0...max(audioPlayer.duration, 0.1)
+                    in: 0...max(audioPlayer.duration, 0.1),
+                    onEditingChanged: { editing in
+                        isDraggingSlider = editing
+                        if editing { audioPlayer.beginScrubbing() } else { audioPlayer.endScrubbing() }
+                    }
                 )
                 .disabled(!audioPlayer.isLoaded)
                 
                 HStack {
-                    Text(formatTime(audioPlayer.currentTime))
+                    Text(formatTime(isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime))
                         .font(.caption)
                         .monospacedDigit()
                     Spacer()
@@ -257,16 +265,50 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isLoaded = false
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
+    @Published var scrubTime: TimeInterval = 0
     
-    private var audioPlayer: AVAudioPlayer?
+    var onAudioSamples: (([Float]) -> Void)?
+    
+    private var engine = AVAudioEngine()
+    private var playerNode = AVAudioPlayerNode()
+    private var audioFile: AVAudioFile?
     private var updateTimer: Timer?
+    private var seekFrame: AVAudioFramePosition = 0
+    private var sampleRate: Double = 44100.0
+    private var wasPlayingBeforeScrub = false
+    private let processingQueue = DispatchQueue(label: "com.spektowatch.audioprocessing", qos: .userInteractive)
+    
+    override init() {
+        super.init()
+        setupEngine()
+    }
+    
+    private func setupEngine() {
+        engine.attach(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
+        
+        // Install tap for visualization
+        engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            guard let self = self, self.isPlaying else { return }
+            guard let channelData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+            
+            // WICHTIG: Nicht auf Main Thread dispatchen!
+            // AudioEngine.processExternalAudio ist thread-safe und dispatched UI-Updates selbst.
+            self.processingQueue.async {
+                self.onAudioSamples?(samples)
+            }
+        }
+    }
     
     func loadAudio(url: URL) {
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.delegate = self
-            audioPlayer?.prepareToPlay()
-            duration = audioPlayer?.duration ?? 0
+            audioFile = try AVAudioFile(forReading: url)
+            if let file = audioFile {
+                sampleRate = file.processingFormat.sampleRate
+                duration = Double(file.length) / sampleRate
+            }
             isLoaded = true
             print("[AudioPlayerManager] Audio loaded: \(url.lastPathComponent)")
         } catch {
@@ -275,38 +317,109 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func play() {
-        audioPlayer?.play()
+        guard let file = audioFile, !isPlaying else { return }
+        
+        // Configure Audio Session for Playback
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("[AudioPlayerManager] Session error: \(error)")
+        }
+        
+        if !engine.isRunning {
+            try? engine.start()
+        }
+        
+        // Schedule remaining frames
+        let remainingFrames = AVAudioFrameCount(file.length - seekFrame)
+        if remainingFrames > 0 {
+            playerNode.scheduleSegment(file, startingFrame: seekFrame, frameCount: remainingFrames, at: nil) {
+                DispatchQueue.main.async {
+                    if self.isPlaying {
+                        self.stop() // Auto-stop at end
+                    }
+                }
+            }
+        }
+        
+        playerNode.play()
         isPlaying = true
         startTimer()
     }
     
     func pause() {
-        audioPlayer?.pause()
+        playerNode.pause()
         isPlaying = false
         stopTimer()
+        
+        // Store current position roughly
+        // Note: Precise pausing with AVAudioEngine requires more complex node time calculation
+        // For this simple player, we rely on the timer's last value
+        seekFrame = AVAudioFramePosition(currentTime * sampleRate)
     }
     
     func stop() {
-        audioPlayer?.stop()
-        audioPlayer?.currentTime = 0
+        playerNode.stop()
+        engine.stop()
         isPlaying = false
         currentTime = 0
+        seekFrame = 0
         stopTimer()
     }
     
+    func beginScrubbing() {
+        wasPlayingBeforeScrub = isPlaying
+        if isPlaying {
+            playerNode.pause()
+            stopTimer()
+        }
+    }
+    
+    func endScrubbing() {
+        if wasPlayingBeforeScrub {
+            play()
+        }
+    }
+    
     func seek(to time: TimeInterval) {
-        audioPlayer?.currentTime = time
+        // Nur seeken, wenn wir nicht gerade aktiv abspielen (wird durch beginScrubbing pausiert)
+        // oder wenn wir programmgesteuert springen
+        if isPlaying {
+            playerNode.stop()
+        }
+        
         currentTime = time
+        scrubTime = time
+        seekFrame = AVAudioFramePosition(time * sampleRate)
+        
+        if isPlaying {
+            play()
+        }
     }
     
     func seek(by offset: TimeInterval) {
-        let newTime = (audioPlayer?.currentTime ?? 0) + offset
+        let newTime = currentTime + offset
         seek(to: max(0, min(newTime, duration)))
     }
     
     private func startTimer() {
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.currentTime = self?.audioPlayer?.currentTime ?? 0
+        stopTimer()
+        // Schnellerer Timer für flüssigere UI (0.03s = ~30fps)
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+            guard let self = self, self.isPlaying else { return }
+            
+            // Präzisere Zeitberechnung basierend auf Node Time
+            if let nodeTime = self.playerNode.lastRenderTime,
+               let playerTime = self.playerNode.playerTime(forNodeTime: nodeTime) {
+                let currentFrame = self.seekFrame + playerTime.sampleTime
+                self.currentTime = Double(currentFrame) / self.sampleRate
+            } else {
+                // Fallback
+                if self.currentTime < self.duration {
+                    self.currentTime += 0.03
+                }
+            }
         }
     }
     
@@ -317,8 +430,6 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     // AVAudioPlayerDelegate
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        isPlaying = false
-        currentTime = 0
-        stopTimer()
+        // Handled in scheduleSegment completion
     }
 }

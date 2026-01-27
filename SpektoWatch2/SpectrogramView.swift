@@ -58,7 +58,8 @@ struct SpectrogramView: View {
                     frequencyWeighting: $frequencyWeighting,
                     timeSpan: $timeSpan,
                     scrollSpeed: $audioEngine.scrollSpeed,
-                    watchGain: $watchGain
+                    watchGain: $watchGain,
+                    audioEngine: audioEngine
                 )
             }
             .onChange(of: selectedMicrophoneSource) { _, newSource in
