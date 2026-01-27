@@ -2,10 +2,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ModularDashboardView: View {
-    @StateObject private var audioEngine = AudioEngine()
+    // Flexible AudioEngine: Entweder von außen übergeben oder intern erstellt
+    @ObservedObject var audioEngine: AudioEngine
     @StateObject private var dashboardManager = DashboardManager()
     @State private var showWidgetPicker = false
     @State private var draggedWidget: WidgetConfiguration?
+    
+    // Initializer: Optional audioEngine Parameter
+    init(audioEngine: AudioEngine? = nil) {
+        self.audioEngine = audioEngine ?? AudioEngine()
+    }
     
     // Flexibles Grid: 2 Spalten für bessere Größe
     var columns: [GridItem] {
