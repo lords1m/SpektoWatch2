@@ -17,7 +17,7 @@ struct ModularDashboardView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header - FIXED TOP
             DashboardHeaderView(
                 isEditMode: $dashboardManager.isEditMode,
                 onAddWidget: {
@@ -26,11 +26,12 @@ struct ModularDashboardView: View {
                 }
             )
             
-            // Scrollable Grid
+            // Scrollable Content Area - FLEXIBLE MIDDLE
             ScrollView {
                 if dashboardManager.widgets.isEmpty {
                     // Empty State
                     VStack(spacing: 20) {
+                        Spacer(minLength: 100)
                         Image(systemName: "waveform.circle.fill")
                             .font(.system(size: 80))
                             .foregroundColor(.gray.opacity(0.5))
@@ -44,11 +45,11 @@ struct ModularDashboardView: View {
                                 .cornerRadius(10)
                                 .foregroundColor(.white)
                         }
+                        Spacer(minLength: 150)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 100)
                 } else {
-                    // Widget Grid - KORRIGIERT
+                    // Widget Grid
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(dashboardManager.widgets) { widget in
                             WidgetCardView(
@@ -90,11 +91,14 @@ struct ModularDashboardView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
+                    .padding(.bottom, 16) // Abstand zum Footer
                 }
             }
+            .frame(maxHeight: .infinity) // ScrollView nimmt verfügbaren Platz
             
-            // Control Bar
+            // Control Bar - FIXED BOTTOM
             ControlBarView(audioEngine: audioEngine)
+                .background(Color(UIColor.systemBackground))
         }
         .sheet(isPresented: $showWidgetPicker) {
             WidgetPickerView(dashboardManager: dashboardManager)
