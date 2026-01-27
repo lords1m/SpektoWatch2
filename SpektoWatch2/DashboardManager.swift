@@ -6,7 +6,7 @@ class DashboardManager: ObservableObject {
     @Published var widgets: [WidgetConfiguration] = []
     @Published var isEditMode: Bool = false
     
-    private let userDefaultsKey = "DashboardConfiguration_v3" // v3 um alte Configs zu ignorieren
+    private let userDefaultsKey = "DashboardConfiguration_v5" // v5 für Level History
     
     init() {
         print("[DashboardManager] Initializing...")
@@ -14,7 +14,8 @@ class DashboardManager: ObservableObject {
         if widgets.isEmpty {
             // NUR EIN großes Spektrogramm als Default
             widgets = [
-                WidgetConfiguration(type: .spectrogram, size: .full, gridPosition: GridPosition(index: 0))
+                WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
+                WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
             ]
             print("[DashboardManager] Created default configuration with ONE large spectrogram")
             saveConfiguration()
@@ -93,7 +94,7 @@ class DashboardManager: ObservableObject {
             widgets = try decoder.decode([WidgetConfiguration].self, from: data)
             print("[DashboardManager] Configuration loaded successfully. Found \(widgets.count) widgets:")
             for (index, widget) in widgets.enumerated() {
-                print("  [\(index)] \(widget.type.rawValue) - \(widget.size.rawValue)")
+                print("  [\(index)] \(widget.type.rawValue) - \(widget.size.columns)x\(String(format: "%.1f", widget.size.rows))")
             }
         } catch {
             print("[DashboardManager] Error loading dashboard configuration: \(error)")
@@ -104,7 +105,8 @@ class DashboardManager: ObservableObject {
     func resetToDefault() {
         print("[DashboardManager] Resetting to default configuration...")
         widgets = [
-            WidgetConfiguration(type: .spectrogram, size: .full, gridPosition: GridPosition(index: 0))
+            WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
+            WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
         ]
         saveConfiguration()
         

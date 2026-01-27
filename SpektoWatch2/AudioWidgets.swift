@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Frequency Spectrum Widget
 struct FrequencySpectrumWidget: View {
     @ObservedObject var audioEngine: AudioEngine
+    let dbOffset: Float = 100.0
     
     var body: some View {
         Canvas { context, size in
@@ -18,17 +19,42 @@ struct FrequencySpectrumWidget: View {
             
             guard !spectrum.isEmpty else { return }
             
+            // Layout
+            let bottomPadding: CGFloat = 16
+            let leftPadding: CGFloat = 24
+            let graphWidth = width - leftPadding
+            let graphHeight = height - bottomPadding
+            
             // Draw background grid
             let path = Path { p in
                 p.addRect(CGRect(x: 0, y: 0, width: width, height: height))
             }
-            context.fill(path, with: .color(Color.black))
+            context.fill(path, with: .color(Color(UIColor.systemBackground)))
+            
+            // Draw Y-Axis (dB)
+            let minDB: Float = 0.0
+            let maxDB: Float = 100.0
+            let range = maxDB - minDB
+            
+            let yLabels: [Float] = [100, 80, 60, 40, 20, 0]
+            for db in yLabels {
+                let normalizedVal = CGFloat((db - minDB) / range)
+                let y = (1.0 - normalizedVal) * graphHeight
+                
+                var gridPath = Path()
+                gridPath.move(to: CGPoint(x: leftPadding, y: y))
+                gridPath.addLine(to: CGPoint(x: width, y: y))
+                context.stroke(gridPath, with: .color(Color.gray.opacity(0.2)), lineWidth: 0.5)
+                
+                let text = Text("\(Int(db))").font(.system(size: 8)).foregroundColor(.gray)
+                context.draw(text, at: CGPoint(x: leftPadding / 2, y: y))
+            }
             
             // Draw bars
             // Downsample to ~100 bars for performance and look
             let barCount = 100
             let step = max(1, spectrum.count / barCount)
-            let barWidth = width / CGFloat(barCount)
+            let barWidth = graphWidth / CGFloat(barCount)
             
             for i in 0..<barCount {
                 let idx = i * step
@@ -36,16 +62,15 @@ struct FrequencySpectrumWidget: View {
                     // Max pooling for the bin
                     let endIdx = min(idx + step, spectrum.count)
                     let val = spectrum[idx..<endIdx].max() ?? -120.0
+                    let absVal = val + dbOffset
                     
-                    // Map dB to height (-100dB to 0dB)
-                    let minDB: Float = -100.0
-                    let maxDB: Float = 0.0
-                    let normalized = CGFloat((val - minDB) / (maxDB - minDB))
+                    // Map dB to height (0dB to 100dB)
+                    let normalized = CGFloat((absVal - minDB) / range)
                     let clamped = max(0, min(1, normalized))
                     
-                    let barHeight = clamped * height
-                    let x = CGFloat(i) * barWidth
-                    let y = height - barHeight
+                    let barHeight = clamped * graphHeight
+                    let x = leftPadding + CGFloat(i) * barWidth
+                    let y = graphHeight - barHeight
                     
                     let barRect = CGRect(x: x, y: y, width: barWidth - 1, height: barHeight)
                     
@@ -53,6 +78,15 @@ struct FrequencySpectrumWidget: View {
                     let color: Color = clamped > 0.8 ? .red : (clamped > 0.6 ? .yellow : .green)
                     context.fill(Path(barRect), with: .color(color))
                 }
+            }
+            
+            // Draw X-Axis Labels (Linear Freq)
+            let xLabels: [(String, CGFloat)] = [("0", 0.0), ("5k", 0.23), ("10k", 0.45), ("15k", 0.68), ("20k", 0.91)]
+            
+            for (label, normalizedX) in xLabels {
+                let x = leftPadding + normalizedX * graphWidth
+                let text = Text(label).font(.system(size: 8)).foregroundColor(.gray)
+                context.draw(text, at: CGPoint(x: x, y: height - bottomPadding / 2))
             }
         }
         .drawingGroup() // Metal acceleration
@@ -99,7 +133,7 @@ struct LevelMeterWidget: View {
                     let peakClamped = max(0, min(1, peakNorm))
                     
                     Rectangle()
-                        .fill(Color.white)
+                        .fill(Color.primary)
                         .frame(width: 2, height: height)
                         .offset(x: width * peakClamped)
                 }
@@ -119,7 +153,7 @@ struct LevelMeterWidget: View {
             }
         }
         .padding(10)
-        .background(Color.black)
+        .background(Color(UIColor.systemBackground))
         .onAppear {
             print("[LevelMeterWidget] View appeared")
         }
@@ -219,7 +253,7 @@ struct PhaseMeterWidget: View {
                     // Indicator
                     let x = (CGFloat(phase) + 1.0) / 2.0 * width
                     Circle()
-                        .fill(Color.white)
+                        .fill(Color.primary)
                         .frame(width: 10, height: 10)
                         .position(x: x, y: height/2)
                         .shadow(radius: 2)
@@ -272,7 +306,7 @@ struct PhaseMeterWidget: View {
             }
             .frame(width: 100)
         }
-        .background(Color.black)
+        .background(Color(UIColor.systemBackground))
         .onAppear {
             print("[PhaseMeterWidget] View appeared")
         }

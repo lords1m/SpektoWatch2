@@ -56,7 +56,8 @@ struct ControlBarView: View {
                 .frame(width: 100, alignment: .trailing)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
             .frame(maxWidth: .infinity)
         }
         .background(

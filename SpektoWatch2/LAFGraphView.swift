@@ -1,11 +1,15 @@
 import SwiftUI
 
-struct LAFGraphView: View {
+struct LevelHistoryView: View {
     @ObservedObject var audioEngine: AudioEngine
-    var timeSpan: SpectrogramTimeSpan
-    var scrollSpeed: ScrollSpeed
+    var settings: [String: String]
+    var scrollSpeed: ScrollSpeed = .fast
     var isPaused: Bool
     var scrollOffset: Float
+    
+    var timeSpan: SpectrogramTimeSpan { SpectrogramTimeSpan(rawValue: Int(settings["timeSpan"] ?? "5") ?? 5) ?? .seconds5 }
+    var freqWeighting: String { settings["freqWeighting"] ?? "A" }
+    var timeWeighting: String { settings["timeWeighting"] ?? "Fast" }
     
     let dbOffset: Float = 100.0
     
@@ -16,7 +20,7 @@ struct LAFGraphView: View {
         GeometryReader { geometry in
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.black)
+                    .fill(Color(UIColor.systemBackground))
                 
                 Canvas { context, size in
                     guard !levelBuffer.isEmpty else { return }
@@ -55,7 +59,7 @@ struct LAFGraphView: View {
                     }
                     
                     // Stroke
-                    context.stroke(path, with: .color(.white), lineWidth: 2.0)
+                    context.stroke(path, with: .color(Color.primary), lineWidth: 2.0)
                     
                     // Fill (Gradient)
                     var fillPath = path
@@ -63,18 +67,22 @@ struct LAFGraphView: View {
                     fillPath.addLine(to: CGPoint(x: 0, y: height))
                     fillPath.closeSubpath()
                     
-                    let gradient = Gradient(colors: [.white.opacity(0.3), .white.opacity(0.0)])
+                    let gradient = Gradient(colors: [Color.primary.opacity(0.3), Color.primary.opacity(0.0)])
                     context.fill(fillPath, with: .linearGradient(gradient, startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: height)))
                 }
             }.drawingGroup() // Metal acceleration
         }
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard let data = data, !isPaused else { return }
-            updateLevelBuffer(level: data.broadbandLevel)
+            // Construct key like "LAF", "LCS", etc.
+            let key = "L\(freqWeighting)\(timeWeighting.prefix(1))"
+            let level = data.levels[key] ?? data.broadbandLevel
+            updateLevelBuffer(level: level)
         }
         .onChange(of: timeSpan) { _, _ in resetBuffer() }
         .onChange(of: scrollSpeed) { _, _ in resetBuffer() }
         .onAppear { resetBuffer() }
+        .id("L\(freqWeighting)\(timeWeighting.prefix(1))") // Reset view when metric changes
     }
     
     private func resetBuffer() {

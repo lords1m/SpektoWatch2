@@ -1,15 +1,16 @@
+// WidgetCardView.swift - ERSETZEN
 import SwiftUI
 
 struct WidgetCardView: View {
     let widget: WidgetConfiguration
     @ObservedObject var audioEngine: AudioEngine
     var isEditMode: Bool
+    var columnWidth: CGFloat = 160 // Default fallback
     var onDelete: () -> Void
     var onResize: (WidgetSize) -> Void
     var onUpdateSettings: ([String: String]) -> Void
     
     @State private var showSettings = false
-    @State private var currentScale: CGFloat = 1.0
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,63 +19,36 @@ struct WidgetCardView: View {
                 HStack {
                     Image(systemName: "line.3.horizontal")
                         .foregroundColor(.gray)
-                        .font(.caption)
                     Text(widget.type.rawValue)
                         .font(.caption)
                         .bold()
                     Spacer()
                     
-                    // Quick Resize Buttons
-                    HStack(spacing: 8) {
-                        Button(action: { resizeToNextSmaller() }) {
-                            Image(systemName: "minus.circle.fill")
-                                .foregroundColor(.orange)
-                                .font(.body)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        Button(action: { resizeToNextLarger() }) {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.body)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    
                     // Settings Button
                     Button(action: { showSettings = true }) {
                         Image(systemName: "gearshape")
                             .foregroundColor(.gray)
-                            .font(.body)
                     }
-                    .buttonStyle(PlainButtonStyle())
                     
                     // Delete Button
                     Button(action: {
-                        print("[WidgetCardView] Delete tapped for widget \(widget.type.rawValue)")
-                        onDelete()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            onDelete()
+                        }
                     }) {
                         Image(systemName: "trash")
                             .foregroundColor(.red)
-                            .font(.body)
                     }
-                    .buttonStyle(PlainButtonStyle())
                 }
                 .padding(8)
                 .background(Color.gray.opacity(0.2))
             } else {
                 // Mini-Title im normalen Modus
-                HStack {
-                    Text(widget.type.rawValue)
-                        .font(.caption2)
-                        .foregroundColor(.gray.opacity(0.6))
-                    Spacer()
-                    Text(widget.size.rawValue)
-                        .font(.caption2)
-                        .foregroundColor(.gray.opacity(0.4))
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
+                Text(widget.type.rawValue)
+                    .font(.caption2)
+                    .foregroundColor(.gray.opacity(0.6))
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
             }
             
             // Content
@@ -82,30 +56,17 @@ struct WidgetCardView: View {
                 .frame(height: widget.size.height)
                 .clipped()
         }
-        .background(Color.black)
+        .background(Color(UIColor.systemBackground))
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isEditMode ? Color.blue : Color.white.opacity(0.1), lineWidth: isEditMode ? 2 : 1)
         )
-        .scaleEffect(currentScale)
-        .gesture(
-            isEditMode ? MagnificationGesture(minimumScaleDelta: 0.1)
-                .onChanged { value in
-                    currentScale = value
-                }
-                .onEnded { value in
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-                        snapToNearestSize(scale: value)
-                        currentScale = 1.0
-                    }
-                } : nil
+        .overlay(
+            resizeHandles
         )
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
-        }
-        .onAppear {
-            print("[WidgetCardView] Rendering widget: \(widget.type.rawValue) (Size: \(widget.size))")
         }
     }
     
@@ -114,8 +75,8 @@ struct WidgetCardView: View {
         switch widget.type {
         case .spectrogram:
             SpectrogramWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .lafGraph:
-            LAFGraphWidget(audioEngine: audioEngine, settings: widget.settings)
+        case .levelHistory:
+            LevelHistoryWidget(audioEngine: audioEngine, settings: widget.settings)
         case .frequencyDisplay:
             FrequencySpectrumWidget(audioEngine: audioEngine)
         case .levelMeter:
@@ -124,70 +85,109 @@ struct WidgetCardView: View {
             OctaveBandWidget(audioEngine: audioEngine)
         case .phaseMeter:
             PhaseMeterWidget(audioEngine: audioEngine)
+        case .singleValue:
+            SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
         }
     }
     
-    // MARK: - Resize Logic
-    
-    private func resizeToNextLarger() {
-        let sizes: [WidgetSize] = [.small, .medium, .large, .wide, .full]
-        guard let currentIndex = sizes.firstIndex(of: widget.size),
-              currentIndex < sizes.count - 1 else {
-            // Bereits maximale Größe - Feedback geben
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.warning)
-            return
+    @ViewBuilder
+    private var resizeHandles: some View {
+        if isEditMode {
+            ZStack {
+                // Right Handle
+                HStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.01)) // Almost invisible but touchable
+                        .frame(width: 20)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .right) })
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 4, height: 40).padding(.trailing, 4),
+                            alignment: .trailing
+                        )
+                }
+                
+                // Left Handle
+                HStack {
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.01))
+                        .frame(width: 20)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .left) })
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 4, height: 40).padding(.leading, 4),
+                            alignment: .leading
+                        )
+                    Spacer()
+                }
+                
+                // Bottom Handle
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.01))
+                        .frame(height: 20)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .bottom) })
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 40, height: 4).padding(.bottom, 4),
+                            alignment: .bottom
+                        )
+                }
+                
+                // Top Handle
+                VStack {
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.01))
+                        .frame(height: 20)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .top) })
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 40, height: 4).padding(.top, 4),
+                            alignment: .top
+                        )
+                    Spacer()
+                }
+            }
         }
-        
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        
-        print("[WidgetCardView] Resize larger: \(widget.size) -> \(sizes[currentIndex + 1])")
-        onResize(sizes[currentIndex + 1])
     }
     
-    private func resizeToNextSmaller() {
-        let sizes: [WidgetSize] = [.small, .medium, .large, .wide, .full]
-        guard let currentIndex = sizes.firstIndex(of: widget.size),
-              currentIndex > 0 else {
-            // Bereits minimale Größe - Feedback geben
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.warning)
-            return
-        }
-        
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
-        
-        print("[WidgetCardView] Resize smaller: \(widget.size) -> \(sizes[currentIndex - 1])")
-        onResize(sizes[currentIndex - 1])
-    }
+    private enum ResizeEdge { case right, left, bottom, top }
     
-    private func snapToNearestSize(scale: CGFloat) {
-        let sizes: [WidgetSize] = [.small, .medium, .large, .wide, .full]
-        guard let currentIndex = sizes.firstIndex(of: widget.size) else { return }
+    private func handleResize(translation: CGSize, edge: ResizeEdge) {
+        var newCols = widget.size.columns
+        var newRows = widget.size.rows
         
-        let newSize: WidgetSize
-        if scale > 1.3 {
-            // Vergrößern
-            let steps = Int((scale - 1.0) / 0.3)
-            let targetIndex = min(currentIndex + steps, sizes.count - 1)
-            newSize = sizes[targetIndex]
-        } else if scale < 0.8 {
-            // Verkleinern
-            let steps = Int((1.0 - scale) / 0.2)
-            let targetIndex = max(currentIndex - steps, 0)
-            newSize = sizes[targetIndex]
-        } else {
-            // Keine Änderung - zu geringe Scale-Änderung
-            return
+        switch edge {
+        case .right:
+            // Threshold for resizing: half a column width
+            let deltaCols = Int(round(translation.width / (columnWidth + 12))) // 12 is spacing
+            newCols = max(1, min(4, newCols + deltaCols))
+        case .left:
+            // Dragging left (negative) increases width
+            let deltaCols = Int(round(-translation.width / (columnWidth + 12)))
+            newCols = max(1, min(4, newCols + deltaCols))
+        case .bottom:
+            let rowHeight: CGFloat = 200 + 12
+            let deltaRows = Double(translation.height / rowHeight)
+            // Snap to 0.5 increments
+            let targetRows = round((newRows + deltaRows) * 2) / 2.0
+            newRows = max(0.5, targetRows)
+        case .top:
+            // Dragging up (negative) increases height
+            let rowHeight: CGFloat = 200 + 12
+            let deltaRows = Double(-translation.height / rowHeight)
+            let targetRows = round((newRows + deltaRows) * 2) / 2.0
+            newRows = max(0.5, targetRows)
         }
         
-        if newSize != widget.size {
+        if newCols != widget.size.columns || newRows != widget.size.rows {
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
-            print("[WidgetCardView] Pinch resize: \(widget.size) -> \(newSize) (scale: \(scale))")
-            onResize(newSize)
+            withAnimation(.spring()) {
+                onResize(WidgetSize(columns: newCols, rows: newRows))
+            }
         }
     }
 }

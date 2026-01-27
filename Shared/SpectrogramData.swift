@@ -9,13 +9,15 @@ struct SpectrogramData: Codable {
     let frequencies: [Float]
     let magnitudes: [Float]
     let broadbandLevel: Float
+    let levels: [String: Float]
     let timestamp: Date
     let sampleRate: Double
 
-    init(frequencies: [Float], magnitudes: [Float], broadbandLevel: Float = -120.0, sampleRate: Double) {
+    init(frequencies: [Float], magnitudes: [Float], broadbandLevel: Float = -120.0, levels: [String: Float] = [:], sampleRate: Double) {
         self.frequencies = frequencies
         self.magnitudes = magnitudes
         self.broadbandLevel = broadbandLevel
+        self.levels = levels
         self.timestamp = Date()
         self.sampleRate = sampleRate
     }

@@ -142,7 +142,7 @@ struct SpectrogramView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
+        .background(Color(UIColor.systemGroupedBackground))
         .padding(.top, 8)
     }
     

@@ -7,36 +7,22 @@ struct ModularDashboardView: View {
     @State private var showWidgetPicker = false
     @State private var draggedWidget: WidgetConfiguration?
     
-    // Flexibles Grid: 2 Spalten für bessere Größe
-    var columns: [GridItem] {
-        [
-            GridItem(.flexible(), spacing: 12),
-            GridItem(.flexible(), spacing: 12)
-        ]
-    }
-    
-    // Initializer mit Default-Parameter
-    init(audioEngine: AudioEngine = AudioEngine()) {
-        self.audioEngine = audioEngine
-    }
-    
     var body: some View {
         VStack(spacing: 0) {
-            // Header - FIXED TOP
+            // Header
             DashboardHeaderView(
                 isEditMode: $dashboardManager.isEditMode,
-                onAddWidget: {
+                onAddWidget: { 
                     print("[ModularDashboardView] Add widget button tapped")
-                    showWidgetPicker = true
+                    showWidgetPicker = true 
                 }
             )
             
-            // Scrollable Content Area - FLEXIBLE MIDDLE
-            ScrollView {
+            // Scrollable Grid
+            GeometryReader { geo in
+                ScrollView {
                 if dashboardManager.widgets.isEmpty {
-                    // Empty State
                     VStack(spacing: 20) {
-                        Spacer(minLength: 100)
                         Image(systemName: "waveform.circle.fill")
                             .font(.system(size: 80))
                             .foregroundColor(.gray.opacity(0.5))
@@ -50,70 +36,103 @@ struct ModularDashboardView: View {
                                 .cornerRadius(10)
                                 .foregroundColor(.white)
                         }
-                        Spacer(minLength: 150)
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                    .padding(.top, 50)
                 } else {
-                    // Widget Grid
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(dashboardManager.widgets) { widget in
-                            WidgetCardView(
-                                widget: widget,
-                                audioEngine: audioEngine,
-                                isEditMode: dashboardManager.isEditMode,
-                                onDelete: {
-                                    print("[ModularDashboardView] Delete requested for widget: \(widget.id)")
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        dashboardManager.removeWidget(id: widget.id)
+                    let colCount = max(1, Int(geo.size.width / 160))
+                    let rows = computeRows(widgets: dashboardManager.widgets, columns: colCount)
+                    let columnWidth = (geo.size.width - CGFloat(colCount - 1) * 12) / CGFloat(colCount)
+                    
+                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                        ForEach(0..<rows.count, id: \.self) { rowIndex in
+                            GridRow {
+                                ForEach(rows[rowIndex]) { widget in
+                                    let span = getSpan(for: widget, colCount: colCount)
+                                    
+                                    WidgetCardView(
+                                        widget: widget,
+                                        audioEngine: audioEngine,
+                                        isEditMode: dashboardManager.isEditMode,
+                                        columnWidth: columnWidth,
+                                        onDelete: { 
+                                            print("[ModularDashboardView] Delete requested for widget: \(widget.id)")
+                                            withAnimation(.spring()) {
+                                                dashboardManager.removeWidget(id: widget.id)
+                                            }
+                                        },
+                                        onResize: { newSize in 
+                                            print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
+                                            withAnimation(.spring()) {
+                                                dashboardManager.resizeWidget(id: widget.id, to: newSize)
+                                            }
+                                        },
+                                        onUpdateSettings: { newSettings in
+                                            dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+                                        }
+                                    )
+                                    .gridCellColumns(span)
+                                    .onDrag {
+                                        self.draggedWidget = widget
+                                        return NSItemProvider(object: widget.id.uuidString as NSString)
                                     }
-                                },
-                                onResize: { newSize in
-                                    print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        dashboardManager.resizeWidget(id: widget.id, to: newSize)
-                                    }
-                                },
-                                onUpdateSettings: { newSettings in
-                                    dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+                                    .onDrop(of: [UTType.text], delegate: WidgetDropDelegate(item: widget, items: $dashboardManager.widgets, draggedItem: $draggedWidget, onSave: dashboardManager.saveConfiguration))
+                                    .transition(WidgetAnimations.cardTransition)
                                 }
-                            )
-                            // Grid-Span basierend auf Widget-Größe
-                            .gridCellColumns(widget.size.gridColumns)
-                            .onDrag {
-                                self.draggedWidget = widget
-                                return NSItemProvider(object: widget.id.uuidString as NSString)
                             }
-                            .onDrop(
-                                of: [UTType.text],
-                                delegate: WidgetDropDelegate(
-                                    item: widget,
-                                    items: $dashboardManager.widgets,
-                                    draggedItem: $draggedWidget,
-                                    onSave: dashboardManager.saveConfiguration
-                                )
-                            )
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16) // Abstand zum Footer
+                    .padding()
+                }
                 }
             }
-            .frame(maxHeight: .infinity) // ScrollView nimmt verfügbaren Platz
             
-            // Control Bar - FIXED BOTTOM
+            // Control Bar
             ControlBarView(audioEngine: audioEngine)
-                .background(Color(UIColor.systemBackground))
         }
+        .edgesIgnoringSafeArea(.bottom)
         .sheet(isPresented: $showWidgetPicker) {
             WidgetPickerView(dashboardManager: dashboardManager)
         }
         .onAppear {
+            // Ensure audio engine is ready or started if needed
             print("[ModularDashboardView] View appeared. Widgets count: \(dashboardManager.widgets.count)")
         }
-        .onChange(of: dashboardManager.isEditMode) { _, newValue in
+        .onChange(of: dashboardManager.isEditMode) { newValue in
             print("[ModularDashboardView] Edit mode changed: \(newValue)")
         }
+    }
+    
+    private func computeRows(widgets: [WidgetConfiguration], columns: Int) -> [[WidgetConfiguration]] {
+        var rows: [[WidgetConfiguration]] = []
+        var currentRow: [WidgetConfiguration] = []
+        var availableSpace = columns
+        
+        for widget in widgets {
+            let span = getSpan(for: widget, colCount: columns)
+            
+            if span > availableSpace {
+                if !currentRow.isEmpty {
+                    rows.append(currentRow)
+                    currentRow = []
+                    availableSpace = columns
+                }
+            }
+            
+            currentRow.append(widget)
+            availableSpace -= span
+        }
+        
+        if !currentRow.isEmpty {
+            rows.append(currentRow)
+        }
+        
+        return rows
+    }
+    
+    private func getSpan(for widget: WidgetConfiguration, colCount: Int) -> Int {
+        return min(widget.size.columns, colCount)
     }
 }
 
@@ -122,13 +141,12 @@ struct WidgetDropDelegate: DropDelegate {
     @Binding var items: [WidgetConfiguration]
     @Binding var draggedItem: WidgetConfiguration?
     var onSave: () -> Void
-    
+
     func performDrop(info: DropInfo) -> Bool {
         onSave()
-        draggedItem = nil
         return true
     }
-    
+
     func dropEntered(info: DropInfo) {
         guard let draggedItem = draggedItem else { return }
         if draggedItem.id != item.id {
@@ -136,7 +154,7 @@ struct WidgetDropDelegate: DropDelegate {
                   let to = items.firstIndex(where: { $0.id == item.id }) else { return }
             
             if items[to].id != draggedItem.id {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                withAnimation {
                     items.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
                 }
             }

@@ -3,41 +3,23 @@ import CoreGraphics
 
 enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case spectrogram = "Spektrogramm"
-    case lafGraph = "LAF Verlauf"
+    case levelHistory = "Pegelverlauf"
     case frequencyDisplay = "Frequenz-Spektrum"
     case levelMeter = "Pegel-Meter"
     case octaveBands = "1/3 Oktavbänder"
     case phaseMeter = "Phasen-Meter"
+    case singleValue = "Einzelwert"
     
     var id: String { rawValue }
 }
 
-enum WidgetSize: String, Codable, CaseIterable {
-    case small = "Klein"        // 1 Spalte
-    case medium = "Mittel"      // 1 Spalte
-    case large = "Groß"        // 2 Spalten
-    case wide = "Breit"         // 2 Spalten
-    case full = "Vollbild"      // 2 Spalten
-    
+struct WidgetSize: Codable, Equatable {
+    var columns: Int
+    var rows: Double
+
     var height: CGFloat {
-        switch self {
-        case .small: return 180
-        case .medium: return 250
-        case .large: return 350
-        case .wide: return 200
-        case .full: return 400
-        }
-    }
-    
-    /// Anzahl der Spalten die das Widget im Grid einnimmt (bei 2-Spalten-Layout)
-    var gridColumns: Int {
-        switch self {
-        case .small: return 1
-        case .medium: return 1
-        case .large: return 2   // Volle Breite
-        case .wide: return 2    // Volle Breite
-        case .full: return 2    // Volle Breite
-        }
+        let baseHeight: CGFloat = 200 // Basis-Höhe pro Zeile
+        return CGFloat(rows) * baseHeight + CGFloat(max(0, rows - 1.0)) * 12 // + spacing
     }
 }
 
@@ -62,12 +44,13 @@ struct WidgetConfiguration: Identifiable, Codable {
     
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
-        case .spectrogram: return .full      // Groß und breit
-        case .lafGraph: return .large        // Groß und breit
-        case .frequencyDisplay: return .large // Groß und breit
-        case .levelMeter: return .medium     // Mittel
-        case .octaveBands: return .large     // Groß und breit
-        case .phaseMeter: return .medium     // Mittel
+        case .spectrogram: return WidgetSize(columns: 2, rows: 2.0)
+        case .levelHistory: return WidgetSize(columns: 2, rows: 1.0)
+        case .frequencyDisplay: return WidgetSize(columns: 2, rows: 1.0)
+        case .levelMeter: return WidgetSize(columns: 1, rows: 1.0)
+        case .octaveBands: return WidgetSize(columns: 2, rows: 1.0)
+        case .phaseMeter: return WidgetSize(columns: 1, rows: 1.0)
+        case .singleValue: return WidgetSize(columns: 1, rows: 1.0)
         }
     }
 }

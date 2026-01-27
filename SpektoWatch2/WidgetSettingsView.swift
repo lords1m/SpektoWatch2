@@ -35,14 +35,48 @@ struct WidgetSettingsView: View {
                             Text("5 Sekunden").tag("5")
                         }
                     }
-                } else if widget.type == .lafGraph {
-                    Section(header: Text("Graph Einstellungen")) {
+                } else if widget.type == .levelHistory {
+                    Section(header: Text("Pegelverlauf Einstellungen")) {
                         Picker("Zeitbereich", selection: Binding(
                             get: { settings["timeSpan"] ?? "5" },
                             set: { settings["timeSpan"] = $0 }
                         )) {
                             Text("1 Sekunde").tag("1")
                             Text("5 Sekunden").tag("5")
+                        }
+                        
+                        Picker("Frequenzbewertung", selection: Binding(
+                            get: { settings["freqWeighting"] ?? "A" },
+                            set: { settings["freqWeighting"] = $0 }
+                        )) {
+                            Text("A-Weighting").tag("A")
+                            Text("C-Weighting").tag("C")
+                            Text("Z-Weighting (Linear)").tag("Z")
+                        }
+                        
+                        Picker("Zeitbewertung", selection: Binding(
+                            get: { settings["timeWeighting"] ?? "Fast" },
+                            set: { settings["timeWeighting"] = $0 }
+                        )) {
+                            Text("Fast (125ms)").tag("Fast")
+                            Text("Slow (1s)").tag("Slow")
+                        }
+                    }
+                } else if widget.type == .singleValue {
+                    Section(header: Text("Anzeige")) {
+                        Picker("Messwert", selection: Binding(
+                            get: { settings["metric"] ?? "LAF" },
+                            set: { settings["metric"] = $0 }
+                        )) {
+                            Text("LAF (Aktuell)").tag("LAF")
+                            Text("LAeq (Equivalent)").tag("LAeq")
+                            Text("LAFmin (Minimum)").tag("LAFmin")
+                            Text("LAFmax (Maximum)").tag("LAFmax")
+                            Text("LAF5 (5% Perzentil)").tag("LAF5")
+                            Text("LAF95 (95% Perzentil)").tag("LAF95")
+                            Text("LAFT5 (Takt max)").tag("LAFT5")
+                            Text("LAFTeq (Takt eq)").tag("LAFTeq")
+                            Text("LCpeak (Peak)").tag("LCpeak")
                         }
                     }
                 } else {

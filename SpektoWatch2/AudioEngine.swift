@@ -73,8 +73,30 @@ class AudioEngine: ObservableObject {
     // Level meter
     private var smoothedLevel: Float = -120.0
 
-    // LAF calculation
+    // Level calculations (Energy accumulators)
     private var lafEnergy: Float = 1e-12
+    private var lasEnergy: Float = 1e-12
+    private var lcfEnergy: Float = 1e-12
+    private var lcsEnergy: Float = 1e-12
+    private var lzfEnergy: Float = 1e-12
+    private var lzsEnergy: Float = 1e-12
+    
+    // Extended Metrics State
+    private var laeqAccumulator: Double = 0.0
+    private var laeqCount: Int = 0
+    private var lafMin: Float = 1000.0
+    private var lafMax: Float = -1000.0
+    private var lcPeakHold: Float = -120.0
+    
+    // Histogram for Percentiles (Range -130dB to +10dB, 0.1dB resolution)
+    private var lafHistogram = [Int](repeating: 0, count: 1401)
+    private var lafTotalCounts: Int = 0
+    private let histMinDB: Float = -130.0
+    
+    // Taktmaximalpegel (LAFT)
+    private var currentTaktMax: Float = -1000.0
+    private var lastTaktTime: TimeInterval = 0
+    private var taktValues: [Float] = []
 
     // === Flexible Bandbildungs-Parameter ===
 
@@ -97,6 +119,10 @@ class AudioEngine: ObservableObject {
     private var imagOut: [Float]
     private var window: [Float]
     private var fftMagnitudes: [Float]
+    
+    // Precomputed Weighting Curves (Linear scale)
+    private var aWeights: [Float] = []
+    private var cWeights: [Float] = []
 
     init() {
         audioEngine = AVAudioEngine()
@@ -117,6 +143,9 @@ class AudioEngine: ObservableObject {
         window = [Float](repeating: 0, count: fftSize)
         fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        
+        // Precompute weighting curves
+        precomputeWeightingCurves()
     }
 
     deinit {
@@ -151,6 +180,41 @@ class AudioEngine: ObservableObject {
     func setSmoothingFactor(_ factor: Float) {
         // Hinweis: analog zu binningFactor
     }
+    
+    private func precomputeWeightingCurves() {
+        let nyquist = Float(sampleRate / 2.0)
+        let freqResolution = nyquist / Float(fftSize / 2)
+        
+        aWeights = [Float](repeating: 0.0, count: fftSize / 2)
+        cWeights = [Float](repeating: 0.0, count: fftSize / 2)
+        
+        for i in 0..<(fftSize / 2) {
+            let f = Float(i) * freqResolution
+            let f2 = f * f
+            
+            // A-Weighting
+            let aNum = 12194.0 * 12194.0 * f2 * f2
+            let aDen = (f2 + 20.6 * 20.6) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0)
+            var aGain: Float = 0.0
+            if aDen > 0 {
+                let mag = aNum / aDen
+                // Add 2.0 dB gain offset for A-weighting standard
+                aGain = Float(mag * pow(10.0, 2.0 / 20.0))
+            }
+            aWeights[i] = aGain
+            
+            // C-Weighting
+            let cNum = 12194.0 * 12194.0 * f2
+            let cDen = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
+            var cGain: Float = 0.0
+            if cDen > 0 {
+                let mag = cNum / cDen
+                // Add 0.06 dB gain offset for C-weighting standard
+                cGain = Float(mag * pow(10.0, 0.06 / 20.0))
+            }
+            cWeights[i] = cGain
+        }
+    }
 
     func startRecording() {
         print("[AudioEngine] Start")
@@ -164,6 +228,18 @@ class AudioEngine: ObservableObject {
             self.levelHistory.removeAll()
             self.currentLevel = -120.0
             self.smoothedLevel = -120.0
+            
+            // Reset Metrics
+            self.laeqAccumulator = 0.0
+            self.laeqCount = 0
+            self.lafMin = 1000.0
+            self.lafMax = -1000.0
+            self.lcPeakHold = -120.0
+            self.lafHistogram = [Int](repeating: 0, count: 1401)
+            self.lafTotalCounts = 0
+            self.currentTaktMax = -1000.0
+            self.lastTaktTime = 0
+            self.taktValues = []
         }
 
         #if targetEnvironment(simulator)
@@ -294,6 +370,7 @@ class AudioEngine: ObservableObject {
         let signalDB = 20 * log10(rms + 1e-9) // + Epsilon um log(0) zu vermeiden
         let peakVal = newSamples.max() ?? 0
         let peakDB = 20 * log10(abs(peakVal) + 1e-9)
+        self.lcPeakHold = max(self.lcPeakHold, peakDB) // Using Z-Peak as approximation for C-Peak
 
         // DEBUG: Signalstärke ausgeben (gedrosselt)
         debugPrintCounter += 1
@@ -340,23 +417,79 @@ class AudioEngine: ObservableObject {
             // 3. Zeitliche Glättung (Verwischung)
             let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
 
-            // 4. Calculate Broadband Level (LAF approximation)
-            // Sum energy from FFT bins (Parseval's theorem approximation)
-            // Note: This uses the weighted magnitudes from performFFT
-            var frameEnergy: Float = 0.0
-            for magDB in fftResult.magnitudes {
-                frameEnergy += pow(10.0, magDB / 10.0)
+            // 4. Calculate Broadband Levels (A, C, Z / Fast, Slow)
+            // Calculate instantaneous energy for this frame
+            var energyZ: Float = 0.0
+            var energyA: Float = 0.0
+            var energyC: Float = 0.0
+            
+            // fftMagnitudes contains linear magnitudes (scaled) from performFFT
+            // We use them directly to avoid double dB conversion
+            for i in 0..<fftMagnitudes.count {
+                let magSq = fftMagnitudes[i] * fftMagnitudes[i]
+                energyZ += magSq
+                energyA += magSq * aWeights[i] * aWeights[i]
+                energyC += magSq * cWeights[i] * cWeights[i]
             }
             
-            // Apply Fast Time Weighting (125ms)
-            // Update rate = sampleRate / scrollSpeed
-            // dt = scrollSpeed / sampleRate
-            // alpha = 1 - exp(-dt / 0.125)
+            // Time Constants
             let dt = Float(scrollSpeed.rawValue) / Float(sampleRate)
-            let alpha = 1.0 - exp(-dt / 0.125)
+            let alphaFast = 1.0 - exp(-dt / 0.125) // 125ms
+            let alphaSlow = 1.0 - exp(-dt / 1.0)   // 1s
             
-            lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
+            // Update Energies
+            lafEnergy = (1.0 - alphaFast) * lafEnergy + alphaFast * energyA
+            lasEnergy = (1.0 - alphaSlow) * lasEnergy + alphaSlow * energyA
+            
+            lcfEnergy = (1.0 - alphaFast) * lcfEnergy + alphaFast * energyC
+            lcsEnergy = (1.0 - alphaSlow) * lcsEnergy + alphaSlow * energyC
+            
+            lzfEnergy = (1.0 - alphaFast) * lzfEnergy + alphaFast * energyZ
+            lzsEnergy = (1.0 - alphaSlow) * lzsEnergy + alphaSlow * energyZ
+            
+            // --- Extended Metrics Calculation ---
+            
+            // LAeq (Integrate instantaneous A-weighted energy)
+            laeqAccumulator += Double(energyA)
+            laeqCount += 1
+            
+            // LAF based metrics
             let broadbandLevel = 10.0 * log10(lafEnergy + 1e-12)
+            
+            // Min/Max
+            lafMin = min(lafMin, broadbandLevel)
+            lafMax = max(lafMax, broadbandLevel)
+            
+            // Histogram for Percentiles
+            let histIndex = Int((broadbandLevel - histMinDB) * 10.0)
+            if histIndex >= 0 && histIndex < lafHistogram.count {
+                lafHistogram[histIndex] += 1
+                lafTotalCounts += 1
+            }
+            
+            // Taktmaximalpegel (LAFT5)
+            currentTaktMax = max(currentTaktMax, broadbandLevel)
+            if recordingDuration - lastTaktTime >= 5.0 {
+                taktValues.append(currentTaktMax)
+                currentTaktMax = -1000.0
+                lastTaktTime = recordingDuration
+            }
+            
+            let levels: [String: Float] = [
+                "LAF": 10.0 * log10(lafEnergy + 1e-12),
+                "LAS": 10.0 * log10(lasEnergy + 1e-12),
+                "LCF": 10.0 * log10(lcfEnergy + 1e-12),
+                "LCS": 10.0 * log10(lcsEnergy + 1e-12),
+                "LZF": 10.0 * log10(lzfEnergy + 1e-12),
+                "LZS": 10.0 * log10(lzsEnergy + 1e-12),
+                "LAeq": laeqCount > 0 ? Float(10.0 * log10(laeqAccumulator / Double(laeqCount) + 1e-12)) : -120.0,
+                "LAFmin": lafMin,
+                "LAFmax": lafMax,
+                "LCpeak": lcPeakHold,
+                "LAFT5": currentTaktMax,
+                // Percentiles and LAFTeq are calculated on demand in UI or periodically to save CPU here
+                // but we can pass raw data or compute them if needed. For now, let's compute them here for simplicity.
+            ]
 
             if debugPrintCounter % 240 == 0 {
                 print("[AudioEngine] Broadband Level: \(String(format: "%.1f", broadbandLevel)) dB")
@@ -366,6 +499,7 @@ class AudioEngine: ObservableObject {
                 frequencies: bandFreqs,
                 magnitudes: smoothedMagnitudes,
                 broadbandLevel: broadbandLevel,
+                levels: calculateExtendedLevels(baseLevels: levels),
                 sampleRate: sampleRate
             )
 
@@ -397,6 +531,45 @@ class AudioEngine: ObservableObject {
             // Advance window by hop size
             sampleBuffer.removeFirst(scrollSpeed.rawValue)
         }
+    }
+    
+    private func calculateExtendedLevels(baseLevels: [String: Float]) -> [String: Float] {
+        var levels = baseLevels
+        
+        // Percentiles
+        if lafTotalCounts > 0 {
+            // LAF5 (5% percentile - exceeded 5% of time -> top 5%)
+            levels["LAF5"] = calculatePercentile(targetPercentage: 0.05)
+            // LAF95 (95% percentile - exceeded 95% of time -> top 95% / bottom 5%)
+            levels["LAF95"] = calculatePercentile(targetPercentage: 0.95)
+        } else {
+            levels["LAF5"] = -120.0
+            levels["LAF95"] = -120.0
+        }
+        
+        // LAFTeq
+        if !taktValues.isEmpty {
+            let sumEnergy = taktValues.reduce(0.0) { $0 + pow(10.0, Double($1) / 10.0) }
+            levels["LAFTeq"] = Float(10.0 * log10(sumEnergy / Double(taktValues.count) + 1e-12))
+        } else {
+            levels["LAFTeq"] = currentTaktMax > -1000 ? currentTaktMax : -120.0
+        }
+        
+        return levels
+    }
+    
+    private func calculatePercentile(targetPercentage: Double) -> Float {
+        let targetCount = Int(Double(lafTotalCounts) * targetPercentage)
+        var currentCount = 0
+        // Iterate from top (high dB) to bottom for "exceeded N% of time"
+        // LAF5 means the level exceeded 5% of the time (so it's a high level)
+        for i in stride(from: lafHistogram.count - 1, through: 0, by: -1) {
+            currentCount += lafHistogram[i]
+            if currentCount >= targetCount {
+                return histMinDB + Float(i) / 10.0
+            }
+        }
+        return histMinDB
     }
 
     private func performFFT(on samples: [Float]) -> (frequencies: [Float], magnitudes: [Float]) {
@@ -647,6 +820,7 @@ class AudioEngine: ObservableObject {
             frequencies: bandFreqs,
             magnitudes: smoothed,
             broadbandLevel: -40.0 + Float.random(in: -5...5),
+            levels: ["LAF": -40.0 + Float.random(in: -5...5)],
             sampleRate: sampleRate
         )
 
