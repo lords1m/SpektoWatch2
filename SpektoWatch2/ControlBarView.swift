@@ -5,40 +5,64 @@ struct ControlBarView: View {
     @State private var isRecording = false
     
     var body: some View {
-        HStack {
-            // Status Info
-            VStack(alignment: .leading) {
-                Text(isRecording ? "Aufnahme läuft" : "Bereit")
-                    .font(.caption)
-                    .foregroundColor(isRecording ? .red : .gray)
-                if isRecording {
-                    Text(timeString(from: audioEngine.recordingDuration))
-                        .font(.caption2)
-                        .monospacedDigit()
+        VStack(spacing: 0) {
+            // Top Separator
+            Divider()
+                .background(Color.gray.opacity(0.3))
+            
+            HStack(spacing: 16) {
+                // Status Info
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isRecording ? "Aufnahme läuft" : "Bereit")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(isRecording ? .red : .gray)
+                    if isRecording {
+                        Text(timeString(from: audioEngine.recordingDuration))
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .frame(width: 100, alignment: .leading)
+                
+                Spacer()
+                
+                // Record Button - CENTERED
+                Button(action: toggleRecording) {
+                    ZStack {
+                        Circle()
+                            .fill(isRecording ? Color.red.opacity(0.2) : Color.clear)
+                            .frame(width: 60, height: 60)
+                        
+                        Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+                            .font(.system(size: 50))
+                            .foregroundColor(.red)
+                    }
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Spacer()
+                
+                // Settings Button
+                Button(action: {
+                    // Show settings
+                    print("[ControlBarView] Settings tapped")
+                }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.title2)
+                        .foregroundColor(.blue)
+                }
+                .frame(width: 100, alignment: .trailing)
             }
-            
-            Spacer()
-            
-            // Record Button
-            Button(action: toggleRecording) {
-                Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                    .font(.system(size: 44))
-                    .foregroundColor(isRecording ? .red : .red)
-            }
-            
-            Spacer()
-            
-            // Settings / More
-            Button(action: {
-                // Show settings
-            }) {
-                Image(systemName: "gear")
-                    .font(.title2)
-            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemBackground))
+        .background(
+            Color(UIColor.systemBackground)
+                .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -2)
+        )
         .onReceive(NotificationCenter.default.publisher(for: .startRecordingCommand)) { _ in
             if !isRecording { toggleRecording() }
         }
@@ -48,10 +72,15 @@ struct ControlBarView: View {
     }
     
     private func toggleRecording() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
         isRecording.toggle()
         if isRecording {
+            print("[ControlBarView] Starting recording...")
             audioEngine.startRecording()
         } else {
+            print("[ControlBarView] Stopping recording...")
             audioEngine.stopRecording()
         }
     }
@@ -61,4 +90,10 @@ struct ControlBarView: View {
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
+}
+
+// Notification Extensions
+extension Notification.Name {
+    static let startRecordingCommand = Notification.Name("startRecordingCommand")
+    static let stopRecordingCommand = Notification.Name("stopRecordingCommand")
 }
