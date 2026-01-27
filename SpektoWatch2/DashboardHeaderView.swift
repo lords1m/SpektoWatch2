@@ -5,31 +5,46 @@ struct DashboardHeaderView: View {
     var onAddWidget: () -> Void
     
     var body: some View {
-        HStack {
-            Text("Dashboard")
-                .font(.title2)
-                .bold()
-            
-            Spacer()
-            
-            if isEditMode {
-                Button(action: onAddWidget) {
-                    Label("Add", systemImage: "plus")
+        VStack(spacing: 0) {
+            HStack {
+                Text("Dashboard")
+                    .font(.title2)
+                    .bold()
+                
+                Spacer()
+                
+                if isEditMode {
+                    Button(action: onAddWidget) {
+                        Label("Add", systemImage: "plus")
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.trailing, 8)
                 }
-                .padding(.trailing, 8)
-            }
-            
-            Button(action: {
-                withAnimation {
-                    isEditMode.toggle()
+                
+                Button(action: {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        isEditMode.toggle()
+                    }
+                    print("[DashboardHeaderView] Edit mode: \(isEditMode)")
+                }) {
+                    Text(isEditMode ? "Fertig" : "Bearbeiten")
+                        .fontWeight(isEditMode ? .bold : .regular)
+                        .foregroundColor(.blue)
                 }
-            }) {
-                Text(isEditMode ? "Fertig" : "Bearbeiten")
-                    .fontWeight(isEditMode ? .bold : .regular)
             }
+            .padding()
+            .background(Color(UIColor.systemBackground))
+            
+            // Bottom Separator
+            Divider()
+                .background(Color.gray.opacity(0.3))
         }
-        .padding()
-        .background(Color(UIColor.systemBackground))
-        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+        .background(
+            Color(UIColor.systemBackground)
+                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+        )
     }
 }
