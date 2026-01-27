@@ -18,43 +18,79 @@ struct SaveRecordingView: View {
                     Text("Dauer: \(timeString(from: duration))")
                 }
                 
+                Section(header: Text("Statistiken")) {
+                    if let data = audioEngine.currentSpectrogramData {
+                        HStack {
+                            Text("LAeq")
+                            Spacer()
+                            Text(String(format: "%.1f dB", (data.levels["LAeq"] ?? -120.0) + dbOffset))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack {
+                            Text("Peak")
+                            Spacer()
+                            Text(String(format: "%.1f dB", (data.levels["LCpeak"] ?? -120.0) + dbOffset))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack {
+                            Text("Min")
+                            Spacer()
+                            Text(String(format: "%.1f dB", (data.levels["LAFmin"] ?? -120.0) + dbOffset))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    HStack {
+                        Text("Zeitbewertung")
+                        Spacer()
+                        Text(audioEngine.timeWeighting.displayName)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Frequenzbewertung")
+                        Spacer()
+                        Text(audioEngine.frequencyWeighting.displayName)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
                 Section {
                     Button("Speichern") {
-                        var recording = AudioRecording(url: audioURL, date: Date(), duration: duration, title: title)
+                        var recording = AudioRecording(
+                            url: audioURL,
+                            date: Date(),
+                            duration: duration,
+                            title: title
+                        )
                         
                         // Populate statistics from AudioEngine
-                        // Note: These values are from the current state, which might be reset if stopRecording clears them immediately.
-                        // Ideally, AudioEngine should pass a summary object.
-                        // Assuming AudioEngine holds the last values or we capture them before stop.
-                        // Since we are in the Save dialog, the engine is stopped but values might still be in published properties if not reset.
-                        // However, AudioEngine.stopRecording() clears history.
-                        // We need to capture these values *before* showing this view or ensure AudioEngine retains them.
-                        // For now, let's try reading from AudioEngine directly, assuming they persist until next start.
-                        // Actually, AudioEngine.stopRecording clears levelHistory but maybe not the metrics like LAeq.
-                        
-                        // Let's grab what we can.
-                        // We need to access the levels dictionary from the last spectrogram data or engine properties.
                         if let data = audioEngine.currentSpectrogramData {
                             recording.laeqFast = (data.levels["LAeq"] ?? -120.0) + dbOffset
                             recording.peakLevel = (data.levels["LCpeak"] ?? -120.0) + dbOffset
                             recording.minLevel = (data.levels["LAFmin"] ?? -120.0) + dbOffset
                         }
                         
-                        recording.timeWeighting = audioEngine.selectedTimeWeighting.rawValue
-                        recording.frequencyWeighting = audioEngine.selectedFrequencyWeighting.rawValue
+                        recording.timeWeighting = audioEngine.timeWeighting.rawValue
+                        recording.frequencyWeighting = audioEngine.frequencyWeighting.rawValue
                         recording.description = description
                         
                         RecordingManager.shared.addRecording(recording)
                         dismiss()
                     }
+                    .font(.headline)
                     
-                    Button("Verwerfen") {
+                    Button("Verwerfen", role: .destructive) {
+                        // Optional: Delete the temporary audio file
+                        try? FileManager.default.removeItem(at: audioURL)
                         dismiss()
                     }
-                    .foregroundColor(.red)
                 }
             }
             .navigationTitle("Aufnahme speichern")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
     
