@@ -13,19 +13,30 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
 }
 
 enum WidgetSize: String, Codable, CaseIterable {
-    case small   // 1x1
-    case medium  // 2x1
-    case large   // 2x2
-    case wide    // 3x1
-    case full    // Volle Breite
+    case small = "Klein"        // 1 Spalte
+    case medium = "Mittel"      // 1 Spalte
+    case large = "Groß"        // 2 Spalten
+    case wide = "Breit"         // 2 Spalten
+    case full = "Vollbild"      // 2 Spalten
     
     var height: CGFloat {
         switch self {
-        case .small: return 150
-        case .medium: return 150
-        case .large: return 300
-        case .wide: return 150
-        case .full: return 200
+        case .small: return 180
+        case .medium: return 250
+        case .large: return 350
+        case .wide: return 200
+        case .full: return 400
+        }
+    }
+    
+    /// Anzahl der Spalten die das Widget im Grid einnimmt (bei 2-Spalten-Layout)
+    var gridColumns: Int {
+        switch self {
+        case .small: return 1
+        case .medium: return 1
+        case .large: return 2   // Volle Breite
+        case .wide: return 2    // Volle Breite
+        case .full: return 2    // Volle Breite
         }
     }
 }
@@ -51,12 +62,12 @@ struct WidgetConfiguration: Identifiable, Codable {
     
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
-        case .spectrogram: return .large
-        case .lafGraph: return .medium
-        case .frequencyDisplay: return .medium
-        case .levelMeter: return .small
-        case .octaveBands: return .medium
-        case .phaseMeter: return .small
+        case .spectrogram: return .full      // Groß und breit
+        case .lafGraph: return .large        // Groß und breit
+        case .frequencyDisplay: return .large // Groß und breit
+        case .levelMeter: return .medium     // Mittel
+        case .octaveBands: return .large     // Groß und breit
+        case .phaseMeter: return .medium     // Mittel
         }
     }
 }
