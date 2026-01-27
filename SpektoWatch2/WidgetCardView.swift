@@ -8,11 +8,21 @@ struct WidgetCardView: View {
     var onResize: (WidgetSize) -> Void
     var onUpdateSettings: ([String: String]) -> Void
     @State private var showSettings = false
+    @State private var isVisible = false
     @State private var updateThrottle = Date()
     let throttleInterval: TimeInterval = 1.0 / 30.0 // Max 30 FPS per Widget
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Mini-Title im normalen Modus
+            if !isEditMode {
+                Text(widget.type.rawValue)
+                    .font(.caption2)
+                    .foregroundColor(.gray.opacity(0.7))
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
+            }
+            
             // Header in Edit Mode
             if isEditMode {
                 HStack {
@@ -78,6 +88,13 @@ struct WidgetCardView: View {
         let now = Date()
         guard now.timeIntervalSince(updateThrottle) > throttleInterval else { return }
         updateThrottle = now
+        }
+        GeometryReader { proxy in
+        renderWidgetContent()
+            .opacity(isVisible ? 1 : 0.3)
+            .onAppear {
+                isVisible = proxy.frame(in: .global).intersects(UIScreen.main.bounds)
+            }
         }
     }
     

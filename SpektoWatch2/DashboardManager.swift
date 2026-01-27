@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 class DashboardManager: ObservableObject {
     @Published var widgets: [WidgetConfiguration] = []
@@ -7,24 +8,24 @@ class DashboardManager: ObservableObject {
     
     private let userDefaultsKey = "DashboardConfiguration_v2"
     
-    init() {
-        print("[DashboardManager] Initializing...")
-        loadConfiguration()
-        if widgets.isEmpty {
-            // Default setup
-            widgets = [
-                WidgetConfiguration(type: .spectrogram, size: .large, gridPosition: GridPosition(index: 0)),
-                WidgetConfiguration(type: .lafGraph, size: .medium, gridPosition: GridPosition(index: 1)),
-                WidgetConfiguration(type: .levelMeter, size: .small, gridPosition: GridPosition(index: 2)),
-                WidgetConfiguration(type: .frequencyDisplay, size: .medium, gridPosition: GridPosition(index: 3)),
-                WidgetConfiguration(type: .octaveBands, size: .medium, gridPosition: GridPosition(index: 4)),
-                WidgetConfiguration(type: .phaseMeter, size: .small, gridPosition: GridPosition(index: 5))
-            ]
-            print("[DashboardManager] Created default widgets configuration")
+  init() {
+    print("[DashboardManager] Initializing...")
+    loadConfiguration()
+    if widgets.isEmpty {
+        // Größere Default-Widgets
+        widgets = [
+            WidgetConfiguration(type: .spectrogram, size: .large, gridPosition: GridPosition(index: 0)),
+            WidgetConfiguration(type: .lafGraph, size: .large, gridPosition: GridPosition(index: 1)),
+            WidgetConfiguration(type: .frequencyDisplay, size: .large, gridPosition: GridPosition(index: 2))
+        ]
+        print("[DashboardManager] Created default widgets configuration with larger sizes")
         }
     }
     
     func addWidget(type: AudioWidgetType, at position: GridPosition? = nil) {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
         print("[DashboardManager] Adding widget of type: \(type.rawValue)")
         let size = WidgetConfiguration.defaultSize(for: type)
         let pos = position ?? GridPosition(index: widgets.count)
@@ -35,6 +36,9 @@ class DashboardManager: ObservableObject {
     }
     
     func removeWidget(id: UUID) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.warning)
+        
         print("[DashboardManager] Removing widget with ID: \(id)")
         widgets.removeAll { $0.id == id }
         print("[DashboardManager] Widget removed. Total widgets: \(widgets.count)")

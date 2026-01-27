@@ -53,7 +53,11 @@ struct WidgetSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
-                        onSave(settings)
+                        var validatedSettings = settings
+                        if let colormap = Int(settings["colormap"] ?? "0"), colormap < 0 || colormap > 2 {
+                            validatedSettings["colormap"] = "0"
+                        }
+                        onSave(validatedSettings)
                         dismiss()
                     }
                 }

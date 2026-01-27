@@ -30,5 +30,8 @@ struct LAFGraphWidget: View {
             )
             .cornerRadius(10)
         }
+        .onAppear {
+            print("[LAFGraphWidget] View appeared with timeSpan: \(timeSpan)")
+        }
     }
 }

@@ -10,6 +10,12 @@ struct FrequencySpectrumWidget: View {
             let height = size.height
             let spectrum = audioEngine.currentSpectrum
             
+            if spectrum.isEmpty {
+                let text = Text("Warte auf Audio...").font(.caption).foregroundColor(.gray)
+                context.draw(text, at: CGPoint(x: size.width/2, y: size.height/2))
+                return
+            }
+            
             guard !spectrum.isEmpty else { return }
             
             // Draw background grid
@@ -50,6 +56,9 @@ struct FrequencySpectrumWidget: View {
             }
         }
         .drawingGroup() // Metal acceleration
+        .onAppear {
+            print("[FrequencySpectrumWidget] View appeared")
+        }
     }
 }
 
@@ -111,6 +120,9 @@ struct LevelMeterWidget: View {
         }
         .padding(10)
         .background(Color.black)
+        .onAppear {
+            print("[LevelMeterWidget] View appeared")
+        }
     }
 }
 
@@ -128,6 +140,12 @@ struct OctaveBandWidget: View {
             let width = size.width
             let height = size.height
             let bands = audioEngine.currentOctaveBands
+            
+            if audioEngine.currentSpectrum.isEmpty {
+                let text = Text("Warte auf Audio...").font(.caption).foregroundColor(.gray)
+                context.draw(text, at: CGPoint(x: size.width/2, y: size.height/2))
+                return
+            }
             
             let barWidth = width / CGFloat(bands.count)
             
@@ -158,6 +176,9 @@ struct OctaveBandWidget: View {
             }
         }
         .drawingGroup()
+        .onAppear {
+            print("[OctaveBandWidget] View appeared")
+        }
     }
 }
 
@@ -220,6 +241,12 @@ struct PhaseMeterWidget: View {
             // Since we don't have full L/R buffer history here easily without copying lots of data,
             // we visualize the phase correlation as a shape.
             Canvas { context, size in
+                if audioEngine.currentSpectrum.isEmpty {
+                    let text = Text("Warte auf Audio...").font(.caption).foregroundColor(.gray)
+                    context.draw(text, at: CGPoint(x: size.width/2, y: size.height/2))
+                    return
+                }
+                
                 let center = CGPoint(x: size.width/2, y: size.height/2)
                 let radius = min(size.width, size.height) / 2 - 5
                 
@@ -246,5 +273,8 @@ struct PhaseMeterWidget: View {
             .frame(width: 100)
         }
         .background(Color.black)
+        .onAppear {
+            print("[PhaseMeterWidget] View appeared")
+        }
     }
 }

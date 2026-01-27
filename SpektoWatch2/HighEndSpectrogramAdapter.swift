@@ -580,15 +580,14 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     let axisWidth: CGFloat = 35
     let axisHeight: CGFloat = 20
     let axisSpacing: CGFloat = 4
-    let levelGraphHeight: CGFloat = 100
 
     // Spezifische Frequenzen für die Achsenbeschriftung
     let axisFrequencies: [Double] = [16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
     
     var body: some View {
         GeometryReader { geometry in
-            let totalSpacing = axisSpacing * 2
-            let spectrogramHeight = geometry.size.height - axisHeight - totalSpacing - levelGraphHeight
+            let totalSpacing = axisSpacing
+            let spectrogramHeight = geometry.size.height - axisHeight - totalSpacing
             
             HStack(spacing: axisSpacing) {
                 // Y-Axis (Frequency)
@@ -607,19 +606,6 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                     .frame(width: axisWidth, height: spectrogramHeight)
                     .clipped()
                     
-                    // Level Labels
-                    ZStack(alignment: .topTrailing) {
-                        Text("100")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                            .position(x: axisWidth / 2, y: 8)
-                        Text("0")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                            .position(x: axisWidth / 2, y: levelGraphHeight - 8)
-                    }
-                    .frame(width: axisWidth, height: levelGraphHeight)
-                    
                     Spacer().frame(height: axisHeight)
                 }
                 
@@ -629,17 +615,6 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                     HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset)
                         .frame(height: spectrogramHeight)
                         .cornerRadius(20)
-                    
-                    // LAF Graph (Separate Window)
-                    LAFGraphView(
-                        audioEngine: audioEngine,
-                        timeSpan: timeSpan,
-                        scrollSpeed: scrollSpeed,
-                        isPaused: isPaused,
-                        scrollOffset: scrollOffset
-                    )
-                    .frame(height: levelGraphHeight)
-                    .cornerRadius(10)
                     
                     // X-Axis (Time)
                     HStack {
@@ -655,8 +630,6 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                     .frame(height: axisHeight)
                 }
                 
-                // Symmetrie-Spacer, damit das Spektrogramm mittig sitzt
-                Spacer().frame(width: axisWidth)
             }
         }
     }

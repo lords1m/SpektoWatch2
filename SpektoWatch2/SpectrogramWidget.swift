@@ -17,5 +17,8 @@ struct SpectrogramWidget: View {
             isPaused: false,
             scrollOffset: 0.0
         )
+        .onAppear {
+            print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan)")
+        }
     }
 }

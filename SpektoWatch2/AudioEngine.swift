@@ -30,6 +30,13 @@ enum ScrollSpeed: Int, CaseIterable {
     }
 }
 
+enum EngineStatus {
+    case idle
+    case starting
+    case running
+    case error(String)
+}
+
 class AudioEngine: ObservableObject {
 
     private var audioEngine: AVAudioEngine
@@ -44,11 +51,13 @@ class AudioEngine: ObservableObject {
     private var hasLoggedSilence = false
     private var debugPrintCounter = 0
     private var lastWatchUpdate: TimeInterval = 0
+    private let maxHistorySize = 1000
 
     // Recording time tracking
     private var recordingStartTime: Date?
 
     @Published var recordingDuration: TimeInterval = 0.0
+    @Published var engineStatus: EngineStatus = .idle
     @Published var currentSpectrogramData: SpectrogramData?
     @Published var currentLevel: Float = -120.0
     @Published var levelHistory: [Float] = []
@@ -145,6 +154,7 @@ class AudioEngine: ObservableObject {
 
     func startRecording() {
         print("[AudioEngine] Start")
+        engineStatus = .starting
         recordingStartTime = Date()
         recordingDuration = 0.0
         hasLoggedSilence = false
@@ -159,6 +169,7 @@ class AudioEngine: ObservableObject {
         #if targetEnvironment(simulator)
         print("Running on Simulator - using dummy audio data")
         startDummyDataGeneration()
+        engineStatus = .running
         #else
         do {
             let audioSession = AVAudioSession.sharedInstance()
@@ -172,6 +183,7 @@ class AudioEngine: ObservableObject {
             }
             if audioSession.recordPermission == .denied {
                 print("[AudioEngine] Error: Microphone permission denied. Please enable in settings.")
+                engineStatus = .error("Microphone permission denied")
                 return
             }
 
@@ -193,6 +205,7 @@ class AudioEngine: ObservableObject {
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
                 print("Invalid audio format - falling back to dummy data")
                 startDummyDataGeneration()
+                engineStatus = .running
                 return
             }
 
@@ -201,10 +214,13 @@ class AudioEngine: ObservableObject {
             }
 
             try audioEngine.start()
+            engineStatus = .running
         } catch {
             print("Audio engine start error: \(error)")
+            engineStatus = .error(error.localizedDescription)
             print("Falling back to dummy data")
             startDummyDataGeneration()
+            engineStatus = .running
         }
         #endif
     }
@@ -212,6 +228,7 @@ class AudioEngine: ObservableObject {
     func stopRecording() {
         print("[AudioEngine] Stop")
         recordingStartTime = nil
+        engineStatus = .idle
 
         #if targetEnvironment(simulator)
         stopDummyDataGeneration()
@@ -359,6 +376,11 @@ class AudioEngine: ObservableObject {
                 self.currentSpectrum = spectrum
                 self.currentPeakLevel = peakDB
                 self.currentLevel = broadbandLevel // Use LAF as main level
+                
+                self.levelHistory.append(broadbandLevel)
+                if self.levelHistory.count > self.maxHistorySize {
+                    self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
+                }
                 
                 // PERFORMANCE: Throttle Watch updates to ~10 FPS to reduce main thread latency
                 let now = Date().timeIntervalSince1970
