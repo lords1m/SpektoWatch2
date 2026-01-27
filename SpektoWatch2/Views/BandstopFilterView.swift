@@ -56,31 +56,37 @@ struct FrequencyRangeSlider: View {
     @State private var dragStartLow: Float = 0
     @State private var dragStartHigh: Float = 0
     
-    private let thumbSize: CGFloat = 28
-    private let trackHeight: CGFloat = 8
+    private let thumbSize: CGFloat = 32
+    private let trackHeight: CGFloat = 10
     
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width - thumbSize
             
             ZStack(alignment: .leading) {
-                // Background Track
-                RoundedRectangle(cornerRadius: trackHeight / 2)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(height: trackHeight)
-                    .padding(.horizontal, thumbSize / 2)
-                
-                // Selected Range (Bandsperre-Bereich)
+                // Background Track - HELLER FÜR BESSERE SICHTBARKEIT
                 RoundedRectangle(cornerRadius: trackHeight / 2)
                     .fill(
                         LinearGradient(
-                            colors: [Color.red.opacity(0.6), Color.orange.opacity(0.6)],
+                            colors: [Color.gray.opacity(0.4), Color.gray.opacity(0.3)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: trackHeight)
+                    .padding(.horizontal, thumbSize / 2)
+                
+                // Selected Range (Bandsperre-Bereich) - DEUTLICH SICHTBAR
+                RoundedRectangle(cornerRadius: trackHeight / 2)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.red.opacity(0.8), Color.orange.opacity(0.8)],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .frame(
-                        width: max(0, CGFloat(highPosition(width: width) - lowPosition(width: width))),
+                        width: max(4, CGFloat(highPosition(width: width) - lowPosition(width: width))),
                         height: trackHeight
                     )
                     .offset(x: thumbSize / 2 + CGFloat(lowPosition(width: width)))
@@ -92,13 +98,17 @@ struct FrequencyRangeSlider: View {
                                     dragStartLow = lowValue
                                     dragStartHigh = highValue
                                 }
-                                let delta = Float(value.translation.width / width) * (range.upperBound - range.lowerBound)
-                                let newLow = max(range.lowerBound, min(dragStartLow + delta, range.upperBound - (dragStartHigh - dragStartLow)))
-                                let newHigh = newLow + (dragStartHigh - dragStartLow)
                                 
-                                if newHigh <= range.upperBound {
-                                    lowValue = newLow
-                                    highValue = newHigh
+                                let deltaPixels = value.translation.width
+                                let lowPos = frequencyToPosition(dragStartLow, width: width)
+                                let highPos = frequencyToPosition(dragStartHigh, width: width)
+                                
+                                let newLowPos = lowPos + Float(deltaPixels)
+                                let newHighPos = highPos + Float(deltaPixels)
+                                
+                                if newLowPos >= 0 && newHighPos <= Float(width) {
+                                    lowValue = positionToFrequency(newLowPos, width: width)
+                                    highValue = positionToFrequency(newHighPos, width: width)
                                 }
                             }
                             .onEnded { _ in
@@ -106,28 +116,35 @@ struct FrequencyRangeSlider: View {
                             }
                     )
                 
-                // Low Frequency Thumb
+                // Low Frequency Thumb - GRÖßER & BESSER SICHTBAR
                 Circle()
-                    .fill(Color.white)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue, Color.blue.opacity(0.8)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                     .frame(width: thumbSize, height: thumbSize)
-                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                    .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
                     .overlay(
                         Circle()
-                            .stroke(isDraggingLow ? Color.blue : Color.gray.opacity(0.3), lineWidth: 2)
+                            .stroke(Color.white, lineWidth: 3)
                     )
                     .overlay(
                         Text("L")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.blue)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
                     )
+                    .scaleEffect(isDraggingLow ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3), value: isDraggingLow)
                     .offset(x: CGFloat(lowPosition(width: width)))
                     .gesture(
                         DragGesture()
                             .onChanged { value in
                                 isDraggingLow = true
-                                let newPosition = value.location.x / width
-                                let newValue = range.lowerBound + Float(newPosition) * (range.upperBound - range.lowerBound)
+                                let position = Float(value.location.x)
+                                let newValue = positionToFrequency(position, width: width)
                                 lowValue = max(range.lowerBound, min(newValue, highValue - 1))
                             }
                             .onEnded { _ in
@@ -135,28 +152,35 @@ struct FrequencyRangeSlider: View {
                             }
                     )
                 
-                // High Frequency Thumb
+                // High Frequency Thumb - GRÖßER & BESSER SICHTBAR
                 Circle()
-                    .fill(Color.white)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.red, Color.red.opacity(0.8)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                     .frame(width: thumbSize, height: thumbSize)
-                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                    .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
                     .overlay(
                         Circle()
-                            .stroke(isDraggingHigh ? Color.red : Color.gray.opacity(0.3), lineWidth: 2)
+                            .stroke(Color.white, lineWidth: 3)
                     )
                     .overlay(
                         Text("H")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.red)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
                     )
+                    .scaleEffect(isDraggingHigh ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3), value: isDraggingHigh)
                     .offset(x: CGFloat(highPosition(width: width)))
                     .gesture(
                         DragGesture()
                             .onChanged { value in
                                 isDraggingHigh = true
-                                let newPosition = value.location.x / width
-                                let newValue = range.lowerBound + Float(newPosition) * (range.upperBound - range.lowerBound)
+                                let position = Float(value.location.x)
+                                let newValue = positionToFrequency(position, width: width)
                                 highValue = max(lowValue + 1, min(newValue, range.upperBound))
                             }
                             .onEnded { _ in
@@ -165,15 +189,42 @@ struct FrequencyRangeSlider: View {
                     )
             }
         }
-        .frame(height: thumbSize + 8)
+        .frame(height: thumbSize + 16)
+    }
+    
+    // LOGARITHMISCHE SKALIERUNG
+    private func frequencyToPosition(_ frequency: Float, width: CGFloat) -> Float {
+        if useLogScale {
+            let minLog = log10(range.lowerBound)
+            let maxLog = log10(range.upperBound)
+            let freqLog = log10(max(range.lowerBound, min(range.upperBound, frequency)))
+            let normalized = (freqLog - minLog) / (maxLog - minLog)
+            return Float(width) * normalized
+        } else {
+            let normalized = (frequency - range.lowerBound) / (range.upperBound - range.lowerBound)
+            return Float(width) * normalized
+        }
+    }
+    
+    private func positionToFrequency(_ position: Float, width: CGFloat) -> Float {
+        let normalized = position / Float(width)
+        
+        if useLogScale {
+            let minLog = log10(range.lowerBound)
+            let maxLog = log10(range.upperBound)
+            let freqLog = minLog + normalized * (maxLog - minLog)
+            return pow(10, freqLog)
+        } else {
+            return range.lowerBound + normalized * (range.upperBound - range.lowerBound)
+        }
     }
     
     private func lowPosition(width: CGFloat) -> Float {
-        Float(width) * (lowValue - range.lowerBound) / (range.upperBound - range.lowerBound)
+        frequencyToPosition(lowValue, width: width)
     }
     
     private func highPosition(width: CGFloat) -> Float {
-        Float(width) * (highValue - range.lowerBound) / (range.upperBound - range.lowerBound)
+        frequencyToPosition(highValue, width: width)
     }
 }
 
@@ -252,7 +303,7 @@ struct BandstopFilterEditView: View {
                 }
             }
             
-            // Dual Range Slider
+            // Dual Range Slider mit LOG-SCALE
             FrequencyRangeSlider(
                 lowValue: $filter.lowFrequency,
                 highValue: $filter.highFrequency,
