@@ -6,19 +6,18 @@ class DashboardManager: ObservableObject {
     @Published var widgets: [WidgetConfiguration] = []
     @Published var isEditMode: Bool = false
     
-    private let userDefaultsKey = "DashboardConfiguration_v2"
+    private let userDefaultsKey = "DashboardConfiguration_v3" // v3 um alte Configs zu ignorieren
     
-  init() {
-    print("[DashboardManager] Initializing...")
-    loadConfiguration()
-    if widgets.isEmpty {
-        // Größere Default-Widgets
-        widgets = [
-            WidgetConfiguration(type: .spectrogram, size: .large, gridPosition: GridPosition(index: 0)),
-            WidgetConfiguration(type: .lafGraph, size: .large, gridPosition: GridPosition(index: 1)),
-            WidgetConfiguration(type: .frequencyDisplay, size: .large, gridPosition: GridPosition(index: 2))
-        ]
-        print("[DashboardManager] Created default widgets configuration with larger sizes")
+    init() {
+        print("[DashboardManager] Initializing...")
+        loadConfiguration()
+        if widgets.isEmpty {
+            // NUR EIN großes Spektrogramm als Default
+            widgets = [
+                WidgetConfiguration(type: .spectrogram, size: .full, gridPosition: GridPosition(index: 0))
+            ]
+            print("[DashboardManager] Created default configuration with ONE large spectrogram")
+            saveConfiguration()
         }
     }
     
@@ -55,7 +54,10 @@ class DashboardManager: ObservableObject {
         print("[DashboardManager] Resizing widget \(id) to \(newSize)")
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].size = newSize
+            print("[DashboardManager] Widget resized successfully")
             saveConfiguration()
+        } else {
+            print("[DashboardManager] ERROR: Widget with ID \(id) not found for resizing")
         }
     }
     
@@ -71,23 +73,42 @@ class DashboardManager: ObservableObject {
         print("[DashboardManager] Saving configuration...")
         do {
             let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
             let data = try encoder.encode(widgets)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            print("[DashboardManager] Configuration saved successfully")
+            print("[DashboardManager] Configuration saved successfully (\(widgets.count) widgets)")
         } catch {
-            print("Error saving dashboard configuration: \(error)")
+            print("[DashboardManager] Error saving dashboard configuration: \(error)")
         }
     }
     
     func loadConfiguration() {
         print("[DashboardManager] Loading configuration...")
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else { return }
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
+            print("[DashboardManager] No saved configuration found")
+            return
+        }
         do {
             let decoder = JSONDecoder()
             widgets = try decoder.decode([WidgetConfiguration].self, from: data)
-            print("[DashboardManager] Configuration loaded. Found \(widgets.count) widgets.")
+            print("[DashboardManager] Configuration loaded successfully. Found \(widgets.count) widgets:")
+            for (index, widget) in widgets.enumerated() {
+                print("  [\(index)] \(widget.type.rawValue) - \(widget.size.rawValue)")
+            }
         } catch {
-            print("Error loading dashboard configuration: \(error)")
+            print("[DashboardManager] Error loading dashboard configuration: \(error)")
         }
+    }
+    
+    /// Reset zu Standard-Konfiguration
+    func resetToDefault() {
+        print("[DashboardManager] Resetting to default configuration...")
+        widgets = [
+            WidgetConfiguration(type: .spectrogram, size: .full, gridPosition: GridPosition(index: 0))
+        ]
+        saveConfiguration()
+        
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
     }
 }
