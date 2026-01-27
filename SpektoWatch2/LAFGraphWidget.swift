@@ -2,6 +2,9 @@ import SwiftUI
 
 struct LAFGraphWidget: View {
     @ObservedObject var audioEngine: AudioEngine
+    var settings: [String: String]
+    
+    var timeSpan: SpectrogramTimeSpan { SpectrogramTimeSpan(rawValue: Int(settings["timeSpan"] ?? "5") ?? 5) ?? .seconds5 }
     
     var body: some View {
         HStack(spacing: 4) {
@@ -20,7 +23,7 @@ struct LAFGraphWidget: View {
             
             LAFGraphView(
                 audioEngine: audioEngine,
-                timeSpan: .seconds5,
+                timeSpan: timeSpan,
                 scrollSpeed: .fast,
                 isPaused: false,
                 scrollOffset: 0.0

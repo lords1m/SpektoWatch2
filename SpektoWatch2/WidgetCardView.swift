@@ -6,6 +6,8 @@ struct WidgetCardView: View {
     var isEditMode: Bool
     var onDelete: () -> Void
     var onResize: (WidgetSize) -> Void
+    var onUpdateSettings: ([String: String]) -> Void
+    @State private var showSettings = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,7 +24,10 @@ struct WidgetCardView: View {
                     // Resize Menu
                     Menu {
                         ForEach(WidgetSize.allCases, id: \.self) { size in
-                            Button(action: { onResize(size) }) {
+                            Button(action: { 
+                                print("[WidgetCardView] Resize selected: \(size) for widget \(widget.type.rawValue)")
+                                onResize(size) 
+                            }) {
                                 Label(size.rawValue, systemImage: size == widget.size ? "checkmark" : "")
                             }
                         }
@@ -31,8 +36,17 @@ struct WidgetCardView: View {
                             .font(.caption)
                     }
                     
+                    // Settings Button
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                            .foregroundColor(.gray)
+                    }
+                    
                     // Delete Button
-                    Button(action: onDelete) {
+                    Button(action: {
+                        print("[WidgetCardView] Delete tapped for widget \(widget.type.rawValue)")
+                        onDelete()
+                    }) {
                         Image(systemName: "trash")
                             .foregroundColor(.red)
                     }
@@ -52,15 +66,21 @@ struct WidgetCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isEditMode ? Color.blue : Color.white.opacity(0.1), lineWidth: isEditMode ? 2 : 1)
         )
+        .onAppear {
+            print("[WidgetCardView] Rendering widget: \(widget.type.rawValue) (ID: \(widget.id), Size: \(widget.size))")
+        }
+        .sheet(isPresented: $showSettings) {
+            WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
+        }
     }
     
     @ViewBuilder
     private func renderWidgetContent() -> some View {
         switch widget.type {
         case .spectrogram:
-            SpectrogramWidget(audioEngine: audioEngine)
+            SpectrogramWidget(audioEngine: audioEngine, settings: widget.settings)
         case .lafGraph:
-            LAFGraphWidget(audioEngine: audioEngine)
+            LAFGraphWidget(audioEngine: audioEngine, settings: widget.settings)
         case .frequencyDisplay:
             FrequencySpectrumWidget(audioEngine: audioEngine)
         case .levelMeter:

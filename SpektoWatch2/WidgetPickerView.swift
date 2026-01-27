@@ -9,6 +9,7 @@ struct WidgetPickerView: View {
             List {
                 ForEach(AudioWidgetType.allCases) { type in
                     Button(action: {
+                        print("[WidgetPickerView] Selected widget type: \(type.rawValue)")
                         dashboardManager.addWidget(type: type)
                         dismiss()
                     }) {
