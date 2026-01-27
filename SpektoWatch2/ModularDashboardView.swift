@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ModularDashboardView: View {
-    @StateObject private var audioEngine = AudioEngine()
+    @ObservedObject var audioEngine: AudioEngine
     @StateObject private var dashboardManager = DashboardManager()
     @State private var showWidgetPicker = false
     @State private var draggedWidget: WidgetConfiguration?
@@ -33,11 +33,15 @@ struct ModularDashboardView: View {
                             isEditMode: dashboardManager.isEditMode,
                             onDelete: { 
                                 print("[ModularDashboardView] Delete requested for widget: \(widget.id)")
-                                dashboardManager.removeWidget(id: widget.id) 
+                                withAnimation(.spring()) {
+                                    dashboardManager.removeWidget(id: widget.id)
+                                }
                             },
                             onResize: { newSize in 
                                 print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
-                                dashboardManager.resizeWidget(id: widget.id, to: newSize) 
+                                withAnimation(.spring()) {
+                                    dashboardManager.resizeWidget(id: widget.id, to: newSize)
+                                }
                             },
                             onUpdateSettings: { newSettings in
                                 dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
@@ -48,6 +52,7 @@ struct ModularDashboardView: View {
                             return NSItemProvider(object: widget.id.uuidString as NSString)
                         }
                         .onDrop(of: [UTType.text], delegate: WidgetDropDelegate(item: widget, items: $dashboardManager.widgets, draggedItem: $draggedWidget, onSave: dashboardManager.saveConfiguration))
+                        .transition(WidgetAnimations.cardTransition)
                     }
                 }
                 .padding()

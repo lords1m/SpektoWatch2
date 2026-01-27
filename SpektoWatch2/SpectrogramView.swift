@@ -37,115 +37,17 @@ struct SpectrogramView: View {
         
         var body: some View {
             VStack(spacing: 0) {
-                HStack {
-                    Text("Live Spektrogramm")
-                        .font(.title)
-                        .bold()
-                    Spacer()
-                    Button(action: { showSettings = true }) {
-                        Image(systemName: "gear")
-                            .font(.title2)
-                    }
-                }
-                .padding()
+                headerView
                 
-                GeometryReader { geo in
-                    NavigationView {
-                        DashboardView(
-                            audioEngine: audioEngine,
-                            colormapType: selectedColormap,
-                            timeSpan: timeSpan,
-                            scrollSpeed: audioEngine.scrollSpeed,
-                            isPaused: isPaused,
-                            scrollOffset: Float(scrollOffset)
-                        )
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    if isPaused {
-                                        // Dragging right (positive) moves view back in history
-                                        let delta = Double(value.translation.width / geo.size.width)
-                                        scrollOffset -= delta * 0.05 // Sensitivity factor
-                                        
-                                        // Clamp scroll offset
-                                        let span = Double(timeSpan.rawValue)
-                                        let duration = isPaused ? pausedDuration : audioEngine.recordingDuration
-                                        let minOffset = -min(1.0, duration / span)
-                                        scrollOffset = max(minOffset, min(0.0, scrollOffset))
-                                    }
-                                }
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .padding(.top, 8)
+                spectrogramContainer
                 
-                HStack {
-                    Image(systemName: connectivityManager.isReachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(connectivityManager.isReachable ? .green : .red)
-                    Text(connectivityManager.isReachable ? "Watch verbunden" : "Watch nicht verbunden")
-                        .foregroundColor(connectivityManager.isReachable ? .green : .red)
-                        .font(.caption)
-                }
-                .padding(.vertical, 8)
+                connectivityStatusView
                 
                 if isPaused {
-                    VStack(spacing: 4) {
-                        Slider(value: Binding(
-                            get: {
-                                let duration = pausedDuration
-                                let span = Double(timeSpan.rawValue)
-                                // Time = duration + scrollOffset * span (scrollOffset is negative)
-                                return duration + scrollOffset * span
-                            },
-                            set: { newTime in
-                                let duration = pausedDuration
-                                let span = Double(timeSpan.rawValue)
-                                // Offset = (Time - duration) / span
-                                scrollOffset = (newTime - duration) / span
-                            }
-                        ), in: max(0, pausedDuration - Double(timeSpan.rawValue))...pausedDuration)
-                        
-                        Text("Zeit: \(String(format: "%.1f", pausedDuration + scrollOffset * Double(timeSpan.rawValue)))s / \(String(format: "%.1f", pausedDuration))s")
-                            .font(.caption)
-                            .monospacedDigit()
-                    }
-                    .padding(.horizontal, 40)
+                    pausedControlsView
                 }
                 
-                HStack(spacing: 20) {
-                    Button(action: toggleRecording) {
-                        HStack {
-                            Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                                .font(.title2)
-                            Text(isRecording ? "Stop" : "Start")
-                                .font(.headline)
-                        }
-                        .foregroundColor(.white)
-                        .frame(width: 140, height: 50)
-                        .background(isRecording ? Color.red : Color.green)
-                        .cornerRadius(25)
-                    }
-                    
-                    Button(action: {
-                        isPaused.toggle()
-                        if isPaused {
-                            pausedDuration = audioEngine.recordingDuration
-                        }
-                        scrollOffset = 0.0 // Reset scroll on toggle
-                    }) {
-                        HStack {
-                            Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                                .font(.title2)
-                        }
-                        .foregroundColor(.white)
-                        .frame(width: 50, height: 50)
-                        .background(Color.gray)
-                        .cornerRadius(25)
-                    }
-                }
-                .padding(.bottom)
+                mainControlsView
             }
             .sheet(isPresented: $showSettings) {
                 SpectrogramSettingsView(
@@ -201,6 +103,117 @@ struct SpectrogramView: View {
             audioEngine.setTimeWeighting(timeWeighting)
             audioEngine.setFrequencyWeighting(frequencyWeighting)
         }
+    }
+    
+    private var headerView: some View {
+        HStack {
+            Text("Live Spektrogramm")
+                .font(.title)
+                .bold()
+            Spacer()
+            Button(action: { showSettings = true }) {
+                Image(systemName: "gear")
+                    .font(.title2)
+            }
+        }
+        .padding()
+    }
+    
+    private var spectrogramContainer: some View {
+        GeometryReader { geo in
+            NavigationView {
+                ModularDashboardView(audioEngine: audioEngine)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                if isPaused {
+                                    // Dragging right (positive) moves view back in history
+                                    let delta = Double(value.translation.width / geo.size.width)
+                                    scrollOffset -= delta * 0.05 // Sensitivity factor
+                                    
+                                    // Clamp scroll offset
+                                    let span = Double(timeSpan.rawValue)
+                                    let duration = isPaused ? pausedDuration : audioEngine.recordingDuration
+                                    let minOffset = -min(1.0, duration / span)
+                                    scrollOffset = max(minOffset, min(0.0, scrollOffset))
+                                }
+                            }
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+        .padding(.top, 8)
+    }
+    
+    private var connectivityStatusView: some View {
+        HStack {
+            Image(systemName: connectivityManager.isReachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundColor(connectivityManager.isReachable ? .green : .red)
+            Text(connectivityManager.isReachable ? "Watch verbunden" : "Watch nicht verbunden")
+                .foregroundColor(connectivityManager.isReachable ? .green : .red)
+                .font(.caption)
+        }
+        .padding(.vertical, 8)
+    }
+    
+    private var pausedControlsView: some View {
+        VStack(spacing: 4) {
+            Slider(value: Binding(
+                get: {
+                    let duration = pausedDuration
+                    let span = Double(timeSpan.rawValue)
+                    // Time = duration + scrollOffset * span (scrollOffset is negative)
+                    return duration + scrollOffset * span
+                },
+                set: { newTime in
+                    let duration = pausedDuration
+                    let span = Double(timeSpan.rawValue)
+                    // Offset = (Time - duration) / span
+                    scrollOffset = (newTime - duration) / span
+                }
+            ), in: max(0, pausedDuration - Double(timeSpan.rawValue))...pausedDuration)
+            
+            Text("Zeit: \(String(format: "%.1f", pausedDuration + scrollOffset * Double(timeSpan.rawValue)))s / \(String(format: "%.1f", pausedDuration))s")
+                .font(.caption)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 40)
+    }
+    
+    private var mainControlsView: some View {
+        HStack(spacing: 20) {
+            Button(action: toggleRecording) {
+                HStack {
+                    Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+                        .font(.title2)
+                    Text(isRecording ? "Stop" : "Start")
+                        .font(.headline)
+                }
+                .foregroundColor(.white)
+                .frame(width: 140, height: 50)
+                .background(isRecording ? Color.red : Color.green)
+                .cornerRadius(25)
+            }
+            
+            Button(action: {
+                isPaused.toggle()
+                if isPaused {
+                    pausedDuration = audioEngine.recordingDuration
+                }
+                scrollOffset = 0.0 // Reset scroll on toggle
+            }) {
+                HStack {
+                    Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                        .font(.title2)
+                }
+                .foregroundColor(.white)
+                .frame(width: 50, height: 50)
+                .background(Color.gray)
+                .cornerRadius(25)
+            }
+        }
+        .padding(.bottom)
     }
     
     private func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {

@@ -8,6 +8,8 @@ struct WidgetCardView: View {
     var onResize: (WidgetSize) -> Void
     var onUpdateSettings: ([String: String]) -> Void
     @State private var showSettings = false
+    @State private var updateThrottle = Date()
+    let throttleInterval: TimeInterval = 1.0 / 30.0 // Max 30 FPS per Widget
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -71,6 +73,11 @@ struct WidgetCardView: View {
         }
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
+        }
+        .onReceive(audioEngine.$currentSpectrogramData) { data in
+        let now = Date()
+        guard now.timeIntervalSince(updateThrottle) > throttleInterval else { return }
+        updateThrottle = now
         }
     }
     

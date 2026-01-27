@@ -10,7 +10,9 @@ struct WidgetPickerView: View {
                 ForEach(AudioWidgetType.allCases) { type in
                     Button(action: {
                         print("[WidgetPickerView] Selected widget type: \(type.rawValue)")
-                        dashboardManager.addWidget(type: type)
+                        withAnimation(.spring()) {
+                            dashboardManager.addWidget(type: type)
+                        }
                         dismiss()
                     }) {
                         HStack {
