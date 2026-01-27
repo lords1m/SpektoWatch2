@@ -358,6 +358,10 @@ class AudioEngine: ObservableObject {
             lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
             let broadbandLevel = 10.0 * log10(lafEnergy + 1e-12)
 
+            if debugPrintCounter % 240 == 0 {
+                print("[AudioEngine] Broadband Level: \(String(format: "%.1f", broadbandLevel)) dB")
+            }
+
             let spectrogramData = SpectrogramData(
                 frequencies: bandFreqs,
                 magnitudes: smoothedMagnitudes,

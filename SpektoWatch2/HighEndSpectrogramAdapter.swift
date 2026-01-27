@@ -60,6 +60,7 @@ class HighEndSpectrogramAdapter: MTKView {
     var isUpdatesPaused: Bool = false
     var manualScrollOffset: Float = 0.0
     private var debugPrintCounter = 0
+    private var drawPrintCounter = 0
     
     // PERFORMANCE: Cache für Frequenz-Mapping
     private struct MappingCacheEntry {
@@ -232,10 +233,10 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
     
     // DEBUG: Log input data for display
     debugPrintCounter += 1
-    if debugPrintCounter % 60 == 0 {
+    if debugPrintCounter % 30 == 0 {
         let minVal = magnitudes.min() ?? 0
         let maxVal = magnitudes.max() ?? 0
-        print("[MetalDisplay] Input: \(magnitudes.count) bins, Range: [\(String(format: "%.1f", minVal)), \(String(format: "%.1f", maxVal))]")
+        print("[Spectrogram Data] Frame \(debugPrintCounter): \(magnitudes.count) bins, Range: [\(String(format: "%.5f", minVal))..\(String(format: "%.5f", maxVal))]")
     }
     
     // Cache aktualisieren falls nötig
@@ -345,6 +346,11 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
         
         let baseOffset = Float(currentColumn) / Float(timeColumns)
         let totalOffset = baseOffset + manualScrollOffset
+        
+        drawPrintCounter += 1
+        if drawPrintCounter % 60 == 0 {
+             print("[Spectrogram Render] Frame \(drawPrintCounter): Column \(currentColumn)/\(timeColumns), Scroll: \(String(format: "%.3f", totalOffset)), Colormap: \(colormapType)")
+        }
         
         var params = HighEndSpectrogramShaderParams(
             minDB: minDB,
