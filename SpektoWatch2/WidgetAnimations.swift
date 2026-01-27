@@ -1,11 +1,21 @@
 import SwiftUI
 
 struct WidgetAnimations {
-    // Kombinierte Transition für das Hinzufügen/Entfernen von Widgets
-    static let cardTransition = AnyTransition.asymmetric(
-        // Einfügen: Leichtes Einzoomen + Fade In mit Federung
-        insertion: .scale(scale: 0.9).combined(with: .opacity).animation(.spring(response: 0.4, dampingFraction: 0.7)),
-        // Entfernen: Schrumpfen + Fade Out
-        removal: .scale(scale: 0.8).combined(with: .opacity).animation(.easeOut(duration: 0.2))
-    )
+    /// Transition für Widget Cards (Add/Remove)
+    static var cardTransition: AnyTransition {
+        .asymmetric(
+            insertion: .scale(scale: 0.8).combined(with: .opacity),
+            removal: .scale(scale: 0.8).combined(with: .opacity)
+        )
+    }
+    
+    /// Animation für Resize
+    static var resizeAnimation: Animation {
+        .spring(response: 0.4, dampingFraction: 0.7)
+    }
+    
+    /// Animation für Reorder
+    static var reorderAnimation: Animation {
+        .spring(response: 0.3, dampingFraction: 0.8)
+    }
 }
