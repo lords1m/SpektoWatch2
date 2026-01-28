@@ -40,6 +40,80 @@ struct BandstopFilter: Identifiable, Codable, Equatable {
             return String(format: "%.0f - %.0f Hz", lowFrequency, highFrequency)
         }
     }
+    
+    // MARK: - Validation
+    
+    enum ValidationError: LocalizedError {
+        case frequenciesReversed
+        case outOfBounds(nyquist: Float)
+        case negativeFrequency
+        case bandwidthTooNarrow
+        
+        var errorDescription: String? {
+            switch self {
+            case .frequenciesReversed:
+                return "Untere Frequenz muss kleiner als obere Frequenz sein"
+            case .outOfBounds(let nyquist):
+                return "Frequenzen müssen zwischen 20 Hz und \(Int(nyquist)) Hz liegen"
+            case .negativeFrequency:
+                return "Frequenzen dürfen nicht negativ sein"
+            case .bandwidthTooNarrow:
+                return "Bandbreite muss mindestens 2 Hz betragen"
+            }
+        }
+        
+        var recoverySuggestion: String? {
+            switch self {
+            case .frequenciesReversed:
+                return "Tauschen Sie die Werte von unterer und oberer Frequenz"
+            case .outOfBounds:
+                return "Wählen Sie Frequenzen im hörbaren Bereich"
+            case .negativeFrequency:
+                return "Verwenden Sie positive Frequenzwerte"
+            case .bandwidthTooNarrow:
+                return "Erhöhen Sie den Abstand zwischen unterer und oberer Frequenz"
+            }
+        }
+    }
+    
+    /// Validiert den Filter gegen physikalische und technische Limits
+    func validate(nyquist: Float = 22050.0) throws {
+        // Check 1: Negative Frequenzen
+        guard lowFrequency >= 0, highFrequency >= 0 else {
+            throw ValidationError.negativeFrequency
+        }
+        
+        // Check 2: Reihenfolge
+        guard lowFrequency < highFrequency else {
+            throw ValidationError.frequenciesReversed
+        }
+        
+        // Check 3: Bandbreite
+        guard (highFrequency - lowFrequency) >= 2.0 else {
+            throw ValidationError.bandwidthTooNarrow
+        }
+        
+        // Check 4: Bereich
+        guard lowFrequency >= 20.0, highFrequency <= nyquist else {
+            throw ValidationError.outOfBounds(nyquist: nyquist)
+        }
+    }
+    
+    /// Auto-Korrektur für ungültige Werte
+    mutating func autoCorrect(nyquist: Float = 22050.0) {
+        // Clamp zu positivem Bereich
+        lowFrequency = max(20.0, lowFrequency)
+        highFrequency = max(lowFrequency + 2.0, highFrequency)
+        
+        // Clamp zu Nyquist
+        highFrequency = min(nyquist, highFrequency)
+        lowFrequency = min(highFrequency - 2.0, lowFrequency)
+        
+        // Falls immer noch vertauscht, korrigieren
+        if lowFrequency > highFrequency {
+            swap(&lowFrequency, &highFrequency)
+        }
+    }
 }
 
 // MARK: - Range Slider Component

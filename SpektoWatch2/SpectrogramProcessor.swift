@@ -58,9 +58,11 @@ class SpectrogramProcessor {
         
         // Wende Map an (O(n))
         for i in 0..<filtered.count {
-            if attenuationMap[i] < 1.0 {
-                // dB_neu = dB_alt + 20 * log10(faktor)
-                filtered[i] += 20.0 * log10(max(attenuationMap[i], 1e-9))
+            if attenuationMap[i] < 0.01 { // Praktisch 0
+                filtered[i] = -120.0 // blockiert
+            } else if attenuationMap[i] < 1.0 {
+                // Dämpfung in dB-Domain
+                filtered[i] += 20 * log10(attenuationMap[i])
             }
         }
         return filtered

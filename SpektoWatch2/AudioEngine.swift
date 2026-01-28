@@ -156,7 +156,7 @@ class AudioEngine: ObservableObject {
         resetMetrics()
         
         #if targetEnvironment(simulator)
-        print("Running on Simulator - using dummy audio data")
+        Logger.audioEngine.info("Running on Simulator - using test audio generator")
         testGenerator.start()
         engineStatus = .running
         #else
@@ -251,7 +251,7 @@ class AudioEngine: ObservableObject {
                 return
             }
             if audioSession.recordPermission == .denied {
-                print("[AudioEngine] Error: Microphone permission denied")
+                Logger.audioEngine.error("Microphone permission denied")
                 engineStatus = .error("Microphone permission denied")
                 return
             }
@@ -288,7 +288,7 @@ class AudioEngine: ObservableObject {
             let recordingFormat = inputNode.outputFormat(forBus: 0)
             
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-                print("Invalid audio format - falling back to dummy data")
+                Logger.audioEngine.warning("Invalid audio format detected - falling back to test audio")
                 testGenerator.start()
                 engineStatus = .running
                 isUsingDummyData = true
@@ -309,9 +309,9 @@ class AudioEngine: ObservableObject {
             engineStatus = .running
             
         } catch {
-            print("Audio engine start error: \(error)")
+            Logger.audioEngine.error("Audio engine failed to start: \(error.localizedDescription)")
             engineStatus = .error(error.localizedDescription)
-            print("Falling back to dummy data")
+            Logger.audioEngine.info("Falling back to test audio generator")
             testGenerator.start()
             engineStatus = .running
             isUsingDummyData = true
@@ -382,7 +382,7 @@ class AudioEngine: ObservableObject {
         }
         
         if signalDB < -120 && !hasLoggedSilence {
-            print("[AudioEngine] WARNING: Audio buffer silent/empty: \(String(format: "%.1f", signalDB)) dB")
+            Logger.audioEngine.warning("Audio buffer silent/empty: \(signalDB, format: .fixed(precision: 1)) dB")
             hasLoggedSilence = true
         }
         
@@ -405,7 +405,7 @@ class AudioEngine: ObservableObject {
             let dbMags = fftProcessor.convertToDB(linearMagnitudes)
             let minMag = dbMags.min() ?? 0
             let maxMag = dbMags.max() ?? 0
-            print("[AudioEngine] FFT Processed (dB): min=\(String(format: "%.1f", minMag)), max=\(String(format: "%.1f", maxMag))")
+            Logger.audioEngine.debug("FFT Processed (dB): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
         }
         
         // Convert to dB for Spectrogram
@@ -454,7 +454,7 @@ class AudioEngine: ObservableObject {
         let broadbandLevel = levels["LAF"] ?? -120.0
         
         if debugPrintCounter % 240 == 0 {
-            print("[AudioEngine] Broadband Level: \(String(format: "%.1f", broadbandLevel)) dB")
+            Logger.audioEngine.debug("Broadband Level: \(broadbandLevel, format: .fixed(precision: 1)) dB")
         }
         
         // Create spectrogram data
