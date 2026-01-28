@@ -36,6 +36,7 @@ class BandstopFilterManager: ObservableObject {
         do {
             try validatedFilter.validate(nyquist: 22050.0)
             filters.append(validatedFilter)
+            Logger.filters.info("Added filter: \(validatedFilter.name) [\(validatedFilter.lowFrequency)-\(validatedFilter.highFrequency) Hz]")
         } catch let error as BandstopFilter.ValidationError {
             Logger.filters.error("Filter validation failed: \(error.localizedDescription)")
         } catch {
@@ -44,7 +45,11 @@ class BandstopFilterManager: ObservableObject {
     }
     
     func removeFilter(id: UUID) {
-        filters.removeAll { $0.id == id }
+        if let index = filters.firstIndex(where: { $0.id == id }) {
+            let name = filters[index].name
+            filters.remove(at: index)
+            Logger.filters.info("Removed filter: \(name)")
+        }
     }
     
     func updateFilter(_ filter: BandstopFilter) {
@@ -55,6 +60,7 @@ class BandstopFilterManager: ObservableObject {
             try validatedFilter.validate(nyquist: 22050.0)
             if let index = filters.firstIndex(where: { $0.id == filter.id }) {
                 filters[index] = validatedFilter
+                Logger.filters.info("Updated filter: \(validatedFilter.name)")
             }
         } catch let error as BandstopFilter.ValidationError {
             Logger.filters.error("Filter update failed: \(error.localizedDescription)")
@@ -66,6 +72,7 @@ class BandstopFilterManager: ObservableObject {
     func toggleFilter(id: UUID) {
         if let index = filters.firstIndex(where: { $0.id == id }) {
             filters[index].isEnabled.toggle()
+            Logger.filters.debug("Toggled filter \(filters[index].name): \(filters[index].isEnabled ? "ON" : "OFF")")
         }
     }
     
@@ -182,13 +189,13 @@ class BandstopFilterManager: ObservableObject {
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
             Logger.filters.debug("Saved \(self.filters.count) filters")
         } catch {
-            Logger.filters.error("ERROR saving filters: \(error.localizedDescription)")
+            Logger.filters.error("Failed to save filters: \(error.localizedDescription)")
         }
     }
     
     private func loadFilters() {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
-            Logger.filters.debug("No saved filters found, loading defaults")
+            Logger.filters.info("No saved filters found, loading defaults")
             loadDefaultFilters()
             return
         }
@@ -196,9 +203,9 @@ class BandstopFilterManager: ObservableObject {
         do {
             let decoder = JSONDecoder()
             filters = try decoder.decode([BandstopFilter].self, from: data)
-            Logger.filters.debug("Loaded \(self.filters.count) filters")
+            Logger.filters.info("Loaded \(self.filters.count) filters")
         } catch {
-            Logger.filters.error("ERROR loading filters: \(error.localizedDescription)")
+            Logger.filters.error("Failed to load filters: \(error.localizedDescription)")
             loadDefaultFilters()
         }
     }
@@ -255,10 +262,4 @@ extension RandomAccessCollection {
         }
         return low
     }
-}
-
-// MARK: - Logger Extension
-
-extension Logger {
-    static let filters = Logger(subsystem: "com.spektowatch", category: "filters")
 }
