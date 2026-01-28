@@ -53,7 +53,7 @@ class DashboardManager: ObservableObject {
     }
     
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
-        Logger.ui.debug("Resizing widget \(id) to \(newSize)")
+        Logger.ui.debug("Resizing widget \(id) to \(newSize.columns)x\(newSize.rows)")
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].size = newSize
             Logger.ui.debug("Widget resized successfully")
