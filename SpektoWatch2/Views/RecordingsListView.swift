@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RecordingsListView: View {
-    @ObservedObject private var recordingManager = RecordingManager.shared
+    @EnvironmentObject private var recordingManager: RecordingManager
     @Environment(\.dismiss) var dismiss
     
     @State private var showDeleteConfirmation = false

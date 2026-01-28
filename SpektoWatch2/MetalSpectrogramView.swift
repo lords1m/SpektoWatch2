@@ -200,6 +200,9 @@ struct MetalSpectrogramViewRepresentable: UIViewRepresentable {
 // MARK: - Preview Provider
 
 #Preview {
-    MetalSpectrogramWithAxes(audioEngine: AudioEngine())
+    MetalSpectrogramWithAxes(audioEngine: AudioEngine( // This is line 203
+        filterManager: BandstopFilterManager(),
+        connectivityManager: WatchConnectivityManager()
+    ))
         .background(Color.black)
 }

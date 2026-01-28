@@ -93,7 +93,7 @@ struct ControlBarView: View {
             }
         }
         .sheet(isPresented: $showRecordingsList) {
-            RecordingsListView()
+            RecordingsListView().environmentObject(recordingManager)
         }
     }
     

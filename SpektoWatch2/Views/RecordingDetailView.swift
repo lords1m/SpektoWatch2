@@ -7,7 +7,10 @@ struct RecordingDetailView: View {
     let recording: AudioRecording
     
     @StateObject private var audioPlayer = AudioPlayerManager()
-    @StateObject private var vizAudioEngine = AudioEngine()
+    @StateObject private var vizAudioEngine = AudioEngine(
+        filterManager: BandstopFilterManager(),
+        connectivityManager: WatchConnectivityManager()
+    )
     @State private var showEditSheet = false
     @State private var showShareSheet = false
     @State private var isDraggingSlider = false
