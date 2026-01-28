@@ -1,21 +1,20 @@
 import Foundation
 
-/// Unified model for bandstop filters
-/// Supports both frequency range (low/high) and center/bandwidth representations
+/// Unified model for bandstop filters used across the app
 struct BandstopFilter: Identifiable, Codable, Equatable {
     let id: UUID
     var isEnabled: Bool
-    var lowFrequency: Float
-    var highFrequency: Float
+    var lowFrequency: Float   // Lower cutoff frequency (Hz)
+    var highFrequency: Float  // Upper cutoff frequency (Hz)
     var name: String
-    var color: String
+    var color: String         // Hex color for visualization
     
     init(
         id: UUID = UUID(),
         isEnabled: Bool = true,
-        lowFrequency: Float = 50.0,
-        highFrequency: Float = 60.0,
-        name: String = "Netzbrummen",
+        lowFrequency: Float,
+        highFrequency: Float,
+        name: String = "Custom Filter",
         color: String = "#FF6B6B"
     ) {
         self.id = id
@@ -34,10 +33,6 @@ struct BandstopFilter: Identifiable, Codable, Equatable {
     
     var centerFrequency: Float {
         (lowFrequency + highFrequency) / 2.0
-    }
-    
-    var attenuationFactor: Float {
-        0.0 // Full attenuation in bandstop range
     }
     
     var formattedRange: String {
@@ -85,18 +80,22 @@ struct BandstopFilter: Identifiable, Codable, Equatable {
     
     /// Validates the filter against physical and technical limits
     func validate(nyquist: Float = 22050.0) throws {
+        // Check 1: Negative frequencies
         guard lowFrequency >= 0, highFrequency >= 0 else {
             throw ValidationError.negativeFrequency
         }
         
+        // Check 2: Order
         guard lowFrequency < highFrequency else {
             throw ValidationError.frequenciesReversed
         }
         
+        // Check 3: Bandwidth
         guard (highFrequency - lowFrequency) >= 2.0 else {
             throw ValidationError.bandwidthTooNarrow
         }
         
+        // Check 4: Range
         guard lowFrequency >= 20.0, highFrequency <= nyquist else {
             throw ValidationError.outOfBounds(nyquist: nyquist)
         }
@@ -104,11 +103,15 @@ struct BandstopFilter: Identifiable, Codable, Equatable {
     
     /// Auto-corrects invalid values
     mutating func autoCorrect(nyquist: Float = 22050.0) {
+        // Clamp to positive range
         lowFrequency = max(20.0, lowFrequency)
         highFrequency = max(lowFrequency + 2.0, highFrequency)
+        
+        // Clamp to Nyquist
         highFrequency = min(nyquist, highFrequency)
         lowFrequency = min(highFrequency - 2.0, lowFrequency)
         
+        // If still reversed, swap
         if lowFrequency > highFrequency {
             swap(&lowFrequency, &highFrequency)
         }
