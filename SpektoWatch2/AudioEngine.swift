@@ -40,8 +40,10 @@ class AudioEngine: ObservableObject {
     private let fftProcessor: FFTProcessor
     private let weightingProcessor: FrequencyWeightingProcessor
     private let metricsCalculator: AcousticMetricsCalculator
+    private let spectrogramProcessor: SpectrogramProcessor
     private let testGenerator: TestAudioGenerator
-    private let bandstopFilterManager = BandstopFilterManager.shared
+    private let bandstopFilterManager: BandstopFilterManager
+    private let connectivityManager: WatchConnectivityManager
     
     // MARK: - Audio Engine
     
@@ -104,19 +106,18 @@ class AudioEngine: ObservableObject {
     
     // MARK: - Temporal Smoothing
     
-    private let binningFactor: Int = 2
-    private var temporalSmoothingFactor: Float = 0.5
-    private var previousBandMagnitudes: [Float] = []
-    
     // MARK: - Initialization
     
-    init() {
+    init(filterManager: BandstopFilterManager, connectivityManager: WatchConnectivityManager) {
+        self.bandstopFilterManager = filterManager
+        self.connectivityManager = connectivityManager
         audioEngine = AVAudioEngine()
         
         // Initialize processing components
         fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: sampleRate)
         weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: sampleRate)
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
+        spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
         testGenerator = TestAudioGenerator(sampleRate: sampleRate)
         
         // Setup test generator callback
@@ -395,44 +396,33 @@ class AudioEngine: ObservableObject {
     
     private func processFFTFrame(samples: [Float], peakLevel: Float) {
         // Perform FFT
-        let fftResult = fftProcessor.performFFT(on: samples, gainBoost: gainBoost)
+        let linearMagnitudes = fftProcessor.performFFT(on: samples, gainBoost: gainBoost)
         
         if debugPrintCounter % 240 == 0 {
-            let minMag = fftResult.magnitudes.min() ?? 0
-            let maxMag = fftResult.magnitudes.max() ?? 0
+            let dbMags = fftProcessor.convertToDB(linearMagnitudes)
+            let minMag = dbMags.min() ?? 0
+            let maxMag = dbMags.max() ?? 0
             print("[AudioEngine] FFT Processed (dB): min=\(String(format: "%.1f", minMag)), max=\(String(format: "%.1f", maxMag))")
         }
         
+        // Convert to dB for Spectrogram
+        let dbMagnitudes = fftProcessor.convertToDB(linearMagnitudes)
+        
         // Apply frequency weighting
-        let weightedMagnitudes = weightingProcessor.applyWeighting(
-            to: fftResult.magnitudes,
-            frequencies: fftResult.frequencies,
-            weighting: frequencyWeighting
+        let weightedDB = weightingProcessor.applyWeighting(
+            dbMagnitudes,
+            type: frequencyWeighting
         )
         
-        // Apply bandstop filters
-        let filteredMagnitudes = applyBandstopFilters(
-            frequencies: fftResult.frequencies,
-            magnitudes: weightedMagnitudes
+        // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
+        let processed = spectrogramProcessor.process(
+            frequencies: fftProcessor.frequencies,
+            dbMagnitudes: weightedDB,
+            sampleRate: sampleRate
         )
-        
-        // Calculate octave bands and spectrum
-        let octaveBands = fftProcessor.calculateOctaveBands(
-            frequencies: fftResult.frequencies,
-            magnitudes: filteredMagnitudes
-        )
-        let spectrum = filteredMagnitudes
-        
-        // Aggregate and smooth for spectrogram
-        let (bandFreqs, bandMags) = fftProcessor.aggregateByBinning(
-            frequencies: fftResult.frequencies,
-            magnitudes: filteredMagnitudes,
-            binningFactor: binningFactor
-        )
-        let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
         
         // Calculate energies for acoustic metrics
-        let rawMagnitudes = fftProcessor.getRawMagnitudes()
+        let rawMagnitudes = linearMagnitudes
         let aWeights = weightingProcessor.getAWeightingGains()
         let cWeights = weightingProcessor.getCWeightingGains()
         
@@ -466,15 +456,15 @@ class AudioEngine: ObservableObject {
         
         // Create spectrogram data
         let spectrogramData = SpectrogramData(
-            frequencies: bandFreqs,
-            magnitudes: smoothedMagnitudes,
+            frequencies: processed.bandFrequencies,
+            magnitudes: processed.bandMagnitudes,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: sampleRate
         )
         
         // Update UI on main thread
-        updateUI(spectrogramData: spectrogramData, octaveBands: octaveBands, spectrum: spectrum, broadbandLevel: broadbandLevel, peakLevel: peakLevel)
+        updateUI(spectrogramData: spectrogramData, octaveBands: processed.octaveBands, spectrum: processed.spectrum, broadbandLevel: broadbandLevel, peakLevel: peakLevel)
     }
     
     private func updateUI(spectrogramData: SpectrogramData, octaveBands: [Float], spectrum: [Float], broadbandLevel: Float, peakLevel: Float) {
@@ -506,50 +496,9 @@ class AudioEngine: ObservableObject {
             // Send to watch (throttled)
             let now = Date().timeIntervalSince1970
             if now - self.lastWatchUpdate > 0.1 {
-                WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
+                self.connectivityManager.sendSpectrogramData(spectrogramData)
                 self.lastWatchUpdate = now
             }
         }
-    }
-    
-    // MARK: - Bandstop Filter Application
-    
-    private func applyBandstopFilters(frequencies: [Float], magnitudes: [Float]) -> [Float] {
-        guard !bandstopFilterManager.enabledFilters.isEmpty else {
-            return magnitudes
-        }
-        
-        var filtered = magnitudes
-        
-        for (i, freq) in frequencies.enumerated() {
-            let attenuation = bandstopFilterManager.attenuationFactor(for: freq)
-            
-            if attenuation < 1.0 {
-                // Apply attenuation in dB domain (optimized)
-                filtered[i] += 20.0 * log10(attenuation + 1e-9)
-            }
-        }
-        
-        return filtered
-    }
-    
-    // MARK: - Temporal Smoothing
-    
-    private func temporalSmoothing(currentMagnitudes: [Float]) -> [Float] {
-        guard !previousBandMagnitudes.isEmpty,
-              previousBandMagnitudes.count == currentMagnitudes.count else {
-            previousBandMagnitudes = currentMagnitudes
-            return currentMagnitudes
-        }
-        
-        var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
-        
-        for i in 0..<currentMagnitudes.count {
-            smoothed[i] = temporalSmoothingFactor * previousBandMagnitudes[i] +
-                         (1 - temporalSmoothingFactor) * currentMagnitudes[i]
-        }
-        
-        previousBandMagnitudes = smoothed
-        return smoothed
     }
 }
