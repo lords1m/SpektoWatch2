@@ -117,3 +117,10 @@ extension RandomAccessCollection {
         return low
     }
 }
+
+// MARK: - Compatibility Wrapper (Temporary)
+extension BandstopFilterManager {
+    /// Legacy support for Views still using .shared
+    /// TODO: Migrate all views to use @EnvironmentObject instead
+    static let shared = BandstopFilterManager()
+}
