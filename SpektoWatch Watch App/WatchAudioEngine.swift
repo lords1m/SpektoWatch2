@@ -9,6 +9,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private let bufferSize: AVAudioFrameCount = 4096
     private let sampleRate: Double = 44100.0
     private var session: WKExtendedRuntimeSession?
+    private let connectivityManager: WatchConnectivityManager
     private var gain: Float = 1.0
 
     // Lokale FFT Konfiguration (Abgespeckt für Watch)
@@ -26,7 +27,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     @Published var isRecording = false
     @Published var currentSpectrogramData: SpectrogramData?
 
-    override init() {
+    init(connectivityManager: WatchConnectivityManager) {
+        self.connectivityManager = connectivityManager
         audioEngine = AVAudioEngine()
         
         // FFT Setup initialisieren
@@ -175,7 +177,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
         // 1. Sende Audio an iPhone (für High-End Verarbeitung/Speicherung)
         let audioData = AudioData(samples: samples, sampleRate: sampleRate)
-        WatchConnectivityManager.shared.sendAudioData(audioData)
+        self.connectivityManager.sendAudioData(audioData)
         
         // 2. Berechne lokale FFT für sofortige Anzeige (Latenzfrei)
         if samples.count >= fftSize {

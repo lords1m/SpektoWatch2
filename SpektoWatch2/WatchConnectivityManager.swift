@@ -3,7 +3,7 @@ import WatchConnectivity
 import Combine
 import OSLog
 
-class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
+public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     
     @Published var isReachable = false
     @Published var spectrogramData: SpectrogramData?
@@ -22,8 +22,9 @@ class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     private let maxRetries = 3
     private var isProcessingQueue = false
     
-    override init() {
+    public override init() {
         super.init()
+        // Ensure public access for Watch App
         if WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
@@ -58,10 +59,19 @@ class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     // MARK: - Empfang
     
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
-        // Versuche binäres Spektrogramm zu dekodieren
-        if let specData = SpectrogramData.fromBinaryData(messageData) {
-            DispatchQueue.main.async {
-                self.spectrogramData = specData
+        guard !messageData.isEmpty else { return }
+        let type = messageData[0]
+        let payload = messageData.dropFirst()
+        
+        if type == 0x01 {
+            if let specData = SpectrogramData.fromBinaryData(payload) {
+                DispatchQueue.main.async { self.spectrogramData = specData }
+            }
+        } else if type == 0x02 {
+            if let audioData = AudioData.fromBinaryData(payload) {
+                DispatchQueue.main.async {
+                    self.audioData = audioData
+                }
             }
         }
     }
@@ -91,7 +101,16 @@ class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     func sendSpectrogramData(_ data: SpectrogramData) {
         // Echtzeit-Daten senden wir direkt (Fire & Forget), keine Queue
         guard WCSession.default.isReachable else { return }
-        WCSession.default.sendMessageData(data.toBinaryData(), replyHandler: nil, errorHandler: nil)
+        var packet = Data([0x01]) // Header 0x01 for Spectrogram
+        packet.append(data.toBinaryData())
+        WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
+    }
+    
+    func sendAudioData(_ data: AudioData) {
+        guard WCSession.default.isReachable else { return }
+        var packet = Data([0x02]) // Header 0x02 for Audio
+        packet.append(data.toBinaryData())
+        WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
     }
     
     func sendGainValue(_ gain: Float) {

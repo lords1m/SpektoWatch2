@@ -4,6 +4,7 @@ struct SaveRecordingView: View {
     let audioURL: URL
     let duration: TimeInterval
     @ObservedObject var audioEngine: AudioEngine
+    @EnvironmentObject var recordingManager: RecordingManager
     @Environment(\.dismiss) var dismiss
     @State private var title = "Neue Aufnahme"
     @State private var description = ""
@@ -77,7 +78,7 @@ struct SaveRecordingView: View {
                         recording.frequencyWeighting = audioEngine.frequencyWeighting.rawValue
                         recording.description = description
                         
-                        RecordingManager.shared.addRecording(recording)
+                        recordingManager.addRecording(recording)
                         dismiss()
                     }
                     .font(.headline)
