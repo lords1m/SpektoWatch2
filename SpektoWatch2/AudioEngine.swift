@@ -414,7 +414,8 @@ class AudioEngine: ObservableObject {
         // Apply frequency weighting
         let weightedDB = weightingProcessor.applyWeighting(
             dbMagnitudes,
-            type: frequencyWeighting
+            frequencies: fftProcessor.frequencies,
+            weighting: frequencyWeighting
         )
         
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
