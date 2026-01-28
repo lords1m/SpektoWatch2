@@ -1,15 +1,23 @@
 import Foundation
 
-struct SpectrogramData: Codable {
-    let frequencies: [Float]
-    let magnitudes: [Float]
-    let broadbandLevel: Float
-    let levels: [String: Float]
-    let sampleRate: Double
+public struct SpectrogramData: Codable {
+    public let frequencies: [Float]
+    public let magnitudes: [Float]
+    public let broadbandLevel: Float
+    public let levels: [String: Float]
+    public let sampleRate: Double
+    
+    public init(frequencies: [Float], magnitudes: [Float], broadbandLevel: Float, levels: [String: Float], sampleRate: Double) {
+        self.frequencies = frequencies
+        self.magnitudes = magnitudes
+        self.broadbandLevel = broadbandLevel
+        self.levels = levels
+        self.sampleRate = sampleRate
+    }
     
     // MARK: - Binary Encoding
     
-    func toBinaryData() -> Data {
+    public func toBinaryData() -> Data {
         var data = Data()
         
         // 1. Broadband Level (Float - 4 bytes)
@@ -60,7 +68,7 @@ struct SpectrogramData: Codable {
         return data
     }
     
-    static func fromBinaryData(_ data: Data) -> SpectrogramData? {
+    public static func fromBinaryData(_ data: Data) -> SpectrogramData? {
         let floatSize = MemoryLayout<Float>.size
         let doubleSize = MemoryLayout<Double>.size
         let int32Size = MemoryLayout<Int32>.size

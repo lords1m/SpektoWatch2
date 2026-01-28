@@ -1,8 +1,10 @@
 import Foundation
 
-enum MicrophoneSource: String, CaseIterable, Identifiable {
+public enum MicrophoneSource: String, CaseIterable, Codable {
     case iPhone = "iPhone"
     case appleWatch = "Apple Watch"
     
-    var id: String { self.rawValue }
+    public var displayName: String {
+        return self.rawValue
+    }
 }

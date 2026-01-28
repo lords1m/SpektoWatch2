@@ -1,38 +1,48 @@
 import Foundation
 
-struct AudioData {
-    let samples: [Float]
-    let sampleRate: Double
+public struct AudioData: Codable {
+    public let level: Float
+    public let peakLevel: Float
+    public let timestamp: TimeInterval
     
-    func toBinaryData() -> Data {
+    public init(level: Float, peakLevel: Float, timestamp: TimeInterval) {
+        self.level = level
+        self.peakLevel = peakLevel
+        self.timestamp = timestamp
+    }
+    
+    // MARK: - Binary Encoding
+    
+    public func toBinaryData() -> Data {
         var data = Data()
-        var rate = sampleRate
-        data.append(Data(bytes: &rate, count: MemoryLayout<Double>.size))
         
-        samples.withUnsafeBufferPointer { buffer in
-            if let baseAddress = buffer.baseAddress {
-                data.append(Data(bytes: baseAddress, count: samples.count * MemoryLayout<Float>.size))
-            }
-        }
+        var lvl = level
+        data.append(Data(bytes: &lvl, count: MemoryLayout<Float>.size))
+        
+        var peak = peakLevel
+        data.append(Data(bytes: &peak, count: MemoryLayout<Float>.size))
+        
+        var time = timestamp
+        data.append(Data(bytes: &time, count: MemoryLayout<TimeInterval>.size))
+        
         return data
     }
     
-    static func fromBinaryData(_ data: Data) -> AudioData? {
-        let doubleSize = MemoryLayout<Double>.size
-        guard data.count >= doubleSize else { return nil }
-        
-        let sampleRate = data.withUnsafeBytes { $0.load(as: Double.self) }
-        
+    public static func fromBinaryData(_ data: Data) -> AudioData? {
         let floatSize = MemoryLayout<Float>.size
-        let samplesCount = (data.count - doubleSize) / floatSize
+        let timeSize = MemoryLayout<TimeInterval>.size
         
-        guard samplesCount > 0 else { return nil }
+        guard data.count >= 2 * floatSize + timeSize else { return nil }
         
-        let samples = data.withUnsafeBytes { buffer -> [Float] in
-            let start = buffer.baseAddress!.advanced(by: doubleSize).bindMemory(to: Float.self, capacity: samplesCount)
-            return Array(UnsafeBufferPointer(start: start, count: samplesCount))
-        }
+        var offset = 0
+        let level = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Float.self) }
+        offset += floatSize
         
-        return AudioData(samples: samples, sampleRate: sampleRate)
+        let peakLevel = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Float.self) }
+        offset += floatSize
+        
+        let timestamp = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: TimeInterval.self) }
+        
+        return AudioData(level: level, peakLevel: peakLevel, timestamp: timestamp)
     }
 }
