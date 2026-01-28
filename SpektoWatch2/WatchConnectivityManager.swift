@@ -5,10 +5,10 @@ import OSLog
 
 public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     
-    @Published var isReachable = false
-    @Published var spectrogramData: SpectrogramData?
-    @Published var audioData: AudioData?
-    @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    @Published public var isReachable = false
+    @Published public var spectrogramData: SpectrogramData?
+    @Published public var audioData: AudioData?
+    @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
     
     // MARK: - Queue Definitionen
     private struct QueuedMessage {
@@ -33,14 +33,14 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     // MARK: - WCSessionDelegate
     
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+    public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
             self.processQueue()
         }
     }
     
-    func sessionReachabilityDidChange(_ session: WCSession) {
+    public func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
             if self.isReachable {
@@ -50,15 +50,15 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     }
     
     #if os(iOS)
-    func sessionDidBecomeInactive(_ session: WCSession) {}
-    func sessionDidDeactivate(_ session: WCSession) {
+    public func sessionDidBecomeInactive(_ session: WCSession) {}
+    public func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
     }
     #endif
     
     // MARK: - Empfang
     
-    func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
+    public func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
         let type = messageData[0]
         let payload = messageData.dropFirst()
@@ -76,7 +76,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         }
     }
     
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+    public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         DispatchQueue.main.async {
             if let type = message["type"] as? String {
                 switch type {
@@ -98,7 +98,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     // MARK: - Senden (Public API)
     
-    func sendSpectrogramData(_ data: SpectrogramData) {
+    public func sendSpectrogramData(_ data: SpectrogramData) {
         // Echtzeit-Daten senden wir direkt (Fire & Forget), keine Queue
         guard WCSession.default.isReachable else { return }
         var packet = Data([0x01]) // Header 0x01 for Spectrogram
@@ -106,26 +106,26 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
     }
     
-    func sendAudioData(_ data: AudioData) {
+    public func sendAudioData(_ data: AudioData) {
         guard WCSession.default.isReachable else { return }
         var packet = Data([0x02]) // Header 0x02 for Audio
         packet.append(data.toBinaryData())
         WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
     }
     
-    func sendGainValue(_ gain: Float) {
+    public func sendGainValue(_ gain: Float) {
         sendWithRetry(["type": "gain", "value": gain])
     }
     
-    func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
+    public func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
         sendWithRetry(["type": "microphoneSource", "source": source.rawValue])
     }
     
-    func requestRecordingStart() {
+    public func requestRecordingStart() {
         sendWithRetry(["type": "startRecording"])
     }
     
-    func requestRecordingStop() {
+    public func requestRecordingStop() {
         sendWithRetry(["type": "stopRecording"])
     }
     
