@@ -156,14 +156,14 @@ class FrequencyWeightingProcessor {
             let num = 12194.0 * 12194.0 * f2 * f2
             let den = (f2 + 20.6 * 20.6) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0)
             if den > 0 {
-                offset = 20.0 * log10(num / den) + 2.0
+                offset = Double(20.0 * log10(num / den) + 2.0)
             }
             
         case .c:
             let num = 12194.0 * 12194.0 * f2
             let den = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
             if den > 0 {
-                offset = 20.0 * log10(num / den) + 0.06
+                offset = Double(20.0 * log10(num / den) + 0.06)
             }
         }
         
