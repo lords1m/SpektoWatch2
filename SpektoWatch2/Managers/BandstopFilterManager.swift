@@ -6,8 +6,8 @@ import OSLog
 class BandstopFilterManager: ObservableObject {
     @Published var filters: [BandstopFilter] = [] {
         didSet {
-            invalidateCache()
-            saveFilters()
+            self.invalidateCache()
+            self.saveFilters()
         }
     }
     
@@ -72,7 +72,7 @@ class BandstopFilterManager: ObservableObject {
     func toggleFilter(id: UUID) {
         if let index = filters.firstIndex(where: { $0.id == id }) {
             filters[index].isEnabled.toggle()
-            Logger.filters.debug("Toggled filter \(filters[index].name): \(filters[index].isEnabled ? "ON" : "OFF")")
+            Logger.filters.debug("Toggled filter \(self.filters[index].name): \(self.filters[index].isEnabled ? "ON" : "OFF")")
         }
     }
     
@@ -185,7 +185,7 @@ class BandstopFilterManager: ObservableObject {
     private func saveFilters() {
         do {
             let encoder = JSONEncoder()
-            let data = try encoder.encode(filters)
+            let data = try encoder.encode(self.filters)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
             Logger.filters.debug("Saved \(self.filters.count) filters")
         } catch {
