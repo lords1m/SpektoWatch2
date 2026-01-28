@@ -5,10 +5,7 @@ struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
     @Binding var selectedColormap: Int
     @Binding var sensitivity: Double
-    @Binding var timeWeighting: TimeWeighting
-    @Binding var frequencyWeighting: FrequencyWeighting
     @Binding var timeSpan: SpectrogramTimeSpan
-    @Binding var scrollSpeed: ScrollSpeed
     @Binding var watchGain: Float
     @ObservedObject var audioEngine: AudioEngine
     
@@ -77,7 +74,7 @@ struct SpectrogramSettingsView: View {
                         }
                     }
                     
-                    Picker("Geschwindigkeit", selection: $scrollSpeed) {
+                    Picker("Geschwindigkeit", selection: $audioEngine.scrollSpeed) {
                         ForEach(ScrollSpeed.allCases, id: \.self) { speed in
                             Text(speed.label).tag(speed)
                         }
@@ -98,14 +95,14 @@ struct SpectrogramSettingsView: View {
                 }
                 
                 Section(header: Text("Messung")) {
-                    Picker("Zeitbewertung", selection: $timeWeighting) {
+                    Picker("Zeitbewertung", selection: $audioEngine.timeWeighting) {
                         ForEach(TimeWeighting.allCases, id: \.self) { weighting in
                             Text(weighting.rawValue).tag(weighting)
                         }
                     }
                     .pickerStyle(.segmented)
                     
-                    Picker("Frequenzbewertung", selection: $frequencyWeighting) {
+                    Picker("Frequenzbewertung", selection: $audioEngine.frequencyWeighting) {
                         ForEach(FrequencyWeighting.allCases, id: \.self) { weighting in
                             Text(weighting.rawValue).tag(weighting)
                         }

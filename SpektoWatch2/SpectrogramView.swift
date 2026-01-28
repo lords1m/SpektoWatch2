@@ -54,10 +54,7 @@ struct SpectrogramView: View {
                     selectedMicrophoneSource: $selectedMicrophoneSource,
                     selectedColormap: $selectedColormap,
                     sensitivity: $sensitivity,
-                    timeWeighting: $timeWeighting,
-                    frequencyWeighting: $frequencyWeighting,
                     timeSpan: $timeSpan,
-                    scrollSpeed: $audioEngine.scrollSpeed,
                     watchGain: $watchGain,
                     audioEngine: audioEngine
                 )

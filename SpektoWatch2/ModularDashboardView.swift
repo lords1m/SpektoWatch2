@@ -38,10 +38,7 @@ struct ModularDashboardView: View {
                 selectedMicrophoneSource: $viewModel.selectedMicrophoneSource,
                 selectedColormap: $viewModel.dummyColormap,
                 sensitivity: $viewModel.sensitivity,
-                timeWeighting: $viewModel.audioEngine.timeWeighting,
-                frequencyWeighting: $viewModel.audioEngine.frequencyWeighting,
                 timeSpan: $viewModel.dummyTimeSpan,
-                scrollSpeed: $viewModel.audioEngine.scrollSpeed,
                 watchGain: $viewModel.watchGain,
                 audioEngine: viewModel.audioEngine
             )

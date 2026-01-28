@@ -86,7 +86,11 @@ class AudioEngine: ObservableObject {
     @Published var currentOctaveBands: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentSpectrum: [Float] = []
     
-    @Published var timeWeighting: TimeWeighting = .fast
+    @Published var timeWeighting: TimeWeighting = .fast {
+        didSet {
+            spectrogramProcessor.temporalSmoothingFactor = (timeWeighting == .fast) ? 0.5 : 0.9
+        }
+    }
     @Published var frequencyWeighting: FrequencyWeighting = .a
     @Published var scrollSpeed: ScrollSpeed = .fast
     
@@ -130,7 +134,6 @@ class AudioEngine: ObservableObject {
     
     func setTimeWeighting(_ weighting: TimeWeighting) {
         timeWeighting = weighting
-        spectrogramProcessor.temporalSmoothingFactor = (weighting == .fast) ? 0.5 : 0.9
     }
     
     func setFrequencyWeighting(_ weighting: FrequencyWeighting) {
