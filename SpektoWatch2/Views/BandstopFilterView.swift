@@ -1,121 +1,5 @@
 import SwiftUI
 
-/// Modell für einen Bandsperre-Filter
-struct BandstopFilter: Identifiable, Codable, Equatable {
-    let id: UUID
-    var isEnabled: Bool
-    var lowFrequency: Float   // Untere Grenzfrequenz (Hz)
-    var highFrequency: Float  // Obere Grenzfrequenz (Hz)
-    var name: String
-    var color: String         // Hex-Farbe für Visualisierung
-    
-    init(
-        id: UUID = UUID(),
-        isEnabled: Bool = true,
-        lowFrequency: Float = 50.0,
-        highFrequency: Float = 60.0,
-        name: String = "Netzbrummen",
-        color: String = "#FF6B6B"
-    ) {
-        self.id = id
-        self.isEnabled = isEnabled
-        self.lowFrequency = lowFrequency
-        self.highFrequency = highFrequency
-        self.name = name
-        self.color = color
-    }
-    
-    var bandwidth: Float {
-        highFrequency - lowFrequency
-    }
-    
-    var centerFrequency: Float {
-        (lowFrequency + highFrequency) / 2.0
-    }
-    
-    var formattedRange: String {
-        if lowFrequency >= 1000 {
-            return String(format: "%.1f - %.1f kHz", lowFrequency/1000, highFrequency/1000)
-        } else {
-            return String(format: "%.0f - %.0f Hz", lowFrequency, highFrequency)
-        }
-    }
-    
-    // MARK: - Validation
-    
-    enum ValidationError: LocalizedError {
-        case frequenciesReversed
-        case outOfBounds(nyquist: Float)
-        case negativeFrequency
-        case bandwidthTooNarrow
-        
-        var errorDescription: String? {
-            switch self {
-            case .frequenciesReversed:
-                return "Untere Frequenz muss kleiner als obere Frequenz sein"
-            case .outOfBounds(let nyquist):
-                return "Frequenzen müssen zwischen 20 Hz und \(Int(nyquist)) Hz liegen"
-            case .negativeFrequency:
-                return "Frequenzen dürfen nicht negativ sein"
-            case .bandwidthTooNarrow:
-                return "Bandbreite muss mindestens 2 Hz betragen"
-            }
-        }
-        
-        var recoverySuggestion: String? {
-            switch self {
-            case .frequenciesReversed:
-                return "Tauschen Sie die Werte von unterer und oberer Frequenz"
-            case .outOfBounds:
-                return "Wählen Sie Frequenzen im hörbaren Bereich"
-            case .negativeFrequency:
-                return "Verwenden Sie positive Frequenzwerte"
-            case .bandwidthTooNarrow:
-                return "Erhöhen Sie den Abstand zwischen unterer und oberer Frequenz"
-            }
-        }
-    }
-    
-    /// Validiert den Filter gegen physikalische und technische Limits
-    func validate(nyquist: Float = 22050.0) throws {
-        // Check 1: Negative Frequenzen
-        guard lowFrequency >= 0, highFrequency >= 0 else {
-            throw ValidationError.negativeFrequency
-        }
-        
-        // Check 2: Reihenfolge
-        guard lowFrequency < highFrequency else {
-            throw ValidationError.frequenciesReversed
-        }
-        
-        // Check 3: Bandbreite
-        guard (highFrequency - lowFrequency) >= 2.0 else {
-            throw ValidationError.bandwidthTooNarrow
-        }
-        
-        // Check 4: Bereich
-        guard lowFrequency >= 20.0, highFrequency <= nyquist else {
-            throw ValidationError.outOfBounds(nyquist: nyquist)
-        }
-    }
-    
-    /// Auto-Korrektur für ungültige Werte
-    mutating func autoCorrect(nyquist: Float = 22050.0) {
-        // Clamp zu positivem Bereich
-        lowFrequency = max(20.0, lowFrequency)
-        highFrequency = max(lowFrequency + 2.0, highFrequency)
-        
-        // Clamp zu Nyquist
-        highFrequency = min(nyquist, highFrequency)
-        lowFrequency = min(highFrequency - 2.0, lowFrequency)
-        
-        // Falls immer noch vertauscht, korrigieren
-        if lowFrequency > highFrequency {
-            swap(&lowFrequency, &highFrequency)
-        }
-    }
-}
-
 // MARK: - Range Slider Component
 
 struct FrequencyRangeSlider: View {
@@ -138,7 +22,7 @@ struct FrequencyRangeSlider: View {
             let width = geometry.size.width - thumbSize
             
             ZStack(alignment: .leading) {
-                // Background Track - HELLER FÜR BESSERE SICHTBARKEIT
+                // Background Track - LIGHTER FOR BETTER VISIBILITY
                 RoundedRectangle(cornerRadius: trackHeight / 2)
                     .fill(
                         LinearGradient(
@@ -150,7 +34,7 @@ struct FrequencyRangeSlider: View {
                     .frame(height: trackHeight)
                     .padding(.horizontal, thumbSize / 2)
                 
-                // Selected Range (Bandsperre-Bereich) - DEUTLICH SICHTBAR
+                // Selected Range (Bandstop region) - CLEARLY VISIBLE
                 RoundedRectangle(cornerRadius: trackHeight / 2)
                     .fill(
                         LinearGradient(
@@ -190,7 +74,7 @@ struct FrequencyRangeSlider: View {
                             }
                     )
                 
-                // Low Frequency Thumb - GRÖSSER & BESSER SICHTBAR
+                // Low Frequency Thumb - LARGER & MORE VISIBLE
                 Circle()
                     .fill(
                         LinearGradient(
@@ -226,7 +110,7 @@ struct FrequencyRangeSlider: View {
                             }
                     )
                 
-                // High Frequency Thumb - GRÖSSER & BESSER SICHTBAR
+                // High Frequency Thumb - LARGER & MORE VISIBLE
                 Circle()
                     .fill(
                         LinearGradient(
@@ -266,7 +150,7 @@ struct FrequencyRangeSlider: View {
         .frame(height: thumbSize + 16)
     }
     
-    // LOGARITHMISCHE SKALIERUNG
+    // LOGARITHMIC SCALING
     private func frequencyToPosition(_ frequency: Float, width: CGFloat) -> Float {
         if useLogScale {
             let minLog = log10(Double(range.lowerBound))
@@ -310,7 +194,7 @@ struct BandstopFilterEditView: View {
     
     @State private var showAdvanced = false
     
-    // Preset-Werte für schnelle Auswahl
+    // Preset values for quick selection
     private let presets: [(name: String, low: Float, high: Float)] = [
         ("Netzbrummen 50Hz", 48, 52),
         ("Netzbrummen 60Hz", 58, 62),
@@ -324,7 +208,7 @@ struct BandstopFilterEditView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            // Header mit Toggle und Delete
+            // Header with Toggle and Delete
             HStack {
                 Toggle(isOn: $filter.isEnabled) {
                     TextField("Name", text: $filter.name)
@@ -338,7 +222,7 @@ struct BandstopFilterEditView: View {
                 }
             }
             
-            // Frequenzbereich-Anzeige
+            // Frequency range display
             HStack {
                 VStack(alignment: .leading) {
                     Text("Untere Grenze")
@@ -377,7 +261,7 @@ struct BandstopFilterEditView: View {
                 }
             }
             
-            // Dual Range Slider mit LOG-SCALE
+            // Dual Range Slider with LOG-SCALE
             FrequencyRangeSlider(
                 lowValue: $filter.lowFrequency,
                 highValue: $filter.highFrequency,
@@ -386,7 +270,7 @@ struct BandstopFilterEditView: View {
             )
             .padding(.vertical, 8)
             
-            // Feineinstellung mit Steppern
+            // Fine-tuning with steppers
             HStack(spacing: 20) {
                 // Low Frequency Stepper
                 HStack {
@@ -461,7 +345,7 @@ struct BandstopFilterEditView: View {
     }
     
     private func stepSize(for frequency: Float) -> Float {
-        // Logarithmische Schritte: kleiner bei niedrigen Frequenzen
+        // Logarithmic steps: smaller at low frequencies
         if frequency < 100 {
             return 1
         } else if frequency < 1000 {
@@ -504,7 +388,7 @@ struct BandstopFilterSettingsView: View {
                     .background(Color(UIColor.secondarySystemGroupedBackground))
                     .cornerRadius(12)
                     
-                    // Filter Liste
+                    // Filter List
                     ForEach($filters) { $filter in
                         BandstopFilterEditView(
                             filter: $filter,
@@ -526,7 +410,7 @@ struct BandstopFilterSettingsView: View {
                             .cornerRadius(12)
                     }
                     
-                    // Visualisierung
+                    // Visualization
                     if !filters.isEmpty {
                         BandstopVisualizationView(filters: filters.filter { $0.isEnabled })
                             .frame(height: 100)
@@ -552,6 +436,8 @@ struct BandstopFilterSettingsView: View {
     
     private func addNewFilter() {
         let newFilter = BandstopFilter(
+            lowFrequency: 50,
+            highFrequency: 60,
             name: "Filter \(filters.count + 1)",
             color: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"].randomElement() ?? "#FF6B6B"
         )
