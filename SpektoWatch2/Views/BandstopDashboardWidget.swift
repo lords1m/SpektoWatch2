@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Kompaktes Dashboard-Widget zum Aktivieren/Deaktivieren von Bandsperren
+/// Compact dashboard widget for enabling/disabling bandstop filters
 struct BandstopDashboardWidget: View {
-    @ObservedObject var filterManager = BandstopFilterManager.shared
+    @EnvironmentObject var filterManager: BandstopFilterManager
     @State private var showFullSettings = false
     
     var body: some View {
@@ -30,14 +30,14 @@ struct BandstopDashboardWidget: View {
                 }
             }
             
-            // Quick Toggle Liste (max 3 anzeigen)
+            // Quick Toggle List (max 3 shown)
             if !filterManager.filters.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(Array(filterManager.filters.prefix(3))) { filter in
                         BandstopQuickToggleRow(filter: filter)
                     }
                     
-                    // "Mehr"-Button wenn mehr als 3 Filter
+                    // "More" button if more than 3 filters
                     if filterManager.filters.count > 3 {
                         Button(action: { showFullSettings = true }) {
                             HStack {
@@ -55,7 +55,7 @@ struct BandstopDashboardWidget: View {
                     }
                 }
             } else {
-                // Placeholder wenn keine Filter vorhanden
+                // Placeholder when no filters exist
                 Button(action: { showFullSettings = true }) {
                     HStack {
                         Image(systemName: "plus.circle")
@@ -96,10 +96,10 @@ struct BandstopDashboardWidget: View {
     }
 }
 
-/// Einzelne Zeile mit Toggle für schnelles Ein/Ausschalten
+/// Single row with toggle for quick enable/disable
 struct BandstopQuickToggleRow: View {
     let filter: BandstopFilter
-    @ObservedObject private var filterManager = BandstopFilterManager.shared
+    @EnvironmentObject private var filterManager: BandstopFilterManager
     
     var body: some View {
         HStack(spacing: 12) {
@@ -144,10 +144,10 @@ struct BandstopQuickToggleRow: View {
     }
 }
 
-// MARK: - Compact Mini Widget (für noch kleinere Bereiche)
+// MARK: - Compact Mini Widget (for even smaller areas)
 
 struct BandstopMiniWidget: View {
-    @ObservedObject var filterManager = BandstopFilterManager.shared
+    @EnvironmentObject var filterManager: BandstopFilterManager
     @State private var showFullSettings = false
     
     var body: some View {
@@ -168,7 +168,7 @@ struct BandstopMiniWidget: View {
                 
                 Spacer()
                 
-                // Quick Toggle für ersten Filter
+                // Quick Toggle for first filter
                 if let firstFilter = filterManager.filters.first {
                     Toggle("", isOn: Binding(
                         get: { firstFilter.isEnabled },
@@ -201,10 +201,10 @@ struct BandstopMiniWidget: View {
     }
 }
 
-// MARK: - Filter Status Indicator (nur Icon + Badge)
+// MARK: - Filter Status Indicator (icon + badge only)
 
 struct BandstopStatusIndicator: View {
-    @ObservedObject var filterManager = BandstopFilterManager.shared
+    @EnvironmentObject var filterManager: BandstopFilterManager
     
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -236,11 +236,14 @@ struct BandstopStatusIndicator: View {
 
 struct BandstopDashboardWidget_Previews: PreviewProvider {
     static var previews: some View {
+        let filterManager = BandstopFilterManager()
+        
         VStack(spacing: 16) {
             BandstopDashboardWidget()
             BandstopMiniWidget()
             BandstopStatusIndicator()
         }
+        .environmentObject(filterManager)
         .padding()
         .background(Color(UIColor.systemGroupedBackground))
         .previewLayout(.sizeThatFits)
