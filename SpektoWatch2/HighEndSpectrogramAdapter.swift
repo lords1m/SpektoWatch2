@@ -2,6 +2,7 @@ import MetalKit
 import Accelerate
 import SwiftUI
 import Combine
+import OSLog
 
 // ============================================================================
 // MARK: - Shader Parameters Structure
@@ -33,7 +34,12 @@ class HighEndSpectrogramAdapter: MTKView {
     private var commandQueue: MTLCommandQueue!
     private var pipelineState: MTLRenderPipelineState!
     private var vertexBuffer: MTLBuffer!
-    private var paramsBuffer: MTLBuffer!
+    
+    // Buffer Pool für Performance
+    private var paramsBuffers: [MTLBuffer] = []
+    private let maxInFlightBuffers = 3
+    private var currentBufferIndex = 0
+    private var inFlightSemaphore = DispatchSemaphore(value: 3)
     
     // MARK: - Texture (Ring Buffer)
     private var spectrogramTexture: MTLTexture!
@@ -99,7 +105,7 @@ class HighEndSpectrogramAdapter: MTKView {
         self.isPaused = false
         self.preferredFramesPerSecond = 120
         self.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        self.sampleCount = 4 // MSAA (4x Multisampling) für Kantenglättung aktivieren
+        self.sampleCount = 1 // MSAA deaktiviert für Performance, wir nutzen Texture-Filterung
         
         commandQueue = device.makeCommandQueue()
         setupPipeline()
@@ -133,7 +139,7 @@ class HighEndSpectrogramAdapter: MTKView {
         pipelineDescriptor.fragmentFunction = fragmentFunction
         pipelineDescriptor.vertexDescriptor = vertexDescriptor
         pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-        pipelineDescriptor.rasterSampleCount = 4 // Pipeline muss zum View passen (4x MSAA)
+        pipelineDescriptor.rasterSampleCount = 1 // Pipeline muss zum View passen (1x MSAA)
         
         do {
             pipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
@@ -197,28 +203,16 @@ class HighEndSpectrogramAdapter: MTKView {
     private func setupParametersBuffer() {
         guard let device = device else { return }
         
-        var params = HighEndSpectrogramShaderParams(
-            minDB: minDB,
-            maxDB: maxDB,
-            minFreq: minFrequency,
-            maxFreq: maxFrequency,
-            nyquist: sampleRate / 2.0,
-            fftSize: Int32(8192),
-            scrollOffset: 0.0,
-            colormapType: Int32(colormapType),
-            horizontalBlur: horizontalBlur,
-            noiseFloor: noiseFloor,
-            kneeWidth: kneeWidth,
-            gamma: gamma,
-            useInterpolation: useInterpolation ? 1 : 0,
-            debugMode: 0
-        )
-        
-        paramsBuffer = device.makeBuffer(
-            bytes: &params,
-            length: MemoryLayout<HighEndSpectrogramShaderParams>.stride,
-            options: .storageModeShared
-        )
+        // Pre-allocate Buffer Pool
+        paramsBuffers.removeAll()
+        for _ in 0..<maxInFlightBuffers {
+            if let buffer = device.makeBuffer(
+                length: MemoryLayout<HighEndSpectrogramShaderParams>.stride,
+                options: .storageModeShared
+            ) {
+                paramsBuffers.append(buffer)
+            }
+        }
     }
     
     // MARK: - Public API (KORRIGIERT)
@@ -236,7 +230,7 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
     if debugPrintCounter % 30 == 0 {
         let minVal = magnitudes.min() ?? 0
         let maxVal = magnitudes.max() ?? 0
-        print("[Spectrogram Data] Frame \(debugPrintCounter): \(magnitudes.count) bins, Range: [\(String(format: "%.5f", minVal))..\(String(format: "%.5f", maxVal))]")
+        Logger.metal.debug("Frame \(self.debugPrintCounter): \(magnitudes.count) bins, Range: [\(minVal, format: .fixed(precision: 5))..\(maxVal, format: .fixed(precision: 5))]")
     }
     
     // Cache aktualisieren falls nötig
@@ -338,18 +332,29 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
     
     // MARK: - Rendering
     override func draw(_ rect: CGRect) {
+        // Warten auf verfügbaren Buffer
+        _ = inFlightSemaphore.wait(timeout: .distantFuture)
+        
         guard let drawable = currentDrawable,
               let renderPassDescriptor = currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
-        else { return }
+        else {
+            inFlightSemaphore.signal()
+            return
+        }
+        
+        // Signal Semaphore wenn GPU fertig ist
+        commandBuffer.addCompletedHandler { [weak self] _ in
+            self?.inFlightSemaphore.signal()
+        }
         
         let baseOffset = Float(currentColumn) / Float(timeColumns)
         let totalOffset = baseOffset + manualScrollOffset
         
         drawPrintCounter += 1
         if drawPrintCounter % 60 == 0 {
-             print("[Spectrogram Render] Frame \(drawPrintCounter): Column \(currentColumn)/\(timeColumns), Scroll: \(String(format: "%.3f", totalOffset)), Colormap: \(colormapType)")
+             Logger.metal.debug("Render Frame \(self.drawPrintCounter): Column \(self.currentColumn)/\(self.timeColumns), Scroll: \(totalOffset, format: .fixed(precision: 3)), Colormap: \(self.colormapType)")
         }
         
         var params = HighEndSpectrogramShaderParams(
@@ -369,22 +374,22 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
             debugMode: 0
         )
         
-        guard let device = device else { return }
-        paramsBuffer = device.makeBuffer(
-            bytes: &params,
-            length: MemoryLayout<HighEndSpectrogramShaderParams>.stride,
-            options: .storageModeShared
-        )
+        // Update Buffer im Pool statt neu zu allokieren
+        let currentBuffer = paramsBuffers[currentBufferIndex]
+        memcpy(currentBuffer.contents(), &params, MemoryLayout<HighEndSpectrogramShaderParams>.stride)
         
         renderEncoder.setRenderPipelineState(pipelineState)
         renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
         renderEncoder.setFragmentTexture(spectrogramTexture, index: 0)
-        renderEncoder.setFragmentBuffer(paramsBuffer, offset: 0, index: 0)
+        renderEncoder.setFragmentBuffer(currentBuffer, offset: 0, index: 0)
         renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         renderEncoder.endEncoding()
         
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        
+        // Nächster Buffer für nächsten Frame
+        currentBufferIndex = (currentBufferIndex + 1) % maxInFlightBuffers
     }
     
     func reset() {

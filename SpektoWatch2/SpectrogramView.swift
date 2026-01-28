@@ -15,8 +15,8 @@ enum SpectrogramTimeSpan: Int, CaseIterable, Identifiable {
 }
 
 struct SpectrogramView: View {
-    @StateObject private var audioEngine = AudioEngine()
-    @StateObject private var connectivityManager = WatchConnectivityManager.shared
+    @EnvironmentObject private var audioEngine: AudioEngine
+    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @State private var isRecording = false
     @State private var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @State private var lastUpdateTime: Date = .distantPast
@@ -24,16 +24,16 @@ struct SpectrogramView: View {
     @State private var selectedColormap: Int = 0  // 0=Turbo, 1=Jet, 2=Viridis
     @State private var showSettings = false
     @State private var timeWeighting: TimeWeighting = .fast
-        @State private var frequencyWeighting: FrequencyWeighting = .a
-        @State private var timeSpan: SpectrogramTimeSpan = .seconds5
-        @State private var watchGain: Float = 1.0
-        
-        @State private var isPaused = false
-        @State private var scrollOffset: Double = 0.0
-        @State private var pausedDuration: TimeInterval = 0.0
-        
-        let maxFrames = 1200  // Genug Frames für >10s bei 86 FPS
-        let updateThrottleInterval: TimeInterval = 1.0 / 120.0 // Max 120 FPS (ProMotion)
+    @State private var frequencyWeighting: FrequencyWeighting = .a
+    @State private var timeSpan: SpectrogramTimeSpan = .seconds5
+    @State private var watchGain: Float = 1.0
+    
+    @State private var isPaused = false
+    @State private var scrollOffset: Double = 0.0
+    @State private var pausedDuration: TimeInterval = 0.0
+    
+    let maxFrames = 1200  // Genug Frames für >10s bei 86 FPS
+    let updateThrottleInterval: TimeInterval = 1.0 / 120.0 // Max 120 FPS (ProMotion)
         
         var body: some View {
             VStack(spacing: 0) {
@@ -75,7 +75,7 @@ struct SpectrogramView: View {
                 audioEngine.setFrequencyWeighting(newVal)
             }
             .onChange(of: watchGain) { _, newValue in
-                WatchConnectivityManager.shared.sendGainValue(newValue)
+                connectivityManager.sendGainValue(newValue)
             }
             .onReceive(connectivityManager.$spectrogramData) { data in
                 // Fallback: Falls die Watch doch mal fertige Spektrogramm-Daten sendet
@@ -122,25 +122,7 @@ struct SpectrogramView: View {
     
     private var spectrogramContainer: some View {
         GeometryReader { geo in
-            NavigationView {
-                ModularDashboardView(audioEngine: audioEngine)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                if isPaused {
-                                    // Dragging right (positive) moves view back in history
-                                    let delta = Double(value.translation.width / geo.size.width)
-                                    scrollOffset -= delta * 0.05 // Sensitivity factor
-                                    
-                                    // Clamp scroll offset
-                                    let span = Double(timeSpan.rawValue)
-                                    let duration = isPaused ? pausedDuration : audioEngine.recordingDuration
-                                    let minOffset = -min(1.0, duration / span)
-                                    scrollOffset = max(minOffset, min(0.0, scrollOffset))
-                                }
-                            }
-                    )
-            }
+            ModularDashboardView(audioEngine: audioEngine, connectivityManager: connectivityManager)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(UIColor.systemGroupedBackground))

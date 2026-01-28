@@ -1,5 +1,6 @@
 import MetalKit
 import Accelerate
+import OSLog
 
 // ============================================================================
 // MARK: - Shader Parameters Structure
@@ -158,7 +159,7 @@ class HighEndSpectrogramView: MTKView {
             do {
                 computePipelineState = try device.makeComputePipelineState(function: computeFunction)
             } catch {
-                print("Warning: Could not create compute pipeline: \(error)")
+                Logger.metal.warning("Could not create compute pipeline: \(error.localizedDescription)")
             }
         }
     }
@@ -328,7 +329,7 @@ class HighEndSpectrogramView: MTKView {
             let minDB = 20.0 * log10(minMagnitude + 1e-10)
             let avgDB = 20.0 * log10(avgMagnitude + 1e-10)
 
-            print("[HighEndSpectrogram] FFT dB Range: min=\(String(format: "%.1f", minDB)) avg=\(String(format: "%.1f", avgDB)) max=\(String(format: "%.1f", maxDB))")
+            Logger.metal.debug("FFT dB Range: min=\(minDB, format: .fixed(precision: 1)) avg=\(avgDB, format: .fixed(precision: 1)) max=\(maxDB, format: .fixed(precision: 1))")
         }
         #endif
 

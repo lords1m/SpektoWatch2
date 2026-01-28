@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import UIKit
+import OSLog
 
 class DashboardManager: ObservableObject {
     @Published var widgets: [WidgetConfiguration] = []
@@ -9,7 +10,7 @@ class DashboardManager: ObservableObject {
     private let userDefaultsKey = "DashboardConfiguration_v5" // v5 für Level History
     
     init() {
-        print("[DashboardManager] Initializing...")
+        Logger.ui.debug("DashboardManager Initializing...")
         loadConfiguration()
         if widgets.isEmpty {
             // NUR EIN großes Spektrogramm als Default
@@ -17,7 +18,7 @@ class DashboardManager: ObservableObject {
                 WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
                 WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
             ]
-            print("[DashboardManager] Created default configuration with ONE large spectrogram")
+            Logger.ui.info("Created default configuration with ONE large spectrogram")
             saveConfiguration()
         }
     }
@@ -26,12 +27,12 @@ class DashboardManager: ObservableObject {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         
-        print("[DashboardManager] Adding widget of type: \(type.rawValue)")
+        Logger.ui.info("Adding widget of type: \(type.rawValue)")
         let size = WidgetConfiguration.defaultSize(for: type)
         let pos = position ?? GridPosition(index: widgets.count)
         let newWidget = WidgetConfiguration(type: type, size: size, gridPosition: pos)
         widgets.append(newWidget)
-        print("[DashboardManager] Widget added. Total widgets: \(widgets.count)")
+        Logger.ui.debug("Widget added. Total widgets: \(self.widgets.count)")
         saveConfiguration()
     }
     
@@ -39,31 +40,31 @@ class DashboardManager: ObservableObject {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
         
-        print("[DashboardManager] Removing widget with ID: \(id)")
+        Logger.ui.info("Removing widget with ID: \(id)")
         widgets.removeAll { $0.id == id }
-        print("[DashboardManager] Widget removed. Total widgets: \(widgets.count)")
+        Logger.ui.debug("Widget removed. Total widgets: \(self.widgets.count)")
         saveConfiguration()
     }
     
     func moveWidget(from source: IndexSet, to destination: Int) {
-        print("[DashboardManager] Moving widget from \(source) to \(destination)")
+        Logger.ui.debug("Moving widget from \(source) to \(destination)")
         widgets.move(fromOffsets: source, toOffset: destination)
         saveConfiguration()
     }
     
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
-        print("[DashboardManager] Resizing widget \(id) to \(newSize)")
+        Logger.ui.debug("Resizing widget \(id) to \(newSize)")
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].size = newSize
-            print("[DashboardManager] Widget resized successfully")
+            Logger.ui.debug("Widget resized successfully")
             saveConfiguration()
         } else {
-            print("[DashboardManager] ERROR: Widget with ID \(id) not found for resizing")
+            Logger.ui.error("Widget with ID \(id) not found for resizing")
         }
     }
     
     func updateWidgetSettings(id: UUID, settings: [String: String]) {
-        print("[DashboardManager] Updating settings for widget \(id)")
+        Logger.ui.debug("Updating settings for widget \(id)")
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].settings = settings
             saveConfiguration()
@@ -71,39 +72,39 @@ class DashboardManager: ObservableObject {
     }
     
     func saveConfiguration() {
-        print("[DashboardManager] Saving configuration...")
+        Logger.ui.debug("Saving configuration...")
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
             let data = try encoder.encode(widgets)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            print("[DashboardManager] Configuration saved successfully (\(widgets.count) widgets)")
+            Logger.ui.info("Configuration saved successfully (\(self.widgets.count) widgets)")
         } catch {
-            print("[DashboardManager] Error saving dashboard configuration: \(error)")
+            Logger.ui.error("Error saving dashboard configuration: \(error.localizedDescription)")
         }
     }
     
     func loadConfiguration() {
-        print("[DashboardManager] Loading configuration...")
+        Logger.ui.debug("Loading configuration...")
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
-            print("[DashboardManager] No saved configuration found")
+            Logger.ui.info("No saved configuration found")
             return
         }
         do {
             let decoder = JSONDecoder()
             widgets = try decoder.decode([WidgetConfiguration].self, from: data)
-            print("[DashboardManager] Configuration loaded successfully. Found \(widgets.count) widgets:")
+            Logger.ui.info("Configuration loaded successfully. Found \(self.widgets.count) widgets")
             for (index, widget) in widgets.enumerated() {
-                print("  [\(index)] \(widget.type.rawValue) - \(widget.size.columns)x\(String(format: "%.1f", widget.size.rows))")
+                Logger.ui.debug("  [\(index)] \(widget.type.rawValue) - \(widget.size.columns)x\(widget.size.rows, format: .fixed(precision: 1))")
             }
         } catch {
-            print("[DashboardManager] Error loading dashboard configuration: \(error)")
+            Logger.ui.error("Error loading dashboard configuration: \(error.localizedDescription)")
         }
     }
     
     /// Reset zu Standard-Konfiguration
     func resetToDefault() {
-        print("[DashboardManager] Resetting to default configuration...")
+        Logger.ui.info("Resetting to default configuration...")
         widgets = [
             WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
             WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))

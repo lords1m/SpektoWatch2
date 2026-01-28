@@ -9,6 +9,7 @@ struct SpectrogramSettingsView: View {
     @Binding var frequencyWeighting: FrequencyWeighting
     @Binding var timeSpan: SpectrogramTimeSpan
     @Binding var scrollSpeed: ScrollSpeed
+    @Binding var frequencyResolution: FrequencyResolution
     @Binding var watchGain: Float
     @ObservedObject var audioEngine: AudioEngine
     
@@ -74,6 +75,12 @@ struct SpectrogramSettingsView: View {
                     Picker("Zeitbereich", selection: $timeSpan) {
                         ForEach(SpectrogramTimeSpan.allCases) { span in
                             Text(span.title).tag(span)
+                        }
+                    }
+                    
+                    Picker("Frequenzauflösung", selection: $frequencyResolution) {
+                        ForEach(FrequencyResolution.allCases) { resolution in
+                            Text(resolution.label).tag(resolution)
                         }
                     }
                     

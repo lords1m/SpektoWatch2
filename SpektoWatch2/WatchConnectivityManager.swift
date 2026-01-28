@@ -1,0 +1,169 @@
+import Foundation
+import WatchConnectivity
+import Combine
+import OSLog
+
+class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
+    
+    @Published var isReachable = false
+    @Published var spectrogramData: SpectrogramData?
+    @Published var audioData: AudioData?
+    @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    
+    // MARK: - Queue Definitionen
+    private struct QueuedMessage {
+        let id = UUID()
+        let message: [String: Any]
+        var retries: Int
+        let timestamp: Date
+    }
+    
+    private var messageQueue: [QueuedMessage] = []
+    private let maxRetries = 3
+    private var isProcessingQueue = false
+    
+    override init() {
+        super.init()
+        if WCSession.isSupported() {
+            WCSession.default.delegate = self
+            WCSession.default.activate()
+        }
+    }
+    
+    // MARK: - WCSessionDelegate
+    
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        DispatchQueue.main.async {
+            self.isReachable = session.isReachable
+            self.processQueue()
+        }
+    }
+    
+    func sessionReachabilityDidChange(_ session: WCSession) {
+        DispatchQueue.main.async {
+            self.isReachable = session.isReachable
+            if self.isReachable {
+                self.processQueue()
+            }
+        }
+    }
+    
+    #if os(iOS)
+    func sessionDidBecomeInactive(_ session: WCSession) {}
+    func sessionDidDeactivate(_ session: WCSession) {
+        WCSession.default.activate()
+    }
+    #endif
+    
+    // MARK: - Empfang
+    
+    func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
+        // Versuche binäres Spektrogramm zu dekodieren
+        if let specData = SpectrogramData.fromBinaryData(messageData) {
+            DispatchQueue.main.async {
+                self.spectrogramData = specData
+            }
+        }
+    }
+    
+    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        DispatchQueue.main.async {
+            if let type = message["type"] as? String {
+                switch type {
+                case "microphoneSource":
+                    if let sourceRaw = message["source"] as? String,
+                       let source = MicrophoneSource(rawValue: sourceRaw) {
+                        self.selectedMicrophoneSource = source
+                    }
+                case "startRecording":
+                    NotificationCenter.default.post(name: .startRecordingCommand, object: nil)
+                case "stopRecording":
+                    NotificationCenter.default.post(name: .stopRecordingCommand, object: nil)
+                default:
+                    break
+                }
+            }
+        }
+    }
+    
+    // MARK: - Senden (Public API)
+    
+    func sendSpectrogramData(_ data: SpectrogramData) {
+        // Echtzeit-Daten senden wir direkt (Fire & Forget), keine Queue
+        guard WCSession.default.isReachable else { return }
+        WCSession.default.sendMessageData(data.toBinaryData(), replyHandler: nil, errorHandler: nil)
+    }
+    
+    func sendGainValue(_ gain: Float) {
+        sendWithRetry(["type": "gain", "value": gain])
+    }
+    
+    func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
+        sendWithRetry(["type": "microphoneSource", "source": source.rawValue])
+    }
+    
+    func requestRecordingStart() {
+        sendWithRetry(["type": "startRecording"])
+    }
+    
+    func requestRecordingStop() {
+        sendWithRetry(["type": "stopRecording"])
+    }
+    
+    // MARK: - Queue Logic
+    
+    private func sendWithRetry(_ message: [String: Any]) {
+        let queued = QueuedMessage(message: message, retries: 0, timestamp: Date())
+        messageQueue.append(queued)
+        processQueue()
+    }
+    
+    private func processQueue() {
+        guard !isProcessingQueue, !messageQueue.isEmpty else { return }
+        
+        guard WCSession.default.activationState == .activated, WCSession.default.isReachable else {
+            return // Warten auf Reachability Change
+        }
+        
+        isProcessingQueue = true
+        let currentMessage = messageQueue[0]
+        
+        WCSession.default.sendMessage(currentMessage.message, replyHandler: { _ in
+            DispatchQueue.main.async {
+                if !self.messageQueue.isEmpty { self.messageQueue.removeFirst() }
+                self.isProcessingQueue = false
+                self.processQueue()
+            }
+        }, errorHandler: { error in
+            DispatchQueue.main.async {
+                self.handleMessageError(currentMessage, error: error)
+            }
+        })
+    }
+    
+    private func handleMessageError(_ message: QueuedMessage, error: Error) {
+        var updatedMessage = message
+        updatedMessage.retries += 1
+        
+        if updatedMessage.retries <= maxRetries {
+            if !messageQueue.isEmpty {
+                messageQueue[0] = updatedMessage
+            }
+            
+            // Exponential Backoff: 0.5s, 1.0s, 2.0s
+            let delay = 0.5 * pow(2.0, Double(updatedMessage.retries - 1))
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.isProcessingQueue = false
+                self.processQueue()
+            }
+        } else {
+            Logger.connectivity.error("Message dropped after \(self.maxRetries) retries: \(error.localizedDescription)")
+            if !messageQueue.isEmpty {
+                messageQueue.removeFirst()
+            }
+            isProcessingQueue = false
+            processQueue()
+        }
+    }
+}

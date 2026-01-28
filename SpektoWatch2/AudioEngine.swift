@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Accelerate
 import Combine
+import OSLog
 
 enum TimeWeighting: String, CaseIterable {
     case fast = "Fast"
@@ -55,19 +56,15 @@ enum StereoInputMode: String, CaseIterable {
 
 class AudioEngine: ObservableObject {
 
+    private let config: AudioConfiguration
     private var audioEngine: AVAudioEngine
-    private let fftSize: Int = 8192
-    private let tapBlockSize: AVAudioFrameCount = 512
     private var sampleBuffer: [Float] = []
-    private let fftSetup: vDSP_DFT_Setup
-    private let sampleRate: Double = 44100.0
     private var dummyDataTimer: Timer?
     private var isUsingDummyData = false
     private var gainBoost: Float = 10.0
     private var hasLoggedSilence = false
     private var debugPrintCounter = 0
     private var lastWatchUpdate: TimeInterval = 0
-    private let maxHistorySize = 1000
 
     // Recording
     private var recordingStartTime: Date?
@@ -76,6 +73,7 @@ class AudioEngine: ObservableObject {
 
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var engineStatus: EngineStatus = .idle
+    @Published var lastError: SpektoWatchError?
     @Published var currentSpectrogramData: SpectrogramData?
     @Published var currentLevel: Float = -120.0
     @Published var maxLevel: Float = -120.0
@@ -92,27 +90,11 @@ class AudioEngine: ObservableObject {
 
     private var smoothedLevel: Float = -120.0
 
-    // Level calculations
-    private var lafEnergy: Float = 1e-12
-    private var lasEnergy: Float = 1e-12
-    private var lcfEnergy: Float = 1e-12
-    private var lcsEnergy: Float = 1e-12
-    private var lzfEnergy: Float = 1e-12
-    private var lzsEnergy: Float = 1e-12
-    
-    private var laeqAccumulator: Double = 0.0
-    private var laeqCount: Int = 0
-    private var lafMin: Float = 1000.0
-    private var lafMax: Float = -1000.0
-    private var lcPeakHold: Float = -120.0
-    
-    private var lafHistogram = [Int](repeating: 0, count: 1401)
-    private var lafTotalCounts: Int = 0
-    private let histMinDB: Float = -130.0
-    
-    private var currentTaktMax: Float = -1000.0
-    private var lastTaktTime: TimeInterval = 0
-    private var taktValues: [Float] = []
+    // Processors
+    private var fftProcessor: FFTProcessor
+    private var weightingProcessor: FrequencyWeightingProcessor
+    private var metricsCalculator: AcousticMetricsCalculator
+    private var connectivityManager: WatchConnectivityManager
     
     @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
     @Published var selectedDataSource: AVAudioSessionDataSourceDescription? {
@@ -128,52 +110,25 @@ class AudioEngine: ObservableObject {
         }
     }
 
-    private let binningFactor: Int = 2
-    private var temporalSmoothingFactor: Float = 0.0
-    private var previousBandMagnitudes: [Float] = []
+    private var spectrogramProcessor: SpectrogramProcessor
 
-    private var realIn: [Float]
-    private var imagIn: [Float]
-    private var realOut: [Float]
-    private var imagOut: [Float]
-    private var window: [Float]
-    private var fftMagnitudes: [Float]
-    
-    private var aWeights: [Float] = []
-    private var cWeights: [Float] = []
-    
-    // BANDSTOP FILTER INTEGRATION
-    private var bandstopFilterManager = BandstopFilterManager.shared
-
-    init() {
+    init(config: AudioConfiguration = .default, filterManager: BandstopFilterManager, connectivityManager: WatchConnectivityManager) {
+        self.config = config
         audioEngine = AVAudioEngine()
-        guard let setup = vDSP_DFT_zop_CreateSetup(
-            nil,
-            vDSP_Length(fftSize),
-            vDSP_DFT_Direction.FORWARD
-        ) else {
-            fatalError("Failed to create FFT setup")
-        }
-        fftSetup = setup
+        self.connectivityManager = connectivityManager
         
-        realIn = [Float](repeating: 0, count: fftSize)
-        imagIn = [Float](repeating: 0, count: fftSize)
-        realOut = [Float](repeating: 0, count: fftSize)
-        imagOut = [Float](repeating: 0, count: fftSize)
-        window = [Float](repeating: 0, count: fftSize)
-        fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        
-        precomputeWeightingCurves()
+        fftProcessor = FFTProcessor(fftSize: config.fftSize, sampleRate: config.sampleRate)
+        weightingProcessor = FrequencyWeightingProcessor(fftSize: config.fftSize, sampleRate: config.sampleRate)
+        metricsCalculator = AcousticMetricsCalculator()
+        spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
     }
 
     deinit {
-        vDSP_DFT_DestroySetup(fftSetup)
     }
 
     func setTimeWeighting(_ weighting: TimeWeighting) {
         timeWeighting = weighting
-        temporalSmoothingFactor = (weighting == .fast) ? 0.5 : 0.9
+        spectrogramProcessor.temporalSmoothingFactor = (weighting == .fast) ? 0.5 : 0.9
     }
 
     func setFrequencyWeighting(_ weighting: FrequencyWeighting) {
@@ -184,65 +139,24 @@ class AudioEngine: ObservableObject {
         gainBoost = gain
     }
     
-    private func precomputeWeightingCurves() {
-        let nyquist = Float(sampleRate / 2.0)
-        let freqResolution = nyquist / Float(fftSize / 2)
-        
-        aWeights = [Float](repeating: 0.0, count: fftSize / 2)
-        cWeights = [Float](repeating: 0.0, count: fftSize / 2)
-        
-        for i in 0..<(fftSize / 2) {
-            let f = Float(i) * freqResolution
-            let f2 = f * f
-            
-            let aNum = 12194.0 * 12194.0 * f2 * f2
-            let aDen = (f2 + 20.6 * 20.6) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0)
-            var aGain: Float = 0.0
-            if aDen > 0 {
-                let mag = aNum / aDen
-                aGain = Float(mag * pow(10.0, 2.0 / 20.0))
-            }
-            aWeights[i] = aGain
-            
-            let cNum = 12194.0 * 12194.0 * f2
-            let cDen = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
-            var cGain: Float = 0.0
-            if cDen > 0 {
-                let mag = cNum / cDen
-                cGain = Float(mag * pow(10.0, 0.06 / 20.0))
-            }
-            cWeights[i] = cGain
-        }
-    }
 
     func startRecording() {
-        print("[AudioEngine] Start")
+        Logger.audioEngine.info("Starting AudioEngine recording")
         engineStatus = .starting
         recordingStartTime = Date()
         recordingDuration = 0.0
         hasLoggedSilence = false
+        lastError = nil
 
         DispatchQueue.main.async {
             self.levelHistory.removeAll()
             self.currentLevel = -120.0
             self.maxLevel = -120.0
-            self.minLevel = 0.0
-            self.smoothedLevel = -120.0
-            
-            self.laeqAccumulator = 0.0
-            self.laeqCount = 0
-            self.lafMin = 1000.0
-            self.lafMax = -1000.0
-            self.lcPeakHold = -120.0
-            self.lafHistogram = [Int](repeating: 0, count: 1401)
-            self.lafTotalCounts = 0
-            self.currentTaktMax = -1000.0
-            self.lastTaktTime = 0
-            self.taktValues = []
+            self.metricsCalculator.reset()
         }
 
         #if targetEnvironment(simulator)
-        print("Running on Simulator - using dummy audio data")
+        Logger.audioEngine.notice("Running on Simulator - using dummy audio data")
         startDummyDataGeneration()
         engineStatus = .running
         #else
@@ -256,19 +170,35 @@ class AudioEngine: ObservableObject {
                 return
             }
             if audioSession.recordPermission == .denied {
-                print("[AudioEngine] Error: Microphone permission denied")
+                Logger.audioEngine.error("Microphone permission denied")
+                let error = SpektoWatchError.microphonePermissionDenied
+                lastError = error
                 engineStatus = .error("Microphone permission denied")
                 return
             }
 
-            try audioSession.setCategory(.record, mode: .measurement, options: [])
-            try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / sampleRate)
+            do {
+                try audioSession.setCategory(.record, mode: .measurement, options: [])
+                try audioSession.setPreferredIOBufferDuration(Double(config.tapBlockSize) / config.sampleRate)
+            } catch {
+                let err = SpektoWatchError.audioEngineFailure(reason: "Audio Session Konfiguration fehlgeschlagen: \(error.localizedDescription)")
+                lastError = err
+                engineStatus = .error(err.localizedDescription)
+                return
+            }
 
             if audioSession.isInputGainSettable {
                 try audioSession.setInputGain(1.0)
             }
 
-            try audioSession.setActive(true)
+            do {
+                try audioSession.setActive(true)
+            } catch {
+                let err = SpektoWatchError.audioEngineFailure(reason: "Audio Session konnte nicht aktiviert werden: \(error.localizedDescription)")
+                lastError = err
+                engineStatus = .error(err.localizedDescription)
+                return
+            }
             
             if let inputs = audioSession.availableInputs,
                let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
@@ -283,7 +213,7 @@ class AudioEngine: ObservableObject {
                 }
                 
                 if let source = self.selectedDataSource {
-                    try audioSession.setInputDataSource(source)
+                    try? audioSession.setInputDataSource(source)
                 }
             }
 
@@ -291,26 +221,35 @@ class AudioEngine: ObservableObject {
             let recordingFormat = inputNode.outputFormat(forBus: 0)
 
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-                print("Invalid audio format - falling back to dummy data")
+                Logger.audioEngine.error("Invalid audio format - falling back to dummy data")
+                let err = SpektoWatchError.invalidAudioFormat
+                lastError = err
                 startDummyDataGeneration()
-                engineStatus = .running
+                engineStatus = .error(err.localizedDescription)
                 return
             }
 
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-            self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
+            do {
+                self.audioFile = try AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
+            } catch {
+                Logger.audioEngine.error("Failed to create audio file: \(error.localizedDescription)")
+                // Non-fatal, we just won't save to disk
+            }
             self.lastRecordingURL = tempURL
 
-            inputNode.installTap(onBus: 0, bufferSize: tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
+            inputNode.installTap(onBus: 0, bufferSize: config.tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
 
             try audioEngine.start()
             engineStatus = .running
         } catch {
-            print("Audio engine start error: \(error)")
+            Logger.audioEngine.error("Audio engine start error: \(error.localizedDescription)")
+            let err = SpektoWatchError.audioEngineFailure(reason: error.localizedDescription)
+            lastError = err
             engineStatus = .error(error.localizedDescription)
-            print("Falling back to dummy data")
+            Logger.audioEngine.notice("Falling back to dummy data due to error")
             startDummyDataGeneration()
             engineStatus = .running
         }
@@ -318,7 +257,7 @@ class AudioEngine: ObservableObject {
     }
 
     func stopRecording() {
-        print("[AudioEngine] Stop")
+        Logger.audioEngine.info("Stopping AudioEngine recording")
         recordingStartTime = nil
         audioFile = nil
         engineStatus = .idle
@@ -424,120 +363,70 @@ class AudioEngine: ObservableObject {
         let signalDB = 20 * log10(rms + 1e-9)
         let peakVal = newSamples.max() ?? 0
         let peakDB = 20 * log10(abs(peakVal) + 1e-9)
-        self.lcPeakHold = max(self.lcPeakHold, peakDB)
+        metricsCalculator.updatePeak(samples: newSamples)
 
         debugPrintCounter += 1
         if debugPrintCounter % 240 == 0 {
             let minSample = newSamples.min() ?? 0
             let maxSample = newSamples.max() ?? 0
-            print("[AudioEngine] Input RMS: \(String(format: "%.1f", signalDB)) dB, Samples: [\(String(format: "%.3f", minSample)) ... \(String(format: "%.3f", maxSample))]")
+            Logger.audioEngine.debug("Input RMS: \(signalDB, format: .fixed(precision: 1)) dB, Samples: [\(minSample, format: .fixed(precision: 3)) ... \(maxSample, format: .fixed(precision: 3))]")
         }
         
         if signalDB < -120 {
             if !hasLoggedSilence {
-                print("[AudioEngine] WARNING: Audio buffer silent/empty: \(String(format: "%.1f", signalDB)) dB")
+                Logger.audioEngine.warning("Audio buffer silent/empty: \(signalDB, format: .fixed(precision: 1)) dB")
                 hasLoggedSilence = true
             }
         }
 
         sampleBuffer.append(contentsOf: newSamples)
         
-        while sampleBuffer.count >= fftSize {
-            let samples = Array(sampleBuffer.prefix(fftSize))
+        while sampleBuffer.count >= config.fftSize {
+            let samples = Array(sampleBuffer.prefix(config.fftSize))
 
-            let fftResult = performFFT(on: samples)
-
-            if debugPrintCounter % 240 == 0 {
-                let minMag = fftResult.magnitudes.min() ?? 0
-                let maxMag = fftResult.magnitudes.max() ?? 0
-                print("[AudioEngine] FFT Processed (dB): min=\(String(format: "%.1f", minMag)), max=\(String(format: "%.1f", maxMag))")
-            }
+            // 1. Perform FFT (Linear Magnitudes)
+            let linearMagnitudes = fftProcessor.performFFT(on: samples, gainBoost: gainBoost)
             
-            // APPLY BANDSTOP FILTERS HERE
-            let filteredMagnitudes = applyBandstopFilters(
-                frequencies: fftResult.frequencies,
-                magnitudes: fftResult.magnitudes
-            )
+            // 2. Convert to dB for Spectrogram
+            var dbMagnitudes = fftProcessor.convertToDB(linearMagnitudes)
             
-            let octaveBands = calculateOctaveBands(frequencies: fftResult.frequencies, magnitudes: filteredMagnitudes)
-            let spectrum = filteredMagnitudes
-
-            let (bandFreqs, bandMags) = aggregateByBinningFactor(
-                frequencies: fftResult.frequencies,
-                magnitudes: filteredMagnitudes
-            )
-
-            let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
-
-            var energyZ: Float = 0.0
-            var energyA: Float = 0.0
-            var energyC: Float = 0.0
-            
-            for i in 0..<fftMagnitudes.count {
-                let magSq = fftMagnitudes[i] * fftMagnitudes[i]
-                energyZ += magSq
-                energyA += magSq * aWeights[i] * aWeights[i]
-                energyC += magSq * cWeights[i] * cWeights[i]
-            }
-            
-            let dt = Float(scrollSpeed.rawValue) / Float(sampleRate)
-            let alphaFast = 1.0 - exp(-dt / 0.125)
-            let alphaSlow = 1.0 - exp(-dt / 1.0)
-            
-            lafEnergy = (1.0 - alphaFast) * lafEnergy + alphaFast * energyA
-            lasEnergy = (1.0 - alphaSlow) * lasEnergy + alphaSlow * energyA
-            
-            lcfEnergy = (1.0 - alphaFast) * lcfEnergy + alphaFast * energyC
-            lcsEnergy = (1.0 - alphaSlow) * lcsEnergy + alphaSlow * energyC
-            
-            lzfEnergy = (1.0 - alphaFast) * lzfEnergy + alphaFast * energyZ
-            lzsEnergy = (1.0 - alphaSlow) * lzsEnergy + alphaSlow * energyZ
-            
-            laeqAccumulator += Double(energyA)
-            laeqCount += 1
-            
-            let broadbandLevel = 10.0 * log10(lafEnergy + 1e-12)
-            
-            lafMin = min(lafMin, broadbandLevel)
-            lafMax = max(lafMax, broadbandLevel)
-            
-            let histIndex = Int((broadbandLevel - histMinDB) * 10.0)
-            if histIndex >= 0 && histIndex < lafHistogram.count {
-                lafHistogram[histIndex] += 1
-                lafTotalCounts += 1
-            }
-            
-            currentTaktMax = max(currentTaktMax, broadbandLevel)
-            if recordingDuration - lastTaktTime >= 5.0 {
-                taktValues.append(currentTaktMax)
-                currentTaktMax = -1000.0
-                lastTaktTime = recordingDuration
-            }
-            
-            let levels: [String: Float] = [
-                "LAF": 10.0 * log10(lafEnergy + 1e-12),
-                "LAS": 10.0 * log10(lasEnergy + 1e-12),
-                "LCF": 10.0 * log10(lcfEnergy + 1e-12),
-                "LCS": 10.0 * log10(lcsEnergy + 1e-12),
-                "LZF": 10.0 * log10(lzfEnergy + 1e-12),
-                "LZS": 10.0 * log10(lzsEnergy + 1e-12),
-                "LAeq": laeqCount > 0 ? Float(10.0 * log10(laeqAccumulator / Double(laeqCount) + 1e-12)) : -120.0,
-                "LAFmin": lafMin,
-                "LAFmax": lafMax,
-                "LCpeak": lcPeakHold,
-                "LAFT5": currentTaktMax,
-            ]
+            // 3. Apply Frequency Weighting (Offsets) for Display
+            dbMagnitudes = weightingProcessor.applyWeighting(dbMagnitudes, type: frequencyWeighting)
 
             if debugPrintCounter % 240 == 0 {
-                print("[AudioEngine] Broadband Level: \(String(format: "%.1f", broadbandLevel)) dB")
+                let minMag = dbMagnitudes.min() ?? 0
+                let maxMag = dbMagnitudes.max() ?? 0
+                Logger.audioEngine.debug("FFT Processed (dB): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
+            }
+            
+            // 4. Spectrogram Processing (Filtering, Binning, Smoothing, Octave Bands)
+            let processed = spectrogramProcessor.process(
+                frequencies: fftProcessor.frequencies,
+                dbMagnitudes: dbMagnitudes,
+                sampleRate: config.sampleRate
+            )
+
+            let levels = metricsCalculator.calculateMetrics(
+                linearMagnitudes: linearMagnitudes,
+                aWeightsSq: weightingProcessor.aWeightsLinearSq,
+                cWeightsSq: weightingProcessor.cWeightsLinearSq,
+                scrollSpeed: scrollSpeed,
+                sampleRate: config.sampleRate,
+                recordingDuration: recordingDuration
+            )
+            
+            let broadbandLevel = levels["LAF"] ?? -120.0
+
+            if debugPrintCounter % 240 == 0 {
+                Logger.audioEngine.debug("Broadband Level: \(broadbandLevel, format: .fixed(precision: 1)) dB")
             }
 
             let spectrogramData = SpectrogramData(
-                frequencies: bandFreqs,
-                magnitudes: smoothedMagnitudes,
+                frequencies: processed.bandFrequencies,
+                magnitudes: processed.bandMagnitudes,
                 broadbandLevel: broadbandLevel,
-                levels: calculateExtendedLevels(baseLevels: levels),
-                sampleRate: sampleRate
+                levels: levels,
+                sampleRate: config.sampleRate
             )
 
             DispatchQueue.main.async {
@@ -547,8 +436,8 @@ class AudioEngine: ObservableObject {
 
                 self.currentSpectrogramData = spectrogramData
                 
-                self.currentOctaveBands = octaveBands
-                self.currentSpectrum = spectrum
+                self.currentOctaveBands = processed.octaveBands
+                self.currentSpectrum = processed.spectrum
                 self.currentPeakLevel = peakDB
                 self.currentLevel = broadbandLevel
                 
@@ -558,13 +447,13 @@ class AudioEngine: ObservableObject {
                 }
                 
                 self.levelHistory.append(broadbandLevel)
-                if self.levelHistory.count > self.maxHistorySize {
-                    self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
+                if self.levelHistory.count > self.config.maxHistorySize {
+                    self.levelHistory.removeFirst(self.levelHistory.count - self.config.maxHistorySize)
                 }
                 
                 let now = Date().timeIntervalSince1970
                 if now - self.lastWatchUpdate > 0.1 {
-                    WatchConnectivityManager.shared.sendSpectrogramData(spectrogramData)
+                    self.connectivityManager.sendSpectrogramData(spectrogramData)
                     self.lastWatchUpdate = now
                 }
             }
@@ -573,210 +462,6 @@ class AudioEngine: ObservableObject {
         }
     }
     
-    // MARK: - Bandstop Filter Application
-    
-    /// Wendet alle aktiven Bandstop-Filter auf die FFT-Magnitudes an
-    private func applyBandstopFilters(frequencies: [Float], magnitudes: [Float]) -> [Float] {
-        guard !bandstopFilterManager.enabledFilters.isEmpty else {
-            return magnitudes // Keine Filter aktiv
-        }
-        
-        var filtered = magnitudes
-        
-        for (i, freq) in frequencies.enumerated() {
-            let attenuation = bandstopFilterManager.attenuationFactor(for: freq)
-            
-            // Attenuation: 0 = vollständig gedämpft, 1 = nicht gedämpft
-            // Wir dämpfen in dB-Skala
-            if attenuation < 1.0 {
-                // Konvertiere zu Linear, dämpfe, zurück zu dB
-                let linearMag = pow(10.0, filtered[i] / 20.0)
-                let attenuatedLinear = linearMag * attenuation
-                filtered[i] = 20.0 * log10(attenuatedLinear + 1e-9)
-            }
-        }
-        
-        return filtered
-    }
-    
-    private func calculateExtendedLevels(baseLevels: [String: Float]) -> [String: Float] {
-        var levels = baseLevels
-        
-        if lafTotalCounts > 0 {
-            levels["LAF5"] = calculatePercentile(targetPercentage: 0.05)
-            levels["LAF95"] = calculatePercentile(targetPercentage: 0.95)
-        } else {
-            levels["LAF5"] = -120.0
-            levels["LAF95"] = -120.0
-        }
-        
-        if !taktValues.isEmpty {
-            let sumEnergy = taktValues.reduce(0.0) { $0 + pow(10.0, Double($1) / 10.0) }
-            levels["LAFTeq"] = Float(10.0 * log10(sumEnergy / Double(taktValues.count) + 1e-12))
-        } else {
-            levels["LAFTeq"] = currentTaktMax > -1000 ? currentTaktMax : -120.0
-        }
-        
-        return levels
-    }
-    
-    private func calculatePercentile(targetPercentage: Double) -> Float {
-        let targetCount = Int(Double(lafTotalCounts) * targetPercentage)
-        var currentCount = 0
-        for i in stride(from: lafHistogram.count - 1, through: 0, by: -1) {
-            currentCount += lafHistogram[i]
-            if currentCount >= targetCount {
-                return histMinDB + Float(i) / 10.0
-            }
-        }
-        return histMinDB
-    }
-
-    private func performFFT(on samples: [Float]) -> (frequencies: [Float], magnitudes: [Float]) {
-
-        vDSP_vclr(&imagIn, 1, vDSP_Length(fftSize))
-
-        let maxIndex = min(samples.count, fftSize)
-        for i in 0..<maxIndex {
-            realIn[i] = samples[i] * window[i]
-        }
-
-        vDSP_DFT_Execute(fftSetup,
-                         realIn, imagIn,
-                         &realOut, &imagOut)
-        
-        realOut.withUnsafeMutableBufferPointer { realPtr in
-            imagOut.withUnsafeMutableBufferPointer { imagPtr in
-                var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                vDSP_zvabs(&splitComplex, 1, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
-            }
-        }
-
-        let normalization = 2.0 / Float(fftSize)
-        var scale = normalization * pow(10.0, gainBoost / 20.0)
-        vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
-        
-        var epsilon: Float = 1e-9
-        vDSP_vsadd(fftMagnitudes, 1, &epsilon, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
-        var reference: Float = 1.0
-        var dbMagnitudes = [Float](repeating: 0, count: fftMagnitudes.count)
-        vDSP_vdbcon(fftMagnitudes, 1, &reference, &dbMagnitudes, 1, vDSP_Length(fftMagnitudes.count), 1)
-
-        let nyquist = Float(sampleRate / 2.0)
-        let freqResolution = nyquist / Float(dbMagnitudes.count)
-        let frequencies = (0..<dbMagnitudes.count).map { Float($0) * freqResolution }
-
-        if frequencyWeighting != .z {
-            var weightingOffsets = [Float](repeating: 0.0, count: frequencies.count)
-            
-            for (i, f) in frequencies.enumerated() {
-                let f2 = f * f
-                var offset: Float = 0.0
-                
-                if frequencyWeighting == .a {
-                    let num = 12194.0 * 12194.0 * f2 * f2
-                    let den = (f2 + 20.6 * 20.6) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0)
-                    if den > 0 {
-                        offset = 20.0 * log10(num / den) + 2.0
-                    }
-                } else if frequencyWeighting == .c {
-                    let num = 12194.0 * 12194.0 * f2
-                    let den = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
-                    if den > 0 {
-                        offset = 20.0 * log10(num / den) + 0.06
-                    }
-                }
-                
-                weightingOffsets[i] = Float(offset)
-            }
-            
-            vDSP_vadd(dbMagnitudes, 1, weightingOffsets, 1, &dbMagnitudes, 1, vDSP_Length(dbMagnitudes.count))
-        }
-
-        return (frequencies, dbMagnitudes)
-    }
-
-    private func aggregateByBinningFactor(
-        frequencies: [Float],
-        magnitudes: [Float]
-    ) -> (frequencies: [Float], magnitudes: [Float]) {
-
-        guard binningFactor > 0 else {
-            return (frequencies, magnitudes)
-        }
-
-        if binningFactor == 1 {
-            return (frequencies, magnitudes)
-        }
-
-        var bandFrequencies: [Float] = []
-        var bandMagnitudes: [Float] = []
-
-        var i = 0
-        while i < frequencies.count {
-            let endIndex = min(i + binningFactor, frequencies.count)
-            let binCount = endIndex - i
-
-            let centerFreq = frequencies[i...endIndex-1].reduce(0, +) / Float(binCount)
-            bandFrequencies.append(centerFreq)
-
-            let centerMag = magnitudes[i..<endIndex].reduce(0, +) / Float(binCount)
-            bandMagnitudes.append(centerMag)
-
-            i = endIndex
-        }
-
-        return (bandFrequencies, bandMagnitudes)
-    }
-
-    private func temporalSmoothing(currentMagnitudes: [Float]) -> [Float] {
-        guard !previousBandMagnitudes.isEmpty,
-              previousBandMagnitudes.count == currentMagnitudes.count else {
-            previousBandMagnitudes = currentMagnitudes
-            return currentMagnitudes
-        }
-
-        var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
-
-        for i in 0..<currentMagnitudes.count {
-            smoothed[i] =
-                temporalSmoothingFactor * previousBandMagnitudes[i] +
-                (1 - temporalSmoothingFactor) * currentMagnitudes[i]
-        }
-
-        previousBandMagnitudes = smoothed
-        return smoothed
-    }
-    
-    private func calculateOctaveBands(frequencies: [Float], magnitudes: [Float]) -> [Float] {
-        let centerFreqs: [Float] = [
-            20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-            1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-        ]
-        
-        var bands = [Float](repeating: -120.0, count: centerFreqs.count)
-        
-        for (i, center) in centerFreqs.enumerated() {
-            let lower = center * 0.89
-            let upper = center * 1.12
-            
-            let nyquist = Float(sampleRate / 2.0)
-            let resolution = nyquist / Float(magnitudes.count)
-            
-            let startIdx = Int(lower / resolution)
-            let endIdx = Int(upper / resolution)
-            
-            if startIdx < magnitudes.count {
-                let safeEnd = min(endIdx, magnitudes.count - 1)
-                if startIdx <= safeEnd {
-                    let bandMax = magnitudes[startIdx...safeEnd].max() ?? -120.0
-                    bands[i] = bandMax
-                }
-            }
-        }
-        return bands
-    }
-
     private func startDummyDataGeneration() {
         isUsingDummyData = true
 
@@ -797,7 +482,7 @@ class AudioEngine: ObservableObject {
         let t = Date().timeIntervalSince1970
 
         let dummyFFTLength = 512
-        let nyquist = Float(sampleRate / 2.0)
+        let nyquist = Float(config.sampleRate / 2.0)
         let freqResolution = nyquist / Float(dummyFFTLength)
 
         var dummyFrequencies = [Float]()
@@ -817,19 +502,18 @@ class AudioEngine: ObservableObject {
             dummyMagnitudes.append(mag)
         }
 
-        let (bandFreqs, bandMags) = aggregateByBinningFactor(
+        let processed = spectrogramProcessor.process(
             frequencies: dummyFrequencies,
-            magnitudes: dummyMagnitudes
+            dbMagnitudes: dummyMagnitudes,
+            sampleRate: config.sampleRate
         )
 
-        let smoothed = temporalSmoothing(currentMagnitudes: bandMags)
-
         let data = SpectrogramData(
-            frequencies: bandFreqs,
-            magnitudes: smoothed,
+            frequencies: processed.bandFrequencies,
+            magnitudes: processed.bandMagnitudes,
             broadbandLevel: -40.0 + Float.random(in: -5...5),
             levels: ["LAF": -40.0 + Float.random(in: -5...5)],
-            sampleRate: sampleRate
+            sampleRate: config.sampleRate
         )
 
         DispatchQueue.main.async {
@@ -837,7 +521,7 @@ class AudioEngine: ObservableObject {
                 self.recordingDuration = Date().timeIntervalSince(startTime)
             }
             self.currentSpectrogramData = data
-            WatchConnectivityManager.shared.sendSpectrogramData(data)
+            self.connectivityManager.sendSpectrogramData(data)
         }
     }
     

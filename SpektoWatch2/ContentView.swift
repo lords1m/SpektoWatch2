@@ -1,9 +1,10 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var audioEngine = AudioEngine()
+    @EnvironmentObject var audioEngine: AudioEngine
+    @EnvironmentObject var connectivityManager: WatchConnectivityManager
     
     var body: some View {
-        ModularDashboardView(audioEngine: audioEngine)
+        ModularDashboardView(audioEngine: audioEngine, connectivityManager: connectivityManager)
     }
 }

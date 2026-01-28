@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct WatchSpectrogramView: View {
-    @StateObject private var connectivityManager = WatchConnectivityManager.shared
+    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
     @State private var frames: [[Float]] = []
     @State private var zoomLevel: Double = 1.0

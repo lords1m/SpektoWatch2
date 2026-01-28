@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ControlBarView: View {
     @ObservedObject var audioEngine: AudioEngine
-    @ObservedObject private var recordingManager = RecordingManager.shared
+    @EnvironmentObject private var recordingManager: RecordingManager
     
     @State private var showSaveDialog = false
     @State private var showRecordingsList = false

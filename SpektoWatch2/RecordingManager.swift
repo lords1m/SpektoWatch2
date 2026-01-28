@@ -2,9 +2,9 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import Combine
+import OSLog
 
 class RecordingManager: NSObject, ObservableObject {
-    static let shared = RecordingManager()
     
     @Published var isRecording = false
     @Published var currentRecordingDuration: TimeInterval = 0
@@ -13,7 +13,7 @@ class RecordingManager: NSObject, ObservableObject {
     private var timer: Timer?
     private var recordingStartTime: Date?
     
-    override private init() {
+    override init() {
         super.init()
     }
     
@@ -53,9 +53,9 @@ class RecordingManager: NSObject, ObservableObject {
         for recording in recordingsToDelete {
             do {
                 try FileManager.default.removeItem(at: recording.url)
-                print("[RecordingManager] Successfully deleted file: \(recording.url.lastPathComponent)")
+                Logger.recording.info("Successfully deleted file: \(recording.url.lastPathComponent)")
             } catch {
-                print("[RecordingManager] Error deleting file at \(recording.url): \(error.localizedDescription)")
+                Logger.recording.error("Error deleting file at \(recording.url): \(error.localizedDescription)")
             }
         }
         
