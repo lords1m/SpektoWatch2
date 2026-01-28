@@ -59,6 +59,20 @@
 			);
 			target = 3795235A2F2234F90079C93F /* SpektoWatch2 */;
 		};
+		37C141F92F2A5DA9004C59EE /* Exceptions for "SpektoWatch2" folder in "SpektoWatch Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				WatchConnectivityManager.swift,
+			);
+			target = 3795236C2F22353C0079C93F /* SpektoWatch Watch App */;
+		};
+		37C141FA2F2A5DEF004C59EE /* Exceptions for "Shared" folder in "SpektoWatch Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				WatchConnectivityManager.swift,
+			);
+			target = 3795236C2F22353C0079C93F /* SpektoWatch Watch App */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -66,6 +80,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */,
+				37C141F92F2A5DA9004C59EE /* Exceptions for "SpektoWatch2" folder in "SpektoWatch Watch App" target */,
 			);
 			path = SpektoWatch2;
 			sourceTree = "<group>";
@@ -79,6 +94,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				37C13FAD2F2A11BA004C59EE /* Exceptions for "Shared" folder in "SpektoWatch2" target */,
+				37C141FA2F2A5DEF004C59EE /* Exceptions for "Shared" folder in "SpektoWatch Watch App" target */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
