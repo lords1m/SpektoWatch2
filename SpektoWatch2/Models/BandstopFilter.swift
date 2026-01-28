@@ -1,13 +1,14 @@
 import Foundation
 
-/// Einheitliches Model für Bandstop-Filter mit Validierung
+/// Unified model for bandstop filters
+/// Supports both frequency range (low/high) and center/bandwidth representations
 struct BandstopFilter: Identifiable, Codable, Equatable {
     let id: UUID
     var isEnabled: Bool
-    var lowFrequency: Float   // Untere Grenzfrequenz (Hz)
-    var highFrequency: Float  // Obere Grenzfrequenz (Hz)
+    var lowFrequency: Float
+    var highFrequency: Float
     var name: String
-    var color: String         // Hex-Farbe für Visualisierung
+    var color: String
     
     init(
         id: UUID = UUID(),
@@ -33,6 +34,10 @@ struct BandstopFilter: Identifiable, Codable, Equatable {
     
     var centerFrequency: Float {
         (lowFrequency + highFrequency) / 2.0
+    }
+    
+    var attenuationFactor: Float {
+        0.0 // Full attenuation in bandstop range
     }
     
     var formattedRange: String {
@@ -78,70 +83,34 @@ struct BandstopFilter: Identifiable, Codable, Equatable {
         }
     }
     
-    /// Validiert den Filter gegen physikalische und technische Limits
+    /// Validates the filter against physical and technical limits
     func validate(nyquist: Float = 22050.0) throws {
-        // Check 1: Negative Frequenzen
         guard lowFrequency >= 0, highFrequency >= 0 else {
             throw ValidationError.negativeFrequency
         }
         
-        // Check 2: Reihenfolge
         guard lowFrequency < highFrequency else {
             throw ValidationError.frequenciesReversed
         }
         
-        // Check 3: Bandbreite
         guard (highFrequency - lowFrequency) >= 2.0 else {
             throw ValidationError.bandwidthTooNarrow
         }
         
-        // Check 4: Bereich
         guard lowFrequency >= 20.0, highFrequency <= nyquist else {
             throw ValidationError.outOfBounds(nyquist: nyquist)
         }
     }
     
-    /// Auto-Korrektur für ungültige Werte
+    /// Auto-corrects invalid values
     mutating func autoCorrect(nyquist: Float = 22050.0) {
-        // Clamp zu positivem Bereich
         lowFrequency = max(20.0, lowFrequency)
         highFrequency = max(lowFrequency + 2.0, highFrequency)
-        
-        // Clamp zu Nyquist
         highFrequency = min(nyquist, highFrequency)
         lowFrequency = min(highFrequency - 2.0, lowFrequency)
         
-        // Falls immer noch vertauscht, korrigieren
         if lowFrequency > highFrequency {
             swap(&lowFrequency, &highFrequency)
         }
-    }
-}
-
-// MARK: - Color Extension Helper
-
-extension Color {
-    init?(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            return nil
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue:  Double(b) / 255,
-            opacity: Double(a) / 255
-        )
     }
 }
