@@ -36,19 +36,7 @@ struct SpectrogramView: View {
     let updateThrottleInterval: TimeInterval = 1.0 / 120.0 // Max 120 FPS (ProMotion)
         
         var body: some View {
-            VStack(spacing: 0) {
-                headerView
-                
-                spectrogramContainer
-                
-                connectivityStatusView
-                
-                if isPaused {
-                    pausedControlsView
-                }
-                
-                mainControlsView
-            }
+            mainLayout
             .sheet(isPresented: $showSettings) {
                 SpectrogramSettingsView(
                     selectedMicrophoneSource: $selectedMicrophoneSource,
@@ -59,6 +47,18 @@ struct SpectrogramView: View {
                     audioEngine: audioEngine
                 )
             }
+            .background(settingsListeners)
+            .background(dataListeners)
+        .onAppear {
+            // Set initial gain boost
+            audioEngine.setGainBoost(Float(sensitivity))
+            audioEngine.setTimeWeighting(timeWeighting)
+            audioEngine.setFrequencyWeighting(frequencyWeighting)
+        }
+    }
+    
+    private var settingsListeners: some View {
+        Color.clear
             .onChange(of: selectedMicrophoneSource) { _, newSource in
                 handleMicrophoneSourceChange(newSource)
             }
@@ -74,32 +74,47 @@ struct SpectrogramView: View {
             .onChange(of: watchGain) { _, newValue in
                 connectivityManager.sendGainValue(newValue)
             }
+    }
+    
+    private var dataListeners: some View {
+        Color.clear
             .onReceive(connectivityManager.$spectrogramData) { data in
                 // Fallback: Falls die Watch doch mal fertige Spektrogramm-Daten sendet
                 if let data = data, selectedMicrophoneSource == .appleWatch {
                     audioEngine.currentSpectrogramData = data
                 }
-            }        .onReceive(connectivityManager.$audioData) { data in
-            // Hauptweg: Watch sendet Audio, iPhone berechnet FFT
-            if let data = data, selectedMicrophoneSource == .appleWatch {
-                audioEngine.processExternalAudio(data.samples)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .startRecordingCommand)) { _ in
-            if !isRecording {
-                toggleRecording()
+            .onReceive(connectivityManager.$audioData) { data in
+                // Hauptweg: Watch sendet Audio, iPhone berechnet FFT
+                if let data = data, selectedMicrophoneSource == .appleWatch {
+                    audioEngine.processExternalAudio(data.samples)
+                }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .stopRecordingCommand)) { _ in
-            if isRecording {
-                toggleRecording()
+            .onReceive(NotificationCenter.default.publisher(for: .startRecordingCommand)) { _ in
+                if !isRecording {
+                    toggleRecording()
+                }
             }
-        }
-        .onAppear {
-            // Set initial gain boost
-            audioEngine.setGainBoost(Float(sensitivity))
-            audioEngine.setTimeWeighting(timeWeighting)
-            audioEngine.setFrequencyWeighting(frequencyWeighting)
+            .onReceive(NotificationCenter.default.publisher(for: .stopRecordingCommand)) { _ in
+                if isRecording {
+                    toggleRecording()
+                }
+            }
+    }
+    
+    private var mainLayout: some View {
+        VStack(spacing: 0) {
+            headerView
+            
+            spectrogramContainer
+            
+            connectivityStatusView
+            
+            if isPaused {
+                pausedControlsView
+            }
+            
+            mainControlsView
         }
     }
     

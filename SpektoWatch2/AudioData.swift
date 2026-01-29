@@ -4,11 +4,13 @@ public struct AudioData: Codable {
     public let level: Float
     public let peakLevel: Float
     public let timestamp: TimeInterval
+    public let samples: [Float]
     
-    public init(level: Float, peakLevel: Float, timestamp: TimeInterval) {
+    public init(level: Float, peakLevel: Float, timestamp: TimeInterval, samples: [Float] = []) {
         self.level = level
         self.peakLevel = peakLevel
         self.timestamp = timestamp
+        self.samples = samples
     }
     
     // MARK: - Binary Encoding
@@ -25,6 +27,12 @@ public struct AudioData: Codable {
         var time = timestamp
         data.append(Data(bytes: &time, count: MemoryLayout<TimeInterval>.size))
         
+        // Samples (Bulk copy)
+        samples.withUnsafeBufferPointer { buffer in
+            if let baseAddress = buffer.baseAddress {
+                data.append(Data(bytes: baseAddress, count: samples.count * MemoryLayout<Float>.size))
+            }
+        }
         return data
     }
     
@@ -43,6 +51,12 @@ public struct AudioData: Codable {
         
         let timestamp = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: TimeInterval.self) }
         
-        return AudioData(level: level, peakLevel: peakLevel, timestamp: timestamp)
+        offset += timeSize
+        
+        let remainingBytes = data.count - offset
+        let sampleCount = remainingBytes / MemoryLayout<Float>.size
+        let samples = data.withUnsafeBytes { Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: sampleCount), count: sampleCount)) }
+        
+        return AudioData(level: level, peakLevel: peakLevel, timestamp: timestamp, samples: samples)
     }
 }

@@ -1,134 +1,104 @@
 import Foundation
 import Accelerate
 
-/// Handles FFT computation and magnitude conversion
 class FFTProcessor {
-    private let fftSize: Int
-    private let sampleRate: Double
-    private var fftSetup: vDSP_DFT_Setup?
+    let fftSize: Int
+    let sampleRate: Double
     
-    // Pre-allocated buffers for performance
+    private let fftSetup: vDSP_DFT_Setup
     private var window: [Float]
-    private var realPart: [Float]
-    private var imagPart: [Float]
+    private var realIn: [Float]
+    private var imagIn: [Float]
+    private var realOut: [Float]
+    private var imagOut: [Float]
+    private var fftMagnitudes: [Float]
     
-    /// Frequency array corresponding to FFT bins
-    private(set) var frequencies: [Float]
-    
-    // MARK: - Initialization
-    
+    // Cache frequencies for mapping
+    lazy var frequencies: [Float] = {
+        let nyquist = Float(sampleRate / 2.0)
+        let freqResolution = nyquist / Float(fftSize / 2)
+        return (0..<(fftSize / 2)).map { Float($0) * freqResolution }
+    }()
+
     init(fftSize: Int, sampleRate: Double) {
         self.fftSize = fftSize
         self.sampleRate = sampleRate
         
-        // Create FFT setup
-        self.fftSetup = vDSP_DFT_zrop_CreateSetup(
-            nil,
-            vDSP_Length(fftSize),
-            vDSP_DFT_Direction.FORWARD
-        )
+        guard let setup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), vDSP_DFT_Direction.FORWARD) else {
+            fatalError("Failed to create FFT setup")
+        }
+        self.fftSetup = setup
         
-        // Pre-allocate buffers
+        self.realIn = [Float](repeating: 0, count: fftSize)
+        self.imagIn = [Float](repeating: 0, count: fftSize)
+        self.realOut = [Float](repeating: 0, count: fftSize)
+        self.imagOut = [Float](repeating: 0, count: fftSize)
         self.window = [Float](repeating: 0, count: fftSize)
-        self.realPart = [Float](repeating: 0, count: fftSize / 2)
-        self.imagPart = [Float](repeating: 0, count: fftSize / 2)
+        self.fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
         
-        // Create Hann window
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        
-        // Compute frequency bins
-        let nyquist = Float(sampleRate / 2.0)
-        let binCount = fftSize / 2
-        self.frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
     }
     
     deinit {
-        if let setup = fftSetup {
-            vDSP_DFT_DestroySetup(setup)
-        }
+        vDSP_DFT_DestroySetup(fftSetup)
     }
     
-    // MARK: - FFT Processing
-    
-    /// Performs FFT and returns linear magnitudes
-    /// - Parameters:
-    ///   - samples: Time-domain samples (must be fftSize length)
-    ///   - gainBoost: Gain multiplier to apply before FFT
-    /// - Returns: Array of linear magnitude values (fftSize/2 length)
-    func performFFT(on samples: [Float], gainBoost: Float = 1.0) -> [Float] {
-        guard samples.count >= fftSize else {
-            return [Float](repeating: 0, count: fftSize / 2)
+    /// Performs FFT on the provided samples and returns linear magnitudes.
+    func performFFT(on samples: [Float], gainBoost: Float) -> [Float] {
+        // Clear imaginary input
+        vDSP_vclr(&imagIn, 1, vDSP_Length(fftSize))
+        
+        // Handle sample count (zero pad if necessary)
+        let count = min(samples.count, fftSize)
+        
+        // Apply window and copy to realIn
+        if count > 0 {
+            vDSP_vmul(samples, 1, window, 1, &realIn, 1, vDSP_Length(count))
         }
         
-        // Apply window and gain
-        var windowed = [Float](repeating: 0, count: fftSize)
-        vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
-        
-        if gainBoost != 1.0 {
-            var gain = gainBoost
-            vDSP_vsmul(windowed, 1, &gain, &windowed, 1, vDSP_Length(fftSize))
+        // Zero pad the rest of realIn
+        if count < fftSize {
+            realIn.withUnsafeMutableBufferPointer { buffer in
+                if let base = buffer.baseAddress {
+                    vDSP_vclr(base.advanced(by: count), 1, vDSP_Length(fftSize - count))
+                }
+            }
         }
         
-        // Perform FFT
-        guard let setup = fftSetup else {
-            return [Float](repeating: 0, count: fftSize / 2)
+        // Execute FFT
+        vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
+        
+        // Calculate Magnitudes (DSPSplitComplex -> Float array)
+        realOut.withUnsafeMutableBufferPointer { realPtr in
+            imagOut.withUnsafeMutableBufferPointer { imagPtr in
+                var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                vDSP_zvabs(&splitComplex, 1, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
+            }
         }
         
-        vDSP_DFT_Execute(setup, windowed, &realPart, &imagPart)
+        // Scaling (Normalization + Gain Boost)
+        // Normalization factor for DFT is 2/N (for magnitude)
+        let normalization = 2.0 / Float(fftSize)
+        var scale = normalization * pow(10.0, gainBoost / 20.0)
+        vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
         
-        // Compute magnitudes
-        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-        vDSP_zvabs(&realPart, 1, &imagPart, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-        
-        // Normalize
-        var scale = 2.0 / Float(fftSize)
-        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize / 2))
-        
-        return magnitudes
+        return fftMagnitudes
     }
     
-    /// Converts linear magnitudes to dB scale
-    /// - Parameter linearMagnitudes: Linear magnitude values
-    /// - Returns: dB magnitude values (20 * log10(magnitude))
-    func convertToDB(_ linearMagnitudes: [Float]) -> [Float] {
-        var dbMagnitudes = [Float](repeating: -120.0, count: linearMagnitudes.count)
+    /// Converts linear magnitudes to dB.
+    func convertToDB(_ magnitudes: [Float]) -> [Float] {
+        var dbMagnitudes = [Float](repeating: 0, count: magnitudes.count)
         
-        for i in 0..<linearMagnitudes.count {
-            let mag = max(linearMagnitudes[i], 1e-10) // Prevent log(0)
-            dbMagnitudes[i] = 20.0 * log10(mag)
-        }
+        // Add epsilon to avoid log(0)
+        var epsilon: Float = 1e-9
+        var tempMags = magnitudes
+        vDSP_vsadd(tempMags, 1, &epsilon, &tempMags, 1, vDSP_Length(tempMags.count))
+        
+        var reference: Float = 1.0
+        // vDSP_vdbcon: Power/Amplitude to Decibels
+        // 0 = power (10*log10), 1 = amplitude (20*log10)
+        vDSP_vdbcon(tempMags, 1, &reference, &dbMagnitudes, 1, vDSP_Length(tempMags.count), 1)
         
         return dbMagnitudes
-    }
-    
-    /// Converts dB magnitudes back to linear scale
-    /// - Parameter dbMagnitudes: dB magnitude values
-    /// - Returns: Linear magnitude values
-    func convertToLinear(_ dbMagnitudes: [Float]) -> [Float] {
-        var linearMagnitudes = [Float](repeating: 0, count: dbMagnitudes.count)
-        
-        for i in 0..<dbMagnitudes.count {
-            linearMagnitudes[i] = pow(10.0, dbMagnitudes[i] / 20.0)
-        }
-        
-        return linearMagnitudes
-    }
-    
-    /// Returns the frequency of a specific FFT bin
-    /// - Parameter bin: Bin index
-    /// - Returns: Frequency in Hz
-    func frequencyForBin(_ bin: Int) -> Float {
-        guard bin >= 0 && bin < frequencies.count else { return 0 }
-        return frequencies[bin]
-    }
-    
-    /// Returns the bin index for a specific frequency
-    /// - Parameter frequency: Frequency in Hz
-    /// - Returns: Closest bin index
-    func binForFrequency(_ frequency: Float) -> Int {
-        let nyquist = Float(sampleRate / 2.0)
-        let normalizedFreq = min(max(frequency, 0), nyquist)
-        let bin = Int((normalizedFreq / nyquist) * Float(fftSize / 2))
-        return min(bin, fftSize / 2 - 1)
     }
 }
