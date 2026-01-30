@@ -128,7 +128,22 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     public func requestRecordingStop() {
         sendWithRetry(["type": "stopRecording"])
     }
-    
+
+    public func sendWatchDashboardConfig(_ config: WatchDashboardConfig) {
+        guard let configData = config.encode(),
+              let configString = String(data: configData, encoding: .utf8) else {
+            return
+        }
+        sendWithRetry(["type": "watchDashboardConfig", "config": configString])
+
+        // Also send via application context for background delivery
+        do {
+            try WCSession.default.updateApplicationContext(["watchDashboardConfig": configString])
+        } catch {
+            // Ignore context errors
+        }
+    }
+
     // MARK: - Queue Logic
     
     private func sendWithRetry(_ message: [String: Any]) {

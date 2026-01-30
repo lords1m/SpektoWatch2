@@ -1,6 +1,8 @@
 import SwiftUI
+import Combine
 
 struct WatchDashboardSettingsView: View {
+    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @StateObject private var viewModel = WatchDashboardSettingsViewModel()
     @State private var selectedPosition: Int?
     @State private var showingWidgetPicker = false
@@ -28,7 +30,7 @@ struct WatchDashboardSettingsView: View {
 
             // Sync button
             Button(action: {
-                viewModel.syncToWatch()
+                viewModel.syncToWatch(connectivityManager: connectivityManager)
             }) {
                 HStack {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -44,7 +46,7 @@ struct WatchDashboardSettingsView: View {
 
             // Reset button
             Button(action: {
-                viewModel.resetToDefault()
+                viewModel.resetToDefault(connectivityManager: connectivityManager)
             }) {
                 Text("Auf Standard zurücksetzen")
                     .font(.caption)
@@ -228,8 +230,6 @@ struct WidgetPickerSheet: View {
 class WatchDashboardSettingsViewModel: ObservableObject {
     @Published var config: WatchDashboardConfig
 
-    private let connectivityManager = WatchConnectivityManager.shared
-
     init() {
         self.config = WatchDashboardConfig.load()
     }
@@ -282,14 +282,14 @@ class WatchDashboardSettingsViewModel: ObservableObject {
         return adjacent.contains { positions.contains($0) }
     }
 
-    func syncToWatch() {
+    func syncToWatch(connectivityManager: WatchConnectivityManager) {
         connectivityManager.sendWatchDashboardConfig(config)
     }
 
-    func resetToDefault() {
+    func resetToDefault(connectivityManager: WatchConnectivityManager) {
         config = WatchDashboardConfig()
         config.save()
-        syncToWatch()
+        syncToWatch(connectivityManager: connectivityManager)
     }
 }
 

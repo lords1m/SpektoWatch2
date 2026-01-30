@@ -35,8 +35,12 @@ struct WatchDashboardView: View {
                 }
             }
         }
-        .onReceive(connectivityManager.$watchDashboardConfig) { newConfig in
-            if let newConfig = newConfig, newConfig != config {
+        .onAppear {
+            // Load config on appear and check for updates
+            config = WatchDashboardConfig.load()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .watchDashboardConfigChanged)) { notification in
+            if let newConfig = notification.object as? WatchDashboardConfig, newConfig != config {
                 config = newConfig
                 config.save()
             }

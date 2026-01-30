@@ -136,88 +136,150 @@ struct OscilloscopeView: View {
     @State private var phase: Double = 0.0
     private let timer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
 
+    // 1:1 scale based on physical time
+    // We define how many milliseconds the full view width should show
+    // This makes the display consistent across all device sizes
+    private let totalTimeMs: Double = 10.0 // Show 10ms across the full width (adjustable)
+
     var body: some View {
         GeometryReader { geometry in
-            Canvas { context, size in
-                let width = size.width
-                let height = size.height
-                let midY = height / 2
+            let width = geometry.size.width
+            let height = geometry.size.height
+            // Calculate points per ms based on view width - consistent across devices
+            let pointsPerMs = Double(width) / totalTimeMs
 
-                // Draw grid
-                drawGrid(context: context, size: size)
+            ZStack(alignment: .topLeading) {
+                Canvas { context, size in
+                    let midY = size.height / 2
 
-                // Draw waveform
-                var path = Path()
-                let cyclesToShow = min(max(2, frequency / 200), 8) // 2-8 cycles depending on frequency
-                let samplesPerCycle = width / CGFloat(cyclesToShow)
+                    // Draw grid with time markers
+                    drawTimeGrid(context: context, size: size, pointsPerMs: CGFloat(pointsPerMs))
 
-                for x in stride(from: 0, to: width, by: 1) {
-                    let normalizedX = Double(x) / Double(samplesPerCycle)
-                    let currentPhase = (normalizedX * 2.0 * .pi) + (isPlaying ? phase : 0)
+                    // Calculate wavelength in points (1:1 real scale)
+                    // Period T = 1/f seconds = 1000/f milliseconds
+                    // Wavelength in points = (1000/f) * pointsPerMs
+                    let periodMs = 1000.0 / Double(frequency)
+                    let wavelengthPoints = periodMs * pointsPerMs
 
-                    let sample: Double
-                    switch waveform {
-                    case .sine:
-                        sample = sin(currentPhase)
-                    case .square:
-                        let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
-                        sample = normalizedPhase < .pi ? 1.0 : -1.0
-                    case .sawtooth:
-                        let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
-                        sample = 2.0 * (normalizedPhase / (2.0 * .pi)) - 1.0
-                    case .triangle:
-                        let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
-                        let normalized = normalizedPhase / (2.0 * .pi)
-                        sample = 4.0 * abs(normalized - 0.5) - 1.0
+                    // Draw waveform at real 1:1 scale
+                    var path = Path()
+
+                    for x in stride(from: 0, to: Double(width), by: 1) {
+                        // Convert point position to phase
+                        // x points / wavelengthPoints = number of cycles
+                        // phase = (x / wavelengthPoints) * 2π
+                        let cyclePosition = x / wavelengthPoints
+                        let currentPhase = (cyclePosition * 2.0 * .pi) + (isPlaying ? phase : 0)
+
+                        let sample: Double
+                        switch waveform {
+                        case .sine:
+                            sample = sin(currentPhase)
+                        case .square:
+                            let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
+                            sample = normalizedPhase < .pi ? 1.0 : -1.0
+                        case .sawtooth:
+                            let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
+                            sample = 2.0 * (normalizedPhase / (2.0 * .pi)) - 1.0
+                        case .triangle:
+                            let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
+                            let normalized = normalizedPhase / (2.0 * .pi)
+                            sample = 4.0 * abs(normalized - 0.5) - 1.0
+                        }
+
+                        let y = midY - CGFloat(sample * Double(amplitude)) * (height * 0.4)
+
+                        if x == 0 {
+                            path.move(to: CGPoint(x: x, y: y))
+                        } else {
+                            path.addLine(to: CGPoint(x: CGFloat(x), y: y))
+                        }
                     }
 
-                    let y = midY - CGFloat(sample * Double(amplitude)) * (height * 0.4)
+                    context.stroke(path, with: .color(isPlaying ? .green : .green.opacity(0.5)), lineWidth: 2)
 
-                    if x == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
+                    // Draw wavelength indicator
+                    drawWavelengthIndicator(context: context, size: size, wavelengthPoints: CGFloat(wavelengthPoints))
                 }
 
-                context.stroke(path, with: .color(isPlaying ? .green : .green.opacity(0.5)), lineWidth: 2)
+                // Time scale label
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(timeScaleText)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.green.opacity(0.7))
+                    Text(wavelengthText)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.cyan.opacity(0.7))
+                }
+                .padding(4)
             }
         }
         .background(Color.black.opacity(0.8))
         .cornerRadius(8)
         .onReceive(timer) { _ in
             if isPlaying {
-                // Animate phase based on frequency
-                let phaseIncrement = Double(frequency) / 60.0 * 0.1
+                // Animate phase - move waveform to simulate real-time playback
+                // Phase increment per frame at 60fps
+                let phaseIncrement = 2.0 * .pi * Double(frequency) / 60.0
                 phase += phaseIncrement
-                if phase > 2.0 * .pi * 100 {
-                    phase = 0
+                if phase > 2.0 * .pi * 1000 {
+                    phase = phase.truncatingRemainder(dividingBy: 2.0 * .pi)
                 }
             }
         }
     }
 
-    private func drawGrid(context: GraphicsContext, size: CGSize) {
+    private var timeScaleText: String {
+        // totalTimeMs is constant - same time span on all devices
+        if totalTimeMs >= 1.0 {
+            return String(format: "%.1f ms", totalTimeMs)
+        } else {
+            return String(format: "%.0f µs", totalTimeMs * 1000)
+        }
+    }
+
+    private var wavelengthText: String {
+        let periodMs = 1000.0 / Double(frequency)
+        if periodMs >= 1.0 {
+            return String(format: "λ = %.2f ms", periodMs)
+        } else {
+            return String(format: "λ = %.0f µs", periodMs * 1000)
+        }
+    }
+
+    private func drawTimeGrid(context: GraphicsContext, size: CGSize, pointsPerMs: CGFloat) {
         let gridColor = Color.green.opacity(0.2)
         let midY = size.height / 2
 
-        // Horizontal center line
+        // Horizontal center line (0V reference)
         var hPath = Path()
         hPath.move(to: CGPoint(x: 0, y: midY))
         hPath.addLine(to: CGPoint(x: size.width, y: midY))
         context.stroke(hPath, with: .color(gridColor), lineWidth: 1)
 
-        // Vertical grid lines
-        let vDivisions = 8
-        for i in 1..<vDivisions {
-            let x = size.width * CGFloat(i) / CGFloat(vDivisions)
+        // Time-based vertical grid lines (every 0.5ms or appropriate interval)
+        let timeInterval: Double
+        if totalTimeMs <= 2 {
+            timeInterval = 0.1 // 0.1ms intervals
+        } else if totalTimeMs <= 5 {
+            timeInterval = 0.5 // 0.5ms intervals
+        } else if totalTimeMs <= 10 {
+            timeInterval = 1.0 // 1ms intervals
+        } else {
+            timeInterval = 2.0 // 2ms intervals
+        }
+
+        var t = timeInterval
+        while t < totalTimeMs {
+            let x = CGFloat(t) * pointsPerMs
             var vPath = Path()
             vPath.move(to: CGPoint(x: x, y: 0))
             vPath.addLine(to: CGPoint(x: x, y: size.height))
             context.stroke(vPath, with: .color(gridColor), lineWidth: 0.5)
+            t += timeInterval
         }
 
-        // Horizontal grid lines (amplitude markers)
+        // Horizontal grid lines (amplitude markers at ±50%)
         for i in [0.25, 0.75] {
             let y = size.height * CGFloat(i)
             var hLinePath = Path()
@@ -225,6 +287,31 @@ struct OscilloscopeView: View {
             hLinePath.addLine(to: CGPoint(x: size.width, y: y))
             context.stroke(hLinePath, with: .color(gridColor), lineWidth: 0.5)
         }
+    }
+
+    private func drawWavelengthIndicator(context: GraphicsContext, size: CGSize, wavelengthPoints: CGFloat) {
+        // Draw a wavelength indicator at the bottom if wavelength fits in view
+        guard wavelengthPoints > 20 && wavelengthPoints < size.width else { return }
+
+        let indicatorY = size.height - 8
+        let startX: CGFloat = 10
+
+        // Arrow line for one wavelength
+        var arrowPath = Path()
+        arrowPath.move(to: CGPoint(x: startX, y: indicatorY))
+        arrowPath.addLine(to: CGPoint(x: startX + wavelengthPoints, y: indicatorY))
+
+        // Left arrow head
+        arrowPath.move(to: CGPoint(x: startX + 4, y: indicatorY - 3))
+        arrowPath.addLine(to: CGPoint(x: startX, y: indicatorY))
+        arrowPath.addLine(to: CGPoint(x: startX + 4, y: indicatorY + 3))
+
+        // Right arrow head
+        arrowPath.move(to: CGPoint(x: startX + wavelengthPoints - 4, y: indicatorY - 3))
+        arrowPath.addLine(to: CGPoint(x: startX + wavelengthPoints, y: indicatorY))
+        arrowPath.addLine(to: CGPoint(x: startX + wavelengthPoints - 4, y: indicatorY + 3))
+
+        context.stroke(arrowPath, with: .color(.cyan.opacity(0.6)), lineWidth: 1)
     }
 }
 
