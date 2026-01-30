@@ -36,18 +36,12 @@ struct ModularDashboardView: View {
         .sheet(isPresented: $viewModel.showSettings) {
             SpectrogramSettingsView(
                 selectedMicrophoneSource: $viewModel.selectedMicrophoneSource,
-                selectedColormap: $viewModel.dummyColormap,
-                sensitivity: $viewModel.sensitivity,
-                timeSpan: $viewModel.dummyTimeSpan,
                 watchGain: $viewModel.watchGain,
                 audioEngine: viewModel.audioEngine
             )
         }
         .onChange(of: viewModel.selectedMicrophoneSource) { _, newSource in
             viewModel.handleMicrophoneSourceChange(newSource)
-        }
-        .onChange(of: viewModel.sensitivity) { _, newVal in
-            viewModel.updateSensitivity(newVal)
         }
         .onChange(of: viewModel.watchGain) { _, newValue in
             viewModel.updateWatchGain(newValue)

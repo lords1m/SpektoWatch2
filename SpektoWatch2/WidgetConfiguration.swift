@@ -9,7 +9,8 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case octaveBands = "1/3 Oktavbänder"
     case phaseMeter = "Phasen-Meter"
     case singleValue = "Einzelwert"
-    
+    case toneGenerator = "Tongenerator"
+
     var id: String { rawValue }
 }
 
@@ -51,6 +52,7 @@ struct WidgetConfiguration: Identifiable, Codable {
         case .octaveBands: return WidgetSize(columns: 2, rows: 1.0)
         case .phaseMeter: return WidgetSize(columns: 1, rows: 1.0)
         case .singleValue: return WidgetSize(columns: 1, rows: 1.0)
+        case .toneGenerator: return WidgetSize(columns: 2, rows: 2.0)
         }
     }
 }

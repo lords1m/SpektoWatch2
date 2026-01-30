@@ -3,12 +3,9 @@ import AVFoundation
 
 struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
-    @Binding var selectedColormap: Int
-    @Binding var sensitivity: Double
-    @Binding var timeSpan: SpectrogramTimeSpan
     @Binding var watchGain: Float
     @ObservedObject var audioEngine: AudioEngine
-    
+
     @Environment(\.dismiss) var dismiss
     @State private var isStereo = false
 
@@ -23,13 +20,13 @@ struct SpectrogramSettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    
+
                     if selectedMicrophoneSource == .iPhone && !audioEngine.availableDataSources.isEmpty {
                         Picker("Aufnahmemodus", selection: $isStereo) {
                             Text("Mono").tag(false)
                             Text("Stereo").tag(true)
                         }
-                        
+
                         if isStereo {
                             Picker("Stereo-Konfiguration", selection: $audioEngine.selectedStereoMode) {
                                 ForEach(StereoInputMode.allCases, id: \.self) { mode in
@@ -59,41 +56,7 @@ struct SpectrogramSettingsView: View {
                         }
                     }
                 }
-                
-                Section(header: Text("Darstellung")) {
-                    Picker("Farbschema", selection: $selectedColormap) {
-                        Text("Turbo").tag(0)
-                        Text("Jet").tag(1)
-                        Text("Viridis").tag(2)
-                    }
-                    .pickerStyle(.segmented)
-                    
-                    Picker("Zeitbereich", selection: $timeSpan) {
-                        ForEach(SpectrogramTimeSpan.allCases) { span in
-                            Text(span.title).tag(span)
-                        }
-                    }
-                    
-                    Picker("Geschwindigkeit", selection: $audioEngine.scrollSpeed) {
-                        ForEach(ScrollSpeed.allCases, id: \.self) { speed in
-                            Text(speed.label).tag(speed)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                
-                Section(header: Text("Sensitivität: \(Int(sensitivity)) dB")) {
-                    HStack {
-                        Text("0 dB")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Slider(value: $sensitivity, in: 0...60, step: 1)
-                        Text("60 dB")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
+
                 Section(header: Text("Messung")) {
                     Picker("Zeitbewertung", selection: $audioEngine.timeWeighting) {
                         ForEach(TimeWeighting.allCases, id: \.self) { weighting in
@@ -129,6 +92,16 @@ struct SpectrogramSettingsView: View {
                         HStack {
                             Image(systemName: "arrow.counterclockwise")
                             Text("Auf Gerätewert zurücksetzen (\(Int(AudioEngine.getRecommendedCalibrationOffset())) dB)")
+                        }
+                    }
+                }
+
+                Section(header: Text("Apple Watch")) {
+                    NavigationLink(destination: WatchDashboardSettingsView()) {
+                        HStack {
+                            Image(systemName: "applewatch")
+                                .foregroundColor(.blue)
+                            Text("Watch-Layout anpassen")
                         }
                     }
                 }

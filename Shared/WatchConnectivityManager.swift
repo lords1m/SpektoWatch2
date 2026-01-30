@@ -15,6 +15,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     @Published var audioData: AudioData?
     @Published var isReachable = false
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    @Published var watchDashboardConfig: WatchDashboardConfig?
 
     var onMicrophoneSourceChanged: ((MicrophoneSource) -> Void)?
     private var hasLoggedUnreachability = false
@@ -119,6 +120,44 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             print("Error sending gain: \(error.localizedDescription)")
         }
     }
+
+    // MARK: - Watch Dashboard Configuration
+
+    func sendWatchDashboardConfig(_ config: WatchDashboardConfig) {
+        guard WCSession.default.isReachable else {
+            print("[WCM] Watch not reachable for dashboard config")
+            // Try to send via application context for background delivery
+            sendWatchDashboardConfigViaContext(config)
+            return
+        }
+
+        guard let configData = config.encode(),
+              let configString = String(data: configData, encoding: .utf8) else {
+            print("[WCM] Error encoding dashboard config")
+            return
+        }
+
+        let message = ["watchDashboardConfig": configString]
+        WCSession.default.sendMessage(message, replyHandler: nil) { error in
+            print("[WCM] Error sending dashboard config: \(error.localizedDescription)")
+            // Fallback to application context
+            self.sendWatchDashboardConfigViaContext(config)
+        }
+    }
+
+    private func sendWatchDashboardConfigViaContext(_ config: WatchDashboardConfig) {
+        guard let configData = config.encode(),
+              let configString = String(data: configData, encoding: .utf8) else {
+            return
+        }
+
+        do {
+            try WCSession.default.updateApplicationContext(["watchDashboardConfig": configString])
+            print("[WCM] Dashboard config sent via application context")
+        } catch {
+            print("[WCM] Error sending dashboard config via context: \(error.localizedDescription)")
+        }
+    }
 }
 
 extension WatchConnectivityManager: WCSessionDelegate {
@@ -168,6 +207,26 @@ extension WatchConnectivityManager: WCSessionDelegate {
             }
         } else if let gain = message["gain"] as? Float {
             NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
+        } else if let configString = message["watchDashboardConfig"] as? String,
+                  let configData = configString.data(using: .utf8),
+                  let config = WatchDashboardConfig.decode(from: configData) {
+            DispatchQueue.main.async {
+                self.watchDashboardConfig = config
+                print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
+            }
+        }
+    }
+
+    // Handle application context for background config delivery
+    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+        if let configString = applicationContext["watchDashboardConfig"] as? String,
+           let configData = configString.data(using: .utf8),
+           let config = WatchDashboardConfig.decode(from: configData) {
+            DispatchQueue.main.async {
+                self.watchDashboardConfig = config
+                config.save()
+                print("[WCM] Received watch dashboard config via context")
+            }
         }
     }
 

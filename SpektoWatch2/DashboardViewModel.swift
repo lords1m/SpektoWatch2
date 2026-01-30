@@ -10,10 +10,7 @@ class DashboardViewModel: ObservableObject {
 
     // Settings State
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
-    @Published var sensitivity: Double = 10.0
     @Published var watchGain: Float = 1.0
-    @Published var dummyColormap: Int = 0
-    @Published var dummyTimeSpan: SpectrogramTimeSpan = .seconds5
 
     // Dependencies
     let audioEngine: AudioEngine
@@ -49,11 +46,6 @@ class DashboardViewModel: ObservableObject {
                 }
             }
         }
-    }
-    
-    func updateSensitivity(_ newVal: Double) {
-        sensitivity = newVal
-        audioEngine.setGainBoost(Float(newVal))
     }
     
     func updateWatchGain(_ newValue: Float) {

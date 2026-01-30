@@ -87,6 +87,8 @@ struct WidgetCardView: View {
             PhaseMeterWidget(audioEngine: audioEngine)
         case .singleValue:
             SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
+        case .toneGenerator:
+            ToneGeneratorWidget(settings: widget.settings)
         }
     }
     

@@ -40,9 +40,6 @@ struct SpectrogramView: View {
             .sheet(isPresented: $showSettings) {
                 SpectrogramSettingsView(
                     selectedMicrophoneSource: $selectedMicrophoneSource,
-                    selectedColormap: $selectedColormap,
-                    sensitivity: $sensitivity,
-                    timeSpan: $timeSpan,
                     watchGain: $watchGain,
                     audioEngine: audioEngine
                 )

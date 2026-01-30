@@ -148,7 +148,9 @@ class AudioEngine: ObservableObject {
     var lastRecordingURL: URL?
     
     // MARK: - Published Properties
-    
+
+    /// Gibt an, ob Audio in eine Datei geschrieben wird (true) oder nur Live-Anzeige (false)
+    @Published var isRecordingToFile: Bool = false
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var engineStatus: EngineStatus = .idle
     @Published var lastError: SpektoWatchError?
@@ -233,17 +235,43 @@ class AudioEngine: ObservableObject {
         gainBoost = gain
     }
     
-    // MARK: - Recording Control
-    
+    // MARK: - Live/Recording Control
+
+    /// Startet die Live-Anzeige (ohne Aufnahme in Datei)
+    func startLiveMode() {
+        guard engineStatus != .running else { return }
+        Logger.audioEngine.info("Starting AudioEngine in LIVE mode (no file recording)")
+        isRecordingToFile = false
+        startAudioCapture()
+    }
+
+    /// Startet die Aufnahme (mit Speicherung in Datei)
     func startRecording() {
-        Logger.audioEngine.info("Starting AudioEngine recording")
+        guard engineStatus != .running else {
+            // Wenn bereits im Live-Modus, nur auf Aufnahme umschalten
+            if !isRecordingToFile {
+                Logger.audioEngine.info("Switching from LIVE to RECORDING mode")
+                isRecordingToFile = true
+                recordingStartTime = Date()
+                recordingDuration = 0.0
+                resetMetrics()
+                setupRecordingFile()
+            }
+            return
+        }
+        Logger.audioEngine.info("Starting AudioEngine in RECORDING mode")
+        isRecordingToFile = true
+        startAudioCapture()
+    }
+
+    private func startAudioCapture() {
         engineStatus = .starting
         recordingStartTime = Date()
         recordingDuration = 0.0
         hasLoggedSilence = false
-        
+
         resetMetrics()
-        
+
         #if targetEnvironment(simulator)
         Logger.audioEngine.info("Running on Simulator - using test audio generator")
         testGenerator.start()
@@ -252,13 +280,26 @@ class AudioEngine: ObservableObject {
         startRealRecording()
         #endif
     }
-    
+
+    /// Stoppt die Live-Anzeige (ohne Aufnahme zu beenden)
+    func stopLiveMode() {
+        Logger.audioEngine.info("Stopping AudioEngine live mode")
+        stopAudioCapture()
+    }
+
+    /// Stoppt die Aufnahme
     func stopRecording() {
         Logger.audioEngine.info("Stopping AudioEngine recording")
+        isRecordingToFile = false
+        stopAudioCapture()
+    }
+
+    private func stopAudioCapture() {
         recordingStartTime = nil
         audioFile = nil
         engineStatus = .idle
-        
+        isRecordingToFile = false
+
         #if targetEnvironment(simulator)
         testGenerator.stop()
         #else
@@ -269,7 +310,7 @@ class AudioEngine: ObservableObject {
             testGenerator.stop()
         }
         #endif
-        
+
         DispatchQueue.main.async {
             self.levelHistory.removeAll()
             self.currentLevel = -120.0
@@ -278,6 +319,16 @@ class AudioEngine: ObservableObject {
         // Reset buffer state
         sampleBuffer.removeAll()
         sampleBufferOffset = 0
+    }
+
+    private func setupRecordingFile() {
+        guard isRecordingToFile else { return }
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
+        self.lastRecordingURL = tempURL
+        Logger.audioEngine.info("Recording file setup at: \(tempURL.lastPathComponent)")
     }
 
     func checkAvailableInputs() {
@@ -359,58 +410,89 @@ class AudioEngine: ObservableObject {
     }
 
     // MARK: - Private Recording Methods
-    
+
     private func startRealRecording() {
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            
-            // Check permissions
-            if audioSession.recordPermission == .undetermined {
-                audioSession.requestRecordPermission { [weak self] granted in
-                    if granted { DispatchQueue.main.async { self?.startRecording() } }
+        let audioSession = AVAudioSession.sharedInstance()
+
+        // Check permissions first (quick check on main thread)
+        if audioSession.recordPermission == .undetermined {
+            audioSession.requestRecordPermission { [weak self] granted in
+                if granted { DispatchQueue.main.async { self?.startRecording() } }
+            }
+            return
+        }
+        if audioSession.recordPermission == .denied {
+            Logger.audioEngine.error("Microphone permission denied")
+            engineStatus = .error("Microphone permission denied")
+            return
+        }
+
+        // Capture state needed for background work
+        let isRecording = self.isRecordingToFile
+        let selectedSource = self.selectedDataSource
+        let blockSize = self.tapBlockSize
+        let rate = self.sampleRate
+
+        // Move blocking audio session setup to background thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            do {
+                // Configure audio session (blocking operations)
+                try audioSession.setCategory(.record, mode: .measurement, options: [])
+                try audioSession.setPreferredIOBufferDuration(Double(blockSize) / rate)
+
+                if audioSession.isInputGainSettable {
+                    try audioSession.setInputGain(1.0)
                 }
-                return
-            }
-            if audioSession.recordPermission == .denied {
-                Logger.audioEngine.error("Microphone permission denied")
-                engineStatus = .error("Microphone permission denied")
-                return
-            }
-            
-            // Configure audio session
-            try audioSession.setCategory(.record, mode: .measurement, options: [])
-            try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / sampleRate)
-            
-            if audioSession.isInputGainSettable {
-                try audioSession.setInputGain(1.0)
-            }
-            
-            try audioSession.setActive(true)
 
-            // Update calibration based on current audio session settings
-            updateCalibration()
+                try audioSession.setActive(true)
 
-            // Configure microphone input
-            if let inputs = audioSession.availableInputs,
-               let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
-                try audioSession.setPreferredInput(builtInMic)
-                
-                DispatchQueue.main.async {
-                    self.availableDataSources = builtInMic.dataSources ?? []
-                    if self.selectedDataSource == nil {
-                        self.selectedDataSource = audioSession.inputDataSource ?? self.availableDataSources.first
+                // Configure microphone input
+                var dataSources: [AVAudioSessionDataSourceDescription] = []
+                if let inputs = audioSession.availableInputs,
+                   let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
+                    try audioSession.setPreferredInput(builtInMic)
+                    dataSources = builtInMic.dataSources ?? []
+
+                    if let source = selectedSource {
+                        try audioSession.setInputDataSource(source)
                     }
                 }
-                
-                if let source = self.selectedDataSource {
-                    try audioSession.setInputDataSource(source)
+
+                // Now setup audio engine on main thread (required for AVAudioEngine)
+                DispatchQueue.main.async {
+                    self.finishAudioEngineSetup(isRecording: isRecording, dataSources: dataSources, audioSession: audioSession)
+                }
+
+            } catch {
+                DispatchQueue.main.async {
+                    Logger.audioEngine.error("Audio engine failed to start: \(error.localizedDescription)")
+                    self.engineStatus = .error(error.localizedDescription)
+                    Logger.audioEngine.info("Falling back to test audio generator")
+                    self.testGenerator.start()
+                    self.engineStatus = .running
+                    self.isUsingDummyData = true
                 }
             }
-            
+        }
+    }
+
+    private func finishAudioEngineSetup(isRecording: Bool, dataSources: [AVAudioSessionDataSourceDescription], audioSession: AVAudioSession) {
+        // Update calibration based on current audio session settings
+        updateCalibration()
+
+        // Update available data sources
+        self.availableDataSources = dataSources
+        if self.selectedDataSource == nil {
+            self.selectedDataSource = audioSession.inputDataSource ?? dataSources.first
+        }
+
+        do {
             // Setup audio engine
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
-            
+
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
                 Logger.audioEngine.warning("Invalid audio format detected - falling back to test audio")
                 testGenerator.start()
@@ -418,22 +500,28 @@ class AudioEngine: ObservableObject {
                 isUsingDummyData = true
                 return
             }
-            
-            // Setup recording file
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-            self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
-            self.lastRecordingURL = tempURL
-            
+
+            // Setup recording file only if recording to file
+            if isRecording {
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
+                self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
+                self.lastRecordingURL = tempURL
+                Logger.audioEngine.info("Recording to file: \(tempURL.lastPathComponent)")
+            } else {
+                self.audioFile = nil
+                Logger.audioEngine.info("Live mode - no file recording")
+            }
+
             // Install audio tap
             inputNode.installTap(onBus: 0, bufferSize: tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
-            
+
             try audioEngine.start()
             engineStatus = .running
-            
+
         } catch {
-            Logger.audioEngine.error("Audio engine failed to start: \(error.localizedDescription)")
+            Logger.audioEngine.error("Audio engine setup failed: \(error.localizedDescription)")
             engineStatus = .error(error.localizedDescription)
             Logger.audioEngine.info("Falling back to test audio generator")
             testGenerator.start()
@@ -459,8 +547,8 @@ class AudioEngine: ObservableObject {
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         
-        // Write to file if recording
-        if let audioFile = audioFile {
+        // Write to file only if recording to file mode is active
+        if isRecordingToFile, let audioFile = audioFile {
             try? audioFile.write(from: buffer)
         }
         
