@@ -8,7 +8,8 @@ struct SaveRecordingView: View {
     @Environment(\.dismiss) var dismiss
     @State private var title = "Neue Aufnahme"
     @State private var description = ""
-    private let dbOffset: Float = 100.0
+    // AudioEngine liefert bereits kalibrierte dB SPL Werte
+    private let dbOffset: Float = 0.0
     
     var body: some View {
         NavigationView {

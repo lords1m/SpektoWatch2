@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Accelerate
 import Combine
+import UIKit
 
 enum ScrollSpeed: Int, CaseIterable {
     case verySlow = 4096  // ~10 FPS
@@ -53,17 +54,92 @@ class AudioEngine: ObservableObject {
     private let sampleRate: Double = 44100.0
     
     // MARK: - Buffer Management
-    
+
     private var sampleBuffer: [Float] = []
+    private var sampleBufferOffset: Int = 0  // Index-basierter Ansatz für O(1) "removeFirst"
     private var gainBoost: Float = 10.0
     
     // MARK: - State Management
-    
+
     private var isUsingDummyData = false
     private var hasLoggedSilence = false
     private var debugPrintCounter = 0
     private var lastWatchUpdate: TimeInterval = 0
     private let maxHistorySize = 1000
+
+    // MARK: - Microphone Calibration
+    // Basierend auf Studio Six Digital AudioTools Kalibrierungsdaten
+    // Default iOS Mic Calibration: +7.0 dB (relativ zu 94 dB SPL Referenz)
+    // dB SPL = dBFS + calibrationOffset
+    @Published var calibrationOffset: Float = 94.0 {
+        didSet {
+            UserDefaults.standard.set(calibrationOffset, forKey: "calibrationOffset")
+        }
+    }
+    private var currentInputGain: Float = 1.0
+
+    // Gerätespezifische Kalibrierungswerte (Offset in dB)
+    // Diese Werte basieren auf typischen Messungen und können manuell angepasst werden
+    // Quelle: Studio Six Digital, Faber Acoustical
+    private static let deviceCalibrationOffsets: [String: Float] = [
+        // iPhone 12 Serie - empfindlichere Mikrofone
+        "iPhone13,1": 91.0,  // iPhone 12 mini
+        "iPhone13,2": 92.0,  // iPhone 12
+        "iPhone13,3": 92.0,  // iPhone 12 Pro
+        "iPhone13,4": 92.0,  // iPhone 12 Pro Max
+
+        // iPhone 13 Serie
+        "iPhone14,4": 91.0,  // iPhone 13 mini
+        "iPhone14,5": 92.0,  // iPhone 13
+        "iPhone14,2": 92.0,  // iPhone 13 Pro
+        "iPhone14,3": 92.0,  // iPhone 13 Pro Max
+
+        // iPhone 14 Serie
+        "iPhone14,7": 92.0,  // iPhone 14
+        "iPhone14,8": 92.0,  // iPhone 14 Plus
+        "iPhone15,2": 93.0,  // iPhone 14 Pro
+        "iPhone15,3": 93.0,  // iPhone 14 Pro Max
+
+        // iPhone 15 Serie
+        "iPhone15,4": 93.0,  // iPhone 15
+        "iPhone15,5": 93.0,  // iPhone 15 Plus
+        "iPhone16,1": 94.0,  // iPhone 15 Pro
+        "iPhone16,2": 94.0,  // iPhone 15 Pro Max
+
+        // iPhone 11 Serie
+        "iPhone12,1": 94.0,  // iPhone 11
+        "iPhone12,3": 94.0,  // iPhone 11 Pro
+        "iPhone12,5": 94.0,  // iPhone 11 Pro Max
+
+        // Ältere iPhones
+        "iPhone11,2": 95.0,  // iPhone XS
+        "iPhone11,4": 95.0,  // iPhone XS Max
+        "iPhone11,6": 95.0,  // iPhone XS Max (China)
+        "iPhone11,8": 95.0,  // iPhone XR
+        "iPhone10,1": 96.0,  // iPhone 8
+        "iPhone10,4": 96.0,  // iPhone 8
+        "iPhone10,2": 96.0,  // iPhone 8 Plus
+        "iPhone10,5": 96.0,  // iPhone 8 Plus
+    ]
+
+    /// Ermittelt das Gerätemodell (z.B. "iPhone13,1" für iPhone 12 mini)
+    static func getDeviceModel() -> String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let machineMirror = Mirror(reflecting: systemInfo.machine)
+        let identifier = machineMirror.children.reduce("") { identifier, element in
+            guard let value = element.value as? Int8, value != 0 else { return identifier }
+            return identifier + String(UnicodeScalar(UInt8(value)))
+        }
+        return identifier
+    }
+
+    /// Gibt den empfohlenen Kalibrierungsoffset für das aktuelle Gerät zurück
+    static func getRecommendedCalibrationOffset() -> Float {
+        let model = getDeviceModel()
+        Logger.audioEngine.info("Detected device model: \(model)")
+        return deviceCalibrationOffsets[model] ?? 94.0  // Default: 94 dB
+    }
     
     // MARK: - Recording
     
@@ -128,6 +204,19 @@ class AudioEngine: ObservableObject {
         testGenerator.onDataGenerated = { [weak self] samples in
             self?.processSamples(samples)
         }
+
+        // Load saved calibration offset or use device-specific default
+        // Version 2: Gerätespezifische Kalibrierung
+        let calibrationVersion = UserDefaults.standard.integer(forKey: "calibrationVersion")
+        if calibrationVersion >= 2, let savedOffset = UserDefaults.standard.object(forKey: "calibrationOffset") as? Float {
+            calibrationOffset = savedOffset
+            Logger.audioEngine.info("Loaded saved calibration offset: \(self.calibrationOffset) dB")
+        } else {
+            // Verwende gerätespezifischen Kalibrierungswert (neu oder nach Update)
+            calibrationOffset = AudioEngine.getRecommendedCalibrationOffset()
+            UserDefaults.standard.set(2, forKey: "calibrationVersion")
+            Logger.audioEngine.info("Using device-specific calibration offset: \(self.calibrationOffset) dB for \(AudioEngine.getDeviceModel())")
+        }
     }
     
     // MARK: - Public Configuration Methods
@@ -185,8 +274,12 @@ class AudioEngine: ObservableObject {
             self.levelHistory.removeAll()
             self.currentLevel = -120.0
         }
+
+        // Reset buffer state
+        sampleBuffer.removeAll()
+        sampleBufferOffset = 0
     }
-    
+
     func checkAvailableInputs() {
         let session = AVAudioSession.sharedInstance()
         if let inputs = session.availableInputs,
@@ -236,7 +329,35 @@ class AudioEngine: ObservableObject {
     func getRecordingStatistics() -> (laeqFast: Float, peak: Float, min: Float) {
         return metricsCalculator.getStatistics()
     }
-    
+
+    /// Aktualisiert die Kalibrierungswerte basierend auf AVAudioSession
+    /// Hinweis: Überschreibt NICHT den benutzerdefinierten calibrationOffset,
+    /// sondern wendet nur Gain-Korrekturen an
+    func updateCalibration() {
+        let session = AVAudioSession.sharedInstance()
+
+        // Lese aktuellen Input-Gain (falls verfügbar)
+        let newInputGain = session.inputGain
+
+        // Nur loggen wenn sich etwas geändert hat
+        if newInputGain != currentInputGain {
+            currentInputGain = newInputGain
+            Logger.audioEngine.info("Input gain updated: \(self.currentInputGain, format: .fixed(precision: 2)), calibrationOffset: \(self.calibrationOffset, format: .fixed(precision: 1)) dB")
+        }
+    }
+
+    /// Setzt die Kalibrierung auf den empfohlenen Wert für dieses Gerät zurück
+    func resetCalibrationToDeviceDefault() {
+        let recommendedOffset = AudioEngine.getRecommendedCalibrationOffset()
+        calibrationOffset = recommendedOffset
+        Logger.audioEngine.info("Calibration reset to device default: \(recommendedOffset) dB")
+    }
+
+    /// Gibt den aktuellen Kalibrierungs-Offset zurück
+    func getCalibrationOffset() -> Float {
+        return calibrationOffset
+    }
+
     // MARK: - Private Recording Methods
     
     private func startRealRecording() {
@@ -265,7 +386,10 @@ class AudioEngine: ObservableObject {
             }
             
             try audioSession.setActive(true)
-            
+
+            // Update calibration based on current audio session settings
+            updateCalibration()
+
             // Configure microphone input
             if let inputs = audioSession.availableInputs,
                let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
@@ -366,34 +490,42 @@ class AudioEngine: ObservableObject {
     }
     
     private func processSamples(_ newSamples: [Float]) {
-        // Calculate peak level
+        // Calculate peak level (dBFS → dB SPL mit Kalibrierung)
         var rms: Float = 0
         vDSP_rmsqv(newSamples, 1, &rms, vDSP_Length(newSamples.count))
-        let signalDB = 20 * log10(rms + 1e-9)
+        let signalDBFS = 20 * log10(rms + 1e-9)
+        let signalDB = signalDBFS + calibrationOffset  // Konvertiere zu dB SPL
         let peakVal = newSamples.max() ?? 0
-        let peakDB = 20 * log10(abs(peakVal) + 1e-9)
+        let peakDBFS = 20 * log10(abs(peakVal) + 1e-9)
+        let peakDB = peakDBFS + calibrationOffset  // Konvertiere zu dB SPL
         
         // Debug logging
         debugPrintCounter += 1
         if debugPrintCounter % 240 == 0 {
             let minSample = newSamples.min() ?? 0
             let maxSample = newSamples.max() ?? 0
-            Logger.audioEngine.debug("Input RMS: \(signalDB, format: .fixed(precision: 1)) dB, Samples: [\(minSample, format: .fixed(precision: 3)) ... \(maxSample, format: .fixed(precision: 3))]")
+            Logger.audioEngine.debug("Input RMS: \(signalDB, format: .fixed(precision: 1)) dB SPL (dBFS: \(signalDBFS, format: .fixed(precision: 1))), Samples: [\(minSample, format: .fixed(precision: 3)) ... \(maxSample, format: .fixed(precision: 3))]")
         }
-        
-        if signalDB < -120 && !hasLoggedSilence {
-            Logger.audioEngine.warning("Audio buffer silent/empty: \(signalDB, format: .fixed(precision: 1)) dB")
+
+        if signalDBFS < -120 && !hasLoggedSilence {
+            Logger.audioEngine.warning("Audio buffer silent/empty: \(signalDBFS, format: .fixed(precision: 1)) dBFS")
             hasLoggedSilence = true
         }
         
         // Add to sample buffer
         sampleBuffer.append(contentsOf: newSamples)
-        
-        // Process when we have enough samples
-        while sampleBuffer.count >= fftSize {
-            let samples = Array(sampleBuffer.prefix(fftSize))
+
+        // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
+        while sampleBuffer.count - sampleBufferOffset >= fftSize {
+            let samples = Array(sampleBuffer[sampleBufferOffset..<(sampleBufferOffset + fftSize)])
             processFFTFrame(samples: samples, peakLevel: peakDB)
-            sampleBuffer.removeFirst(scrollSpeed.rawValue)
+            sampleBufferOffset += scrollSpeed.rawValue
+
+            // Periodisch aufräumen wenn Offset zu groß wird (nur alle ~10 Iterationen)
+            if sampleBufferOffset > fftSize * 2 {
+                sampleBuffer.removeFirst(sampleBufferOffset)
+                sampleBufferOffset = 0
+            }
         }
     }
     
@@ -403,22 +535,58 @@ class AudioEngine: ObservableObject {
         
         if debugPrintCounter % 240 == 0 {
             let dbMags = fftProcessor.convertToDB(linearMagnitudes)
-            let minMag = dbMags.min() ?? 0
-            let maxMag = dbMags.max() ?? 0
-            Logger.audioEngine.debug("FFT Processed (dB): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
+            let minMag = (dbMags.min() ?? 0) + calibrationOffset
+            let maxMag = (dbMags.max() ?? 0) + calibrationOffset
+            Logger.audioEngine.debug("FFT Processed (dB SPL): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
         }
         
-        // Convert to dB for Spectrogram
-        let dbMagnitudes = fftProcessor.convertToDB(linearMagnitudes)
-        
-        // Apply frequency weighting
-        let weightedDB = weightingProcessor.applyWeighting(
+        // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
+        var dbMagnitudes = fftProcessor.convertToDB(linearMagnitudes)
+        // Wende Kalibrierungs-Offset an, um positive dB SPL Werte zu erhalten
+        for i in 0..<dbMagnitudes.count {
+            dbMagnitudes[i] += calibrationOffset
+        }
+
+        // Apply all frequency weightings for spectrogram display
+        let dbZ = dbMagnitudes  // Z-weighted (linear/unweighted)
+        let dbA = weightingProcessor.applyWeighting(
             to: dbMagnitudes,
             frequencies: fftProcessor.frequencies,
-            weighting: frequencyWeighting
+            weighting: .a
         )
-        
+        let dbC = weightingProcessor.applyWeighting(
+            to: dbMagnitudes,
+            frequencies: fftProcessor.frequencies,
+            weighting: .c
+        )
+
+        // Use the currently selected weighting for metrics/UI
+        let weightedDB: [Float]
+        switch frequencyWeighting {
+        case .a: weightedDB = dbA
+        case .c: weightedDB = dbC
+        case .z: weightedDB = dbZ
+        }
+
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
+        // Process all weightings for spectrogram
+        let processedZ = spectrogramProcessor.process(
+            frequencies: fftProcessor.frequencies,
+            dbMagnitudes: dbZ,
+            sampleRate: sampleRate
+        )
+        let processedA = spectrogramProcessor.process(
+            frequencies: fftProcessor.frequencies,
+            dbMagnitudes: dbA,
+            sampleRate: sampleRate
+        )
+        let processedC = spectrogramProcessor.process(
+            frequencies: fftProcessor.frequencies,
+            dbMagnitudes: dbC,
+            sampleRate: sampleRate
+        )
+
+        // Use selected weighting for octave bands and spectrum
         let processed = spectrogramProcessor.process(
             frequencies: fftProcessor.frequencies,
             dbMagnitudes: weightedDB,
@@ -429,17 +597,26 @@ class AudioEngine: ObservableObject {
         let rawMagnitudes = linearMagnitudes
         let aWeights = weightingProcessor.getAWeightingGains()
         let cWeights = weightingProcessor.getCWeightingGains()
-        
+
+        // Kalibrierungsfaktor: wandelt dBFS-Energie zu dB SPL-Energie
+        // calibrationOffset ist in dB, also multiplizieren wir Energie mit 10^(offset/10)
+        let calibrationFactor = pow(10.0, calibrationOffset / 10.0)
+
         var energyZ: Float = 0.0
         var energyA: Float = 0.0
         var energyC: Float = 0.0
-        
+
         for i in 0..<rawMagnitudes.count {
             let magSq = rawMagnitudes[i] * rawMagnitudes[i]
             energyZ += magSq
             energyA += magSq * aWeights[i] * aWeights[i]
             energyC += magSq * cWeights[i] * cWeights[i]
         }
+
+        // Wende Kalibrierung auf alle Energiewerte an
+        energyZ *= calibrationFactor
+        energyA *= calibrationFactor
+        energyC *= calibrationFactor
         
         // Update acoustic metrics
         let dt = Float(scrollSpeed.rawValue) / Float(sampleRate)
@@ -458,10 +635,12 @@ class AudioEngine: ObservableObject {
             Logger.audioEngine.debug("Broadband Level: \(broadbandLevel, format: .fixed(precision: 1)) dB")
         }
         
-        // Create spectrogram data
+        // Create spectrogram data with all weightings
         let spectrogramData = SpectrogramData(
-            frequencies: processed.bandFrequencies,
-            magnitudes: processed.bandMagnitudes,
+            frequencies: processedZ.bandFrequencies,
+            magnitudes: processedZ.bandMagnitudes,      // Z-weighted (linear)
+            magnitudesA: processedA.bandMagnitudes,     // A-weighted
+            magnitudesC: processedC.bandMagnitudes,     // C-weighted
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: sampleRate
@@ -491,10 +670,10 @@ class AudioEngine: ObservableObject {
                 self.minLevel = min(self.minLevel == 0 ? broadbandLevel : self.minLevel, broadbandLevel)
             }
             
-            // Update history
+            // Update history (nur einzelnes Element entfernen wenn nötig - O(n) aber selten)
             self.levelHistory.append(broadbandLevel)
             if self.levelHistory.count > self.maxHistorySize {
-                self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
+                self.levelHistory.removeFirst()  // Nur 1 Element statt vieler
             }
             
             // Send to watch (throttled)

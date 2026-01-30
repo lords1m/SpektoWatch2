@@ -7,21 +7,30 @@ class DashboardViewModel: ObservableObject {
     @Published var showWidgetPicker = false
     @Published var draggedWidget: WidgetConfiguration?
     @Published var showSettings = false
-    
+
     // Settings State
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published var sensitivity: Double = 10.0
     @Published var watchGain: Float = 1.0
     @Published var dummyColormap: Int = 0
     @Published var dummyTimeSpan: SpectrogramTimeSpan = .seconds5
-    
+
     // Dependencies
     let audioEngine: AudioEngine
     let connectivityManager: WatchConnectivityManager
-    
+
+    private var cancellables = Set<AnyCancellable>()
+
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
         self.audioEngine = audioEngine
         self.connectivityManager = connectivityManager
+
+        // Forward DashboardManager changes to trigger view updates
+        dashboardManager.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
     }
     
     func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {

@@ -3,11 +3,13 @@ import SwiftUI
 struct SpectrogramWidget: View {
     @ObservedObject var audioEngine: AudioEngine
     var settings: [String: String]
-    
+
     var colormapType: Int { Int(settings["colormap"] ?? "0") ?? 0 }
     var timeSpan: SpectrogramTimeSpan { SpectrogramTimeSpan(rawValue: Int(settings["timeSpan"] ?? "5") ?? 5) ?? .seconds5 }
     var scrollSpeed: ScrollSpeed { .fast } // Could also be a setting
-    
+    var freqWeighting: String { settings["freqWeighting"] ?? "Z" }
+    var sensitivity: Float { Float(settings["sensitivity"] ?? "50") ?? 50.0 }
+
     var body: some View {
         HighEndSpectrogramAdapterWithAxes(
             audioEngine: audioEngine,
@@ -15,10 +17,12 @@ struct SpectrogramWidget: View {
             timeSpan: timeSpan,
             scrollSpeed: scrollSpeed,
             isPaused: false,
-            scrollOffset: 0.0
+            scrollOffset: 0.0,
+            freqWeighting: freqWeighting,
+            sensitivity: sensitivity
         )
         .onAppear {
-            print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan)")
+            print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan), sensitivity: \(sensitivity)")
         }
     }
 }

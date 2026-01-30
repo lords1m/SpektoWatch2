@@ -1,11 +1,12 @@
 import SwiftUI
 import AVFoundation
 import Combine
+import Accelerate
 
 struct RecordingDetailView: View {
     @Environment(\.dismiss) var dismiss
     let recording: AudioRecording
-    
+
     @StateObject private var audioPlayer = AudioPlayerManager()
     @StateObject private var vizAudioEngine = AudioEngine(
         filterManager: BandstopFilterManager(),
@@ -14,6 +15,9 @@ struct RecordingDetailView: View {
     @State private var showEditSheet = false
     @State private var showShareSheet = false
     @State private var isDraggingSlider = false
+    @State private var spectrogramHistory: [[Float]] = []
+    @State private var isLoadingSpectrogram = false
+    @State private var useScrollableSpectrogram = true  // Toggle für den neuen Modus
     
     var body: some View {
         NavigationView {
@@ -69,6 +73,11 @@ struct RecordingDetailView: View {
             audioPlayer.onAudioSamples = { samples in
                 vizAudioEngine.processExternalAudio(samples)
             }
+
+            // Berechne Spektrogramm-Historie für scrollbare Ansicht
+            if useScrollableSpectrogram {
+                loadSpectrogramHistory(from: url)
+            }
         }
         .onDisappear {
             audioPlayer.stop()
@@ -99,15 +108,51 @@ struct RecordingDetailView: View {
     }
     
     // MARK: - Audio Player Card
-    
+
     private var audioPlayerCard: some View {
         VStack(spacing: 16) {
-            // Spectrogram Visualization
-            HighEndSpectrogramAdapterWithAxes(audioEngine: vizAudioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
+            // Spectrogram Visualization - Scrollbar oder Live
+            if useScrollableSpectrogram && !spectrogramHistory.isEmpty {
+                // Scrollbares Spektrogramm mit Playhead
+                ScrollableSpectrogramView(
+                    currentTime: Binding(
+                        get: { isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime },
+                        set: { _ in }
+                    ),
+                    duration: audioPlayer.duration,
+                    magnitudeHistory: spectrogramHistory,
+                    colormapType: 0,
+                    onSeek: { time in
+                        audioPlayer.scrubTime = time
+                        audioPlayer.seek(to: time)
+                    }
+                )
                 .frame(height: 200)
                 .background(Color.black)
                 .cornerRadius(12)
-            
+            } else if isLoadingSpectrogram {
+                // Loading indicator
+                ZStack {
+                    Color.black
+                    VStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        Text("Spektrogramm wird berechnet...")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.top, 8)
+                    }
+                }
+                .frame(height: 200)
+                .cornerRadius(12)
+            } else {
+                // Live Spektrogramm (Fallback)
+                HighEndSpectrogramAdapterWithAxes(audioEngine: vizAudioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
+                    .frame(height: 200)
+                    .background(Color.black)
+                    .cornerRadius(12)
+            }
+
             // Playback Controls
             HStack(spacing: 20) {
                 // Backward Button
@@ -116,7 +161,7 @@ struct RecordingDetailView: View {
                         .font(.title2)
                 }
                 .disabled(!audioPlayer.isLoaded)
-                
+
                 // Play/Pause Button
                 Button(action: {
                     if audioPlayer.isPlaying {
@@ -129,7 +174,7 @@ struct RecordingDetailView: View {
                         .font(.system(size: 60))
                 }
                 .disabled(!audioPlayer.isLoaded)
-                
+
                 // Forward Button
                 Button(action: { audioPlayer.seek(by: 5) }) {
                     Image(systemName: "goforward.5")
@@ -138,13 +183,13 @@ struct RecordingDetailView: View {
                 .disabled(!audioPlayer.isLoaded)
             }
             .foregroundColor(.blue)
-            
+
             // Progress Bar
             VStack(spacing: 4) {
                 Slider(
                     value: Binding(
                         get: { isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime },
-                        set: { 
+                        set: {
                             audioPlayer.scrubTime = $0
                             audioPlayer.seek(to: $0)
                         }
@@ -156,7 +201,7 @@ struct RecordingDetailView: View {
                     }
                 )
                 .disabled(!audioPlayer.isLoaded)
-                
+
                 HStack {
                     Text(formatTime(isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime))
                         .font(.caption)
@@ -231,11 +276,119 @@ struct RecordingDetailView: View {
     }
     
     // MARK: - Helper Functions
-    
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    // MARK: - Spectrogram Loading
+
+    private func loadSpectrogramHistory(from url: URL) {
+        isLoadingSpectrogram = true
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let audioFile = try AVAudioFile(forReading: url)
+                let format = audioFile.processingFormat
+                let sampleRate = format.sampleRate
+                let frameCount = AVAudioFrameCount(audioFile.length)
+
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+                    DispatchQueue.main.async { isLoadingSpectrogram = false }
+                    return
+                }
+
+                try audioFile.read(into: buffer)
+
+                guard let channelData = buffer.floatChannelData else {
+                    DispatchQueue.main.async { isLoadingSpectrogram = false }
+                    return
+                }
+
+                // Extract samples from first channel
+                let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(frameCount)))
+
+                // Compute spectrogram
+                let history = computeSpectrogramHistory(samples: samples, sampleRate: sampleRate)
+
+                DispatchQueue.main.async {
+                    self.spectrogramHistory = history
+                    self.isLoadingSpectrogram = false
+                }
+            } catch {
+                print("[RecordingDetailView] Error loading audio for spectrogram: \(error)")
+                DispatchQueue.main.async {
+                    self.isLoadingSpectrogram = false
+                }
+            }
+        }
+    }
+
+    private func computeSpectrogramHistory(samples: [Float], sampleRate: Double) -> [[Float]] {
+        let fftSize = 4096
+        let hopSize = 512
+        let frequencyBins = 512
+        let splToDbfsOffset: Float = 120.0
+
+        guard samples.count > fftSize else { return [] }
+
+        var history: [[Float]] = []
+
+        // FFT Setup
+        guard let fftSetup = vDSP_DFT_zrop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD) else { return [] }
+        defer { vDSP_DFT_DestroySetup(fftSetup) }
+
+        // Hann Window
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+
+        var offset = 0
+        while offset + fftSize <= samples.count {
+            // Extract window
+            let windowSamples = Array(samples[offset..<(offset + fftSize)])
+
+            // Apply window
+            var windowed = [Float](repeating: 0, count: fftSize)
+            vDSP_vmul(windowSamples, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
+
+            // Prepare for zrop (interleaved input)
+            var realIn = [Float](repeating: 0, count: fftSize / 2)
+            var imagIn = [Float](repeating: 0, count: fftSize / 2)
+            for i in 0..<(fftSize / 2) {
+                realIn[i] = windowed[2 * i]
+                imagIn[i] = windowed[2 * i + 1]
+            }
+
+            var realOut = [Float](repeating: 0, count: fftSize / 2)
+            var imagOut = [Float](repeating: 0, count: fftSize / 2)
+
+            vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
+
+            // Compute magnitude
+            var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+            realOut.withUnsafeMutableBufferPointer { realPtr in
+                imagOut.withUnsafeMutableBufferPointer { imagPtr in
+                    var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                    vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                }
+            }
+
+            // Convert to dB SPL and resample to frequencyBins
+            var column = [Float](repeating: -120.0, count: frequencyBins)
+            for i in 0..<frequencyBins {
+                let srcIndex = Int(Float(i) / Float(frequencyBins) * Float(magnitudes.count))
+                let mag = magnitudes[min(srcIndex, magnitudes.count - 1)]
+                let db = 20.0 * log10(mag + 1e-10) + splToDbfsOffset
+                column[i] = db
+            }
+
+            history.append(column)
+            offset += hopSize
+        }
+
+        return history
     }
 }
 

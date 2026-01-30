@@ -43,18 +43,13 @@
 		37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Managers/FFTProcessor.swift,
 				Managers/RecordingManager.swift,
-				Managers/TestAudioGenerator.swift,
-				Processing/AcousticMetricsCalculator.swift,
-				Processing/FrequencyWeightingProcessor.swift,
 			);
 			target = 3795235A2F2234F90079C93F /* SpektoWatch2 */;
 		};
 		37C13FAD2F2A11BA004C59EE /* Exceptions for "Shared" folder in "SpektoWatch2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				SpectrogramData.swift,
 				WatchConnectivityManager.swift,
 			);
 			target = 3795235A2F2234F90079C93F /* SpektoWatch2 */;

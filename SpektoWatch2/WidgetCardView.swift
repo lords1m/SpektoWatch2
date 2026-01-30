@@ -94,34 +94,40 @@ struct WidgetCardView: View {
     private var resizeHandles: some View {
         if isEditMode {
             ZStack {
-                // Right Handle
+                // Right Handle - nur im unteren Bereich (nicht über Header)
                 HStack {
                     Spacer()
-                    Rectangle()
-                        .fill(Color.blue.opacity(0.01)) // Almost invisible but touchable
-                        .frame(width: 20)
-                        .contentShape(Rectangle())
-                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .right) })
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 4, height: 40).padding(.trailing, 4),
-                            alignment: .trailing
-                        )
+                    VStack {
+                        Spacer().frame(height: 44) // Header-Höhe aussparen
+                        Rectangle()
+                            .fill(Color.blue.opacity(0.01)) // Almost invisible but touchable
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .right) })
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 4, height: 40),
+                                alignment: .center
+                            )
+                    }
+                    .frame(width: 20)
                 }
-                
-                // Left Handle
+
+                // Left Handle - nur im unteren Bereich (nicht über Header)
                 HStack {
-                    Rectangle()
-                        .fill(Color.blue.opacity(0.01))
-                        .frame(width: 20)
-                        .contentShape(Rectangle())
-                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .left) })
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 4, height: 40).padding(.leading, 4),
-                            alignment: .leading
-                        )
+                    VStack {
+                        Spacer().frame(height: 44) // Header-Höhe aussparen
+                        Rectangle()
+                            .fill(Color.blue.opacity(0.01))
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .left) })
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 4, height: 40),
+                                alignment: .center
+                            )
+                    }
+                    .frame(width: 20)
                     Spacer()
                 }
-                
+
                 // Bottom Handle
                 VStack {
                     Spacer()
@@ -135,21 +141,10 @@ struct WidgetCardView: View {
                             alignment: .bottom
                         )
                 }
-                
-                // Top Handle
-                VStack {
-                    Rectangle()
-                        .fill(Color.blue.opacity(0.01))
-                        .frame(height: 20)
-                        .contentShape(Rectangle())
-                        .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .top) })
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.5)).frame(width: 40, height: 4).padding(.top, 4),
-                            alignment: .top
-                        )
-                    Spacer()
-                }
+
+                // KEIN Top Handle mehr - kollidiert mit Header-Buttons
             }
+            .allowsHitTesting(true)
         }
     }
     

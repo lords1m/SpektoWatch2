@@ -3,7 +3,8 @@ import SwiftUI
 // MARK: - Frequency Spectrum Widget
 struct FrequencySpectrumWidget: View {
     @ObservedObject var audioEngine: AudioEngine
-    let dbOffset: Float = 100.0
+    // AudioEngine liefert bereits kalibrierte dB SPL Werte
+    let dbOffset: Float = 0.0
     
     var body: some View {
         Canvas { context, size in
@@ -117,9 +118,9 @@ struct LevelMeterWidget: View {
                         .fill(Color.gray.opacity(0.2))
                     
                     // Level Bar
-                    let level = audioEngine.currentLevel // dB
-                    let minDB: Float = -60.0
-                    let maxDB: Float = 0.0
+                    let level = audioEngine.currentLevel // dB SPL (kalibriert)
+                    let minDB: Float = 30.0   // 30 dB SPL
+                    let maxDB: Float = 100.0  // 100 dB SPL
                     let norm = CGFloat((level - minDB) / (maxDB - minDB))
                     let clamped = max(0, min(1, norm))
                     
@@ -144,11 +145,11 @@ struct LevelMeterWidget: View {
             HStack {
                 Spacer().frame(width: 20)
                 HStack {
-                    Text("-60").font(.caption2).foregroundColor(.gray)
+                    Text("30").font(.caption2).foregroundColor(.gray)
                     Spacer()
-                    Text("-30").font(.caption2).foregroundColor(.gray)
+                    Text("65").font(.caption2).foregroundColor(.gray)
                     Spacer()
-                    Text("0").font(.caption2).foregroundColor(.gray)
+                    Text("100").font(.caption2).foregroundColor(.gray)
                 }
             }
         }
@@ -184,8 +185,9 @@ struct OctaveBandWidget: View {
             let barWidth = width / CGFloat(bands.count)
             
             for (i, val) in bands.enumerated() {
-                let minDB: Float = -90.0
-                let maxDB: Float = -10.0
+                // Werte sind bereits in dB SPL kalibriert
+                let minDB: Float = 20.0   // 20 dB SPL
+                let maxDB: Float = 100.0  // 100 dB SPL
                 let norm = CGFloat((val - minDB) / (maxDB - minDB))
                 let clamped = max(0, min(1, norm))
                 

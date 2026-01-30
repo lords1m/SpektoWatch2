@@ -53,12 +53,18 @@ class HighEndSpectrogramAdapter: MTKView {
     private let sampleRate: Float = 44100.0
     private let minFrequency: Float = 20.0
     private let maxFrequency: Float = 16000.0
-    private let minDB: Float = -90.0   // Angepasst für feinere Farbauflösung im relevanten Bereich
-    private let maxDB: Float = -10.0   // Angepasst, damit Signale heller leuchten
+    private var dynamicRange: Float = 50.0  // Dynamikbereich in dB (einstellbar)
+    private var minDB: Float { -dynamicRange - 10.0 }  // z.B. -60 dBFS bei 50 dB Range
+    private var maxDB: Float { -10.0 }                  // Obere Grenze fest bei -10 dBFS
     
     // MARK: - Display Parameters (KORRIGIERT)
     var colormapType: Int = 0
-    var noiseFloor: Float = -90.0  // KORRIGIERT: Angepasst an realistischen Noise Floor
+    var noiseFloor: Float = -90.0  // dBFS Skala (Shader erwartet dBFS)
+
+    // MARK: - Calibration
+    // AudioEngine liefert dB SPL, Shader erwartet dBFS
+    // Offset zum Zurückrechnen: dBFS = dB SPL - 120
+    private let splToDbfsOffset: Float = 120.0
     var kneeWidth: Float = 10.0    // KORRIGIERT: Moderate Knee Width
     var gamma: Float = 0.8         // KORRIGIERT: Etwas höherer Gamma für mehr Details in den Mitten
     var useInterpolation: Bool = true
@@ -269,8 +275,16 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
             }
         }
         
-        // dB zurück zu Linear für Shader
-        columnData[i] = pow(10.0, dbValue / 20.0)
+        // AudioEngine liefert bereits kalibrierte dB SPL Werte (z.B. 60-100 dB SPL)
+        // Der Shader erwartet lineare Magnituden und macht 20*log10(mag)
+        // mit minDB=-90, maxDB=-10 (dBFS Skala)
+        //
+        // Wir müssen dB SPL zurück zu dBFS konvertieren:
+        // dBFS = dB SPL - splToDbfsOffset (120 dB)
+        let dbFS = dbValue - splToDbfsOffset  // z.B. 80 dB SPL -> -40 dBFS
+
+        // Konvertiere dBFS zu linearer Magnitude für den Shader
+        columnData[i] = pow(10.0, dbFS / 20.0)
     }
     
     // Schreibe Spalte in Textur
@@ -421,7 +435,12 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
     func setHorizontalBlur(_ blur: Float) {
         horizontalBlur = blur
     }
-    
+
+    func setSensitivity(_ value: Float) {
+        // Dynamikbereich: 30-80 dB
+        dynamicRange = max(30.0, min(80.0, value))
+    }
+
     func setHopSize(_ size: Int) {
         if hopSize != size {
             hopSize = size
@@ -474,7 +493,9 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
     var scrollSpeed: ScrollSpeed
     var isPaused: Bool
     var scrollOffset: Float
-    
+    var freqWeighting: String = "Z"
+    var sensitivity: Float = 50.0
+
     func makeUIView(context: Context) -> HighEndSpectrogramAdapter {
         let view = HighEndSpectrogramAdapter(
             frame: .zero,
@@ -485,36 +506,44 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         view.setHopSize(scrollSpeed.rawValue)
         view.setPaused(isPaused)
         view.setManualScrollOffset(scrollOffset)
+        view.setSensitivity(sensitivity)
         context.coordinator.view = view
+        context.coordinator.freqWeighting = freqWeighting
         return view
     }
-    
+
     func updateUIView(_ uiView: HighEndSpectrogramAdapter, context: Context) {
         uiView.setColormap(colormapType)
         uiView.setHopSize(scrollSpeed.rawValue)
         uiView.setTimeSpan(timeSpan.rawValue)
         uiView.setPaused(isPaused)
         uiView.setManualScrollOffset(scrollOffset)
+        uiView.setSensitivity(sensitivity)
+        context.coordinator.freqWeighting = freqWeighting
     }
-    
+
     func makeCoordinator() -> Coordinator {
-        Coordinator(audioEngine: audioEngine)
+        Coordinator(audioEngine: audioEngine, freqWeighting: freqWeighting)
     }
-    
+
     class Coordinator: NSObject {
         var audioEngine: AudioEngine
         weak var view: HighEndSpectrogramAdapter?
         var cancellable: AnyCancellable?
-        
-        init(audioEngine: AudioEngine) {
+        var freqWeighting: String
+
+        init(audioEngine: AudioEngine, freqWeighting: String = "Z") {
             self.audioEngine = audioEngine
+            self.freqWeighting = freqWeighting
             super.init()
-            
+
             cancellable = audioEngine.$currentSpectrogramData
                 .compactMap { $0 }
                 .sink { [weak self] data in
-                    // WICHTIG: Stelle sicher, dass AudioEngine lineare Magnituden liefert
-                    self?.view?.updateWithFFTMagnitudes(data.magnitudes)
+                    guard let self = self else { return }
+                    // Wähle Magnituden basierend auf der Bewertungskurve
+                    let magnitudes = data.magnitudes(for: self.freqWeighting)
+                    self.view?.updateWithFFTMagnitudes(magnitudes)
                 }
         }
     }
@@ -531,10 +560,12 @@ struct SpectrogramWidgetView: View {
     var scrollSpeed: ScrollSpeed
     var isPaused: Bool
     var scrollOffset: Float
-    
+    var freqWeighting: String = "Z"
+    var sensitivity: Float = 50.0
+
     let axisFrequencies: [Double] = [16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
     let axisWidth: CGFloat = 35
-    
+
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 4) {
@@ -551,8 +582,8 @@ struct SpectrogramWidgetView: View {
                 }
                 .frame(width: axisWidth, height: geometry.size.height)
                 .clipped()
-                
-                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset)
+
+                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset, freqWeighting: freqWeighting, sensitivity: sensitivity)
                     .cornerRadius(10)
             }
         }
@@ -588,18 +619,20 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     var scrollSpeed: ScrollSpeed = .fast
     var isPaused: Bool = false
     var scrollOffset: Float = 0.0
+    var freqWeighting: String = "Z"
+    var sensitivity: Float = 50.0  // Dynamikbereich in dB
     let axisWidth: CGFloat = 35
     let axisHeight: CGFloat = 20
     let axisSpacing: CGFloat = 4
 
     // Spezifische Frequenzen für die Achsenbeschriftung
     let axisFrequencies: [Double] = [16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
-    
+
     var body: some View {
         GeometryReader { geometry in
             let totalSpacing = axisSpacing
             let spectrogramHeight = geometry.size.height - axisHeight - totalSpacing
-            
+
             HStack(spacing: axisSpacing) {
                 // Y-Axis (Frequency)
                 VStack(spacing: axisSpacing) {
@@ -616,14 +649,14 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                     }
                     .frame(width: axisWidth, height: spectrogramHeight)
                     .clipped()
-                    
+
                     Spacer().frame(height: axisHeight)
                 }
-                
+
                 // Spectrogram View & X-Axis
                 VStack(spacing: axisSpacing) {
                     // Spectrogram
-                    HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset)
+                    HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset, freqWeighting: freqWeighting, sensitivity: sensitivity)
                         .frame(height: spectrogramHeight)
                         .cornerRadius(20)
                     

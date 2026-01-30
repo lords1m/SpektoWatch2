@@ -26,13 +26,45 @@ struct WidgetSettingsView: View {
                             Text("Jet").tag("1")
                             Text("Viridis").tag("2")
                         }
-                        
+
                         Picker("Zeitbereich", selection: Binding(
                             get: { settings["timeSpan"] ?? "5" },
                             set: { settings["timeSpan"] = $0 }
                         )) {
                             Text("1 Sekunde").tag("1")
                             Text("5 Sekunden").tag("5")
+                        }
+
+                        Picker("Frequenzbewertung", selection: Binding(
+                            get: { settings["freqWeighting"] ?? "Z" },
+                            set: { settings["freqWeighting"] = $0 }
+                        )) {
+                            Text("Z (Linear)").tag("Z")
+                            Text("A-Weighting").tag("A")
+                            Text("C-Weighting").tag("C")
+                        }
+                    }
+
+                    Section(header: Text("Empfindlichkeit")) {
+                        let sensitivityValue = Float(settings["sensitivity"] ?? "50") ?? 50.0
+
+                        VStack(alignment: .leading) {
+                            Text("Dynamikbereich: \(Int(sensitivityValue)) dB")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Slider(
+                                value: Binding(
+                                    get: { Double(settings["sensitivity"] ?? "50") ?? 50.0 },
+                                    set: { settings["sensitivity"] = String(Int($0)) }
+                                ),
+                                in: 30...80,
+                                step: 5
+                            )
+
+                            Text("Niedriger = mehr Kontrast, Höher = mehr Details")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
                         }
                     }
                 } else if widget.type == .levelHistory {

@@ -11,7 +11,8 @@ struct LevelHistoryView: View {
     var freqWeighting: String { settings["freqWeighting"] ?? "A" }
     var timeWeighting: String { settings["timeWeighting"] ?? "Fast" }
     
-    let dbOffset: Float = 100.0
+    // AudioEngine liefert bereits kalibrierte dB SPL Werte
+    let dbOffset: Float = 0.0
     
     @State private var levelBuffer: [Float] = []
     @State private var writeIndex: Int = 0

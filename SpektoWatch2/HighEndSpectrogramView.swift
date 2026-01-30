@@ -49,18 +49,26 @@ class HighEndSpectrogramView: MTKView {
     private let sampleRate: Float = 44100.0
     private let minFrequency: Float = 20.0       // 20 Hz
     private let maxFrequency: Float = 20000.0    // 20 kHz
-    private let minDB: Float = -120.0            // Display range min (wide range for proper scaling)
-    private let maxDB: Float = -20.0             // Display range max (typical peak level)
+
+    // MARK: - Calibration (dBFS → dB SPL)
+    // Typische iPhone-Mikrofone: ~-26 dBFS bei 94 dB SPL
+    // calibrationOffset = 94 - (-26) = 120 dB
+    var calibrationOffset: Float = 120.0
+
+    // Display range in dB SPL (nach Kalibrierung)
+    private var minDB: Float { 0.0 }             // 0 dB SPL (sehr leise)
+    private var maxDB: Float { 100.0 }           // 100 dB SPL (sehr laut)
 
     // MARK: - FFT Setup (Sliding Window with Zero-Padding)
     private var fftSetup: vDSP_DFT_Setup!
     private var hannWindow: [Float] = []         // Renamed to avoid UIView.window conflict
     private var audioBuffer: [Float] = []        // Accumulation buffer for sliding window
+    private var audioBufferOffset: Int = 0       // Index-basierter Ansatz für O(1) statt O(n) removeFirst
     private let hopSize: Int = 512               // 87.5% overlap for smoother animation (was 1024)
 
     // MARK: - Display Parameters (Enhanced)
     var colormapType: Int = 0                    // 0 = Turbo, 1 = Jet, 2 = Viridis
-    var noiseFloor: Float = -100.0               // Noise gate threshold (dB) - adjusted for new range
+    var noiseFloor: Float = 20.0                 // Noise gate threshold (dB SPL) - 20 dB SPL = sehr leise
     var kneeWidth: Float = 15.0                  // Soft-knee width (dB) - wider for smoother transition
     var gamma: Float = 0.75                       // Gamma correction (adjusted to balance colors)
     var useInterpolation: Bool = true            // Bilinear interpolation on/off
@@ -246,9 +254,9 @@ class HighEndSpectrogramView: MTKView {
     // MARK: - FFT Setup (Sliding Window with Zero-Padding)
 
     private func setupFFT() {
-        // Create FFT setup for PADDED size (8192)
+        // Create FFT setup for PADDED size (8192) using zrop (Real-Only, more efficient)
         // This gives us 4096 frequency bins from only 4096 audio samples
-        guard let setup = vDSP_DFT_zop_CreateSetup(
+        guard let setup = vDSP_DFT_zrop_CreateSetup(
             nil,
             vDSP_Length(fftSize),  // 8192 with zero-padding
             vDSP_DFT_Direction.FORWARD
@@ -273,10 +281,10 @@ class HighEndSpectrogramView: MTKView {
         // Accumulate samples
         audioBuffer.append(contentsOf: samples)
 
-        // Process all complete windows with hop size
-        while audioBuffer.count >= audioFFTSize {
-            // Extract window (4096 samples)
-            let windowSamples = Array(audioBuffer.prefix(audioFFTSize))
+        // Process all complete windows with hop size (using offset for O(1) instead of O(n) removeFirst)
+        while audioBuffer.count - audioBufferOffset >= audioFFTSize {
+            // Extract window (4096 samples) using offset
+            let windowSamples = Array(audioBuffer[audioBufferOffset..<(audioBufferOffset + audioFFTSize)])
 
             // Perform FFT with zero-padding (4096 → 8192)
             let magnitudes = performFFT(on: windowSamples)
@@ -284,31 +292,45 @@ class HighEndSpectrogramView: MTKView {
             // Update texture with new column
             writeFFTColumn(magnitudes: magnitudes)
 
-            // Advance by hop size (512 = 87.5% overlap)
-            audioBuffer.removeFirst(hopSize)
+            // Advance offset by hop size (512 = 87.5% overlap)
+            audioBufferOffset += hopSize
+
+            // Periodisch aufräumen wenn Offset zu groß wird
+            if audioBufferOffset > audioFFTSize * 2 {
+                audioBuffer.removeFirst(audioBufferOffset)
+                audioBufferOffset = 0
+            }
         }
     }
 
     private func performFFT(on samples: [Float]) -> [Float] {
         // ZERO-PADDING: Take 4096 audio samples, pad to 8192 for 2x frequency resolution
+        // Using zrop (Real-Only DFT) which is more efficient for real input
 
-        // Allocate FFT buffers (full padded size)
-        var realIn = [Float](repeating: 0, count: fftSize)   // 8192 elements
-        let imagIn = [Float](repeating: 0, count: fftSize)   // All zeros (no imaginary input)
-        var realOut = [Float](repeating: 0, count: fftSize)
-        var imagOut = [Float](repeating: 0, count: fftSize)
+        // Allocate FFT buffers for zrop (interleaved input, split complex output)
+        var windowed = [Float](repeating: 0, count: fftSize)   // 8192 elements (windowed + zero-padded)
 
         // Apply window and copy to input buffer (first 4096 samples)
-        // Rest stays zero-padded
         for i in 0..<audioFFTSize {
-            realIn[i] = samples[i] * hannWindow[i]
+            windowed[i] = samples[i] * hannWindow[i]
         }
-        // realIn[4096...8191] remains 0 (zero-padding)
+        // windowed[4096...8191] remains 0 (zero-padding)
 
-        // Execute FFT (on 8192 points)
+        // zrop expects interleaved input: split into even/odd indices
+        var realIn = [Float](repeating: 0, count: fftSize / 2)
+        var imagIn = [Float](repeating: 0, count: fftSize / 2)
+        for i in 0..<(fftSize / 2) {
+            realIn[i] = windowed[2 * i]
+            imagIn[i] = windowed[2 * i + 1]
+        }
+
+        var realOut = [Float](repeating: 0, count: fftSize / 2)
+        var imagOut = [Float](repeating: 0, count: fftSize / 2)
+
+        // Execute FFT (zrop is more efficient for real-only input)
         vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
 
-        // Compute magnitude spectrum (now we get 4096 bins instead of 2048!)
+        // Compute magnitude spectrum using DSPSplitComplex
         var magnitudes = [Float](repeating: 0, count: fftSize / 2)  // 4096 bins
         realOut.withUnsafeMutableBufferPointer { realPtr in
             imagOut.withUnsafeMutableBufferPointer { imagPtr in
@@ -317,7 +339,7 @@ class HighEndSpectrogramView: MTKView {
             }
         }
 
-        // DEBUG: Log magnitude range to diagnose oversaturation
+        // DEBUG: Log magnitude range in dB SPL (with calibration)
         #if DEBUG
         if currentColumn % 60 == 0 {  // Log every 60 frames (~1 second)
             let maxMagnitude = magnitudes.max() ?? 0
@@ -325,11 +347,12 @@ class HighEndSpectrogramView: MTKView {
             let minMagnitude = nonZeroMags.min() ?? 1e-10
             let avgMagnitude = nonZeroMags.reduce(0, +) / Float(max(1, nonZeroMags.count))
 
-            let maxDB = 20.0 * log10(maxMagnitude + 1e-10)
-            let minDB = 20.0 * log10(minMagnitude + 1e-10)
-            let avgDB = 20.0 * log10(avgMagnitude + 1e-10)
+            // dB SPL = dBFS + calibrationOffset
+            let maxDBSPL = 20.0 * log10(maxMagnitude + 1e-10) + calibrationOffset
+            let minDBSPL = 20.0 * log10(minMagnitude + 1e-10) + calibrationOffset
+            let avgDBSPL = 20.0 * log10(avgMagnitude + 1e-10) + calibrationOffset
 
-            Logger.metal.debug("FFT dB Range: min=\(minDB, format: .fixed(precision: 1)) avg=\(avgDB, format: .fixed(precision: 1)) max=\(maxDB, format: .fixed(precision: 1))")
+            Logger.metal.debug("FFT dB SPL Range: min=\(minDBSPL, format: .fixed(precision: 1)) avg=\(avgDBSPL, format: .fixed(precision: 1)) max=\(maxDBSPL, format: .fixed(precision: 1))")
         }
         #endif
 
@@ -339,13 +362,19 @@ class HighEndSpectrogramView: MTKView {
     private func writeFFTColumn(magnitudes: [Float]) {
         guard let texture = spectrogramTexture else { return }
 
+        // Kalibrierungsfaktor: skaliert Magnitudes so, dass nach dB-Konvertierung
+        // im Shader die Werte in dB SPL sind statt dBFS
+        // dB SPL = 20*log10(mag) + offset = 20*log10(mag * 10^(offset/20))
+        let calibrationScale = pow(10.0, calibrationOffset / 20.0)
+
         // Resample FFT data to texture resolution (frequencyBins)
         var columnData = [Float](repeating: 0.0, count: frequencyBins)
 
         for i in 0..<frequencyBins {
             // Linear mapping from texture row to FFT bin
             let fftIndex = Int(Float(i) / Float(frequencyBins) * Float(magnitudes.count))
-            columnData[i] = magnitudes[min(fftIndex, magnitudes.count - 1)]
+            // Wende Kalibrierung an
+            columnData[i] = magnitudes[min(fftIndex, magnitudes.count - 1)] * calibrationScale
         }
 
         // Reverse for proper orientation (high freq at top)
@@ -424,6 +453,7 @@ class HighEndSpectrogramView: MTKView {
     func reset() {
         currentColumn = 0
         audioBuffer = []
+        audioBufferOffset = 0
         clearTexture()
     }
 
@@ -431,9 +461,15 @@ class HighEndSpectrogramView: MTKView {
         colormapType = max(0, min(2, type))  // 0-2
     }
 
-    /// Set noise gate threshold (dB). Recommended: -90 to -70
+    /// Set noise gate threshold (dB SPL). Recommended: 15 to 30 dB SPL
     func setNoiseFloor(_ db: Float) {
         noiseFloor = db
+    }
+
+    /// Set calibration offset (dBFS → dB SPL). Default: 120 dB
+    /// Typical iPhone microphones: -26 dBFS at 94 dB SPL → offset = 120
+    func setCalibrationOffset(_ offset: Float) {
+        calibrationOffset = offset
     }
 
     /// Set soft-knee width (dB). Recommended: 5 to 15

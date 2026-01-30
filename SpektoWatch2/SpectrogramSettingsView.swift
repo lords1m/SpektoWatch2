@@ -101,10 +101,34 @@ struct SpectrogramSettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    
+
                     Picker("Frequenzbewertung", selection: $audioEngine.frequencyWeighting) {
                         ForEach(FrequencyWeighting.allCases, id: \.self) { weighting in
                             Text(weighting.rawValue).tag(weighting)
+                        }
+                    }
+                }
+
+                Section(header: Text("Kalibrierung: \(Int(audioEngine.calibrationOffset)) dB")) {
+                    HStack {
+                        Text("80")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Slider(value: $audioEngine.calibrationOffset, in: 80...110, step: 1)
+                        Text("110")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Text("Niedrigerer Wert = niedrigere angezeigte Pegel")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Button(action: {
+                        audioEngine.resetCalibrationToDeviceDefault()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Auf Gerätewert zurücksetzen (\(Int(AudioEngine.getRecommendedCalibrationOffset())) dB)")
                         }
                     }
                 }

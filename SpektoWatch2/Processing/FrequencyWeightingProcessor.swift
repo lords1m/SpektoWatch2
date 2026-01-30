@@ -1,6 +1,20 @@
 import Foundation
 import Accelerate
 
+enum FrequencyWeighting: String, CaseIterable {
+    case z = "Z"
+    case a = "A"
+    case c = "C"
+
+    var displayName: String {
+        switch self {
+        case .z: return "Linear (Z)"
+        case .a: return "A-Weighting"
+        case .c: return "C-Weighting"
+        }
+    }
+}
+
 /// Applies frequency weighting curves (A, C, Z) to spectral data
 class FrequencyWeightingProcessor {
     private let fftSize: Int
@@ -38,7 +52,7 @@ class FrequencyWeightingProcessor {
     ///   - frequencies: Frequency array (must match dbMagnitudes length)
     ///   - weighting: Weighting type to apply
     /// - Returns: Weighted dB magnitudes
-    func applyWeighting(_ dbMagnitudes: [Float], frequencies: [Float], weighting: FrequencyWeighting) -> [Float] {
+    func applyWeighting(to dbMagnitudes: [Float], frequencies: [Float], weighting: FrequencyWeighting) -> [Float] {
         let gains = getWeightingGains(for: weighting)
         var weighted = [Float](repeating: 0, count: dbMagnitudes.count)
         

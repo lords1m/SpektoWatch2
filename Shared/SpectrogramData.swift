@@ -7,19 +7,35 @@ public enum MicrophoneSource: String, Codable, CaseIterable {
 
 public struct SpectrogramData: Codable {
     public let frequencies: [Float]
-    public let magnitudes: [Float]
+    public let magnitudes: [Float]       // Z-gewichtet (ungewichtet/linear)
+    public let magnitudesA: [Float]?     // A-gewichtet
+    public let magnitudesC: [Float]?     // C-gewichtet
     public let broadbandLevel: Float
     public let levels: [String: Float]
     public let timestamp: Date
     public let sampleRate: Double
 
-    public init(frequencies: [Float], magnitudes: [Float], broadbandLevel: Float = -120.0, levels: [String: Float] = [:], sampleRate: Double) {
+    public init(frequencies: [Float], magnitudes: [Float], magnitudesA: [Float]? = nil, magnitudesC: [Float]? = nil, broadbandLevel: Float = -120.0, levels: [String: Float] = [:], sampleRate: Double) {
         self.frequencies = frequencies
         self.magnitudes = magnitudes
+        self.magnitudesA = magnitudesA
+        self.magnitudesC = magnitudesC
         self.broadbandLevel = broadbandLevel
         self.levels = levels
         self.timestamp = Date()
         self.sampleRate = sampleRate
+    }
+
+    /// Gibt die Magnituden für die gewählte Bewertungskurve zurück
+    public func magnitudes(for weighting: String) -> [Float] {
+        switch weighting.uppercased() {
+        case "A":
+            return magnitudesA ?? magnitudes
+        case "C":
+            return magnitudesC ?? magnitudes
+        default: // "Z" oder andere
+            return magnitudes
+        }
     }
     
     // MARK: - Binary Encoding
