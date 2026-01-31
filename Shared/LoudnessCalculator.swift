@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Combine
 
 class LoudnessCalculator: ObservableObject {
     @Published var result: LoudnessResult?
