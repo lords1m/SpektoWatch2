@@ -6,6 +6,7 @@ public enum WatchWidgetType: String, Codable, CaseIterable, Identifiable {
     case spectrogram = "Spektrogramm"
     case levelMeter = "Pegel"
     case singleValue = "Wert"
+    case loudness = "Lautheit"
     case empty = "Leer"
 
     public var id: String { rawValue }
@@ -15,6 +16,7 @@ public enum WatchWidgetType: String, Codable, CaseIterable, Identifiable {
         case .spectrogram: return "waveform"
         case .levelMeter: return "gauge.with.needle"
         case .singleValue: return "textformat.123"
+        case .loudness: return "speaker.wave.3"
         case .empty: return "square.dashed"
         }
     }
@@ -104,6 +106,7 @@ public struct WatchDashboardConfig: Codable, Equatable {
         // Check if this position is a secondary cell of a larger widget
         let spectrogramPositions = widgets.filter { $0.type == .spectrogram }.map { $0.position }
         let levelMeterPositions = widgets.filter { $0.type == .levelMeter }.map { $0.position }
+        let loudnessPositions = widgets.filter { $0.type == .loudness }.map { $0.position }
 
         // Spectrogram and level meter span multiple cells
         if spectrogramPositions.count > 1 && spectrogramPositions.contains(position) {
@@ -111,6 +114,9 @@ public struct WatchDashboardConfig: Codable, Equatable {
         }
         if levelMeterPositions.count > 1 && levelMeterPositions.contains(position) {
             return position != levelMeterPositions.min()
+        }
+        if loudnessPositions.count > 1 && loudnessPositions.contains(position) {
+            return position != loudnessPositions.min()
         }
         return false
     }
