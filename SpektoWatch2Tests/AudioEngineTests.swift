@@ -2,6 +2,7 @@ import XCTest
 @testable import SpektoWatch2
 
 /// Tests für AudioEngine - Testet Thread-Safety, FFT-Konfiguration und Audio-Verarbeitung
+@MainActor
 final class AudioEngineTests: XCTestCase {
 
     var audioEngine: AudioEngine!
@@ -195,7 +196,9 @@ final class AudioEngineTests: XCTestCase {
         DispatchQueue.global(qos: .userInitiated).async {
             for i in 0..<iterations {
                 let sizes: [FFTBlockSize] = [.size512, .size1024, .size2048, .size4096]
-                self.audioEngine.setBlockSize(sizes[i % sizes.count])
+                Task { @MainActor in
+                    self.audioEngine.setBlockSize(sizes[i % sizes.count])
+                }
 
                 lock.lock()
                 completedOps += 1
@@ -210,7 +213,9 @@ final class AudioEngineTests: XCTestCase {
         DispatchQueue.global(qos: .userInitiated).async {
             for _ in 0..<iterations {
                 let samples = (0..<8192).map { sin(Float($0) * 0.01) }
-                self.audioEngine.processExternalAudio(samples)
+                Task { @MainActor in
+                    self.audioEngine.processExternalAudio(samples)
+                }
 
                 lock.lock()
                 completedOps += 1
@@ -228,10 +233,12 @@ final class AudioEngineTests: XCTestCase {
     func testRapidWindowFunctionSwitching() {
         let expectation = XCTestExpectation(description: "Rapid switching completes without crash")
 
-        DispatchQueue.global().async {
+        Task {
             for _ in 0..<100 {
                 for window in WindowFunction.allCases {
-                    self.audioEngine.setWindowFunction(window)
+                    await MainActor.run {
+                        self.audioEngine.setWindowFunction(window)
+                    }
                 }
             }
             expectation.fulfill()
@@ -244,10 +251,12 @@ final class AudioEngineTests: XCTestCase {
     func testRapidBlockSizeSwitching() {
         let expectation = XCTestExpectation(description: "Rapid switching completes without crash")
 
-        DispatchQueue.global().async {
+        Task {
             for _ in 0..<100 {
                 for size in FFTBlockSize.allCases {
-                    self.audioEngine.setBlockSize(size)
+                    await MainActor.run {
+                        self.audioEngine.setBlockSize(size)
+                    }
                 }
             }
             expectation.fulfill()
