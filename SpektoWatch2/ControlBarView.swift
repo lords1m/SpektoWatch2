@@ -111,14 +111,14 @@ struct ControlBarView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            .padding(.bottom, 12)
+            .padding(.bottom, max(16, safeAreaBottomInset + 8))
             .frame(maxWidth: .infinity)
         }
-        .padding(.bottom, safeAreaBottomInset)
         .background(
             Color(UIColor.systemBackground)
                 .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -2)
         )
+        .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $showSaveDialog) {
             if let audioURL = recordedAudioURL {
                 SaveRecordingView(

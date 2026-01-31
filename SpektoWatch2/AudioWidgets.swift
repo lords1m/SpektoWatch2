@@ -138,6 +138,8 @@ private struct FullSpectrumView: View {
 // MARK: - 1/3 Octave (Terz) Spectrum
 private struct ThirdOctaveSpectrumView: View {
     @ObservedObject var audioEngine: AudioEngine
+    @State private var leqValues: [Float] = Array(repeating: -120.0, count: 31)
+    @State private var sampleCount: Int = 0
 
     // 31 Terzbänder nach IEC 61260
     static let centerFreqs: [String] = [
@@ -145,6 +147,9 @@ private struct ThirdOctaveSpectrumView: View {
         "200", "250", "315", "400", "500", "630", "800", "1k", "1.25k", "1.6k",
         "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k", "20k"
     ]
+
+    // Leq Smoothing Factor (exponentieller gleitender Durchschnitt)
+    private let leqAlpha: Float = 0.02
 
     var body: some View {
         Canvas { context, size in
@@ -201,6 +206,18 @@ private struct ThirdOctaveSpectrumView: View {
                 // Top highlight
                 let topRect = CGRect(x: x + barGap/2, y: graphHeight - barHeight, width: barWidth - barGap, height: 2)
                 context.fill(Path(topRect), with: .color(.white.opacity(0.4)))
+
+                // Leq Marker (Mittelwert-Strich)
+                if i < leqValues.count {
+                    let leqNorm = CGFloat((leqValues[i] - minDB) / range)
+                    let leqClamped = max(0, min(1, leqNorm))
+                    let leqY = graphHeight - leqClamped * graphHeight
+
+                    var leqPath = Path()
+                    leqPath.move(to: CGPoint(x: x + 1, y: leqY))
+                    leqPath.addLine(to: CGPoint(x: x + barWidth - 1, y: leqY))
+                    context.stroke(leqPath, with: .color(.white), lineWidth: 2)
+                }
             }
 
             // X-Axis Labels (every 5th band)
@@ -210,22 +227,40 @@ private struct ThirdOctaveSpectrumView: View {
             }
         }
         .drawingGroup()
+        .onChange(of: audioEngine.currentOctaveBands) { _, newBands in
+            updateLeq(bands: newBands)
+        }
+    }
+
+    private func updateLeq(bands: [Float]) {
+        guard bands.count == leqValues.count else { return }
+        sampleCount += 1
+
+        for i in 0..<bands.count {
+            if sampleCount == 1 {
+                leqValues[i] = bands[i]
+            } else {
+                // Energetischer Mittelwert (Leq)
+                let currentLinear = pow(10, bands[i] / 10.0)
+                let leqLinear = pow(10, leqValues[i] / 10.0)
+                let newLeqLinear = leqLinear * (1 - leqAlpha) + currentLinear * leqAlpha
+                leqValues[i] = 10 * log10(max(newLeqLinear, 1e-10))
+            }
+        }
     }
 }
 
 // MARK: - Octave Spectrum
 private struct OctaveSpectrumView: View {
     @ObservedObject var audioEngine: AudioEngine
+    @State private var leqValues: [Float] = Array(repeating: -120.0, count: 10)
+    @State private var sampleCount: Int = 0
 
     // 10 Oktavbänder (31.5 Hz - 16 kHz)
     static let octaveCenterFreqs: [Float] = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     static let octaveLabels: [String] = ["31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
 
     // Terzbänder zu Oktavbändern zusammenfassen (jeweils 3 Terzen = 1 Oktave)
-    // Terzbänder: 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1k, 1.25k, 1.6k, 2k, 2.5k, 3.15k, 4k, 5k, 6.3k, 8k, 10k, 12.5k, 16k, 20k
-    // Oktave 31.5 Hz: Terz 25, 31.5, 40 (Index 1, 2, 3)
-    // Oktave 63 Hz: Terz 50, 63, 80 (Index 4, 5, 6)
-    // usw.
     static let terzToOctaveMapping: [[Int]] = [
         [1, 2, 3],      // 31.5 Hz
         [4, 5, 6],      // 63 Hz
@@ -238,6 +273,9 @@ private struct OctaveSpectrumView: View {
         [25, 26, 27],   // 8 kHz
         [28, 29, 30]    // 16 kHz
     ]
+
+    // Leq Smoothing Factor
+    private let leqAlpha: Float = 0.02
 
     var body: some View {
         Canvas { context, size in
@@ -257,11 +295,9 @@ private struct OctaveSpectrumView: View {
                 var sumLinear: Float = 0
                 for idx in indices {
                     if idx < terzBands.count {
-                        // dB zu linear, summieren
                         sumLinear += pow(10, terzBands[idx] / 10.0)
                     }
                 }
-                // Zurück zu dB
                 let octaveDb = 10 * log10(max(sumLinear, 1e-10))
                 octaveBands.append(octaveDb)
             }
@@ -309,8 +345,20 @@ private struct OctaveSpectrumView: View {
                 let topRect = CGRect(x: x + barGap/2, y: graphHeight - barHeight, width: barWidth - barGap, height: 3)
                 context.fill(Path(topRect), with: .color(.white.opacity(0.5)))
 
+                // Leq Marker (Mittelwert-Strich)
+                if i < leqValues.count {
+                    let leqNorm = CGFloat((leqValues[i] - minDB) / range)
+                    let leqClamped = max(0, min(1, leqNorm))
+                    let leqY = graphHeight - leqClamped * graphHeight
+
+                    var leqPath = Path()
+                    leqPath.move(to: CGPoint(x: x + barGap/2, y: leqY))
+                    leqPath.addLine(to: CGPoint(x: x + barWidth - barGap/2, y: leqY))
+                    context.stroke(leqPath, with: .color(.white), lineWidth: 3)
+                }
+
                 // Value label on bar
-                if barHeight > 20 {
+                if barHeight > 25 {
                     let valueText = Text("\(Int(val))").font(.system(size: 9, weight: .medium)).foregroundColor(.white)
                     context.draw(valueText, at: CGPoint(x: x + barWidth/2, y: graphHeight - barHeight + 12))
                 }
@@ -323,6 +371,39 @@ private struct OctaveSpectrumView: View {
             }
         }
         .drawingGroup()
+        .onChange(of: audioEngine.currentOctaveBands) { _, newBands in
+            updateLeq(bands: newBands)
+        }
+    }
+
+    private func updateLeq(bands: [Float]) {
+        // Berechne Oktavbänder aus Terzbändern
+        var octaveBands: [Float] = []
+        for indices in Self.terzToOctaveMapping {
+            var sumLinear: Float = 0
+            for idx in indices {
+                if idx < bands.count {
+                    sumLinear += pow(10, bands[idx] / 10.0)
+                }
+            }
+            let octaveDb = 10 * log10(max(sumLinear, 1e-10))
+            octaveBands.append(octaveDb)
+        }
+
+        guard octaveBands.count == leqValues.count else { return }
+        sampleCount += 1
+
+        for i in 0..<octaveBands.count {
+            if sampleCount == 1 {
+                leqValues[i] = octaveBands[i]
+            } else {
+                // Energetischer Mittelwert (Leq)
+                let currentLinear = pow(10, octaveBands[i] / 10.0)
+                let leqLinear = pow(10, leqValues[i] / 10.0)
+                let newLeqLinear = leqLinear * (1 - leqAlpha) + currentLinear * leqAlpha
+                leqValues[i] = 10 * log10(max(newLeqLinear, 1e-10))
+            }
+        }
     }
 }
 
