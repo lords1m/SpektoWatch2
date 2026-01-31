@@ -56,6 +56,7 @@ struct WidgetCardView: View {
             renderWidgetContent()
                 .frame(height: widget.size.height)
                 .clipped()
+                .allowsHitTesting(!isEditMode) // Disable interaction in edit mode
         }
         .background(Color(UIColor.systemBackground))
         .cornerRadius(12)
@@ -74,29 +75,12 @@ struct WidgetCardView: View {
     @ViewBuilder
     private func renderWidgetContent() -> some View {
         switch widget.type {
-        case .spectrogram:
-            SpectrogramWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .levelHistory:
-            LevelHistoryWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .frequencyDisplay:
-            FrequencySpectrumWidget(audioEngine: audioEngine)
-        case .levelMeter:
-            LevelMeterWidget(audioEngine: audioEngine)
-        case .octaveBands:
-            OctaveBandWidget(audioEngine: audioEngine)
-        case .phaseMeter:
-            PhaseMeterWidget(audioEngine: audioEngine)
-        case .singleValue:
-            SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
         case .toneGenerator:
             ToneGeneratorWidget(settings: widget.settings)
-        // Spektralanalyse-Labor Widgets
         case .fftParameters:
             FFTParametersWidget(fftConfig: fftConfig, audioEngine: audioEngine)
         case .windowFunction:
             WindowFunctionWidget(fftConfig: fftConfig)
-        case .heisenbergResolution:
-            HeisenbergResolutionWidget(fftConfig: fftConfig)
         case .spectrumComparison:
             SpectrumComparisonWidget(fftConfig: fftConfig, audioEngine: audioEngine)
         }
