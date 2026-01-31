@@ -1,6 +1,26 @@
 import Foundation
 import CoreLocation
 
+/// Wrapper für CLLocationCoordinate2D um Codable zu unterstützen
+struct CodableCoordinate: Codable {
+    let latitude: CLLocationDegrees
+    let longitude: CLLocationDegrees
+    
+    init(latitude: CLLocationDegrees, longitude: CLLocationDegrees) {
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+    
+    init(_ coordinate: CLLocationCoordinate2D) {
+        self.latitude = coordinate.latitude
+        self.longitude = coordinate.longitude
+    }
+    
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
 /// Modell für eine gespeicherte Messung
 struct Recording: Identifiable, Codable {
     let id: UUID
@@ -20,13 +40,38 @@ struct Recording: Identifiable, Codable {
     var minLevel: Float  // Minimalpegel
     
     // Optionale Metadaten
-    var location: CLLocationCoordinate2D?
+    private var _location: CodableCoordinate?
     var photoFileNames: [String]  // Referenzen zu Fotos
     var tags: [String]
     
     // Mess-Konfiguration
     var timeWeighting: String   // "Fast" oder "Slow"
     var frequencyWeighting: String  // "A", "C" oder "Z"
+    
+    // Computed property für location
+    var location: CLLocationCoordinate2D? {
+        get { _location?.coordinate }
+        set { _location = newValue.map { CodableCoordinate($0) } }
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case startDate
+        case duration
+        case audioFileName
+        case sampleRate
+        case channelCount
+        case laeqFast
+        case peakLevel
+        case minLevel
+        case _location = "location"
+        case photoFileNames
+        case tags
+        case timeWeighting
+        case frequencyWeighting
+    }
     
     init(
         id: UUID = UUID(),
@@ -57,7 +102,7 @@ struct Recording: Identifiable, Codable {
         self.laeqFast = laeqFast
         self.peakLevel = peakLevel
         self.minLevel = minLevel
-        self.location = location
+        self._location = location.map { CodableCoordinate($0) }
         self.photoFileNames = photoFileNames
         self.tags = tags
         self.timeWeighting = timeWeighting
@@ -78,26 +123,5 @@ struct Recording: Identifiable, Codable {
         formatter.timeStyle = .short
         formatter.locale = Locale(identifier: "de_DE")
         return formatter.string(from: startDate)
-    }
-}
-
-// MARK: - CLLocationCoordinate2D Codable Extension
-extension CLLocationCoordinate2D: Codable {
-    enum CodingKeys: String, CodingKey {
-        case latitude
-        case longitude
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(latitude, forKey: .latitude)
-        try container.encode(longitude, forKey: .longitude)
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let latitude = try container.decode(CLLocationDegrees.self, forKey: .latitude)
-        let longitude = try container.decode(CLLocationDegrees.self, forKey: .longitude)
-        self.init(latitude: latitude, longitude: longitude)
     }
 }
