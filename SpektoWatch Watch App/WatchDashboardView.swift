@@ -72,6 +72,11 @@ struct WatchDashboardView: View {
                         .frame(width: width, height: height)
                         .cornerRadius(4)
                 }
+            
+            case .loudness:
+                WatchLoudnessWidget()
+                    .frame(width: width, height: height)
+                    .cornerRadius(4)
 
             case .empty:
                 EmptyView()
