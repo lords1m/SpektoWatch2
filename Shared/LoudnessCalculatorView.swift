@@ -40,8 +40,10 @@ struct LoudnessCalculatorView: View {
                         
                         HStack {
                             TextField("0-130", text: $splInput)
+                                #if os(iOS)
                                 .keyboardType(.decimalPad)
                                 .textFieldStyle(.roundedBorder)
+                                #endif
                             
                             Text("dB SPL")
                                 .foregroundColor(.secondary)
@@ -55,8 +57,10 @@ struct LoudnessCalculatorView: View {
                         
                         HStack {
                             TextField("20-20000", text: $frequencyInput)
+                                #if os(iOS)
                                 .keyboardType(.decimalPad)
                                 .textFieldStyle(.roundedBorder)
+                                #endif
                             
                             Text("Hz")
                                 .foregroundColor(.secondary)
@@ -73,7 +77,11 @@ struct LoudnessCalculatorView: View {
                     }
                 }
                 .padding()
+                #if os(iOS)
                 .background(Color(.systemGray6))
+                #else
+                .background(Color.gray.opacity(0.2))
+                #endif
                 .cornerRadius(12)
                 
                 // Ergebnisse
@@ -130,7 +138,11 @@ struct LoudnessCalculatorView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding()
+                #if os(iOS)
                 .background(Color(.systemGray6))
+                #else
+                .background(Color.gray.opacity(0.2))
+                #endif
                 .cornerRadius(12)
             }
             .padding()
