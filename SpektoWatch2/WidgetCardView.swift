@@ -4,12 +4,13 @@ import SwiftUI
 struct WidgetCardView: View {
     let widget: WidgetConfiguration
     @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var fftConfig: FFTConfiguration
     var isEditMode: Bool
     var columnWidth: CGFloat = 160 // Default fallback
     var onDelete: () -> Void
     var onResize: (WidgetSize) -> Void
     var onUpdateSettings: ([String: String]) -> Void
-    
+
     @State private var showSettings = false
     
     var body: some View {
@@ -89,6 +90,15 @@ struct WidgetCardView: View {
             SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
         case .toneGenerator:
             ToneGeneratorWidget(settings: widget.settings)
+        // Spektralanalyse-Labor Widgets
+        case .fftParameters:
+            FFTParametersWidget(fftConfig: fftConfig, audioEngine: audioEngine)
+        case .windowFunction:
+            WindowFunctionWidget(fftConfig: fftConfig)
+        case .heisenbergResolution:
+            HeisenbergResolutionWidget(fftConfig: fftConfig)
+        case .spectrumComparison:
+            SpectrumComparisonWidget(fftConfig: fftConfig, audioEngine: audioEngine)
         }
     }
     

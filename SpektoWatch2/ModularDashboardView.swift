@@ -3,7 +3,8 @@ import UniformTypeIdentifiers
 
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
-    
+    @EnvironmentObject private var fftConfig: FFTConfiguration
+
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
         _viewModel = StateObject(wrappedValue: DashboardViewModel(audioEngine: audioEngine, connectivityManager: connectivityManager))
     }
@@ -90,6 +91,7 @@ struct ModularDashboardView: View {
                             WidgetCardView(
                                 widget: widget,
                                 audioEngine: viewModel.audioEngine,
+                                fftConfig: fftConfig,
                                 isEditMode: viewModel.dashboardManager.isEditMode,
                                 columnWidth: columnWidth,
                                 onDelete: {

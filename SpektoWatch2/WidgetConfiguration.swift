@@ -10,6 +10,11 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case phaseMeter = "Phasen-Meter"
     case singleValue = "Einzelwert"
     case toneGenerator = "Tongenerator"
+    // Spektralanalyse-Labor Widgets
+    case fftParameters = "FFT-Parameter"
+    case windowFunction = "Fensterfunktion"
+    case heisenbergResolution = "Zeit-Frequenz"
+    case spectrumComparison = "Spektrum-Vergleich"
 
     var id: String { rawValue }
 }
@@ -53,6 +58,11 @@ struct WidgetConfiguration: Identifiable, Codable {
         case .phaseMeter: return WidgetSize(columns: 1, rows: 1.0)
         case .singleValue: return WidgetSize(columns: 1, rows: 1.0)
         case .toneGenerator: return WidgetSize(columns: 2, rows: 2.0)
+        // Spektralanalyse-Labor Widgets
+        case .fftParameters: return WidgetSize(columns: 2, rows: 1.5)
+        case .windowFunction: return WidgetSize(columns: 2, rows: 1.5)
+        case .heisenbergResolution: return WidgetSize(columns: 2, rows: 1.5)
+        case .spectrumComparison: return WidgetSize(columns: 2, rows: 2.0)
         }
     }
 }
