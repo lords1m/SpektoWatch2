@@ -34,8 +34,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Ergebnis sollte vorhanden sein
         XCTAssertNotNil(calculator.result)
-        XCTAssertEqual(calculator.result?.inputSPL, spl)
-        XCTAssertEqual(calculator.result?.inputFrequency, frequency)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        XCTAssertEqual(result.inputSPL, spl)
+        XCTAssertEqual(result.inputFrequency, frequency)
     }
     
     // MARK: - Referenzfrequenz Tests (1000 Hz)
@@ -55,8 +59,12 @@ final class LoudnessCalculatorTests: XCTestCase {
             calculator.calculate(spl: testCase.spl, frequency: 1000.0)
             
             // Then: Bei 1000 Hz gilt: dB SPL = Phon
+            guard let result = calculator.result else {
+                XCTFail("Result should not be nil for SPL \(testCase.spl)")
+                continue
+            }
             XCTAssertEqual(
-                calculator.result?.phon,
+                result.phon,
                 testCase.expectedPhon,
                 accuracy: 0.1,
                 "Bei 1000 Hz sollte \(testCase.spl) dB SPL = \(testCase.expectedPhon) Phon sein"
@@ -75,8 +83,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         calculator.calculate(spl: spl, frequency: frequency)
         
         // Then: 40 Phon = 1 Sone (Referenz)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
         XCTAssertEqual(
-            calculator.result?.sone,
+            result.sone,
             1.0,
             accuracy: 0.01,
             "40 Phon sollte 1 Sone entsprechen (Referenz)"
@@ -93,8 +105,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: 50 Phon = 2 Sone (Verdopplung)
         // S = 2^((P-40)/10) = 2^((50-40)/10) = 2^1 = 2
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
         XCTAssertEqual(
-            calculator.result?.sone,
+            result.sone,
             2.0,
             accuracy: 0.01,
             "50 Phon sollte 2 Sone entsprechen (+10 Phon = Verdopplung)"
@@ -111,8 +127,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: 60 Phon = 4 Sone (nochmal Verdopplung)
         // S = 2^((60-40)/10) = 2^2 = 4
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
         XCTAssertEqual(
-            calculator.result?.sone,
+            result.sone,
             4.0,
             accuracy: 0.01,
             "60 Phon sollte 4 Sone entsprechen"
@@ -129,8 +149,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: 70 Phon = 8 Sone
         // S = 2^((70-40)/10) = 2^3 = 8
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
         XCTAssertEqual(
-            calculator.result?.sone,
+            result.sone,
             8.0,
             accuracy: 0.01,
             "70 Phon sollte 8 Sone entsprechen"
@@ -147,9 +171,13 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Unter 40 Phon gilt modifizierte Formel
         // S = (P/40)^2.642
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
         let expectedSone = pow(30.0 / 40.0, 2.642)
         XCTAssertEqual(
-            calculator.result?.sone,
+            result.sone,
             expectedSone,
             accuracy: 0.01,
             "30 Phon sollte ca. \(expectedSone) Sone entsprechen"
@@ -166,10 +194,18 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // When: Berechnung bei beiden Frequenzen
         calculator.calculate(spl: spl, frequency: lowFrequency)
-        let lowFreqPhon = calculator.result?.phon ?? 0
+        guard let lowFreqResult = calculator.result else {
+            XCTFail("Result should not be nil for low frequency")
+            return
+        }
+        let lowFreqPhon = lowFreqResult.phon
         
         calculator.calculate(spl: spl, frequency: referenceFrequency)
-        let refFreqPhon = calculator.result?.phon ?? 0
+        guard let refFreqResult = calculator.result else {
+            XCTFail("Result should not be nil for reference frequency")
+            return
+        }
+        let refFreqPhon = refFreqResult.phon
         
         // Then: Tiefe Frequenzen werden leiser wahrgenommen
         XCTAssertLessThan(
@@ -189,8 +225,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Sollte sinnvolle Werte liefern
         XCTAssertNotNil(calculator.result)
-        XCTAssertGreaterThan(calculator.result?.phon ?? 0, 0)
-        XCTAssertGreaterThan(calculator.result?.sone ?? 0, 0)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        XCTAssertGreaterThan(result.phon, 0)
+        XCTAssertGreaterThan(result.sone, 0)
     }
     
     // MARK: - Verdopplungs-Test
@@ -202,9 +242,13 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // When: Berechnung durchführen
         calculator.calculate(spl: spl, frequency: frequency)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
         
         // Then: Doppelte Lautheit sollte ca. 70 dB SPL sein (+10 Phon)
-        let doubleLoudnessSPL = calculator.result?.doubleLoudnessSPL ?? 0
+        let doubleLoudnessSPL = result.doubleLoudnessSPL
         XCTAssertEqual(
             doubleLoudnessSPL,
             70.0,
@@ -213,9 +257,13 @@ final class LoudnessCalculatorTests: XCTestCase {
         )
         
         // Verify: Sone-Verdopplung
-        let originalSone = calculator.result?.sone ?? 0
+        let originalSone = result.sone
         calculator.calculate(spl: doubleLoudnessSPL, frequency: frequency)
-        let doubleSone = calculator.result?.sone ?? 0
+        guard let doubleResult = calculator.result else {
+            XCTFail("Result should not be nil for double loudness")
+            return
+        }
+        let doubleSone = doubleResult.sone
         
         XCTAssertEqual(
             doubleSone / originalSone,
@@ -237,8 +285,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Sollte gültige Ergebnisse liefern
         XCTAssertNotNil(calculator.result)
-        XCTAssertGreaterThanOrEqual(calculator.result?.phon ?? -1, 0)
-        XCTAssertGreaterThanOrEqual(calculator.result?.sone ?? -1, 0)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        XCTAssertGreaterThanOrEqual(result.phon, 0)
+        XCTAssertGreaterThanOrEqual(result.sone, 0)
     }
     
     func testMaximumSPL() {
@@ -251,8 +303,12 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Sollte gültige Ergebnisse liefern
         XCTAssertNotNil(calculator.result)
-        XCTAssertGreaterThan(calculator.result?.phon ?? 0, 100)
-        XCTAssertGreaterThan(calculator.result?.sone ?? 0, 100)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        XCTAssertGreaterThan(result.phon, 100)
+        XCTAssertGreaterThan(result.sone, 100)
     }
     
     func testMinimumFrequency() {
@@ -265,7 +321,11 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Sollte gültige Ergebnisse liefern
         XCTAssertNotNil(calculator.result)
-        XCTAssertGreaterThan(calculator.result?.phon ?? 0, 0)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        XCTAssertGreaterThan(result.phon, 0)
     }
     
     func testMaximumFrequency() {
@@ -278,7 +338,11 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // Then: Sollte gültige Ergebnisse liefern
         XCTAssertNotNil(calculator.result)
-        XCTAssertGreaterThan(calculator.result?.phon ?? 0, 0)
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        XCTAssertGreaterThan(result.phon, 0)
     }
     
     // MARK: - Interpretation Tests
@@ -299,7 +363,11 @@ final class LoudnessCalculatorTests: XCTestCase {
             calculator.calculate(spl: testCase.spl, frequency: 1000.0)
             
             // Then: Interpretation sollte sinnvoll sein
-            let interpretation = calculator.result?.phonInterpretation ?? ""
+            guard let result = calculator.result else {
+                XCTFail("Result should not be nil for SPL \(testCase.spl)")
+                continue
+            }
+            let interpretation = result.phonInterpretation
             XCTAssertFalse(
                 interpretation.isEmpty,
                 "Interpretation für \(testCase.spl) dB SPL sollte nicht leer sein"
@@ -312,7 +380,11 @@ final class LoudnessCalculatorTests: XCTestCase {
         calculator.calculate(spl: 40.0, frequency: 1000.0)
         
         // Then: Interpretation sollte auf Referenz hinweisen
-        let interpretation = calculator.result?.soneInterpretation ?? ""
+        guard let result = calculator.result else {
+            XCTFail("Result should not be nil")
+            return
+        }
+        let interpretation = result.soneInterpretation
         XCTAssertFalse(interpretation.isEmpty)
         XCTAssertTrue(interpretation.contains("1") || interpretation.contains("40"))
     }
@@ -326,12 +398,20 @@ final class LoudnessCalculatorTests: XCTestCase {
         
         // When: Mehrfache Berechnung
         calculator.calculate(spl: spl, frequency: frequency)
-        let firstPhon = calculator.result?.phon
-        let firstSone = calculator.result?.sone
+        guard let firstResult = calculator.result else {
+            XCTFail("First result should not be nil")
+            return
+        }
+        let firstPhon = firstResult.phon
+        let firstSone = firstResult.sone
         
         calculator.calculate(spl: spl, frequency: frequency)
-        let secondPhon = calculator.result?.phon
-        let secondSone = calculator.result?.sone
+        guard let secondResult = calculator.result else {
+            XCTFail("Second result should not be nil")
+            return
+        }
+        let secondPhon = secondResult.phon
+        let secondSone = secondResult.sone
         
         // Then: Ergebnisse sollten identisch sein
         XCTAssertEqual(firstPhon, secondPhon, "Wiederholte Berechnungen sollten identische Phon-Werte liefern")
@@ -346,7 +426,11 @@ final class LoudnessCalculatorTests: XCTestCase {
         // When/Then: Sone sollte monoton steigen
         for spl in stride(from: 20.0, through: 100.0, by: 10.0) {
             calculator.calculate(spl: spl, frequency: frequency)
-            let currentSone = calculator.result?.sone ?? 0
+            guard let result = calculator.result else {
+                XCTFail("Result should not be nil for SPL \(spl)")
+                continue
+            }
+            let currentSone = result.sone
             
             XCTAssertGreaterThan(
                 currentSone,
