@@ -372,19 +372,19 @@ final class FFTConfigurationTests: XCTestCase {
         let config = FFTConfiguration()
 
         config.applyPreset(.music)
-        XCTAssertEqual(config.windowFunction, .hann, "Music preset should use Hann")
-        XCTAssertEqual(config.blockSize, .size4096, "Music preset should use 4096")
+        XCTAssertEqual(config.windowFunction, .blackman, "Music preset should use Blackman")
+        XCTAssertEqual(config.blockSize, .size8192, "Music preset should use 8192")
 
         config.applyPreset(.speech)
         XCTAssertEqual(config.windowFunction, .hamming, "Speech preset should use Hamming")
         XCTAssertEqual(config.blockSize, .size2048, "Speech preset should use 2048")
 
         config.applyPreset(.transient)
-        XCTAssertEqual(config.windowFunction, .rectangular, "Transient preset should use Rectangular")
-        XCTAssertEqual(config.blockSize, .size512, "Transient preset should use 512")
+        XCTAssertEqual(config.windowFunction, .hann, "Transient preset should use Hann")
+        XCTAssertEqual(config.blockSize, .size1024, "Transient preset should use 1024")
 
         config.applyPreset(.precision)
-        XCTAssertEqual(config.windowFunction, .flatTop, "Precision preset should use Flat Top")
+        XCTAssertEqual(config.windowFunction, .blackmanHarris, "Precision preset should use Blackman-Harris")
         XCTAssertEqual(config.blockSize, .size16384, "Precision preset should use 16384")
     }
 
@@ -394,7 +394,7 @@ final class FFTConfigurationTests: XCTestCase {
         config.blockSize = .size2048
 
         let expectedFreqRes = 44100.0 / 2048.0
-        XCTAssertEqual(config.frequencyResolutionHz, Float(expectedFreqRes), accuracy: 0.1)
+        XCTAssertEqual(config.frequencyResolution, Float(expectedFreqRes), accuracy: 0.1)
 
         let expectedTimeRes = 2048.0 / 44100.0 * 1000.0
         XCTAssertEqual(config.timeResolutionMs, Float(expectedTimeRes), accuracy: 0.1)
