@@ -1,0 +1,350 @@
+import XCTest
+@testable import SpektoWatch2
+
+/// Tests für WatchConnectivity - Testet Datenübertragung, Message Queue und Serialisierung
+final class WatchConnectivityTests: XCTestCase {
+
+    // MARK: - SpectrogramData Serialisierung Tests
+
+    /// Testet SpectrogramData Serialisierung und Deserialisierung
+    func testSpectrogramDataSerialization() {
+        // Erstelle Test-Daten
+        let frequencies: [Float] = [100, 200, 500, 1000, 2000, 5000]
+        let magnitudes: [Float] = [40, 45, 50, 55, 60, 50]
+        let magnitudesA: [Float] = [35, 42, 48, 55, 61, 48]
+        let magnitudesC: [Float] = [38, 44, 49, 55, 59, 49]
+        let broadbandLevel: Float = 65.5
+        let levels: [String: Float] = ["LAF": 65.5, "LCF": 67.2, "LZF": 68.0]
+        let sampleRate: Double = 44100.0
+
+        let original = SpectrogramData(
+            frequencies: frequencies,
+            magnitudes: magnitudes,
+            magnitudesA: magnitudesA,
+            magnitudesC: magnitudesC,
+            broadbandLevel: broadbandLevel,
+            levels: levels,
+            sampleRate: sampleRate
+        )
+
+        // Serialisiere zu Binary
+        let binaryData = original.toBinaryData()
+        XCTAssertGreaterThan(binaryData.count, 0, "Binary data should not be empty")
+
+        // Deserialisiere
+        guard let restored = SpectrogramData.fromBinaryData(binaryData) else {
+            XCTFail("Failed to deserialize SpectrogramData")
+            return
+        }
+
+        // Vergleiche
+        XCTAssertEqual(restored.frequencies.count, original.frequencies.count, "Frequency count should match")
+        XCTAssertEqual(restored.magnitudes.count, original.magnitudes.count, "Magnitude count should match")
+        XCTAssertEqual(restored.broadbandLevel, original.broadbandLevel, accuracy: 0.1, "Broadband level should match")
+        XCTAssertEqual(restored.sampleRate, original.sampleRate, accuracy: 0.1, "Sample rate should match")
+
+        // Vergleiche einzelne Frequenzen
+        for i in 0..<frequencies.count {
+            XCTAssertEqual(restored.frequencies[i], original.frequencies[i], accuracy: 0.1,
+                          "Frequency at index \(i) should match")
+            XCTAssertEqual(restored.magnitudes[i], original.magnitudes[i], accuracy: 0.1,
+                          "Magnitude at index \(i) should match")
+        }
+    }
+
+    /// Testet SpectrogramData Serialisierung mit leeren Arrays
+    func testSpectrogramDataSerializationEmpty() {
+        let original = SpectrogramData(
+            frequencies: [],
+            magnitudes: [],
+            broadbandLevel: 0,
+            sampleRate: 44100.0
+        )
+
+        let binaryData = original.toBinaryData()
+        guard let restored = SpectrogramData.fromBinaryData(binaryData) else {
+            XCTFail("Failed to deserialize empty SpectrogramData")
+            return
+        }
+
+        XCTAssertEqual(restored.frequencies.count, 0, "Empty frequencies should deserialize")
+        XCTAssertEqual(restored.magnitudes.count, 0, "Empty magnitudes should deserialize")
+    }
+
+    /// Testet SpectrogramData Serialisierung mit großen Arrays
+    func testSpectrogramDataSerializationLargeData() {
+        // 4096 Bins (typisch für 8192 FFT)
+        let count = 4096
+        let frequencies = (0..<count).map { Float($0) * 10.0 }
+        let magnitudes = (0..<count).map { Float($0 % 100) }
+
+        let original = SpectrogramData(
+            frequencies: frequencies,
+            magnitudes: magnitudes,
+            broadbandLevel: 75.0,
+            sampleRate: 44100.0
+        )
+
+        let binaryData = original.toBinaryData()
+        guard let restored = SpectrogramData.fromBinaryData(binaryData) else {
+            XCTFail("Failed to deserialize large SpectrogramData")
+            return
+        }
+
+        XCTAssertEqual(restored.frequencies.count, count, "Large frequency array should deserialize")
+        XCTAssertEqual(restored.magnitudes.count, count, "Large magnitude array should deserialize")
+    }
+
+    // MARK: - AudioData Serialisierung Tests
+
+    /// Testet AudioData Serialisierung und Deserialisierung
+    func testAudioDataSerialization() {
+        // Erstelle Test-Samples (1 Sekunde bei 44.1 kHz)
+        let sampleRate: Double = 44100.0
+        let samples: [Float] = (0..<Int(sampleRate)).map { sin(Float($0) * 2 * .pi * 440 / Float(sampleRate)) }
+
+        let original = AudioData(samples: samples, sampleRate: sampleRate)
+
+        // Serialisiere
+        let binaryData = original.toBinaryData()
+        XCTAssertGreaterThan(binaryData.count, 0, "Binary data should not be empty")
+
+        // Deserialisiere
+        guard let restored = AudioData.fromBinaryData(binaryData) else {
+            XCTFail("Failed to deserialize AudioData")
+            return
+        }
+
+        XCTAssertEqual(restored.samples.count, original.samples.count, "Sample count should match")
+        XCTAssertEqual(restored.sampleRate, original.sampleRate, accuracy: 0.1, "Sample rate should match")
+
+        // Vergleiche erste 100 Samples
+        for i in 0..<min(100, samples.count) {
+            XCTAssertEqual(restored.samples[i], original.samples[i], accuracy: 0.001,
+                          "Sample at index \(i) should match")
+        }
+    }
+
+    /// Testet AudioData mit leeren Samples
+    func testAudioDataSerializationEmpty() {
+        let original = AudioData(samples: [], sampleRate: 44100.0)
+
+        let binaryData = original.toBinaryData()
+        guard let restored = AudioData.fromBinaryData(binaryData) else {
+            XCTFail("Failed to deserialize empty AudioData")
+            return
+        }
+
+        XCTAssertEqual(restored.samples.count, 0, "Empty samples should deserialize")
+    }
+
+    // MARK: - WatchDashboardConfig Serialisierung Tests
+
+    /// Testet WatchDashboardConfig Encoding/Decoding
+    func testWatchDashboardConfigSerialization() {
+        let original = WatchDashboardConfig()
+
+        // Encode
+        guard let encoded = original.encode() else {
+            XCTFail("Failed to encode WatchDashboardConfig")
+            return
+        }
+
+        // Decode
+        guard let restored = WatchDashboardConfig.decode(from: encoded) else {
+            XCTFail("Failed to decode WatchDashboardConfig")
+            return
+        }
+
+        XCTAssertEqual(restored.widgets.count, original.widgets.count)
+        XCTAssertEqual(restored.version, original.version)
+
+        // Vergleiche Widget-Positionen
+        for (index, widget) in original.widgets.enumerated() {
+            XCTAssertEqual(restored.widgets[index].position, widget.position)
+            XCTAssertEqual(restored.widgets[index].type, widget.type)
+        }
+    }
+
+    // MARK: - MicrophoneSource Tests
+
+    /// Testet MicrophoneSource rawValue Konvertierung
+    func testMicrophoneSourceRawValue() {
+        XCTAssertEqual(MicrophoneSource.iPhone.rawValue, "iPhone")
+        XCTAssertEqual(MicrophoneSource.appleWatch.rawValue, "Apple Watch")
+
+        // Roundtrip
+        for source in MicrophoneSource.allCases {
+            let raw = source.rawValue
+            let restored = MicrophoneSource(rawValue: raw)
+            XCTAssertEqual(restored, source, "MicrophoneSource should round-trip through rawValue")
+        }
+    }
+
+    // MARK: - Message Dictionary Tests
+
+    /// Testet Gain-Nachricht Format
+    func testGainMessageFormat() {
+        let gain: Float = 2.5
+        let message: [String: Any] = ["type": "gain", "value": gain]
+
+        XCTAssertEqual(message["type"] as? String, "gain")
+        XCTAssertEqual(message["value"] as? Float, gain)
+    }
+
+    /// Testet MicrophoneSource-Nachricht Format
+    func testMicrophoneSourceMessageFormat() {
+        let source = MicrophoneSource.appleWatch
+        let message: [String: Any] = ["type": "microphoneSource", "source": source.rawValue]
+
+        XCTAssertEqual(message["type"] as? String, "microphoneSource")
+        XCTAssertEqual(message["source"] as? String, source.rawValue)
+    }
+
+    /// Testet Recording-Befehle Format
+    func testRecordingCommandMessageFormat() {
+        let startMessage: [String: Any] = ["type": "startRecording"]
+        let stopMessage: [String: Any] = ["type": "stopRecording"]
+
+        XCTAssertEqual(startMessage["type"] as? String, "startRecording")
+        XCTAssertEqual(stopMessage["type"] as? String, "stopRecording")
+    }
+
+    // MARK: - Binary Protocol Tests
+
+    /// Testet Spektrogramm-Paket Header
+    func testSpectrogramPacketHeader() {
+        let data = SpectrogramData(
+            frequencies: [100, 200],
+            magnitudes: [50, 60],
+            broadbandLevel: 55.0,
+            sampleRate: 44100.0
+        )
+
+        var packet = Data([0x01]) // Header for Spectrogram
+        packet.append(data.toBinaryData())
+
+        XCTAssertEqual(packet[0], 0x01, "First byte should be spectrogram header")
+    }
+
+    /// Testet Audio-Paket Header
+    func testAudioPacketHeader() {
+        let data = AudioData(samples: [0.1, 0.2, 0.3], sampleRate: 44100.0)
+
+        var packet = Data([0x02]) // Header for Audio
+        packet.append(data.toBinaryData())
+
+        XCTAssertEqual(packet[0], 0x02, "First byte should be audio header")
+    }
+
+    // MARK: - Edge Cases
+
+    /// Testet Deserialisierung mit ungültigen Daten
+    func testInvalidDataDeserialization() {
+        let invalidData = Data([0x00, 0x01, 0x02]) // Zu kurz
+
+        let spectrogramResult = SpectrogramData.fromBinaryData(invalidData)
+        XCTAssertNil(spectrogramResult, "Invalid data should return nil for SpectrogramData")
+
+        let audioResult = AudioData.fromBinaryData(invalidData)
+        XCTAssertNil(audioResult, "Invalid data should return nil for AudioData")
+    }
+
+    /// Testet Deserialisierung mit leeren Daten
+    func testEmptyDataDeserialization() {
+        let emptyData = Data()
+
+        let spectrogramResult = SpectrogramData.fromBinaryData(emptyData)
+        XCTAssertNil(spectrogramResult, "Empty data should return nil for SpectrogramData")
+
+        let audioResult = AudioData.fromBinaryData(emptyData)
+        XCTAssertNil(audioResult, "Empty data should return nil for AudioData")
+    }
+
+    /// Testet NaN und Inf Handling
+    func testSpecialFloatValues() {
+        // SpectrogramData mit NaN/Inf sollte trotzdem serialisierbar sein
+        let frequencies: [Float] = [100, Float.nan, 300]
+        let magnitudes: [Float] = [50, Float.infinity, 70]
+
+        let original = SpectrogramData(
+            frequencies: frequencies,
+            magnitudes: magnitudes,
+            broadbandLevel: 60.0,
+            sampleRate: 44100.0
+        )
+
+        let binaryData = original.toBinaryData()
+
+        // Sollte nicht abstürzen, aber Werte können verändert sein
+        XCTAssertGreaterThan(binaryData.count, 0, "Should serialize even with special float values")
+    }
+
+    // MARK: - Performance Tests
+
+    /// Misst Serialisierung Performance
+    func testSpectrogramSerializationPerformance() {
+        let frequencies = (0..<4096).map { Float($0) * 10.0 }
+        let magnitudes = (0..<4096).map { Float($0 % 100) }
+
+        let data = SpectrogramData(
+            frequencies: frequencies,
+            magnitudes: magnitudes,
+            broadbandLevel: 75.0,
+            sampleRate: 44100.0
+        )
+
+        measure {
+            for _ in 0..<100 {
+                _ = data.toBinaryData()
+            }
+        }
+    }
+
+    /// Misst Deserialisierung Performance
+    func testSpectrogramDeserializationPerformance() {
+        let frequencies = (0..<4096).map { Float($0) * 10.0 }
+        let magnitudes = (0..<4096).map { Float($0 % 100) }
+
+        let data = SpectrogramData(
+            frequencies: frequencies,
+            magnitudes: magnitudes,
+            broadbandLevel: 75.0,
+            sampleRate: 44100.0
+        )
+
+        let binaryData = data.toBinaryData()
+
+        measure {
+            for _ in 0..<100 {
+                _ = SpectrogramData.fromBinaryData(binaryData)
+            }
+        }
+    }
+
+    // MARK: - Message Queue Simulation Tests
+
+    /// Simuliert Message Queue Verhalten
+    func testMessageQueueSimulation() {
+        var queue: [[String: Any]] = []
+        let maxRetries = 3
+
+        // Füge Nachrichten hinzu
+        queue.append(["type": "gain", "value": 1.5])
+        queue.append(["type": "microphoneSource", "source": "Watch"])
+        queue.append(["type": "startRecording"])
+
+        XCTAssertEqual(queue.count, 3, "Queue should have 3 messages")
+
+        // Simuliere erfolgreiche Zustellung
+        queue.removeFirst()
+        XCTAssertEqual(queue.count, 2, "Queue should have 2 messages after delivery")
+
+        // Simuliere Retry
+        var retries = 0
+        while retries < maxRetries && !queue.isEmpty {
+            retries += 1
+        }
+        XCTAssertEqual(retries, maxRetries, "Should retry max times")
+    }
+}

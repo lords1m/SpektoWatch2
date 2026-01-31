@@ -54,14 +54,17 @@ class FrequencyWeightingProcessor {
     /// - Returns: Weighted dB magnitudes
     func applyWeighting(to dbMagnitudes: [Float], frequencies: [Float], weighting: FrequencyWeighting) -> [Float] {
         let gains = getWeightingGains(for: weighting)
-        var weighted = [Float](repeating: 0, count: dbMagnitudes.count)
-        
+        var weighted = [Float](repeating: -120.0, count: dbMagnitudes.count)
+
+        // Sichere Iteration: min() verhindert Index-Out-of-Bounds wenn FFT-Größe geändert wurde
+        let count = min(dbMagnitudes.count, gains.count)
+
         // Convert gains to dB and add
-        for i in 0..<dbMagnitudes.count {
+        for i in 0..<count {
             let gainDB = 20.0 * log10(max(gains[i], 1e-10))
             weighted[i] = dbMagnitudes[i] + gainDB
         }
-        
+
         return weighted
     }
     

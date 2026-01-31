@@ -5,9 +5,11 @@ struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
     @Binding var watchGain: Float
     @ObservedObject var audioEngine: AudioEngine
+    @EnvironmentObject var fftConfiguration: FFTConfiguration
 
     @Environment(\.dismiss) var dismiss
     @State private var isStereo = false
+    @State private var showAdvancedAnalysis = false
 
     var body: some View {
         NavigationView {
@@ -96,6 +98,27 @@ struct SpectrogramSettingsView: View {
                     }
                 }
 
+                Section(header: Text("Erweiterte Analyse")) {
+                    Button {
+                        showAdvancedAnalysis = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "waveform.path.ecg.rectangle")
+                                .foregroundColor(.purple)
+                            VStack(alignment: .leading) {
+                                Text("Spektralanalyse-Labor")
+                                Text("FFT-Parameter, Fensterfunktionen, Auflösung")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .foregroundColor(.primary)
+                }
+
                 Section(header: Text("Apple Watch")) {
                     NavigationLink(destination: WatchDashboardSettingsView()) {
                         HStack {
@@ -121,6 +144,18 @@ struct SpectrogramSettingsView: View {
         .onChange(of: isStereo) { _, newValue in
             if newValue {
                 audioEngine.applyStereoMode()
+            }
+        }
+        .fullScreenCover(isPresented: $showAdvancedAnalysis) {
+            NavigationStack {
+                AdvancedAnalysisView(fftConfig: fftConfiguration, audioEngine: audioEngine)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Fertig") {
+                                showAdvancedAnalysis = false
+                            }
+                        }
+                    }
             }
         }
     }

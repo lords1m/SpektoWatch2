@@ -9,6 +9,13 @@ struct ControlBarView: View {
     @State private var recordedAudioURL: URL?
     @State private var recordedDuration: TimeInterval = 0
 
+    /// Safe Area Bottom Inset für iPhones mit Home Indicator
+    private var safeAreaBottomInset: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = scenes.first as? UIWindowScene
+        return windowScene?.windows.first?.safeAreaInsets.bottom ?? 0
+    }
+
     /// Ob wir gerade im Live-Modus sind (Play ohne Aufnahme)
     private var isLiveMode: Bool {
         audioEngine.engineStatus == .running && !audioEngine.isRecordingToFile
@@ -107,6 +114,7 @@ struct ControlBarView: View {
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity)
         }
+        .padding(.bottom, safeAreaBottomInset)
         .background(
             Color(UIColor.systemBackground)
                 .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -2)

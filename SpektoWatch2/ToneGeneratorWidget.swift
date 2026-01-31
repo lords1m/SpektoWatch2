@@ -93,8 +93,8 @@ class ToneGenerator: ObservableObject {
 
             try engine.start()
 
-            DispatchQueue.main.async {
-                self.isPlaying = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isPlaying = true
             }
 
         } catch {
@@ -107,8 +107,8 @@ class ToneGenerator: ObservableObject {
         audioEngine?.stop()
         audioEngine = nil
         phase = 0.0
-        DispatchQueue.main.async {
-            self.isPlaying = false
+        DispatchQueue.main.async { [weak self] in
+            self?.isPlaying = false
         }
     }
 
@@ -121,7 +121,10 @@ class ToneGenerator: ObservableObject {
     }
 
     deinit {
-        stop()
+        // Direkt stoppen ohne async dispatch (vermeidet Retain-Cycle im deinit)
+        srcNode = nil
+        audioEngine?.stop()
+        audioEngine = nil
     }
 }
 

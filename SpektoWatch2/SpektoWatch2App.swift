@@ -13,6 +13,7 @@ struct SpektoWatch2App: App {
     @StateObject private var connectivityManager: WatchConnectivityManager
     @StateObject private var recordingManager: RecordingManager
     @StateObject private var audioEngine: AudioEngine
+    @StateObject private var fftConfiguration: FFTConfiguration
 
     init() {
         // Create the managers first
@@ -20,7 +21,8 @@ struct SpektoWatch2App: App {
         // Assuming WatchConnectivityManager is refactored to have a public init
         let cm = WatchConnectivityManager()
         let rm = RecordingManager()
-        
+        let fftConfig = FFTConfiguration()
+
         // Create the engine with its dependencies
         let engine = AudioEngine(
             filterManager: fm,
@@ -32,6 +34,7 @@ struct SpektoWatch2App: App {
         _connectivityManager = StateObject(wrappedValue: cm)
         _recordingManager = StateObject(wrappedValue: rm)
         _audioEngine = StateObject(wrappedValue: engine)
+        _fftConfiguration = StateObject(wrappedValue: fftConfig)
     }
 
     var body: some Scene {
@@ -41,6 +44,7 @@ struct SpektoWatch2App: App {
                 .environmentObject(filterManager)
                 .environmentObject(connectivityManager)
                 .environmentObject(recordingManager)
+                .environmentObject(fftConfiguration)
         }
     }
 }

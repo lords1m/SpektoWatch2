@@ -37,28 +37,38 @@ enum StereoInputMode: String, CaseIterable {
 class AudioEngine: ObservableObject {
     
     // MARK: - Processing Components
-    
-    private let fftProcessor: FFTProcessor
-    private let weightingProcessor: FrequencyWeightingProcessor
+
+    private var fftProcessor: FFTProcessor
+    private var weightingProcessor: FrequencyWeightingProcessor
     private let metricsCalculator: AcousticMetricsCalculator
     private let spectrogramProcessor: SpectrogramProcessor
     private let testGenerator: TestAudioGenerator
     private let bandstopFilterManager: BandstopFilterManager
     private let connectivityManager: WatchConnectivityManager
-    
+
     // MARK: - Audio Engine
-    
+
     private var audioEngine: AVAudioEngine
-    private let fftSize: Int = 8192
+    private var fftSize: Int = 8192
     private let tapBlockSize: AVAudioFrameCount = 512
     private let sampleRate: Double = 44100.0
+
+    // MARK: - FFT Configuration
+
+    /// Aktuelle Fensterfunktion
+    @Published var currentWindowFunction: WindowFunction = .hann
+    /// Aktuelle Blockgröße
+    @Published var currentBlockSize: FFTBlockSize = .size8192
     
     // MARK: - Buffer Management
 
     private var sampleBuffer: [Float] = []
     private var sampleBufferOffset: Int = 0  // Index-basierter Ansatz für O(1) "removeFirst"
     private var gainBoost: Float = 10.0
-    
+
+    // Lock für Thread-sichere FFT-Rekonfiguration
+    private let processingLock = NSLock()
+
     // MARK: - State Management
 
     private var isUsingDummyData = false
@@ -234,7 +244,84 @@ class AudioEngine: ObservableObject {
     func setGainBoost(_ gain: Float) {
         gainBoost = gain
     }
-    
+
+    // MARK: - FFT Configuration
+
+    /// Wendet eine FFTConfiguration an
+    func applyFFTConfiguration(_ config: FFTConfiguration) {
+        let newSize = config.blockSize.rawValue
+        let newWindow = config.windowFunction
+
+        // Prüfe ob Änderungen nötig sind
+        guard newSize != fftSize || newWindow != currentWindowFunction else { return }
+
+        Logger.audioEngine.info("Applying FFT config: \(newWindow.rawValue), \(newSize) samples")
+
+        // Thread-sichere Rekonfiguration
+        processingLock.lock()
+        defer { processingLock.unlock() }
+
+        // Buffer leeren um Race-Conditions zu vermeiden
+        sampleBuffer.removeAll()
+        sampleBufferOffset = 0
+
+        // Aktualisiere interne Werte
+        fftSize = newSize
+        currentWindowFunction = newWindow
+        currentBlockSize = config.blockSize
+
+        // Rekonfiguriere den FFT Processor
+        fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
+
+        // Aktualisiere den Weighting Processor
+        weightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: sampleRate)
+
+        // Veröffentliche Änderungen
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+        }
+    }
+
+    /// Setzt nur die Fensterfunktion
+    func setWindowFunction(_ function: WindowFunction) {
+        guard function != currentWindowFunction else { return }
+
+        processingLock.lock()
+        defer { processingLock.unlock() }
+
+        currentWindowFunction = function
+        fftProcessor.setWindowFunction(function)
+        Logger.audioEngine.info("Window function changed to: \(function.rawValue)")
+    }
+
+    /// Setzt nur die Blockgröße
+    func setBlockSize(_ size: FFTBlockSize) {
+        guard size.rawValue != fftSize else { return }
+
+        processingLock.lock()
+        defer { processingLock.unlock() }
+
+        // Buffer leeren um Race-Conditions zu vermeiden
+        sampleBuffer.removeAll()
+        sampleBufferOffset = 0
+
+        fftSize = size.rawValue
+        currentBlockSize = size
+        fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
+        weightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: sampleRate)
+        Logger.audioEngine.info("FFT size changed to: \(size.rawValue)")
+    }
+
+    /// Gibt die aktuelle Frequenzauflösung zurück
+    var frequencyResolution: Float {
+        return Float(sampleRate) / Float(fftSize)
+    }
+
+    /// Gibt die aktuelle Zeitauflösung in ms zurück
+    var timeResolutionMs: Float {
+        return Float(fftSize) / Float(sampleRate) * 1000.0
+    }
+
     // MARK: - Live/Recording Control
 
     /// Startet die Live-Anzeige (ohne Aufnahme in Datei)
@@ -603,14 +690,19 @@ class AudioEngine: ObservableObject {
         // Add to sample buffer
         sampleBuffer.append(contentsOf: newSamples)
 
+        // Lese aktuelle FFT-Größe thread-sicher
+        processingLock.lock()
+        let currentFFTSize = fftSize
+        processingLock.unlock()
+
         // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
-        while sampleBuffer.count - sampleBufferOffset >= fftSize {
-            let samples = Array(sampleBuffer[sampleBufferOffset..<(sampleBufferOffset + fftSize)])
+        while sampleBuffer.count - sampleBufferOffset >= currentFFTSize {
+            let samples = Array(sampleBuffer[sampleBufferOffset..<(sampleBufferOffset + currentFFTSize)])
             processFFTFrame(samples: samples, peakLevel: peakDB)
             sampleBufferOffset += scrollSpeed.rawValue
 
             // Periodisch aufräumen wenn Offset zu groß wird (nur alle ~10 Iterationen)
-            if sampleBufferOffset > fftSize * 2 {
+            if sampleBufferOffset > currentFFTSize * 2 {
                 sampleBuffer.removeFirst(sampleBufferOffset)
                 sampleBufferOffset = 0
             }
@@ -618,18 +710,28 @@ class AudioEngine: ObservableObject {
     }
     
     private func processFFTFrame(samples: [Float], peakLevel: Float) {
+        // Thread-sichere FFT-Verarbeitung
+        processingLock.lock()
+        let currentFFTSize = fftSize
+        let localFFTProcessor = fftProcessor
+        let localWeightingProcessor = weightingProcessor
+        processingLock.unlock()
+
+        // Prüfe ob Samples zur aktuellen FFT-Größe passen
+        guard samples.count >= currentFFTSize else { return }
+
         // Perform FFT
-        let linearMagnitudes = fftProcessor.performFFT(on: samples, gainBoost: gainBoost)
+        let linearMagnitudes = localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost)
         
         if debugPrintCounter % 240 == 0 {
-            let dbMags = fftProcessor.convertToDB(linearMagnitudes)
+            let dbMags = localFFTProcessor.convertToDB(linearMagnitudes)
             let minMag = (dbMags.min() ?? 0) + calibrationOffset
             let maxMag = (dbMags.max() ?? 0) + calibrationOffset
             Logger.audioEngine.debug("FFT Processed (dB SPL): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
         }
-        
+
         // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
-        var dbMagnitudes = fftProcessor.convertToDB(linearMagnitudes)
+        var dbMagnitudes = localFFTProcessor.convertToDB(linearMagnitudes)
         // Wende Kalibrierungs-Offset an, um positive dB SPL Werte zu erhalten
         for i in 0..<dbMagnitudes.count {
             dbMagnitudes[i] += calibrationOffset
@@ -637,14 +739,14 @@ class AudioEngine: ObservableObject {
 
         // Apply all frequency weightings for spectrogram display
         let dbZ = dbMagnitudes  // Z-weighted (linear/unweighted)
-        let dbA = weightingProcessor.applyWeighting(
+        let dbA = localWeightingProcessor.applyWeighting(
             to: dbMagnitudes,
-            frequencies: fftProcessor.frequencies,
+            frequencies: localFFTProcessor.frequencies,
             weighting: .a
         )
-        let dbC = weightingProcessor.applyWeighting(
+        let dbC = localWeightingProcessor.applyWeighting(
             to: dbMagnitudes,
-            frequencies: fftProcessor.frequencies,
+            frequencies: localFFTProcessor.frequencies,
             weighting: .c
         )
 
@@ -659,32 +761,32 @@ class AudioEngine: ObservableObject {
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
         // Process all weightings for spectrogram
         let processedZ = spectrogramProcessor.process(
-            frequencies: fftProcessor.frequencies,
+            frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbZ,
             sampleRate: sampleRate
         )
         let processedA = spectrogramProcessor.process(
-            frequencies: fftProcessor.frequencies,
+            frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbA,
             sampleRate: sampleRate
         )
         let processedC = spectrogramProcessor.process(
-            frequencies: fftProcessor.frequencies,
+            frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbC,
             sampleRate: sampleRate
         )
 
         // Use selected weighting for octave bands and spectrum
         let processed = spectrogramProcessor.process(
-            frequencies: fftProcessor.frequencies,
+            frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: weightedDB,
             sampleRate: sampleRate
         )
         
         // Calculate energies for acoustic metrics
         let rawMagnitudes = linearMagnitudes
-        let aWeights = weightingProcessor.getAWeightingGains()
-        let cWeights = weightingProcessor.getCWeightingGains()
+        let aWeights = localWeightingProcessor.getAWeightingGains()
+        let cWeights = localWeightingProcessor.getCWeightingGains()
 
         // Kalibrierungsfaktor: wandelt dBFS-Energie zu dB SPL-Energie
         // calibrationOffset ist in dB, also multiplizieren wir Energie mit 10^(offset/10)
@@ -694,7 +796,9 @@ class AudioEngine: ObservableObject {
         var energyA: Float = 0.0
         var energyC: Float = 0.0
 
-        for i in 0..<rawMagnitudes.count {
+        // Sichere Iteration: min() verhindert Index-Out-of-Bounds wenn FFT-Größe geändert wurde
+        let count = min(rawMagnitudes.count, min(aWeights.count, cWeights.count))
+        for i in 0..<count {
             let magSq = rawMagnitudes[i] * rawMagnitudes[i]
             energyZ += magSq
             energyA += magSq * aWeights[i] * aWeights[i]
