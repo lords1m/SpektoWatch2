@@ -335,19 +335,30 @@ class AudioEngine: ObservableObject {
 
     /// Startet die Live-Anzeige (ohne Aufnahme in Datei)
     func startLiveMode() {
-        guard engineStatus != .running else { return }
+        print("[AudioEngine] startLiveMode called")
+        print("[AudioEngine] Current engineStatus: \(engineStatus)")
+        guard engineStatus != .running else {
+            print("[AudioEngine] Engine already running, returning early")
+            return
+        }
         Logger.audioEngine.info("Starting AudioEngine in LIVE mode (no file recording)")
         isRecordingToFile = false
+        print("[AudioEngine] Set isRecordingToFile = false")
         startAudioCapture()
     }
 
     /// Startet die Aufnahme (mit Speicherung in Datei)
     func startRecording() {
+        print("[AudioEngine] startRecording called")
+        print("[AudioEngine] Current engineStatus: \(engineStatus)")
+        print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+
         guard engineStatus != .running else {
             // Wenn bereits im Live-Modus, nur auf Aufnahme umschalten
             if !isRecordingToFile {
                 Logger.audioEngine.info("Switching from LIVE to RECORDING mode")
                 isRecordingToFile = true
+                print("[AudioEngine] Set isRecordingToFile = true (switching from live)")
                 recordingStartTime = Date()
                 recordingDuration = 0.0
                 resetMetrics()
@@ -357,12 +368,19 @@ class AudioEngine: ObservableObject {
         }
         Logger.audioEngine.info("Starting AudioEngine in RECORDING mode")
         isRecordingToFile = true
+        print("[AudioEngine] Set isRecordingToFile = true")
         startAudioCapture()
     }
 
     private func startAudioCapture() {
+        print("[AudioEngine] startAudioCapture called")
+        print("[AudioEngine] Current engineStatus: \(engineStatus)")
+        print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+
         DispatchQueue.main.async {
+            print("[AudioEngine] Setting engineStatus to .starting")
             self.engineStatus = .starting
+            print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
         }
         recordingStartTime = Date()
         recordingDuration = 0.0
@@ -372,9 +390,13 @@ class AudioEngine: ObservableObject {
 
         #if targetEnvironment(simulator)
         Logger.audioEngine.info("Running on Simulator - using test audio generator")
+        print("[AudioEngine] Starting test generator")
         testGenerator.start()
         DispatchQueue.main.async {
+            print("[AudioEngine] Setting engineStatus to .running")
             self.engineStatus = .running
+            print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
+            print("[AudioEngine] isRecordingToFile: \(self.isRecordingToFile)")
         }
         #else
         startRealRecording()
@@ -383,23 +405,36 @@ class AudioEngine: ObservableObject {
 
     /// Stoppt die Live-Anzeige (ohne Aufnahme zu beenden)
     func stopLiveMode() {
+        print("[AudioEngine] stopLiveMode called")
+        print("[AudioEngine] Current engineStatus: \(engineStatus)")
         Logger.audioEngine.info("Stopping AudioEngine live mode")
         stopAudioCapture()
     }
 
     /// Stoppt die Aufnahme
     func stopRecording() {
+        print("[AudioEngine] stopRecording called")
+        print("[AudioEngine] Current engineStatus: \(engineStatus)")
+        print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
         Logger.audioEngine.info("Stopping AudioEngine recording")
         isRecordingToFile = false
+        print("[AudioEngine] Set isRecordingToFile = false")
         stopAudioCapture()
     }
 
     private func stopAudioCapture() {
+        print("[AudioEngine] stopAudioCapture called")
+        print("[AudioEngine] Current engineStatus: \(engineStatus)")
+
         recordingStartTime = nil
         audioFile = nil
         DispatchQueue.main.async {
+            print("[AudioEngine] Setting engineStatus to .idle")
             self.engineStatus = .idle
+            print("[AudioEngine] Setting isRecordingToFile to false")
             self.isRecordingToFile = false
+            print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
+            print("[AudioEngine] isRecordingToFile is now: \(self.isRecordingToFile)")
         }
 
         #if targetEnvironment(simulator)

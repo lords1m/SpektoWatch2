@@ -166,6 +166,12 @@ struct ControlBarView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
+        print("[ControlBarView] toggleLiveMode - Current state:")
+        print("  engineStatus: \(audioEngine.engineStatus)")
+        print("  isRecordingToFile: \(audioEngine.isRecordingToFile)")
+        print("  engineRunning: \(engineRunning)")
+        print("  isLiveMode: \(isLiveMode)")
+
         if isLiveMode {
             print("[ControlBarView] Stopping live mode...")
             audioEngine.stopLiveMode()
@@ -178,6 +184,12 @@ struct ControlBarView: View {
     private func toggleRecording() {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
+
+        print("[ControlBarView] toggleRecording - Current state:")
+        print("  engineStatus: \(audioEngine.engineStatus)")
+        print("  isRecordingToFile: \(audioEngine.isRecordingToFile)")
+        print("  engineRunning: \(engineRunning)")
+        print("  isRecording: \(isRecording)")
 
         if isRecording {
             guard recordingManager.currentRecordingDuration >= 5.0 else {
