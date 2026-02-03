@@ -122,17 +122,21 @@ struct FrequencyWeightingProcessor: Sendable {
 
             let f = Double(freq)
             let f2 = f * f
-            let f4 = f2 * f2
 
-            // IEC 61672-1:2013 C-weighting formula
-            let numerator = 12194.0 * 12194.0 * f4
-            let denominator = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
+            // IEC 61672-1:2013 C-weighting poles
+            let f1 = 20.60
+            let f4 = 12194.0
 
-            let linearGain = Float(numerator / denominator)
+            // Normalization offset to ensure 0 dB at 1 kHz
+            let offset = -0.062
 
-            // Normalize to 0 dB at 1 kHz
-            let normalizationFactor: Float = 1.00659 // Makes 1kHz = 1.0
-            return linearGain * normalizationFactor
+            // C-weighting in dB (compute in dB space first)
+            let cDb = 20.0 * log10((f4 * f4 * f2) / ((f2 + f1 * f1) * (f2 + f4 * f4))) - offset
+
+            // Convert to linear gain
+            let linearGain = pow(10.0, cDb / 20.0)
+
+            return Float(linearGain)
         }
     }
 }
