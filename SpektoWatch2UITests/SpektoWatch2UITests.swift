@@ -40,13 +40,19 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // Try both German and English button labels
         var permissionGranted = false
-        if let allowButton = springboard.buttons["Allow"].exists ? springboard.buttons["Allow"] : springboard.buttons["Erlauben"].firstMatch {
-            if allowButton.waitForExistence(timeout: 5) {
-                print("[Test Setup] Microphone permission dialog appeared, tapping Allow...")
-                allowButton.tap()
-                permissionGranted = true
-                Thread.sleep(forTimeInterval: 0.5)
-            }
+        let allowButton = springboard.buttons["Allow"]
+        let erlaubenButton = springboard.buttons["Erlauben"]
+
+        if allowButton.waitForExistence(timeout: 5) {
+            print("[Test Setup] Microphone permission dialog appeared (English), tapping Allow...")
+            allowButton.tap()
+            permissionGranted = true
+            Thread.sleep(forTimeInterval: 0.5)
+        } else if erlaubenButton.waitForExistence(timeout: 1) {
+            print("[Test Setup] Microphone permission dialog appeared (German), tapping Erlauben...")
+            erlaubenButton.tap()
+            permissionGranted = true
+            Thread.sleep(forTimeInterval: 0.5)
         }
 
         if !permissionGranted {
