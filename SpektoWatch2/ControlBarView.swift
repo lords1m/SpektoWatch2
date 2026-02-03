@@ -1,5 +1,70 @@
 import SwiftUI
 
+// MARK: - Play/Pause Button Component
+private struct PlayPauseButton: View {
+    let engineStatus: EngineStatus
+    let isRecordingToFile: Bool
+    let action: () -> Void
+
+    private var isLiveMode: Bool {
+        (engineStatus == .running || engineStatus == .starting) && !isRecordingToFile
+    }
+
+    private var isRecording: Bool {
+        engineStatus == .running && isRecordingToFile
+    }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(isLiveMode ? Color.green.opacity(0.2) : Color.clear)
+                    .frame(width: 50, height: 50)
+
+                Image(systemName: isLiveMode ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundColor(isLiveMode ? .green : .green.opacity(0.8))
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isRecording)
+        .animation(.easeInOut(duration: 0.2), value: isLiveMode)
+        .accessibilityIdentifier(isLiveMode ? "pauseButton" : "playButton")
+        .accessibilityLabel(isLiveMode ? "Pause" : "Play")
+    }
+}
+
+// MARK: - Record/Stop Button Component
+private struct RecordStopButton: View {
+    let engineStatus: EngineStatus
+    let isRecordingToFile: Bool
+    let recordingDuration: TimeInterval
+    let action: () -> Void
+
+    private var isRecording: Bool {
+        engineStatus == .running && isRecordingToFile
+    }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(isRecording ? Color.red.opacity(0.2) : Color.clear)
+                    .frame(width: 50, height: 50)
+
+                Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+                    .font(.system(size: 40))
+                    .foregroundColor(isRecording ? .red : .red.opacity(0.8))
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isRecording && recordingDuration < 5.0)
+        .animation(.easeInOut(duration: 0.2), value: isRecording)
+        .accessibilityIdentifier(isRecording ? "stopButton" : "recordButton")
+        .accessibilityLabel(isRecording ? "Stop" : "Aufnahme")
+    }
+}
+
 struct ControlBarView: View {
     @ObservedObject var audioEngine: AudioEngine
     @EnvironmentObject private var recordingManager: RecordingManager
@@ -55,40 +120,20 @@ struct ControlBarView: View {
                 // Button Group - Play & Record
                 HStack(spacing: 20) {
                     // Play/Pause Button (Live-Modus)
-                    Button(action: toggleLiveMode) {
-                        ZStack {
-                            Circle()
-                                .fill(isLiveMode ? Color.green.opacity(0.2) : Color.clear)
-                                .frame(width: 50, height: 50)
-
-                            Image(systemName: isLiveMode ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 40))
-                                .foregroundColor(isLiveMode ? .green : .green.opacity(0.8))
-                        }
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(isRecording)
-                    .animation(.easeInOut(duration: 0.2), value: isLiveMode)
-                    .accessibilityIdentifier(isLiveMode ? "pauseButton" : "playButton")
-                    .accessibilityLabel(isLiveMode ? "Pause" : "Play")
+                    // Use audioEngine properties directly to trigger SwiftUI updates
+                    PlayPauseButton(
+                        engineStatus: audioEngine.engineStatus,
+                        isRecordingToFile: audioEngine.isRecordingToFile,
+                        action: toggleLiveMode
+                    )
 
                     // Record Button
-                    Button(action: toggleRecording) {
-                        ZStack {
-                            Circle()
-                                .fill(isRecording ? Color.red.opacity(0.2) : Color.clear)
-                                .frame(width: 50, height: 50)
-
-                            Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                                .font(.system(size: 40))
-                                .foregroundColor(isRecording ? .red : .red.opacity(0.8))
-                        }
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(isRecording && recordingManager.currentRecordingDuration < 5.0)
-                    .animation(.easeInOut(duration: 0.2), value: isRecording)
-                    .accessibilityIdentifier(isRecording ? "stopButton" : "recordButton")
-                    .accessibilityLabel(isRecording ? "Stop" : "Aufnahme")
+                    RecordStopButton(
+                        engineStatus: audioEngine.engineStatus,
+                        isRecordingToFile: audioEngine.isRecordingToFile,
+                        recordingDuration: recordingManager.currentRecordingDuration,
+                        action: toggleRecording
+                    )
                 }
 
                 Spacer()
