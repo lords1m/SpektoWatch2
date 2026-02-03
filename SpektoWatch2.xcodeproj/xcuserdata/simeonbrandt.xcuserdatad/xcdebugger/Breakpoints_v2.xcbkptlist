@@ -46,8 +46,8 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "37"
             endingLineNumber = "37"
-            landmarkName = "SpektoWatch2UITests"
-            landmarkType = "3">
+            landmarkName = "setUpWithError()"
+            landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

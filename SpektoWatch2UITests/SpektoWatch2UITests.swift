@@ -14,10 +14,19 @@ final class SpektoWatch2UITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-UIAnimationsDisabled", "YES"]
+        app.launchArguments = [
+            "-UIAnimationsDisabled", "YES",
+            "-ResetState", "YES"  // Signal app to reset state
+        ]
 
         // Reset und erlaube Mikrofon-Zugriff automatisch
         app.resetAuthorizationStatus(for: .microphone)
+
+        // Terminate any existing instance
+        if app.state == .runningForeground || app.state == .runningBackground {
+            app.terminate()
+            Thread.sleep(forTimeInterval: 1)
+        }
 
         app.launch()
 
@@ -27,6 +36,9 @@ final class SpektoWatch2UITests: XCTestCase {
         if allowButton.waitForExistence(timeout: 2) {
             allowButton.tap()
         }
+
+        // Warte bis die App vollständig geladen ist
+        Thread.sleep(forTimeInterval: 1)
     }
 
     override func tearDownWithError() throws {
