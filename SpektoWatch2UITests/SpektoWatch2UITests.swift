@@ -13,32 +13,51 @@ final class SpektoWatch2UITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = [
-            "-UIAnimationsDisabled", "YES",
-            "-ResetState", "YES"  // Signal app to reset state
-        ]
 
-        // Reset und erlaube Mikrofon-Zugriff automatisch
-        app.resetAuthorizationStatus(for: .microphone)
-
-        // Terminate any existing instance
+        // Terminate any existing instance first
+        let app = XCUIApplication()
         if app.state == .runningForeground || app.state == .runningBackground {
             app.terminate()
             Thread.sleep(forTimeInterval: 1)
         }
 
-        app.launch()
+        // Create fresh app instance
+        self.app = XCUIApplication()
+        self.app.launchArguments = [
+            "-UIAnimationsDisabled", "YES",
+            "-ResetState", "YES"  // Signal app to reset state
+        ]
 
-        // Handle Mikrofon-Berechtigungsanfrage beim ersten Start
+        // Reset authorization BEFORE launch
+        self.app.resetAuthorizationStatus(for: .microphone)
+
+        // Launch app
+        self.app.launch()
+
+        // CRITICAL: Handle microphone permission dialog
+        // This must happen immediately after launch
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let allowButton = springboard.buttons["Allow"]
-        if allowButton.waitForExistence(timeout: 2) {
-            allowButton.tap()
+
+        // Try both German and English button labels
+        var permissionGranted = false
+        if let allowButton = springboard.buttons["Allow"].exists ? springboard.buttons["Allow"] : springboard.buttons["Erlauben"].firstMatch {
+            if allowButton.waitForExistence(timeout: 5) {
+                print("[Test Setup] Microphone permission dialog appeared, tapping Allow...")
+                allowButton.tap()
+                permissionGranted = true
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+        }
+
+        if !permissionGranted {
+            print("[Test Setup] No permission dialog appeared - might already be granted")
         }
 
         // Warte bis die App vollständig geladen ist
-        Thread.sleep(forTimeInterval: 1)
+        Thread.sleep(forTimeInterval: 2)
+
+        // Verify app is in foreground
+        XCTAssertTrue(self.app.wait(for: .runningForeground, timeout: 5), "App should be running in foreground")
     }
 
     override func tearDownWithError() throws {
@@ -274,11 +293,22 @@ final class SpektoWatch2UITests: XCTestCase {
         // 2. Starte Aufnahme → Button sollte zu Stop wechseln
         recordButton.tap()
 
-        // Kurze Pause für UI-Update und AudioEngine-Start
-        Thread.sleep(forTimeInterval: 0.5)
+        // Warte länger und prüfe mehrfach
+        var stopButtonAppeared = false
+        for attempt in 1...5 {
+            Thread.sleep(forTimeInterval: 1.0)
+            print("Attempt \(attempt): Checking for stopButton...")
+            if app.buttons["stopButton"].exists {
+                stopButtonAppeared = true
+                print("Stop button found!")
+                break
+            }
+        }
+
+        XCTAssertTrue(stopButtonAppeared, "Stop button should appear after tapping record button")
 
         let stopButton = app.buttons["stopButton"]
-        XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Stop button should appear")
+        XCTAssertTrue(stopButton.exists, "Stop button must exist")
         XCTAssertFalse(app.buttons["recordButton"].exists, "Record button should NOT exist during recording")
 
         // 3. Warte Minimum-Dauer
