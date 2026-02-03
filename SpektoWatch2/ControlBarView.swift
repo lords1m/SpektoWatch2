@@ -16,12 +16,15 @@ struct ControlBarView: View {
         return windowScene?.windows.first?.safeAreaInsets.bottom ?? 0
     }
 
-    /// Ob wir gerade im Live-Modus sind (Play ohne Aufnahme)
-    private var isLiveMode: Bool {
-        audioEngine.engineStatus == .running && !audioEngine.isRecordingToFile
+    // Computed properties für reaktive Updates
+    private var engineRunning: Bool {
+        audioEngine.engineStatus == .running || audioEngine.engineStatus == .starting
     }
 
-    /// Ob wir gerade aufnehmen
+    private var isLiveMode: Bool {
+        engineRunning && !audioEngine.isRecordingToFile
+    }
+
     private var isRecording: Bool {
         audioEngine.engineStatus == .running && audioEngine.isRecordingToFile
     }
@@ -46,7 +49,6 @@ struct ControlBarView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                .frame(width: 100, alignment: .leading)
 
                 Spacer()
 
@@ -59,13 +61,16 @@ struct ControlBarView: View {
                                 .fill(isLiveMode ? Color.green.opacity(0.2) : Color.clear)
                                 .frame(width: 50, height: 50)
 
-                            Image(systemName: isLiveMode ? "pause.circle.fill" : "play.circle")
+                            Image(systemName: isLiveMode ? "pause.circle.fill" : "play.circle.fill")
                                 .font(.system(size: 40))
                                 .foregroundColor(isLiveMode ? .green : .green.opacity(0.8))
                         }
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(isRecording) // Deaktiviert während Aufnahme
+                    .disabled(isRecording)
+                    .animation(.easeInOut(duration: 0.2), value: isLiveMode)
+                    .accessibilityIdentifier(isLiveMode ? "pauseButton" : "playButton")
+                    .accessibilityLabel(isLiveMode ? "Pause" : "Play")
 
                     // Record Button
                     Button(action: toggleRecording) {
@@ -80,7 +85,10 @@ struct ControlBarView: View {
                         }
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(isRecording && recordingManager.currentRecordingDuration < 5.0) // Min 5 Sekunden
+                    .disabled(isRecording && recordingManager.currentRecordingDuration < 5.0)
+                    .animation(.easeInOut(duration: 0.2), value: isRecording)
+                    .accessibilityIdentifier(isRecording ? "stopButton" : "recordButton")
+                    .accessibilityLabel(isRecording ? "Stop" : "Aufnahme")
                 }
 
                 Spacer()
@@ -107,11 +115,12 @@ struct ControlBarView: View {
                         }
                     }
                 }
-                .frame(width: 100, alignment: .trailing)
+                .accessibilityIdentifier("recordingsListButton")
+                .accessibilityLabel("Aufnahmen")
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            .padding(.bottom, max(16, safeAreaBottomInset + 8))
+            .padding(.bottom, max(12, safeAreaBottomInset))
             .frame(maxWidth: .infinity)
         }
         .background(
@@ -132,7 +141,7 @@ struct ControlBarView: View {
             RecordingsListView().environmentObject(recordingManager)
         }
     }
-    
+
     private var statusText: String {
         if isRecording {
             return "Aufnahme läuft"
@@ -158,11 +167,9 @@ struct ControlBarView: View {
         generator.impactOccurred()
 
         if isLiveMode {
-            // Live-Modus stoppen
             print("[ControlBarView] Stopping live mode...")
             audioEngine.stopLiveMode()
         } else {
-            // Live-Modus starten
             print("[ControlBarView] Starting live mode...")
             audioEngine.startLiveMode()
         }
@@ -173,7 +180,6 @@ struct ControlBarView: View {
         generator.impactOccurred()
 
         if isRecording {
-            // Stoppen nur nach min 5 Sekunden
             guard recordingManager.currentRecordingDuration >= 5.0 else {
                 let notificationGenerator = UINotificationFeedbackGenerator()
                 notificationGenerator.notificationOccurred(.warning)
@@ -189,15 +195,12 @@ struct ControlBarView: View {
                     recordedAudioURL = url
                     recordedDuration = recordingManager.currentRecordingDuration
 
-                    // Zeige Save-Dialog
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showSaveDialog = true
                     }
                 }
             }
         } else {
-            // Falls wir im Live-Modus sind, wechseln wir zu Aufnahme
-            // Falls nicht, starten wir direkt die Aufnahme
             print("[ControlBarView] Starting recording...")
             if recordingManager.startRecording(audioEngine: audioEngine) {
                 audioEngine.startRecording()

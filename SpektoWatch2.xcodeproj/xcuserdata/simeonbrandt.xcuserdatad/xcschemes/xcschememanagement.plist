@@ -7,12 +7,35 @@
 		<key>SpektoWatch Watch App.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>0</integer>
+			<integer>1</integer>
 		</dict>
 		<key>SpektoWatch2.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>1</integer>
+			<integer>0</integer>
+		</dict>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>3795235A2F2234F90079C93F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>3795236C2F22353C0079C93F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>37969D312F2E096A009D1923</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>37969D4C2F2E0982009D1923</key>
+		<dict>
+			<key>primary</key>
+			<true/>
 		</dict>
 	</dict>
 </dict>

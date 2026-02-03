@@ -30,10 +30,10 @@ struct ModularDashboardView: View {
             // Control Bar
             ControlBarView(audioEngine: viewModel.audioEngine)
         }
-        .edgesIgnoringSafeArea(.bottom)
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
         }
+        .edgesIgnoringSafeArea(.bottom)
         .sheet(isPresented: $viewModel.showSettings) {
             SpectrogramSettingsView(
                 selectedMicrophoneSource: $viewModel.selectedMicrophoneSource,
@@ -51,8 +51,8 @@ struct ModularDashboardView: View {
             // Ensure audio engine is ready or started if needed
             print("[ModularDashboardView] View appeared. Widgets count: \(viewModel.dashboardManager.widgets.count)")
         }
-        .onChange(of: viewModel.dashboardManager.isEditMode) { newValue in
-            print("[ModularDashboardView] Edit mode changed: \(newValue)")
+        .onChange(of: viewModel.dashboardManager.isEditMode) { oldValue, newValue in
+            print("[ModularDashboardView] Edit mode changed: \(oldValue) -> \(newValue)")
         }
     }
     
@@ -78,49 +78,86 @@ struct ModularDashboardView: View {
             .padding()
             .padding(.top, 50)
         } else {
-            let colCount = max(1, Int(geo.size.width / 160))
-            let rows = viewModel.computeRows(widgets: viewModel.dashboardManager.widgets, columns: colCount)
-            let columnWidth = (geo.size.width - CGFloat(colCount - 1) * 12) / CGFloat(colCount)
-            
-            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-                ForEach(0..<rows.count, id: \.self) { rowIndex in
-                    GridRow {
-                        ForEach(rows[rowIndex]) { widget in
-                            let span = viewModel.getSpan(for: widget, colCount: colCount)
-                            
-                            WidgetCardView(
-                                widget: widget,
-                                audioEngine: viewModel.audioEngine,
-                                fftConfig: fftConfig,
-                                isEditMode: viewModel.dashboardManager.isEditMode,
-                                columnWidth: columnWidth,
-                                onDelete: {
-                                    withAnimation(.spring()) {
-                                        viewModel.deleteWidget(widget)
+            VStack(spacing: 16) {
+                // Frequenz-Spektrum Widget
+                if let widget = viewModel.dashboardManager.widgets.first(where: { $0.type == .frequencyDisplay }) {
+                    WidgetCardView(
+                        widget: widget,
+                        audioEngine: viewModel.audioEngine,
+                        fftConfig: fftConfig,
+                        isEditMode: viewModel.dashboardManager.isEditMode,
+                        columnWidth: geo.size.width - 32,
+                        onDelete: { withAnimation(.spring()) { viewModel.deleteWidget(widget) } },
+                        onResize: { newSize in withAnimation(.spring()) { viewModel.dashboardManager.resizeWidget(id: widget.id, to: newSize) } },
+                        onUpdateSettings: { newSettings in viewModel.dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings) }
+                    )
+                }
+
+                // Einzelwert Widget
+                if let widget = viewModel.dashboardManager.widgets.first(where: { $0.type == .singleValue }) {
+                    WidgetCardView(
+                        widget: widget,
+                        audioEngine: viewModel.audioEngine,
+                        fftConfig: fftConfig,
+                        isEditMode: viewModel.dashboardManager.isEditMode,
+                        columnWidth: geo.size.width - 32,
+                        onDelete: { withAnimation(.spring()) { viewModel.deleteWidget(widget) } },
+                        onResize: { newSize in withAnimation(.spring()) { viewModel.dashboardManager.resizeWidget(id: widget.id, to: newSize) } },
+                        onUpdateSettings: { newSettings in viewModel.dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings) }
+                    )
+                }
+                
+                Spacer().frame(minHeight: 40)
+
+                // Restliche Widgets
+                let remainingWidgets = viewModel.dashboardManager.widgets.filter { $0.type != .frequencyDisplay && $0.type != .singleValue }
+                if !remainingWidgets.isEmpty {
+                    let colCount = max(1, Int(geo.size.width / 160))
+                    let rows = viewModel.computeRows(widgets: remainingWidgets, columns: colCount)
+                    let columnWidth = (geo.size.width - CGFloat(colCount - 1) * 12) / CGFloat(colCount)
+                    
+                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                        ForEach(0..<rows.count, id: \.self) { rowIndex in
+                            GridRow {
+                                ForEach(rows[rowIndex]) { widget in
+                                    let span = viewModel.getSpan(for: widget, colCount: colCount)
+                                    
+                                    WidgetCardView(
+                                        widget: widget,
+                                        audioEngine: viewModel.audioEngine,
+                                        fftConfig: fftConfig,
+                                        isEditMode: viewModel.dashboardManager.isEditMode,
+                                        columnWidth: columnWidth,
+                                        onDelete: {
+                                            withAnimation(.spring()) {
+                                                viewModel.deleteWidget(widget)
+                                            }
+                                        },
+                                        onResize: { newSize in
+                                            print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
+                                            withAnimation(.spring()) {
+                                                viewModel.dashboardManager.resizeWidget(id: widget.id, to: newSize)
+                                            }
+                                        },
+                                        onUpdateSettings: { newSettings in
+                                            viewModel.dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+                                        }
+                                    )
+                                    .gridCellColumns(span)
+                                    .onDrag {
+                                        viewModel.draggedWidget = widget
+                                        return NSItemProvider(object: widget.id.uuidString as NSString)
                                     }
-                                },
-                                onResize: { newSize in
-                                    print("[ModularDashboardView] Resize requested for widget: \(widget.id) to \(newSize)")
-                                    withAnimation(.spring()) {
-                                        viewModel.dashboardManager.resizeWidget(id: widget.id, to: newSize)
-                                    }
-                                },
-                                onUpdateSettings: { newSettings in
-                                    viewModel.dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+                                    .onDrop(of: [UTType.text], delegate: WidgetDropDelegate(item: widget, items: $viewModel.dashboardManager.widgets, draggedItem: $viewModel.draggedWidget, onSave: viewModel.dashboardManager.saveConfiguration))
+                                    .transition(WidgetAnimations.cardTransition)
                                 }
-                            )
-                            .gridCellColumns(span)
-                            .onDrag {
-                                viewModel.draggedWidget = widget
-                                return NSItemProvider(object: widget.id.uuidString as NSString)
                             }
-                            .onDrop(of: [UTType.text], delegate: WidgetDropDelegate(item: widget, items: $viewModel.dashboardManager.widgets, draggedItem: $viewModel.draggedWidget, onSave: viewModel.dashboardManager.saveConfiguration))
-                            .transition(WidgetAnimations.cardTransition)
                         }
                     }
                 }
             }
-            .padding()
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
         }
     }
 }

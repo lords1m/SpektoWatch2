@@ -16,36 +16,39 @@ enum FrequencyWeighting: String, CaseIterable {
 }
 
 /// Applies frequency weighting curves (A, C, Z) to spectral data
-class FrequencyWeightingProcessor {
+/// Thread-safe immutable value type - all data is computed at init time
+/// NOTE: Changed from class to struct to avoid Swift Concurrency deallocation issues
+struct FrequencyWeightingProcessor: Sendable {
     private let fftSize: Int
     private let sampleRate: Double
-    
-    // Pre-computed weighting curves (linear gain factors)
-    private var aWeightingGains: [Float]
-    private var cWeightingGains: [Float]
-    private var zWeightingGains: [Float]
-    
-    // Frequency array
+
+    // Pre-computed weighting curves (linear gain factors) - immutable after init
+    private let aWeightingGains: [Float]
+    private let cWeightingGains: [Float]
+    private let zWeightingGains: [Float]
+
+    // Frequency array - immutable after init
     private let frequencies: [Float]
-    
+
     // MARK: - Initialization
-    
+
     init(fftSize: Int, sampleRate: Double) {
         self.fftSize = fftSize
         self.sampleRate = sampleRate
-        
+
         let nyquist = Float(sampleRate / 2.0)
         let binCount = fftSize / 2
-        self.frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
-        
+        let freqs = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
+        self.frequencies = freqs
+
         // Pre-compute all weighting curves
-        self.aWeightingGains = Self.computeAWeighting(frequencies: frequencies)
-        self.cWeightingGains = Self.computeCWeighting(frequencies: frequencies)
+        self.aWeightingGains = Self.computeAWeighting(frequencies: freqs)
+        self.cWeightingGains = Self.computeCWeighting(frequencies: freqs)
         self.zWeightingGains = [Float](repeating: 1.0, count: binCount) // Z = flat
     }
-    
+
     // MARK: - Public Methods
-    
+
     /// Applies frequency weighting to dB magnitudes
     /// - Parameters:
     ///   - dbMagnitudes: Input magnitudes in dB
@@ -67,7 +70,7 @@ class FrequencyWeightingProcessor {
 
         return weighted
     }
-    
+
     /// Returns linear gain factors for a specific weighting
     func getWeightingGains(for weighting: FrequencyWeighting) -> [Float] {
         switch weighting {
@@ -76,57 +79,57 @@ class FrequencyWeightingProcessor {
         case .z: return zWeightingGains
         }
     }
-    
+
     /// Returns A-weighting gains (for legacy API compatibility)
     func getAWeightingGains() -> [Float] {
         return aWeightingGains
     }
-    
+
     /// Returns C-weighting gains (for legacy API compatibility)
     func getCWeightingGains() -> [Float] {
         return cWeightingGains
     }
-    
+
     // MARK: - A-Weighting Computation (IEC 61672-1:2013)
-    
+
     private static func computeAWeighting(frequencies: [Float]) -> [Float] {
         return frequencies.map { freq -> Float in
             guard freq > 0 else { return 0.0 }
-            
+
             let f = Double(freq)
             let f2 = f * f
             let f4 = f2 * f2
-            
+
             // IEC 61672-1:2013 A-weighting formula
             let numerator = 12194.0 * 12194.0 * f4
             let denominator = (f2 + 20.6 * 20.6) *
                               sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) *
                               (f2 + 12194.0 * 12194.0)
-            
+
             let linearGain = Float(numerator / denominator)
-            
+
             // Normalize to 0 dB at 1 kHz
             let normalizationFactor: Float = 1.25893 // Makes 1kHz = 1.0
             return linearGain * normalizationFactor
         }
     }
-    
+
     // MARK: - C-Weighting Computation (IEC 61672-1:2013)
-    
+
     private static func computeCWeighting(frequencies: [Float]) -> [Float] {
         return frequencies.map { freq -> Float in
             guard freq > 0 else { return 0.0 }
-            
+
             let f = Double(freq)
             let f2 = f * f
             let f4 = f2 * f2
-            
+
             // IEC 61672-1:2013 C-weighting formula
             let numerator = 12194.0 * 12194.0 * f4
             let denominator = (f2 + 20.6 * 20.6) * (f2 + 12194.0 * 12194.0)
-            
+
             let linearGain = Float(numerator / denominator)
-            
+
             // Normalize to 0 dB at 1 kHz
             let normalizationFactor: Float = 1.00659 // Makes 1kHz = 1.0
             return linearGain * normalizationFactor

@@ -2,7 +2,9 @@ import Foundation
 import AVFoundation
 import Accelerate
 import Combine
+#if canImport(UIKit)
 import UIKit
+#endif
 
 enum ScrollSpeed: Int, CaseIterable {
     case verySlow = 4096  // ~10 FPS
@@ -204,7 +206,7 @@ class AudioEngine: ObservableObject {
         self.bandstopFilterManager = filterManager
         self.connectivityManager = connectivityManager
         audioEngine = AVAudioEngine()
-        
+
         // Initialize processing components
         fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: sampleRate)
         weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: sampleRate)
@@ -259,7 +261,6 @@ class AudioEngine: ObservableObject {
 
         // Thread-sichere Rekonfiguration
         processingLock.lock()
-        defer { processingLock.unlock() }
 
         // Buffer leeren um Race-Conditions zu vermeiden
         sampleBuffer.removeAll()
@@ -273,8 +274,11 @@ class AudioEngine: ObservableObject {
         // Rekonfiguriere den FFT Processor
         fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
 
-        // Aktualisiere den Weighting Processor
-        weightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: sampleRate)
+        // Erstelle neuen Weighting Processor (alter wird nach unlock freigegeben)
+        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: sampleRate)
+        weightingProcessor = newWeightingProcessor
+
+        processingLock.unlock()
 
         // Veröffentliche Änderungen
         DispatchQueue.main.async {
@@ -299,7 +303,6 @@ class AudioEngine: ObservableObject {
         guard size.rawValue != fftSize else { return }
 
         processingLock.lock()
-        defer { processingLock.unlock() }
 
         // Buffer leeren um Race-Conditions zu vermeiden
         sampleBuffer.removeAll()
@@ -308,7 +311,13 @@ class AudioEngine: ObservableObject {
         fftSize = size.rawValue
         currentBlockSize = size
         fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
-        weightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: sampleRate)
+
+        // Erstelle neuen Weighting Processor
+        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: sampleRate)
+        weightingProcessor = newWeightingProcessor
+
+        processingLock.unlock()
+
         Logger.audioEngine.info("FFT size changed to: \(size.rawValue)")
     }
 
@@ -352,7 +361,9 @@ class AudioEngine: ObservableObject {
     }
 
     private func startAudioCapture() {
-        engineStatus = .starting
+        DispatchQueue.main.async {
+            self.engineStatus = .starting
+        }
         recordingStartTime = Date()
         recordingDuration = 0.0
         hasLoggedSilence = false
@@ -362,7 +373,9 @@ class AudioEngine: ObservableObject {
         #if targetEnvironment(simulator)
         Logger.audioEngine.info("Running on Simulator - using test audio generator")
         testGenerator.start()
-        engineStatus = .running
+        DispatchQueue.main.async {
+            self.engineStatus = .running
+        }
         #else
         startRealRecording()
         #endif
@@ -384,8 +397,10 @@ class AudioEngine: ObservableObject {
     private func stopAudioCapture() {
         recordingStartTime = nil
         audioFile = nil
-        engineStatus = .idle
-        isRecordingToFile = false
+        DispatchQueue.main.async {
+            self.engineStatus = .idle
+            self.isRecordingToFile = false
+        }
 
         #if targetEnvironment(simulator)
         testGenerator.stop()
@@ -502,6 +517,39 @@ class AudioEngine: ObservableObject {
         let audioSession = AVAudioSession.sharedInstance()
 
         // Check permissions first (quick check on main thread)
+        // Use new iOS 17+ API with fallback for older versions
+        #if swift(>=5.9)
+        if #available(iOS 17.0, *) {
+            let permission = AVAudioApplication.shared.recordPermission
+            if permission == .undetermined {
+                AVAudioApplication.requestRecordPermission { [weak self] granted in
+                    if granted { DispatchQueue.main.async { self?.startRecording() } }
+                }
+                return
+            }
+            if permission == .denied {
+                Logger.audioEngine.error("Microphone permission denied")
+                DispatchQueue.main.async {
+                    self.engineStatus = .error("Microphone permission denied")
+                }
+                return
+            }
+        } else {
+            if audioSession.recordPermission == .undetermined {
+                audioSession.requestRecordPermission { [weak self] granted in
+                    if granted { DispatchQueue.main.async { self?.startRecording() } }
+                }
+                return
+            }
+            if audioSession.recordPermission == .denied {
+                Logger.audioEngine.error("Microphone permission denied")
+                DispatchQueue.main.async {
+                    self.engineStatus = .error("Microphone permission denied")
+                }
+                return
+            }
+        }
+        #else
         if audioSession.recordPermission == .undetermined {
             audioSession.requestRecordPermission { [weak self] granted in
                 if granted { DispatchQueue.main.async { self?.startRecording() } }
@@ -510,9 +558,12 @@ class AudioEngine: ObservableObject {
         }
         if audioSession.recordPermission == .denied {
             Logger.audioEngine.error("Microphone permission denied")
-            engineStatus = .error("Microphone permission denied")
+            DispatchQueue.main.async {
+                self.engineStatus = .error("Microphone permission denied")
+            }
             return
         }
+        #endif
 
         // Capture state needed for background work
         let isRecording = self.isRecordingToFile
@@ -583,7 +634,9 @@ class AudioEngine: ObservableObject {
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
                 Logger.audioEngine.warning("Invalid audio format detected - falling back to test audio")
                 testGenerator.start()
-                engineStatus = .running
+                DispatchQueue.main.async {
+                    self.engineStatus = .running
+                }
                 isUsingDummyData = true
                 return
             }
@@ -605,14 +658,20 @@ class AudioEngine: ObservableObject {
             }
 
             try audioEngine.start()
-            engineStatus = .running
+            DispatchQueue.main.async {
+                self.engineStatus = .running
+            }
 
         } catch {
             Logger.audioEngine.error("Audio engine setup failed: \(error.localizedDescription)")
-            engineStatus = .error(error.localizedDescription)
+            DispatchQueue.main.async {
+                self.engineStatus = .error(error.localizedDescription)
+            }
             Logger.audioEngine.info("Falling back to test audio generator")
             testGenerator.start()
-            engineStatus = .running
+            DispatchQueue.main.async {
+                self.engineStatus = .running
+            }
             isUsingDummyData = true
         }
     }

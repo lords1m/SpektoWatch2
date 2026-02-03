@@ -167,10 +167,14 @@ enum FFTBlockSize: Int, CaseIterable, Identifiable {
 }
 
 /// Handles FFT computation and magnitude conversion
+/// Thread-safe: all access to mutable state is protected by a lock
 class FFTProcessor {
     private(set) var fftSize: Int
     private let sampleRate: Double
     private var fftSetup: vDSP_DFT_Setup?
+
+    /// Lock for thread-safe access to FFT setup and buffers
+    private let lock = NSLock()
 
     // Pre-allocated buffers for performance
     private var window: [Float]
@@ -218,14 +222,22 @@ class FFTProcessor {
     // MARK: - Configuration
 
     /// Ändert die Fensterfunktion
+    /// Thread-safe: locks access during window change
     func setWindowFunction(_ function: WindowFunction) {
+        lock.lock()
+        defer { lock.unlock() }
+
         guard function != windowFunction else { return }
         windowFunction = function
         window = function.generate(size: fftSize)
     }
 
     /// Ändert die FFT-Größe (erfordert Neuinitialisierung)
+    /// Thread-safe: locks access during reconfiguration
     func reconfigure(fftSize newSize: Int, windowFunction newWindow: WindowFunction? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+
         guard newSize != fftSize || (newWindow != nil && newWindow != windowFunction) else { return }
 
         // Validiere dass newSize eine Potenz von 2 ist
@@ -278,32 +290,39 @@ class FFTProcessor {
     }
     
     deinit {
+        lock.lock()
         if let setup = fftSetup {
             vDSP_DFT_DestroySetup(setup)
+            fftSetup = nil
         }
+        lock.unlock()
     }
-    
+
     // MARK: - FFT Processing
-    
+
     /// Performs FFT and returns linear magnitudes
+    /// Thread-safe: locks access during FFT computation
     /// - Parameters:
     ///   - samples: Time-domain samples (must be fftSize length)
     ///   - gainBoost: Gain multiplier to apply before FFT
     /// - Returns: Array of linear magnitude values (fftSize/2 length)
     func performFFT(on samples: [Float], gainBoost: Float = 1.0) -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
+
         guard samples.count >= fftSize else {
             return [Float](repeating: 0, count: fftSize / 2)
         }
-        
+
         // Apply window and gain
         var windowed = [Float](repeating: 0, count: fftSize)
         vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
-        
+
         if gainBoost != 1.0 {
             var gain = gainBoost
             vDSP_vsmul(windowed, 1, &gain, &windowed, 1, vDSP_Length(fftSize))
         }
-        
+
         // Perform FFT
         guard let setup = fftSetup else {
             return [Float](repeating: 0, count: fftSize / 2)
@@ -325,11 +344,11 @@ class FFTProcessor {
                 vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
             }
         }
-        
+
         // Normalize
         var scale = 2.0 / Float(fftSize)
         vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize / 2))
-        
+
         return magnitudes
     }
     

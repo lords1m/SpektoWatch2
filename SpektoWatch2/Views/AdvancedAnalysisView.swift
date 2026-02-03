@@ -395,8 +395,7 @@ private struct ResolutionSection: View {
                         }
 
                         let canDistinguish = fftConfig.frequencyResolution < 1.0
-                        let a4 = 440.0
-                        let a4Sharp = 466.16
+                        // A4 = 440.0 Hz, A#4 = 466.16 Hz (Differenz ~26 Hz)
 
                         Text("""
                         Mit Δf = \(String(format: "%.2f", fftConfig.frequencyResolution)) Hz \
@@ -839,8 +838,7 @@ private struct ComparisonSpectrumView: View {
 
     var body: some View {
         // Generate synthetic spectrum showing difference in window effects
-        let sineFreq: Float = 1000.0 // 1 kHz test tone
-        let sampleRate: Float = 44100.0
+        // Test tone: 1 kHz at 44100 Hz sample rate
 
         GeometryReader { geo in
             Canvas { context, size in
