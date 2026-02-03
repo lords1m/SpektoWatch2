@@ -214,8 +214,14 @@ struct ControlBarView: View {
             }
         } else {
             print("[ControlBarView] Starting recording...")
-            if recordingManager.startRecording(audioEngine: audioEngine) {
+            let recordingStarted = recordingManager.startRecording(audioEngine: audioEngine)
+            print("[ControlBarView] RecordingManager.startRecording() returned: \(recordingStarted)")
+            if recordingStarted {
+                print("[ControlBarView] Calling audioEngine.startRecording()...")
                 audioEngine.startRecording()
+                print("[ControlBarView] audioEngine.startRecording() called")
+            } else {
+                print("[ControlBarView] ERROR: RecordingManager failed to start recording!")
             }
         }
     }
