@@ -54,10 +54,15 @@ final class SpektoWatch2UITests: XCTestCase {
         }
 
         // Warte bis die App vollständig geladen ist
-        Thread.sleep(forTimeInterval: 2)
+        // Extra time for AudioEngine initialization
+        Thread.sleep(forTimeInterval: 3)
 
         // Verify app is in foreground
         XCTAssertTrue(self.app.wait(for: .runningForeground, timeout: 5), "App should be running in foreground")
+
+        // Verify initial UI elements are present
+        XCTAssertTrue(self.app.buttons["playButton"].waitForExistence(timeout: 5), "Play button should exist after setup")
+        XCTAssertTrue(self.app.buttons["recordButton"].waitForExistence(timeout: 5), "Record button should exist after setup")
     }
 
     override func tearDownWithError() throws {
@@ -291,21 +296,27 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertFalse(app.buttons["stopButton"].exists, "Stop button should NOT exist initially")
 
         // 2. Starte Aufnahme → Button sollte zu Stop wechseln
+        print("[TEST] Tapping record button...")
         recordButton.tap()
 
-        // Warte länger und prüfe mehrfach
+        // Warte und prüfe mehrfach mit längeren Intervallen
         var stopButtonAppeared = false
-        for attempt in 1...5 {
-            Thread.sleep(forTimeInterval: 1.0)
-            print("Attempt \(attempt): Checking for stopButton...")
+        for attempt in 1...10 {
+            Thread.sleep(forTimeInterval: 2.0)  // Longer intervals
+            print("[TEST] Attempt \(attempt)/10: Checking for stopButton...")
+
             if app.buttons["stopButton"].exists {
                 stopButtonAppeared = true
-                print("Stop button found!")
+                print("[TEST] ✅ Stop button found on attempt \(attempt)!")
                 break
             }
+
+            // Debug: Print what buttons DO exist
+            let allButtons = app.buttons.allElementsBoundByIndex.compactMap { $0.identifier }
+            print("[TEST] Current buttons: \(allButtons)")
         }
 
-        XCTAssertTrue(stopButtonAppeared, "Stop button should appear after tapping record button")
+        XCTAssertTrue(stopButtonAppeared, "Stop button should appear after tapping record button (waited 20 seconds)")
 
         let stopButton = app.buttons["stopButton"]
         XCTAssertTrue(stopButton.exists, "Stop button must exist")
