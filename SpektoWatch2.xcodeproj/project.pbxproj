@@ -10,6 +10,8 @@
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		37DC2D8D2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		37DC2D8E2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
+		9B6A1D2F9F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
+		9B6A1D309F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +58,7 @@
 		37969D322F2E096B009D1923 /* SpektoWatch2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatch2Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		37969D4D2F2E0982009D1923 /* SpektoWatch2UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatch2UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = TestPlan.xctestplan; sourceTree = "<group>"; };
+		9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SpektoWatch2_FullRun.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -161,6 +164,7 @@
 			isa = PBXGroup;
 			children = (
 				37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */,
+				9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */,
 				379523902F22373C0079C93F /* Shared */,
 				3795235D2F2234F90079C93F /* SpektoWatch2 */,
 				3795236E2F22353C0079C93F /* SpektoWatch Watch App */,
@@ -332,6 +336,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				37DC2D8D2F35596900DEE817 /* TestPlan.xctestplan in Resources */,
+				9B6A1D2F9F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -340,6 +345,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				37DC2D8E2F35596900DEE817 /* TestPlan.xctestplan in Resources */,
+				9B6A1D309F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

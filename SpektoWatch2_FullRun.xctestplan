@@ -1,0 +1,43 @@
+{
+  "configurations" : [
+    {
+      "id" : "B1A2C3D4-1111-2222-3333-444455556666",
+      "name" : "Full Run",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:SpektoWatch2.xcodeproj",
+          "identifier" : "379523572F2234F90079C93F",
+          "name" : "SpektoWatch2"
+        }
+      ]
+    },
+    "testExecutionOrdering" : "ordered",
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:SpektoWatch2.xcodeproj",
+        "identifier" : "SpektoWatch2Tests",
+        "name" : "SpektoWatch2Tests"
+      }
+    },
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:SpektoWatch2.xcodeproj",
+        "identifier" : "SpektoWatch2UITests",
+        "name" : "SpektoWatch2UITests"
+      }
+    }
+  ],
+  "version" : 1
+}
