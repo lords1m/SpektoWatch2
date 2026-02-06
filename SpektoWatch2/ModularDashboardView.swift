@@ -10,25 +10,30 @@ struct ModularDashboardView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            DashboardHeaderView(
-                isEditMode: $viewModel.dashboardManager.isEditMode,
-                onAddWidget: viewModel.addWidget,
-                onShowSettings: {
-                    viewModel.showSettings = true
-                }
-            )
-            
-            // Scrollable Grid
+        ZStack {
+            // Scrollable Grid (full height)
             GeometryReader { geo in
                 ScrollView {
                     dashboardGrid(geo: geo)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            
-            // Control Bar
-            ControlBarView(audioEngine: viewModel.audioEngine)
+
+            VStack {
+                // Header (floating)
+                DashboardHeaderView(
+                    isEditMode: $viewModel.dashboardManager.isEditMode,
+                    onAddWidget: viewModel.addWidget,
+                    onShowSettings: {
+                        viewModel.showSettings = true
+                    }
+                )
+
+                Spacer()
+
+                // Control Bar (floating)
+                ControlBarView(audioEngine: viewModel.audioEngine)
+            }
         }
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)

@@ -33,21 +33,9 @@ struct WatchSingleValueWidget: View {
                 .padding(2)
             }
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
-            guard audioEngine.isRecording, let data = data else {
-                if !connectivityManager.isReachable || connectivityManager.spectrogramData == nil {
-                    isActive = false
-                }
-                return
-            }
-            updateValue(from: data)
-            isActive = true
-        }
         .onReceive(connectivityManager.$spectrogramData) { data in
-            guard !audioEngine.isRecording, let data = data else {
-                if !audioEngine.isRecording {
-                    isActive = false
-                }
+            guard let data = data else {
+                isActive = false
                 return
             }
             updateValue(from: data)
@@ -73,21 +61,6 @@ struct WatchSingleValueWidget: View {
     }
 
     private func updateValue(from data: SpectrogramData) {
-        switch valueType {
-        case .laeq:
-            currentValue = data.levels["LAeq"] ?? data.broadbandLevel
-        case .lceq:
-            currentValue = data.levels["LCeq"] ?? data.broadbandLevel
-        case .lzeq:
-            currentValue = data.levels["LZeq"] ?? data.broadbandLevel
-        case .lafMax:
-            currentValue = data.levels["LAFmax"] ?? data.levels["LAF"] ?? data.broadbandLevel
-        case .lafMin:
-            currentValue = data.levels["LAFmin"] ?? data.levels["LAF"] ?? data.broadbandLevel
-        case .lcfMax:
-            currentValue = data.levels["LCFmax"] ?? data.levels["LCF"] ?? data.broadbandLevel
-        case .lcfMin:
-            currentValue = data.levels["LCFmin"] ?? data.levels["LCF"] ?? data.broadbandLevel
-        }
+        currentValue = WatchValueMapping.value(for: valueType, data: data)
     }
 }

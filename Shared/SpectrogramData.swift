@@ -15,14 +15,14 @@ public struct SpectrogramData: Codable {
     public let timestamp: Date
     public let sampleRate: Double
 
-    public init(frequencies: [Float], magnitudes: [Float], magnitudesA: [Float]? = nil, magnitudesC: [Float]? = nil, broadbandLevel: Float = -120.0, levels: [String: Float] = [:], sampleRate: Double) {
+    public init(frequencies: [Float], magnitudes: [Float], magnitudesA: [Float]? = nil, magnitudesC: [Float]? = nil, broadbandLevel: Float = -120.0, levels: [String: Float] = [:], sampleRate: Double, timestamp: Date = Date()) {
         self.frequencies = frequencies
         self.magnitudes = magnitudes
         self.magnitudesA = magnitudesA
         self.magnitudesC = magnitudesC
         self.broadbandLevel = broadbandLevel
         self.levels = levels
-        self.timestamp = Date()
+        self.timestamp = timestamp
         self.sampleRate = sampleRate
     }
 

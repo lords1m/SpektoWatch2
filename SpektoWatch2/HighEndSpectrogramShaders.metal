@@ -175,8 +175,8 @@ fragment float4 highEndSpectrogramFragmentShader(
     constant ShaderParams& params [[buffer(0)]]
 ) {
     // 1. HORIZONTAL SCROLLING (Ring Buffer)
-    float screenX = 1.0 - in.texCoord.x;
-    float texX = fmod(screenX + params.scrollOffset, 1.0);
+    float screenX = in.texCoord.x;
+    float texX = fmod(params.scrollOffset - screenX + 1.0, 1.0);
     
     // 2. VERTIKALE KOORDINATE - DIREKT verwenden (keine Log-Transformation!)
     // KORREKTUR: Die Textur ist bereits logarithmisch organisiert

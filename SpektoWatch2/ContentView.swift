@@ -5,6 +5,10 @@ struct ContentView: View {
     @EnvironmentObject var connectivityManager: WatchConnectivityManager
     
     var body: some View {
-        ModularDashboardView(audioEngine: audioEngine, connectivityManager: connectivityManager)
+        ZStack {
+            GlassBackground()
+                .ignoresSafeArea()
+            ModularDashboardView(audioEngine: audioEngine, connectivityManager: connectivityManager)
+        }
     }
 }

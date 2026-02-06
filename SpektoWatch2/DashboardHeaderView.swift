@@ -45,16 +45,13 @@ struct DashboardHeaderView: View {
                         .foregroundColor(.blue)
                 }
             }
+            .frame(maxWidth: .infinity)
             .padding()
-            .background(Color(UIColor.systemBackground))
+            .backgroundExtensionEffect(cornerRadius: 22)
             
-            // Bottom Separator
-            Divider()
-                .background(Color.gray.opacity(0.3))
         }
-        .background(
-            Color(UIColor.systemBackground)
-                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-        )
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .background(Color.clear)
     }
 }

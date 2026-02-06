@@ -73,6 +73,8 @@ class HighEndSpectrogramAdapter: MTKView {
     var manualScrollOffset: Float = 0.0
     private var debugPrintCounter = 0
     private var drawPrintCounter = 0
+    private var lastDataTimestamp: TimeInterval = 0
+    private let enableVerboseLogs = false
     
     // PERFORMANCE: Cache für Frequenz-Mapping
     private struct MappingCacheEntry {
@@ -226,14 +228,15 @@ class HighEndSpectrogramAdapter: MTKView {
     /// KORREKTUR: Akzeptiere FFT Magnituden direkt als lineare Werte
     /// AudioEngine sollte lineare Magnituden liefern, nicht dB
     /// Akzeptiere FFT Magnituden und mappe sie logarithmisch auf die Textur
-func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
+func updateWithFFTMagnitudes(_ magnitudes: [Float], timestamp: Date) {
     guard let texture = spectrogramTexture else { return }
     
     if isUpdatesPaused { return }
+    lastDataTimestamp = timestamp.timeIntervalSinceReferenceDate
     
     // DEBUG: Log input data for display
     debugPrintCounter += 1
-    if debugPrintCounter % 30 == 0 {
+    if enableVerboseLogs && debugPrintCounter % 240 == 0 {
         let minVal = magnitudes.min() ?? 0
         let maxVal = magnitudes.max() ?? 0
         Logger.metal.debug("Frame \(self.debugPrintCounter): \(magnitudes.count) bins, Range: [\(minVal, format: .fixed(precision: 5))..\(maxVal, format: .fixed(precision: 5))]")
@@ -363,12 +366,15 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float]) {
             self?.inFlightSemaphore.signal()
         }
         
-        let baseOffset = Float(currentColumn) / Float(timeColumns)
+        let lastWrittenColumn = (currentColumn - 1 + timeColumns) % timeColumns
+        let baseOffset = Float(lastWrittenColumn) / Float(timeColumns)
         let totalOffset = baseOffset + manualScrollOffset
         
         drawPrintCounter += 1
-        if drawPrintCounter % 60 == 0 {
-             Logger.metal.debug("Render Frame \(self.drawPrintCounter): Column \(self.currentColumn)/\(self.timeColumns), Scroll: \(totalOffset, format: .fixed(precision: 3)), Colormap: \(self.colormapType)")
+        if drawPrintCounter % 120 == 0 {
+            let now = Date().timeIntervalSinceReferenceDate
+            let latencyMs = lastDataTimestamp > 0 ? (now - lastDataTimestamp) * 1000.0 : -1
+            Logger.metal.debug("Render Frame \(self.drawPrintCounter): Column \(self.currentColumn)/\(self.timeColumns), Scroll: \(totalOffset, format: .fixed(precision: 3)), Colormap: \(self.colormapType), Render Lag: \(latencyMs, format: .fixed(precision: 0)) ms")
         }
         
         var params = HighEndSpectrogramShaderParams(
@@ -543,7 +549,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
                     guard let self = self else { return }
                     // Wähle Magnituden basierend auf der Bewertungskurve
                     let magnitudes = data.magnitudes(for: self.freqWeighting)
-                    self.view?.updateWithFFTMagnitudes(magnitudes)
+                    self.view?.updateWithFFTMagnitudes(magnitudes, timestamp: data.timestamp)
                 }
         }
     }
@@ -656,9 +662,18 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                 // Spectrogram View & X-Axis
                 VStack(spacing: axisSpacing) {
                     // Spectrogram
-                    HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset, freqWeighting: freqWeighting, sensitivity: sensitivity)
-                        .frame(height: spectrogramHeight)
-                        .cornerRadius(20)
+                    HighEndSpectrogramAdapterView(
+                        audioEngine: audioEngine,
+                        colormapType: colormapType,
+                        timeSpan: timeSpan,
+                        scrollSpeed: scrollSpeed,
+                        isPaused: isPaused,
+                        scrollOffset: scrollOffset,
+                        freqWeighting: freqWeighting,
+                        sensitivity: sensitivity
+                    )
+                    .frame(height: spectrogramHeight)
+                    .cornerRadius(20)
                     
                     // X-Axis (Time)
                     HStack {

@@ -91,6 +91,8 @@ struct SaveRecordingView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(GlassBackground())
             .navigationTitle("Aufnahme speichern")
             .navigationBarTitleDisplayMode(.inline)
         }

@@ -290,12 +290,10 @@ class FFTProcessor {
     }
     
     deinit {
-        lock.lock()
         if let setup = fftSetup {
             vDSP_DFT_DestroySetup(setup)
             fftSetup = nil
         }
-        lock.unlock()
     }
 
     // MARK: - FFT Processing

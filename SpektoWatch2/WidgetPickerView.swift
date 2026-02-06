@@ -21,8 +21,11 @@ struct WidgetPickerView: View {
                             Image(systemName: "plus.circle")
                         }
                     }
+                    .listRowBackground(Rectangle().fill(.ultraThinMaterial))
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(GlassBackground())
             .navigationTitle("Widget hinzufügen")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -1,67 +1,81 @@
 import SwiftUI
+import Combine
 
 // MARK: - Play/Pause Button Component
 private struct PlayPauseButton: View {
-    let engineStatus: EngineStatus
-    let isRecordingToFile: Bool
+    @ObservedObject var audioEngine: AudioEngine
     let action: () -> Void
 
-    private var isLiveMode: Bool {
-        (engineStatus == .running || engineStatus == .starting) && !isRecordingToFile
-    }
-
-    private var isRecording: Bool {
-        engineStatus == .running && isRecordingToFile
+    private var state: ControlBarState {
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
     }
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(isLiveMode ? Color.green.opacity(0.2) : Color.clear)
+                    .fill(state.isLiveMode ? Color.green.opacity(0.2) : Color.clear)
                     .frame(width: 50, height: 50)
 
-                Image(systemName: isLiveMode ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(isLiveMode ? .green : .green.opacity(0.8))
+                ZStack {
+                    if state.isLiveMode {
+                        Image(systemName: "pause.circle")
+                            .font(.system(size: 40))
+                            .foregroundColor(.green)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    } else {
+                        Image(systemName: "play.circle")
+                            .font(.system(size: 40))
+                            .foregroundColor(.green.opacity(0.8))
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
             }
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(isRecording)
-        .animation(.easeInOut(duration: 0.2), value: isLiveMode)
-        .accessibilityIdentifier(isLiveMode ? "pauseButton" : "playButton")
-        .accessibilityLabel(isLiveMode ? "Pause" : "Play")
+        .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
+        .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
+        .accessibilityLabel(state.playPauseAccessibilityLabel)
     }
 }
 
 // MARK: - Record/Stop Button Component
 private struct RecordStopButton: View {
-    let engineStatus: EngineStatus
-    let isRecordingToFile: Bool
-    let recordingDuration: TimeInterval
+    @ObservedObject var audioEngine: AudioEngine
     let action: () -> Void
 
-    private var isRecording: Bool {
-        engineStatus == .running && isRecordingToFile
+    private var state: ControlBarState {
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
     }
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(isRecording ? Color.red.opacity(0.2) : Color.clear)
+                    .fill(state.isRecording ? Color.red.opacity(0.2) : Color.clear)
                     .frame(width: 50, height: 50)
 
-                Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                    .font(.system(size: 40))
-                    .foregroundColor(isRecording ? .red : .red.opacity(0.8))
+                ZStack {
+                    if state.isRecording {
+                        Image(systemName: "stop.circle")
+                            .font(.system(size: 40))
+                            .foregroundColor(.red)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    } else {
+                        Image(systemName: "record.circle.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.red.opacity(0.8))
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: state.isRecording)
             }
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(isRecording && recordingDuration < 5.0)
-        .animation(.easeInOut(duration: 0.2), value: isRecording)
-        .accessibilityIdentifier(isRecording ? "stopButton" : "recordButton")
-        .accessibilityLabel(isRecording ? "Stop" : "Aufnahme")
+        .animation(.easeInOut(duration: 0.2), value: state.isRecording)
+        .accessibilityIdentifier(state.recordStopAccessibilityIdentifier)
+        .accessibilityLabel(state.recordStopAccessibilityLabel)
     }
 }
 
@@ -74,32 +88,15 @@ struct ControlBarView: View {
     @State private var recordedAudioURL: URL?
     @State private var recordedDuration: TimeInterval = 0
 
-    /// Safe Area Bottom Inset für iPhones mit Home Indicator
-    private var safeAreaBottomInset: CGFloat {
-        let scenes = UIApplication.shared.connectedScenes
-        let windowScene = scenes.first as? UIWindowScene
-        return windowScene?.windows.first?.safeAreaInsets.bottom ?? 0
-    }
+    private let footerVerticalPadding: CGFloat = 10
 
     // Computed properties für reaktive Updates
-    private var engineRunning: Bool {
-        audioEngine.engineStatus == .running || audioEngine.engineStatus == .starting
-    }
-
-    private var isLiveMode: Bool {
-        engineRunning && !audioEngine.isRecordingToFile
-    }
-
-    private var isRecording: Bool {
-        audioEngine.engineStatus == .running && audioEngine.isRecordingToFile
+    private var state: ControlBarState {
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top Separator
-            Divider()
-                .background(Color.gray.opacity(0.3))
-
             HStack(spacing: 16) {
                 // Status Info
                 VStack(alignment: .leading, spacing: 2) {
@@ -107,7 +104,7 @@ struct ControlBarView: View {
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(statusColor)
-                    if isRecording {
+                    if state.isRecording {
                         Text(timeString(from: recordingManager.currentRecordingDuration))
                             .font(.caption2)
                             .monospacedDigit()
@@ -122,16 +119,13 @@ struct ControlBarView: View {
                     // Play/Pause Button (Live-Modus)
                     // Use audioEngine properties directly to trigger SwiftUI updates
                     PlayPauseButton(
-                        engineStatus: audioEngine.engineStatus,
-                        isRecordingToFile: audioEngine.isRecordingToFile,
+                        audioEngine: audioEngine,
                         action: toggleLiveMode
                     )
 
                     // Record Button
                     RecordStopButton(
-                        engineStatus: audioEngine.engineStatus,
-                        isRecordingToFile: audioEngine.isRecordingToFile,
-                        recordingDuration: recordingManager.currentRecordingDuration,
+                        audioEngine: audioEngine,
                         action: toggleRecording
                     )
                 }
@@ -164,15 +158,12 @@ struct ControlBarView: View {
                 .accessibilityLabel("Aufnahmen")
             }
             .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, max(12, safeAreaBottomInset))
+            .padding(.vertical, footerVerticalPadding)
             .frame(maxWidth: .infinity)
         }
-        .background(
-            Color(UIColor.systemBackground)
-                .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -2)
-        )
-        .ignoresSafeArea(.container, edges: .bottom)
+        .backgroundExtensionEffect(cornerRadius: 24)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
         .sheet(isPresented: $showSaveDialog) {
             if let audioURL = recordedAudioURL {
                 SaveRecordingView(
@@ -185,12 +176,15 @@ struct ControlBarView: View {
         .sheet(isPresented: $showRecordingsList) {
             RecordingsListView().environmentObject(recordingManager)
         }
+        .onAppear {
+            audioEngine.prewarmAudioSession()
+        }
     }
 
     private var statusText: String {
-        if isRecording {
+        if state.isRecording {
             return "Aufnahme läuft"
-        } else if isLiveMode {
+        } else if state.isLiveMode {
             return "Live-Modus"
         } else {
             return "Bereit"
@@ -198,9 +192,9 @@ struct ControlBarView: View {
     }
 
     private var statusColor: Color {
-        if isRecording {
+        if state.isRecording {
             return .red
-        } else if isLiveMode {
+        } else if state.isLiveMode {
             return .green
         } else {
             return .gray
@@ -211,13 +205,18 @@ struct ControlBarView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
+        if audioEngine.engineStatus == .starting {
+            print("[ControlBarView] Ignoring toggleLiveMode while starting")
+            return
+        }
+
         print("[ControlBarView] toggleLiveMode - Current state:")
         print("  engineStatus: \(audioEngine.engineStatus)")
         print("  isRecordingToFile: \(audioEngine.isRecordingToFile)")
-        print("  engineRunning: \(engineRunning)")
-        print("  isLiveMode: \(isLiveMode)")
+        print("  engineRunning: \(state.engineRunning)")
+        print("  isLiveMode: \(state.isLiveMode)")
 
-        if isLiveMode {
+        if state.isLiveMode {
             print("[ControlBarView] Stopping live mode...")
             audioEngine.stopLiveMode()
         } else {
@@ -230,17 +229,22 @@ struct ControlBarView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
+        if audioEngine.engineStatus == .starting {
+            print("[ControlBarView] Ignoring toggleRecording while starting")
+            return
+        }
+
         print("[ControlBarView] toggleRecording - Current state:")
         print("  engineStatus: \(audioEngine.engineStatus)")
         print("  isRecordingToFile: \(audioEngine.isRecordingToFile)")
-        print("  engineRunning: \(engineRunning)")
-        print("  isRecording: \(isRecording)")
+        print("  engineRunning: \(state.engineRunning)")
+        print("  isRecording: \(state.isRecording)")
 
-        if isRecording {
-            guard recordingManager.currentRecordingDuration >= 5.0 else {
+        if state.isRecording {
+            guard recordingManager.currentRecordingDuration >= 1.0 else {
                 let notificationGenerator = UINotificationFeedbackGenerator()
                 notificationGenerator.notificationOccurred(.warning)
-                print("[ControlBarView] Recording too short (min 5 seconds)")
+                print("[ControlBarView] Recording too short (min 1 second)")
                 return
             }
 

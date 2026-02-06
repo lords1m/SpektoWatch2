@@ -13,6 +13,7 @@ struct RecordingsListView: View {
                 if recordingManager.recordings.isEmpty {
                     Text("Keine Aufnahmen")
                         .foregroundColor(.gray)
+                        .listRowBackground(Rectangle().fill(.ultraThinMaterial))
                 } else {
                     ForEach(recordingManager.recordings) { recording in
                         NavigationLink(destination: RecordingDetailView(recording: recording)) {
@@ -24,6 +25,7 @@ struct RecordingsListView: View {
                                     .foregroundColor(.gray)
                             }
                         }
+                        .listRowBackground(Rectangle().fill(.ultraThinMaterial))
                     }
                     .onDelete { indexSet in
                         indexSetToDelete = indexSet
@@ -31,6 +33,8 @@ struct RecordingsListView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(GlassBackground())
             .navigationTitle("Aufnahmen")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

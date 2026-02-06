@@ -74,10 +74,21 @@ class AudioEngine: ObservableObject {
     // MARK: - State Management
 
     private var isUsingDummyData = false
+    private var isStartingCapture = false
     private var hasLoggedSilence = false
     private var debugPrintCounter = 0
     private var lastWatchUpdate: TimeInterval = 0
     private let maxHistorySize = 1000
+    private var lastAudioBufferTimestamp: TimeInterval = 0
+    private var latencyLogCounter = 0
+    private var fftProcessTimeAccumMs: Double = 0
+    private var fftProcessCount: Int = 0
+    private var maxBufferedSeconds: Double = 0
+    private let enableVerboseLogs = false
+    private let impulseThresholdDbfs: Float = -35.0
+    private let impulseCooldownSeconds: TimeInterval = 1.0
+    private var lastImpulseTime: TimeInterval = 0
+    private var pendingImpulseLog = false
 
     // MARK: - Microphone Calibration
     // Basierend auf Studio Six Digital AudioTools Kalibrierungsdaten
@@ -337,7 +348,7 @@ class AudioEngine: ObservableObject {
     func startLiveMode() {
         print("[AudioEngine] startLiveMode called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
-        guard engineStatus != .running else {
+        guard engineStatus != .running, engineStatus != .starting else {
             print("[AudioEngine] Engine already running, returning early")
             return
         }
@@ -352,6 +363,11 @@ class AudioEngine: ObservableObject {
         print("[AudioEngine] startRecording called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
         print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+
+        if engineStatus == .starting {
+            print("[AudioEngine] Engine is starting, ignoring startRecording")
+            return
+        }
 
         guard engineStatus != .running else {
             // Wenn bereits im Live-Modus, nur auf Aufnahme umschalten
@@ -376,6 +392,11 @@ class AudioEngine: ObservableObject {
         print("[AudioEngine] startAudioCapture called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
         print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+        if isStartingCapture || engineStatus == .starting {
+            print("[AudioEngine] Capture already starting, returning early")
+            return
+        }
+        isStartingCapture = true
 
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .starting")
@@ -395,6 +416,7 @@ class AudioEngine: ObservableObject {
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .running")
             self.engineStatus = .running
+            self.isStartingCapture = false
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
             print("[AudioEngine] isRecordingToFile: \(self.isRecordingToFile)")
         }
@@ -433,6 +455,7 @@ class AudioEngine: ObservableObject {
             self.engineStatus = .idle
             print("[AudioEngine] Setting isRecordingToFile to false")
             self.isRecordingToFile = false
+            self.isStartingCapture = false
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
             print("[AudioEngine] isRecordingToFile is now: \(self.isRecordingToFile)")
         }
@@ -511,6 +534,7 @@ class AudioEngine: ObservableObject {
     }
     
     func processExternalAudio(_ samples: [Float]) {
+        lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
         processSamples(samples)
     }
     
@@ -531,6 +555,20 @@ class AudioEngine: ObservableObject {
         if newInputGain != currentInputGain {
             currentInputGain = newInputGain
             Logger.audioEngine.info("Input gain updated: \(self.currentInputGain, format: .fixed(precision: 2)), calibrationOffset: \(self.calibrationOffset, format: .fixed(precision: 1)) dB")
+        }
+    }
+
+    /// Pre-warm audio session to reduce start latency
+    func prewarmAudioSession() {
+        let audioSession = AVAudioSession.sharedInstance()
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try audioSession.setCategory(.record, mode: .measurement, options: [])
+                try audioSession.setPreferredIOBufferDuration(Double(self.tapBlockSize) / self.sampleRate)
+                try audioSession.setActive(true)
+            } catch {
+                Logger.audioEngine.warning("Prewarm failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -642,6 +680,7 @@ class AudioEngine: ObservableObject {
                 DispatchQueue.main.async {
                     Logger.audioEngine.error("Audio engine failed to start: \(error.localizedDescription)")
                     self.engineStatus = .error(error.localizedDescription)
+                    self.isStartingCapture = false
                     Logger.audioEngine.info("Falling back to test audio generator")
                     self.testGenerator.start()
                     self.engineStatus = .running
@@ -671,6 +710,7 @@ class AudioEngine: ObservableObject {
                 testGenerator.start()
                 DispatchQueue.main.async {
                     self.engineStatus = .running
+                    self.isStartingCapture = false
                 }
                 isUsingDummyData = true
                 return
@@ -688,6 +728,7 @@ class AudioEngine: ObservableObject {
             }
 
             // Install audio tap
+            inputNode.removeTap(onBus: 0)
             inputNode.installTap(onBus: 0, bufferSize: tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
@@ -695,12 +736,14 @@ class AudioEngine: ObservableObject {
             try audioEngine.start()
             DispatchQueue.main.async {
                 self.engineStatus = .running
+                self.isStartingCapture = false
             }
 
         } catch {
             Logger.audioEngine.error("Audio engine setup failed: \(error.localizedDescription)")
             DispatchQueue.main.async {
                 self.engineStatus = .error(error.localizedDescription)
+                self.isStartingCapture = false
             }
             Logger.audioEngine.info("Falling back to test audio generator")
             testGenerator.start()
@@ -725,6 +768,7 @@ class AudioEngine: ObservableObject {
     // MARK: - Audio Processing
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         
@@ -770,11 +814,19 @@ class AudioEngine: ObservableObject {
         
         // Debug logging
         debugPrintCounter += 1
-        if debugPrintCounter % 240 == 0 {
+        if enableVerboseLogs && debugPrintCounter % 240 == 0 {
             let minSample = newSamples.min() ?? 0
             let maxSample = newSamples.max() ?? 0
             Logger.audioEngine.debug("Input RMS: \(signalDB, format: .fixed(precision: 1)) dB SPL (dBFS: \(signalDBFS, format: .fixed(precision: 1))), Samples: [\(minSample, format: .fixed(precision: 3)) ... \(maxSample, format: .fixed(precision: 3))]")
         }
+        
+        // Impulse detection (measure end-to-end latency)
+        let now = CFAbsoluteTimeGetCurrent()
+        if signalDBFS > impulseThresholdDbfs && (now - lastImpulseTime) > impulseCooldownSeconds {
+            lastImpulseTime = now
+            pendingImpulseLog = true
+        }
+        
 
         if signalDBFS < -120 && !hasLoggedSilence {
             Logger.audioEngine.warning("Audio buffer silent/empty: \(signalDBFS, format: .fixed(precision: 1)) dBFS")
@@ -789,10 +841,21 @@ class AudioEngine: ObservableObject {
         let currentFFTSize = fftSize
         processingLock.unlock()
 
+        // Backlog (wie viel Audio noch in der Queue steckt)
+        let bufferedSamples = max(0, sampleBuffer.count - sampleBufferOffset)
+        let bufferedSeconds = Double(bufferedSamples) / sampleRate
+        if bufferedSeconds > maxBufferedSeconds {
+            maxBufferedSeconds = bufferedSeconds
+        }
+
         // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
         while sampleBuffer.count - sampleBufferOffset >= currentFFTSize {
             let samples = Array(sampleBuffer[sampleBufferOffset..<(sampleBufferOffset + currentFFTSize)])
+            let t0 = CFAbsoluteTimeGetCurrent()
             processFFTFrame(samples: samples, peakLevel: peakDB)
+            let t1 = CFAbsoluteTimeGetCurrent()
+            fftProcessTimeAccumMs += (t1 - t0) * 1000.0
+            fftProcessCount += 1
             sampleBufferOffset += scrollSpeed.rawValue
 
             // Periodisch aufräumen wenn Offset zu groß wird (nur alle ~10 Iterationen)
@@ -817,7 +880,7 @@ class AudioEngine: ObservableObject {
         // Perform FFT
         let linearMagnitudes = localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost)
         
-        if debugPrintCounter % 240 == 0 {
+        if enableVerboseLogs && debugPrintCounter % 240 == 0 {
             let dbMags = localFFTProcessor.convertToDB(linearMagnitudes)
             let minMag = (dbMags.min() ?? 0) + calibrationOffset
             let maxMag = (dbMags.max() ?? 0) + calibrationOffset
@@ -929,15 +992,61 @@ class AudioEngine: ObservableObject {
             magnitudesC: processedC.bandMagnitudes,     // C-weighted
             broadbandLevel: broadbandLevel,
             levels: levels,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            timestamp: Date(timeIntervalSinceReferenceDate: lastAudioBufferTimestamp)
         )
         
         // Update UI on main thread
-        updateUI(spectrogramData: spectrogramData, octaveBands: processed.octaveBands, spectrum: processed.spectrum, broadbandLevel: broadbandLevel, peakLevel: peakLevel)
+        updateUI(
+            spectrogramData: spectrogramData,
+            octaveBands: processed.octaveBands,
+            spectrum: processed.spectrum,
+            broadbandLevel: broadbandLevel,
+            peakLevel: peakLevel,
+            processEndTime: CFAbsoluteTimeGetCurrent()
+        )
     }
     
-    private func updateUI(spectrogramData: SpectrogramData, octaveBands: [Float], spectrum: [Float], broadbandLevel: Float, peakLevel: Float) {
+    private func updateUI(
+        spectrogramData: SpectrogramData,
+        octaveBands: [Float],
+        spectrum: [Float],
+        broadbandLevel: Float,
+        peakLevel: Float,
+        processEndTime: TimeInterval
+    ) {
+        let bufferTs = lastAudioBufferTimestamp
+        let processingLagMs = (processEndTime - bufferTs) * 1000.0
         DispatchQueue.main.async {
+            self.latencyLogCounter += 1
+            if self.latencyLogCounter % 120 == 0 {
+                let uiLagMs = (CFAbsoluteTimeGetCurrent() - bufferTs) * 1000.0
+                let mainThreadDelayMs = (CFAbsoluteTimeGetCurrent() - processEndTime) * 1000.0
+                let avgFftMs = self.fftProcessCount > 0 ? (self.fftProcessTimeAccumMs / Double(self.fftProcessCount)) : 0
+                let line = String(
+                    format: "[Latency] processing %.0f ms, main-thread delay %.0f ms, UI %.0f ms, FFT avg %.1f ms, backlog %.2f s",
+                    processingLagMs,
+                    mainThreadDelayMs,
+                    uiLagMs,
+                    avgFftMs,
+                    self.maxBufferedSeconds
+                )
+                print(line)
+                self.fftProcessTimeAccumMs = 0
+                self.fftProcessCount = 0
+                self.maxBufferedSeconds = 0
+            }
+
+            if self.pendingImpulseLog {
+                let peakDbfs = peakLevel - self.calibrationOffset
+                if peakDbfs > self.impulseThresholdDbfs {
+                    let dtMs = (CFAbsoluteTimeGetCurrent() - self.lastImpulseTime) * 1000.0
+                    let impulseLine = String(format: "[Impulse] end-to-end %.0f ms (threshold %.0f dBFS)", dtMs, self.impulseThresholdDbfs)
+                    print(impulseLine)
+                    self.pendingImpulseLog = false
+                }
+            }
+
             // Update recording duration
             if let startTime = self.recordingStartTime {
                 self.recordingDuration = Date().timeIntervalSince(startTime)

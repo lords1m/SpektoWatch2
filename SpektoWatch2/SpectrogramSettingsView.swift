@@ -9,7 +9,6 @@ struct SpectrogramSettingsView: View {
 
     @Environment(\.dismiss) var dismiss
     @State private var isStereo = false
-    @State private var showAdvancedAnalysis = false
 
     var body: some View {
         NavigationView {
@@ -98,25 +97,57 @@ struct SpectrogramSettingsView: View {
                     }
                 }
 
-                Section(header: Text("Erweiterte Analyse")) {
-                    Button {
-                        showAdvancedAnalysis = true
+                Section {
+                    Picker("Zeitauflösung (FFT-Blockgröße)", selection: $fftConfiguration.blockSize) {
+                        ForEach(FFTBlockSize.allCases) { size in
+                            Text(size.shortDescription).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Menu {
+                        ForEach(WindowFunction.allCases) { window in
+                            Button {
+                                fftConfiguration.windowFunction = window
+                            } label: {
+                                HStack {
+                                    Text(window.localizedName)
+                                    if window == fftConfiguration.windowFunction {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
                     } label: {
                         HStack {
-                            Image(systemName: "waveform.path.ecg.rectangle")
-                                .foregroundColor(.purple)
-                            VStack(alignment: .leading) {
-                                Text("Spektralanalyse-Labor")
-                                Text("FFT-Parameter, Fensterfunktionen, Auflösung")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+                            Text("Fensterfunktion")
                             Spacer()
-                            Image(systemName: "chevron.right")
+                            Text(fftConfiguration.windowFunction.localizedName)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.up.chevron.down")
                                 .foregroundColor(.secondary)
                         }
                     }
-                    .foregroundColor(.primary)
+
+                    Menu {
+                        ForEach(FFTConfiguration.Preset.allCases) { preset in
+                            Button {
+                                fftConfiguration.applyPreset(preset)
+                            } label: {
+                                VStack(alignment: .leading) {
+                                    Text(preset.rawValue)
+                                    Text(preset.description)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "slider.horizontal.3")
+                            Text("Voreinstellungen")
+                        }
+                    }
                 }
 
                 Section(header: Text("Apple Watch")) {
@@ -129,6 +160,8 @@ struct SpectrogramSettingsView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(GlassBackground())
             .navigationTitle("Einstellungen")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -140,22 +173,19 @@ struct SpectrogramSettingsView: View {
         }
         .onAppear {
             audioEngine.checkAvailableInputs()
+            // Sync engine to persisted settings on first open
+            audioEngine.setWindowFunction(fftConfiguration.windowFunction)
+            audioEngine.setBlockSize(fftConfiguration.blockSize)
+        }
+        .onChange(of: fftConfiguration.windowFunction) { _, newValue in
+            audioEngine.setWindowFunction(newValue)
+        }
+        .onChange(of: fftConfiguration.blockSize) { _, newValue in
+            audioEngine.setBlockSize(newValue)
         }
         .onChange(of: isStereo) { _, newValue in
             if newValue {
                 audioEngine.applyStereoMode()
-            }
-        }
-        .fullScreenCover(isPresented: $showAdvancedAnalysis) {
-            NavigationStack {
-                AdvancedAnalysisView(fftConfig: fftConfiguration, audioEngine: audioEngine)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Fertig") {
-                                showAdvancedAnalysis = false
-                            }
-                        }
-                    }
             }
         }
     }

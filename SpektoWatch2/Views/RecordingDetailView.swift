@@ -42,7 +42,7 @@ struct RecordingDetailView: View {
                 }
                 .padding()
             }
-            .background(Color(UIColor.systemGroupedBackground))
+            .background(GlassBackground())
             .navigationTitle(recording.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -103,8 +103,7 @@ struct RecordingDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .glassCard(cornerRadius: 14)
     }
     
     // MARK: - Audio Player Card
@@ -215,8 +214,7 @@ struct RecordingDetailView: View {
             }
         }
         .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .glassCard(cornerRadius: 14)
     }
     
     // MARK: - Statistics Card
@@ -234,8 +232,7 @@ struct RecordingDetailView: View {
             StatRow(icon: "clock", title: "Dauer", value: recording.formattedDuration)
         }
         .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .glassCard(cornerRadius: 14)
     }
     
     // MARK: - Metadata Card
@@ -253,8 +250,7 @@ struct RecordingDetailView: View {
             StatRow(icon: "speaker.wave.2", title: "Kanäle", value: "\(recording.channelCount)")
         }
         .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .glassCard(cornerRadius: 14)
     }
     
     // MARK: - Description Card
@@ -271,8 +267,7 @@ struct RecordingDetailView: View {
                 .foregroundColor(.secondary)
         }
         .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .glassCard(cornerRadius: 14)
     }
     
     // MARK: - Helper Functions

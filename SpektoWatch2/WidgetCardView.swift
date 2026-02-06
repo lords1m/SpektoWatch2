@@ -57,11 +57,10 @@ struct WidgetCardView: View {
                 .frame(height: widget.size.height)
                 .clipped()
         }
-        .background(Color(UIColor.systemBackground))
-        .cornerRadius(12)
+        .glassCardLite(cornerRadius: 14)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isEditMode ? Color.blue : Color.white.opacity(0.1), lineWidth: isEditMode ? 2 : 1)
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(isEditMode ? Color.blue : Color.white.opacity(0.08), lineWidth: isEditMode ? 2 : 1)
         )
         .overlay(
             resizeHandles
