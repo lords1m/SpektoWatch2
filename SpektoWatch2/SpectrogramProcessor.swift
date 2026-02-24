@@ -1,12 +1,21 @@
 import Foundation
 import Accelerate
+import os.signpost
 
 class SpectrogramProcessor {
+    private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.spectrogram")
     var temporalSmoothingFactor: Float = 0.5
     var binningFactor: Int = 2
     
     private var previousBandMagnitudes: [Float] = []
     private let bandstopFilterManager: BandstopFilterManager
+    private let octaveCenterFrequencies: [Float] = [
+        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
+        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
+    ]
+    private var cachedOctaveRanges: [(start: Int, end: Int)] = []
+    private var cachedRangeMagnitudeCount: Int = 0
+    private var cachedRangeSampleRate: Double = 0.0
 
     init(bandstopFilterManager: BandstopFilterManager) {
         self.bandstopFilterManager = bandstopFilterManager
@@ -24,6 +33,10 @@ class SpectrogramProcessor {
         dbMagnitudes: [Float],
         sampleRate: Double
     ) -> Result {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "SpectrogramProcess", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "SpectrogramProcess", signpostID: signpostID) }
+
         // 1. Bandstop Filters
         let filteredMagnitudes = applyBandstopFilters(frequencies: frequencies, magnitudes: dbMagnitudes)
         
@@ -69,29 +82,22 @@ class SpectrogramProcessor {
     }
     
     private func calculateOctaveBands(frequencies: [Float], magnitudes: [Float], sampleRate: Double) -> [Float] {
-        let centerFreqs: [Float] = [
-            20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-            1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-        ]
-        
-        var bands = [Float](repeating: -120.0, count: centerFreqs.count)
-        let nyquist = Float(sampleRate / 2.0)
-        let resolution = nyquist / Float(magnitudes.count)
-        
-        for (i, center) in centerFreqs.enumerated() {
-            let lower = center * 0.89
-            let upper = center * 1.12
-            
-            let startIdx = Int(lower / resolution)
-            let endIdx = Int(upper / resolution)
-            
-            if startIdx < magnitudes.count {
-                let safeEnd = min(endIdx, magnitudes.count - 1)
-                if startIdx <= safeEnd {
-                    let bandMax = magnitudes[startIdx...safeEnd].max() ?? -120.0
-                    bands[i] = bandMax
+        guard !magnitudes.isEmpty else {
+            return [Float](repeating: -120.0, count: octaveCenterFrequencies.count)
+        }
+
+        ensureOctaveBandRanges(magnitudeCount: magnitudes.count, sampleRate: sampleRate)
+        var bands = [Float](repeating: -120.0, count: octaveCenterFrequencies.count)
+
+        for (i, range) in cachedOctaveRanges.enumerated() {
+            guard range.start <= range.end else { continue }
+            var bandMax: Float = -120.0
+            for idx in range.start...range.end {
+                if magnitudes[idx] > bandMax {
+                    bandMax = magnitudes[idx]
                 }
             }
+            bands[i] = bandMax
         }
         return bands
     }
@@ -101,15 +107,52 @@ class SpectrogramProcessor {
         
         var bandFrequencies: [Float] = []
         var bandMagnitudes: [Float] = []
+        bandFrequencies.reserveCapacity((frequencies.count + binningFactor - 1) / binningFactor)
+        bandMagnitudes.reserveCapacity((magnitudes.count + binningFactor - 1) / binningFactor)
         var i = 0
         while i < frequencies.count {
             let endIndex = min(i + binningFactor, frequencies.count)
             let binCount = endIndex - i
-            bandFrequencies.append(frequencies[i...endIndex-1].reduce(0, +) / Float(binCount))
-            bandMagnitudes.append(magnitudes[i..<endIndex].reduce(0, +) / Float(binCount))
+            var frequencySum: Float = 0.0
+            var magnitudeSum: Float = 0.0
+            for idx in i..<endIndex {
+                frequencySum += frequencies[idx]
+                magnitudeSum += magnitudes[idx]
+            }
+            bandFrequencies.append(frequencySum / Float(binCount))
+            bandMagnitudes.append(magnitudeSum / Float(binCount))
             i = endIndex
         }
         return (bandFrequencies, bandMagnitudes)
+    }
+
+    private func ensureOctaveBandRanges(magnitudeCount: Int, sampleRate: Double) {
+        guard magnitudeCount != cachedRangeMagnitudeCount || sampleRate != cachedRangeSampleRate else {
+            return
+        }
+
+        let nyquist = Float(sampleRate / 2.0)
+        let resolution = nyquist / Float(magnitudeCount)
+        var ranges: [(start: Int, end: Int)] = []
+        ranges.reserveCapacity(octaveCenterFrequencies.count)
+
+        for center in octaveCenterFrequencies {
+            let lower = center * 0.89
+            let upper = center * 1.12
+            let rawStart = Int(lower / resolution)
+            let rawEnd = Int(upper / resolution)
+            let start = max(0, min(rawStart, magnitudeCount - 1))
+            let end = max(0, min(rawEnd, magnitudeCount - 1))
+            if start <= end {
+                ranges.append((start, end))
+            } else {
+                ranges.append((0, -1))
+            }
+        }
+
+        cachedOctaveRanges = ranges
+        cachedRangeMagnitudeCount = magnitudeCount
+        cachedRangeSampleRate = sampleRate
     }
     
     private func temporalSmoothing(currentMagnitudes: [Float]) -> [Float] {

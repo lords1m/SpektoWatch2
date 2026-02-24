@@ -192,6 +192,29 @@ final class IntegrationTests: XCTestCase {
                                 "Level history should be bounded")
     }
 
+    /// Regression guard: Spektrogramm-Prozessor soll unter Last innerhalb Budget bleiben
+    func testSpectrogramProcessingRegressionBudget() {
+        let filterManager = BandstopFilterManager()
+        let processor = SpectrogramProcessor(bandstopFilterManager: filterManager)
+        let fftProcessor = FFTProcessor(fftSize: 8192, sampleRate: 44100.0)
+        let frequencies = fftProcessor.frequencies
+        let dbMagnitudes = (0..<frequencies.count).map { _ in Float.random(in: -100.0 ... 10.0) }
+        let iterations = 500
+
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            _ = processor.process(
+                frequencies: frequencies,
+                dbMagnitudes: dbMagnitudes,
+                sampleRate: 44100.0
+            )
+        }
+        let totalMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+        let avgMs = totalMs / Double(iterations)
+
+        XCTAssertLessThan(avgMs, 8.0, "Spectrogram processing regression: \(avgMs) ms > 8 ms")
+    }
+
     // MARK: - Edge Case Integration
 
     /// Testet Verhalten bei schnellem Widget-Wechsel

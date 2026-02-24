@@ -1,6 +1,7 @@
 import Foundation
 import WatchConnectivity
 import Combine
+import os.signpost
 
 extension Notification.Name {
     static let startRecordingCommand = Notification.Name("startRecordingCommand")
@@ -10,6 +11,12 @@ extension Notification.Name {
 
 class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
+    private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.connectivity")
+    private let sendQueue = DispatchQueue(label: "com.spektowatch.watch-send", qos: .utility)
+    private let spectrogramEncoder = JSONEncoder()
+    private var pendingSpectrogramData: SpectrogramData?
+    private var isSpectrogramSendScheduled = false
+    private var lastSpectrogramSendTime: TimeInterval = 0
 
     @Published var spectrogramData: SpectrogramData?
     @Published var audioData: AudioData?
@@ -31,27 +38,9 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     }
 
     func sendSpectrogramData(_ data: SpectrogramData) {
-        guard WCSession.default.isReachable else {
-            if !hasLoggedUnreachability {
-                print("Watch not reachable")
-                hasLoggedUnreachability = true
-            }
-            return
-        }
-        hasLoggedUnreachability = false
-
-        do {
-            let encoder = JSONEncoder()
-            let jsonData = try encoder.encode(data)
-
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                let message = ["spectrogramData": jsonString]
-                WCSession.default.sendMessage(message, replyHandler: nil) { error in
-                    print("Error sending message: \(error.localizedDescription)")
-                }
-            }
-        } catch {
-            print("Error encoding spectrogram data: \(error)")
+        sendQueue.async {
+            self.pendingSpectrogramData = data
+            self.scheduleSpectrogramSendIfNeeded()
         }
     }
 
@@ -158,6 +147,80 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             print("[WCM] Error sending dashboard config via context: \(error.localizedDescription)")
         }
     }
+
+    private func scheduleSpectrogramSendIfNeeded() {
+        guard !isSpectrogramSendScheduled else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let sendInterval = adaptiveSpectrogramSendInterval()
+        let earliestSend = lastSpectrogramSendTime + sendInterval
+        let delay = max(0, earliestSend - now)
+
+        isSpectrogramSendScheduled = true
+        sendQueue.asyncAfter(deadline: .now() + delay) {
+            self.flushPendingSpectrogramData()
+        }
+    }
+
+    private func flushPendingSpectrogramData() {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "WatchSendSpectrogram", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "WatchSendSpectrogram", signpostID: signpostID) }
+
+        guard let dataToSend = pendingSpectrogramData else {
+            isSpectrogramSendScheduled = false
+            return
+        }
+
+        pendingSpectrogramData = nil
+        isSpectrogramSendScheduled = false
+        lastSpectrogramSendTime = ProcessInfo.processInfo.systemUptime
+
+        guard WCSession.default.isReachable else {
+            if !hasLoggedUnreachability {
+                print("Watch not reachable")
+                hasLoggedUnreachability = true
+            }
+            if pendingSpectrogramData != nil {
+                scheduleSpectrogramSendIfNeeded()
+            }
+            return
+        }
+        hasLoggedUnreachability = false
+
+        do {
+            let jsonData = try spectrogramEncoder.encode(dataToSend)
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                let message = ["spectrogramData": jsonString]
+                WCSession.default.sendMessage(message, replyHandler: nil) { error in
+                    print("Error sending message: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            print("Error encoding spectrogram data: \(error)")
+        }
+
+        if pendingSpectrogramData != nil {
+            scheduleSpectrogramSendIfNeeded()
+        }
+    }
+
+    private func adaptiveSpectrogramSendInterval() -> TimeInterval {
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.isLowPowerModeEnabled {
+            return 0.25
+        }
+
+        switch processInfo.thermalState {
+        case .serious:
+            return 0.33
+        case .critical:
+            return 0.5
+        case .fair:
+            return 0.2
+        default:
+            return 0.1
+        }
+    }
 }
 
 extension WatchConnectivityManager: WCSessionDelegate {
@@ -168,6 +231,10 @@ extension WatchConnectivityManager: WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID) }
+
         if let jsonString = message["spectrogramData"] as? String,
            let jsonData = jsonString.data(using: .utf8) {
             do {

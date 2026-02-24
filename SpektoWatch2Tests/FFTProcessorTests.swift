@@ -250,4 +250,20 @@ final class FFTProcessorTests: XCTestCase {
             }
         }
     }
+
+    /// Regression guard: FFT darf im CI nicht deutlich langsamer werden
+    func testFFTRegressionBudget() {
+        let samples = (0..<8192).map { Float(sin(Double($0) * 0.1)) }
+        let processor = FFTProcessor(fftSize: 8192, sampleRate: sampleRate)
+        let iterations = 200
+
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            _ = processor.performFFT(on: samples)
+        }
+        let totalMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+        let avgMs = totalMs / Double(iterations)
+
+        XCTAssertLessThan(avgMs, 20.0, "FFT average time regression: \(avgMs) ms > 20 ms")
+    }
 }

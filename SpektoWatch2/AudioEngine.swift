@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Accelerate
 import Combine
+import os.signpost
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -37,6 +38,7 @@ enum StereoInputMode: String, CaseIterable {
 
 /// Main audio engine coordinating FFT processing, frequency weighting, and acoustic metrics
 class AudioEngine: ObservableObject {
+    private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.audio")
     
     // MARK: - Processing Components
 
@@ -84,7 +86,10 @@ class AudioEngine: ObservableObject {
     private var fftProcessTimeAccumMs: Double = 0
     private var fftProcessCount: Int = 0
     private var maxBufferedSeconds: Double = 0
+    private var lastUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
+    private let targetUIInterval: TimeInterval = 1.0 / 60.0
+    private let maxRealtimeBacklogSeconds: Double = 0.12
     private let impulseThresholdDbfs: Float = -35.0
     private let impulseCooldownSeconds: TimeInterval = 1.0
     private var lastImpulseTime: TimeInterval = 0
@@ -768,6 +773,10 @@ class AudioEngine: ObservableObject {
     // MARK: - Audio Processing
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "AudioTapCallback", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "AudioTapCallback", signpostID: signpostID) }
+
         lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
@@ -783,13 +792,12 @@ class AudioEngine: ObservableObject {
         
         var phase: Float = 1.0
         if channels > 1 {
-            let rightSamples = Array(UnsafeBufferPointer(start: channelData[1], count: frameCount))
             var dotProd: Float = 0
             var sumSqL: Float = 0
             var sumSqR: Float = 0
-            vDSP_dotpr(newSamples, 1, rightSamples, 1, &dotProd, vDSP_Length(frameCount))
+            vDSP_dotpr(newSamples, 1, channelData[1], 1, &dotProd, vDSP_Length(frameCount))
             vDSP_svesq(newSamples, 1, &sumSqL, vDSP_Length(frameCount))
-            vDSP_svesq(rightSamples, 1, &sumSqR, vDSP_Length(frameCount))
+            vDSP_svesq(channelData[1], 1, &sumSqR, vDSP_Length(frameCount))
             phase = dotProd / (sqrt(sumSqL * sumSqR) + 1e-9)
         }
         
@@ -847,6 +855,20 @@ class AudioEngine: ObservableObject {
         if bufferedSeconds > maxBufferedSeconds {
             maxBufferedSeconds = bufferedSeconds
         }
+        // Keep the visualization near real-time: if processing falls behind,
+        // drop oldest queued samples instead of rendering stale history.
+        // Never trim below one full FFT window (+ one hop), otherwise no frames can be processed.
+        let minRequiredBufferedSeconds = Double(currentFFTSize + max(1, scrollSpeed.rawValue)) / sampleRate
+        let effectiveBacklogLimitSeconds = max(maxRealtimeBacklogSeconds, minRequiredBufferedSeconds)
+        if bufferedSeconds > effectiveBacklogLimitSeconds {
+            let targetBufferedSamples = Int(effectiveBacklogLimitSeconds * sampleRate)
+            var samplesToDrop = bufferedSamples - targetBufferedSamples
+            if samplesToDrop > 0 {
+                let hop = max(1, scrollSpeed.rawValue)
+                samplesToDrop = (samplesToDrop / hop) * hop
+                sampleBufferOffset += samplesToDrop
+            }
+        }
 
         // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
         while sampleBuffer.count - sampleBufferOffset >= currentFFTSize {
@@ -867,6 +889,10 @@ class AudioEngine: ObservableObject {
     }
     
     private func processFFTFrame(samples: [Float], peakLevel: Float) {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID) }
+
         // Thread-sichere FFT-Verarbeitung
         processingLock.lock()
         let currentFFTSize = fftSize
@@ -907,14 +933,6 @@ class AudioEngine: ObservableObject {
             weighting: .c
         )
 
-        // Use the currently selected weighting for metrics/UI
-        let weightedDB: [Float]
-        switch frequencyWeighting {
-        case .a: weightedDB = dbA
-        case .c: weightedDB = dbC
-        case .z: weightedDB = dbZ
-        }
-
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
         // Process all weightings for spectrogram
         let processedZ = spectrogramProcessor.process(
@@ -934,11 +952,15 @@ class AudioEngine: ObservableObject {
         )
 
         // Use selected weighting for octave bands and spectrum
-        let processed = spectrogramProcessor.process(
-            frequencies: localFFTProcessor.frequencies,
-            dbMagnitudes: weightedDB,
-            sampleRate: sampleRate
-        )
+        let processed: SpectrogramProcessor.Result
+        switch frequencyWeighting {
+        case .a:
+            processed = processedA
+        case .c:
+            processed = processedC
+        case .z:
+            processed = processedZ
+        }
         
         // Calculate energies for acoustic metrics
         let rawMagnitudes = linearMagnitudes
@@ -1015,6 +1037,11 @@ class AudioEngine: ObservableObject {
         peakLevel: Float,
         processEndTime: TimeInterval
     ) {
+        if processEndTime - lastUIEnqueueTime < targetUIInterval {
+            return
+        }
+        lastUIEnqueueTime = processEndTime
+
         let bufferTs = lastAudioBufferTimestamp
         let processingLagMs = (processEndTime - bufferTs) * 1000.0
         DispatchQueue.main.async {

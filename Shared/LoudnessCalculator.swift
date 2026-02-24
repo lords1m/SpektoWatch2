@@ -13,24 +13,38 @@ class LoudnessCalculator: ObservableObject {
     @Published var result: LoudnessResult?
     
     // MARK: - ISO 226:2003 Equal-Loudness Contour Data
-    // Vereinfachte Stützpunkte für häufig verwendete Frequenzen
+    // Normgerechte Referenzfrequenzen nach ISO 226
     private let isoFrequencies: [Double] = [
         20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500,
         630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000,
-        10000, 12500, 16000, 20000
+        10000, 12500
     ]
-    
-    // Relative SPL-Werte für verschiedene Phon-Werte bei Referenzfrequenzen
+
+    // Normgerechte ISO-226 Kurvenparameter (af, Lu, Tf) je Frequenz
+    private let isoAf: [Double] = [
+        0.532, 0.506, 0.480, 0.455, 0.432, 0.409, 0.387, 0.367, 0.349, 0.330,
+        0.315, 0.301, 0.288, 0.276, 0.267, 0.259, 0.253, 0.250, 0.246, 0.244,
+        0.243, 0.243, 0.243, 0.242, 0.242, 0.245, 0.254, 0.271, 0.301
+    ]
+
+    private let isoLu: [Double] = [
+        -31.6, -27.2, -23.0, -19.1, -15.9, -13.0, -10.3, -8.1, -6.2, -4.5,
+        -3.1, -2.0, -1.1, -0.4, 0.0, 0.3, 0.5, 0.0, -2.7, -4.1,
+        -1.0, 1.7, 2.5, 1.2, -2.1, -7.1, -11.2, -10.7, -3.1
+    ]
+
+    private let isoTf: [Double] = [
+        78.5, 68.7, 59.5, 51.1, 44.0, 37.5, 31.5, 26.5, 22.1, 17.9,
+        14.4, 11.4, 8.6, 6.2, 4.4, 3.0, 2.2, 2.4, 3.5, 1.7,
+        -1.3, -4.2, -6.0, -5.4, -1.5, 6.0, 12.6, 13.9, 12.3
+    ]
+
+    // Normgerechte Phon-Stufen, für die Isophonen abgelegt werden
+    private let isoPhonLevels: [Double] = Array(stride(from: 0.0, through: 90.0, by: 10.0))
+
+    // Interne Isophonen-Datenbank
     // Format: [Frequenz][Phon-Level] = SPL-Wert
-    private let iso226Data: [Double: [Double: Double]] = [
-        1000: [20: 20, 40: 40, 60: 60, 80: 80, 100: 100], // Bei 1kHz: SPL = Phon
-        100: [20: 52, 40: 51, 60: 62, 80: 77, 100: 93],
-        200: [20: 33, 40: 35, 60: 48, 80: 65, 100: 82],
-        500: [20: 15, 40: 23, 60: 42, 80: 62, 100: 82],
-        2000: [20: 10, 40: 18, 60: 40, 80: 62, 100: 85],
-        4000: [20: 5, 40: 10, 60: 32, 80: 56, 100: 81],
-        8000: [20: 9, 40: 13, 60: 35, 80: 61, 100: 88]
-    ]
+    private lazy var iso226Data: [Double: [Double: Double]] = buildISO226Database()
     
     // MARK: - Public Methods
     
@@ -58,6 +72,21 @@ class LoudnessCalculator: ObservableObject {
             phonInterpretation: phonInterpretation,
             soneInterpretation: soneInterpretation
         )
+    }
+
+    /// Liefert die vollständige, normgerechte Isophonen-Datenbank (ISO 226).
+    /// Struktur: [Frequenz][Phon] = SPL
+    func getIsophoneDatabase() -> [Double: [Double: Double]] {
+        iso226Data
+    }
+
+    /// Liefert eine einzelne Isophone (Phon-Kurve) als sortierte Frequenz/SPL-Paare.
+    func getIsophoneContour(phon: Double) -> [(frequency: Double, spl: Double)] {
+        let nearestPhon = findNearestPhon(phon)
+        return isoFrequencies.compactMap { frequency in
+            guard let spl = iso226Data[frequency]?[nearestPhon] else { return nil }
+            return (frequency: frequency, spl: spl)
+        }
     }
     
     // MARK: - Private Conversion Methods
@@ -96,12 +125,14 @@ class LoudnessCalculator: ObservableObject {
     }
     
     private func convertPhonToSone(phon: Double) -> Double {
+        let safePhon = max(0.0, phon)
+
         // Stevens' Power Law: S = 2^((P-40)/10) für P ≥ 40
-        if phon >= 40 {
-            return pow(2.0, (phon - 40.0) / 10.0)
+        if safePhon >= 40 {
+            return pow(2.0, (safePhon - 40.0) / 10.0)
         } else {
             // Für Werte unter 40 Phon: modifizierte Formel
-            return pow(phon / 40.0, 2.642) * 1.0
+            return pow(safePhon / 40.0, 2.642)
         }
     }
     
@@ -120,6 +151,46 @@ class LoudnessCalculator: ObservableObject {
         }
         
         return nearestFreq
+    }
+
+    private func findNearestPhon(_ phon: Double) -> Double {
+        var nearestPhon = isoPhonLevels.first ?? 40
+        var minDiff = abs(phon - nearestPhon)
+
+        for level in isoPhonLevels {
+            let diff = abs(phon - level)
+            if diff < minDiff {
+                minDiff = diff
+                nearestPhon = level
+            }
+        }
+
+        return nearestPhon
+    }
+
+    private func buildISO226Database() -> [Double: [Double: Double]] {
+        var database: [Double: [Double: Double]] = [:]
+        for (index, frequency) in isoFrequencies.enumerated() {
+            var contourForFrequency: [Double: Double] = [:]
+            for phon in isoPhonLevels {
+                contourForFrequency[phon] = iso226SPL(phon: phon, index: index)
+            }
+            database[frequency] = contourForFrequency
+        }
+        return database
+    }
+
+    private func iso226SPL(phon: Double, index: Int) -> Double {
+        let af = isoAf[index]
+        let lu = isoLu[index]
+        let tf = isoTf[index]
+
+        // ISO 226:2003 Gleichlautstärke-Gleichung
+        let term1 = 4.47e-3 * (pow(10.0, 0.025 * phon) - 1.15)
+        let term2Base = 0.4 * pow(10.0, ((tf + lu) / 10.0) - 9.0)
+        let afValue = term1 + pow(term2Base, af)
+        let lp = (10.0 / af) * log10(afValue) - lu + 94.0
+        return lp
     }
     
     private func interpolatePhon(spl: Double, freqData: [Double: Double]) -> Double {

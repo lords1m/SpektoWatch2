@@ -1,5 +1,6 @@
 import Foundation
 import Accelerate
+import os.signpost
 
 // MARK: - Window Function Types
 
@@ -169,6 +170,7 @@ enum FFTBlockSize: Int, CaseIterable, Identifiable {
 /// Handles FFT computation and magnitude conversion
 /// Thread-safe: all access to mutable state is protected by a lock
 class FFTProcessor {
+    private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.fft")
     private(set) var fftSize: Int
     private let sampleRate: Double
     private var fftSetup: vDSP_DFT_Setup?
@@ -305,6 +307,10 @@ class FFTProcessor {
     ///   - gainBoost: Gain multiplier to apply before FFT
     /// - Returns: Array of linear magnitude values (fftSize/2 length)
     func performFFT(on samples: [Float], gainBoost: Float = 1.0) -> [Float] {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "PerformFFT", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "PerformFFT", signpostID: signpostID) }
+
         lock.lock()
         defer { lock.unlock() }
 

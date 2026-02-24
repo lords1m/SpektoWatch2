@@ -3,6 +3,7 @@ import SwiftUI
 struct SingleValueWidget: View {
     @ObservedObject var audioEngine: AudioEngine
     var settings: [String: String]
+    @StateObject private var loudnessCalculator = LoudnessCalculator()
     
     var metricKey: String { settings["metric"] ?? "LAF" }
     
@@ -17,7 +18,17 @@ struct SingleValueWidget: View {
         case "LAFT5": return "LAFT5 (Takt)"
         case "LAFTeq": return "LAFTeq (Takt Mittel)"
         case "LCpeak": return "LCpeak (Spitze)"
+        case "PHON": return "Lautheit"
+        case "SONE": return "Wahrg. Lautheit"
         default: return metricKey
+        }
+    }
+
+    var unitLabel: String {
+        switch metricKey {
+        case "PHON": return "Phon"
+        case "SONE": return "Sone"
+        default: return "dB"
         }
     }
     
@@ -26,6 +37,9 @@ struct SingleValueWidget: View {
     private var displayValue: String {
         guard let v = value, audioEngine.engineStatus == .running else {
             return "0.0"
+        }
+        if metricKey == "SONE" {
+            return String(format: "%.2f", v)
         }
         return String(format: "%.1f", v)
     }
@@ -46,7 +60,7 @@ struct SingleValueWidget: View {
                 .foregroundColor(audioEngine.engineStatus == .running ? .primary : .gray)
                 .minimumScaleFactor(0.5)
 
-            Text("dB")
+            Text(unitLabel)
                 .font(.headline)
                 .foregroundColor(.gray)
 
@@ -57,12 +71,53 @@ struct SingleValueWidget: View {
                 self.value = nil
                 return
             }
-            self.value = data.levels[metricKey] ?? 0.0
+            if metricKey == "PHON" || metricKey == "SONE" {
+                updateLoudnessValue(from: data)
+            } else {
+                self.value = data.levels[metricKey] ?? 0.0
+            }
         }
         .onReceive(audioEngine.$engineStatus) { status in
             if status != .running {
                 self.value = nil
             }
+        }
+    }
+
+    private func updateLoudnessValue(from data: SpectrogramData) {
+        guard !data.frequencies.isEmpty, !data.magnitudes.isEmpty else {
+            value = nil
+            return
+        }
+
+        let safeCount = min(data.frequencies.count, data.magnitudes.count)
+        guard safeCount > 0 else {
+            value = nil
+            return
+        }
+
+        var dominantIndex = 0
+        var dominantMagnitude = data.magnitudes[0]
+        for i in 1..<safeCount {
+            if data.magnitudes[i] > dominantMagnitude {
+                dominantMagnitude = data.magnitudes[i]
+                dominantIndex = i
+            }
+        }
+
+        let dominantFrequency = max(20.0, min(12500.0, Double(data.frequencies[dominantIndex])))
+        let spl = Double(data.levels["LAF"] ?? data.broadbandLevel)
+        loudnessCalculator.calculate(spl: spl, frequency: dominantFrequency)
+
+        guard let result = loudnessCalculator.result else {
+            value = nil
+            return
+        }
+
+        if metricKey == "PHON" {
+            value = Float(result.phon)
+        } else {
+            value = Float(result.sone)
         }
     }
 }

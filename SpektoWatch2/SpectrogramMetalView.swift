@@ -1,7 +1,10 @@
 import MetalKit
 import Accelerate
+import os.signpost
+import Foundation
 
 class SpectrogramMetalView: MTKView {
+    private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.render")
     
     // Metal resources
     private var commandQueue: MTLCommandQueue!
@@ -23,6 +26,8 @@ class SpectrogramMetalView: MTKView {
     private let maxFrequency: Float = 16000.0
     private var recordingStartTime: Date?
     private let maxDisplayTime: TimeInterval = 60.0  // After 60s, switch to scrolling mode
+    private var columnAdvanceStep: Int = 2
+    private var lastQualityEvaluationTime: TimeInterval = 0
 
     // Decay/fade effect for motion blur (0.0 = no persistence, 1.0 = infinite persistence)
     // Recommended range: 0.85 - 0.98
@@ -227,6 +232,10 @@ class SpectrogramMetalView: MTKView {
     /// Update spectrogram with new FFT data
     /// - Parameter magnitudes: Array of magnitude values from FFT (normalized 0-1)
     func updateWithFFTData(_ magnitudes: [Float]) {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "TextureUpload", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "TextureUpload", signpostID: signpostID) }
+
         guard let texture = spectrogramTexture else { return }
 
         // Start recording timer if not started
@@ -276,7 +285,7 @@ class SpectrogramMetalView: MTKView {
             currentColumn = totalColumnsWritten % timeColumns
         } else {
             // Scrolling phase: ring buffer with faster scrolling
-            currentColumn = (currentColumn + 2) % timeColumns
+            currentColumn = (currentColumn + columnAdvanceStep) % timeColumns
         }
 
         // PERFORMANCE OPTIMIZATION: Removed decayColumn() call
@@ -308,6 +317,11 @@ class SpectrogramMetalView: MTKView {
     // MARK: - Rendering
     
     override func draw(_ rect: CGRect) {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "MetalDraw", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "MetalDraw", signpostID: signpostID) }
+        updateRuntimeQualityIfNeeded()
+
         guard let drawable = currentDrawable,
               let renderPassDescriptor = currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
@@ -381,5 +395,39 @@ class SpectrogramMetalView: MTKView {
         // Y goes from 0 (top/high freq) to 1 (bottom/low freq), so we need to invert
         let t = 1.0 - normalizedY
         return pow(2.0, logMin + t * (logMax - logMin))
+    }
+
+    private func updateRuntimeQualityIfNeeded() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastQualityEvaluationTime >= 1.0 else { return }
+        lastQualityEvaluationTime = now
+
+        let processInfo = ProcessInfo.processInfo
+        let lowPower = processInfo.isLowPowerModeEnabled
+        let thermal = processInfo.thermalState
+
+        let targetFPS: Int
+        let targetStep: Int
+
+        if thermal == .critical {
+            targetFPS = 30
+            targetStep = 4
+        } else if thermal == .serious || lowPower {
+            targetFPS = 40
+            targetStep = 3
+        } else if thermal == .fair {
+            targetFPS = 50
+            targetStep = 2
+        } else {
+            targetFPS = 60
+            targetStep = 2
+        }
+
+        if preferredFramesPerSecond != targetFPS {
+            preferredFramesPerSecond = targetFPS
+        }
+        if columnAdvanceStep != targetStep {
+            columnAdvanceStep = targetStep
+        }
     }
 }

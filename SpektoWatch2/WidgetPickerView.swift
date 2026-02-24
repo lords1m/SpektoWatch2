@@ -16,14 +16,25 @@ struct WidgetPickerView: View {
                         dismiss()
                     }) {
                         HStack {
+                            Image(systemName: symbol(for: type))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 26, height: 26)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                             Text(type.rawValue)
+                                .foregroundStyle(.primary)
                             Spacer()
-                            Image(systemName: "plus.circle")
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(.accent)
                         }
+                        .padding(.vertical, 4)
                     }
-                    .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+                    .listRowBackground(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                    )
                 }
             }
+            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(GlassBackground())
             .navigationTitle("Widget hinzufügen")
@@ -32,6 +43,20 @@ struct WidgetPickerView: View {
                     Button("Abbrechen") { dismiss() }
                 }
             }
+        }
+    }
+
+    private func symbol(for type: AudioWidgetType) -> String {
+        switch type {
+        case .spectrogram: return "waveform.path.ecg.rectangle"
+        case .levelHistory: return "chart.xyaxis.line"
+        case .frequencyDisplay: return "chart.bar.xaxis"
+        case .levelMeter: return "gauge.with.needle"
+        case .octaveBands: return "slider.horizontal.3"
+        case .phaseMeter: return "circle.lefthalf.filled"
+        case .singleValue: return "number"
+        case .toneGenerator: return "dot.radiowaves.left.and.right"
+        case .spektralanalyseLab: return "waveform.badge.magnifyingglass"
         }
     }
 }

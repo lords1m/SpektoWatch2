@@ -94,6 +94,26 @@ struct WidgetSettingsView: View {
                             Text("Slow (1s)").tag("Slow")
                         }
                     }
+                } else if widget.type == .frequencyDisplay || widget.type == .octaveBands {
+                    Section(header: Text("Spektrum Einstellungen")) {
+                        Picker("Frequenzbewertung", selection: Binding(
+                            get: { settings["freqWeighting"] ?? "Z" },
+                            set: { settings["freqWeighting"] = $0 }
+                        )) {
+                            Text("Z (Linear)").tag("Z")
+                            Text("A-Weighting").tag("A")
+                            Text("C-Weighting").tag("C")
+                        }
+
+                        Picker("Frequenzbänder", selection: Binding(
+                            get: { settings["frequencyBands"] ?? "terz" },
+                            set: { settings["frequencyBands"] = $0 }
+                        )) {
+                            Text("Bark").tag("bark")
+                            Text("Oktav").tag("octave")
+                            Text("Terz").tag("terz")
+                        }
+                    }
                 } else if widget.type == .singleValue {
                     Section(header: Text("Anzeige")) {
                         Picker("Messwert", selection: Binding(
@@ -109,6 +129,8 @@ struct WidgetSettingsView: View {
                             Text("LAFT5 (Takt max)").tag("LAFT5")
                             Text("LAFTeq (Takt eq)").tag("LAFTeq")
                             Text("LCpeak (Peak)").tag("LCpeak")
+                            Text("Lautheit (Phon)").tag("PHON")
+                            Text("Lautheit (Sone)").tag("SONE")
                         }
                     }
                 } else {

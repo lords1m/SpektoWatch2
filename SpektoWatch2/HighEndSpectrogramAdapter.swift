@@ -89,6 +89,12 @@ class HighEndSpectrogramAdapter: MTKView {
     }
     private var mappingCache: [MappingCacheEntry]?
     private var cachedInputSize: Int = 0
+    private var reusableColumnData: [Float] = []
+
+    deinit {
+        // Stop rendering callbacks before teardown.
+        isPaused = true
+    }
 
     // MARK: - Initialization
     override init(frame frameRect: CGRect, device: MTLDevice?) {
@@ -109,9 +115,10 @@ class HighEndSpectrogramAdapter: MTKView {
         }
         
         self.framebufferOnly = false
-        self.enableSetNeedsDisplay = false
-        self.isPaused = false
-        self.preferredFramesPerSecond = 120
+        // Render on demand instead of continuous 120 FPS redraw.
+        self.enableSetNeedsDisplay = true
+        self.isPaused = true
+        self.preferredFramesPerSecond = 60
         self.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         self.sampleCount = 1 // MSAA deaktiviert für Performance, wir nutzen Texture-Filterung
         
@@ -248,7 +255,13 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float], timestamp: Date) {
     }
     
     // KORREKTUR: Logarithmisches Mapping beim SCHREIBEN in die Textur
-    var columnData = [Float](repeating: 1e-10, count: frequencyBins)
+    if reusableColumnData.count != frequencyBins {
+        reusableColumnData = [Float](repeating: 1e-10, count: frequencyBins)
+    } else {
+        reusableColumnData.withUnsafeMutableBufferPointer { buffer in
+            buffer.update(repeating: 1e-10)
+        }
+    }
     
     guard let cache = mappingCache else { return }
     
@@ -287,7 +300,7 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float], timestamp: Date) {
         let dbFS = dbValue - splToDbfsOffset  // z.B. 80 dB SPL -> -40 dBFS
 
         // Konvertiere dBFS zu linearer Magnitude für den Shader
-        columnData[i] = pow(10.0, dbFS / 20.0)
+        reusableColumnData[i] = pow(10.0, dbFS / 20.0)
     }
     
     // Schreibe Spalte in Textur
@@ -300,7 +313,7 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float], timestamp: Date) {
     texture.replace(
         region: region,
         mipmapLevel: 0,
-        withBytes: columnData,
+        withBytes: reusableColumnData,
         bytesPerRow: bytesPerRow
     )
     
@@ -349,8 +362,8 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float], timestamp: Date) {
     
     // MARK: - Rendering
     override func draw(_ rect: CGRect) {
-        // Warten auf verfügbaren Buffer
-        _ = inFlightSemaphore.wait(timeout: .distantFuture)
+        // Never block UI thread waiting for GPU; skip frame if pipeline is full.
+        guard inFlightSemaphore.wait(timeout: .now()) == .success else { return }
         
         guard let drawable = currentDrawable,
               let renderPassDescriptor = currentRenderPassDescriptor,
@@ -362,8 +375,10 @@ func updateWithFFTMagnitudes(_ magnitudes: [Float], timestamp: Date) {
         }
         
         // Signal Semaphore wenn GPU fertig ist
-        commandBuffer.addCompletedHandler { [weak self] _ in
-            self?.inFlightSemaphore.signal()
+        // Capture semaphore strongly so signal() still happens even if self is deallocated.
+        let semaphore = inFlightSemaphore
+        commandBuffer.addCompletedHandler { _ in
+            semaphore.signal()
         }
         
         let lastWrittenColumn = (currentColumn - 1 + timeColumns) % timeColumns
