@@ -9,6 +9,8 @@ struct ModularDashboardView: View {
     @State private var isHeaderVisible: Bool = true
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
+    private let barSwipeThreshold: CGFloat = 36
+    private let handleDragThreshold: CGFloat = 12
 
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
         _viewModel = StateObject(wrappedValue: DashboardViewModel(audioEngine: audioEngine, connectivityManager: connectivityManager))
@@ -18,11 +20,13 @@ struct ModularDashboardView: View {
         ZStack {
             // Scrollable Grid (full height)
             GeometryReader { geo in
+                let isCompactWidth = geo.size.width <= 390
+                let verticalInset: CGFloat = isCompactWidth ? 6 : 8
                 ScrollView {
                     VStack(spacing: 0) {
                         dashboardGrid(geo: geo)
-                            .padding(.top, max(8, (isHeaderVisible ? headerHeight : 10) + 8))
-                            .padding(.bottom, max(8, (isFooterVisible ? footerHeight : 10) + 8))
+                            .padding(.top, max(verticalInset, (isHeaderVisible ? headerHeight : 10) + verticalInset))
+                            .padding(.bottom, max(verticalInset, (isFooterVisible ? footerHeight : 10) + verticalInset))
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -45,10 +49,13 @@ struct ModularDashboardView: View {
                 )
                 .offset(y: isHeaderVisible ? 0 : -(headerHeight + 24))
                 .opacity(isHeaderVisible ? 1 : 0)
-                .gesture(
+                .contentShape(Rectangle())
+                .allowsHitTesting(isHeaderVisible)
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 10)
                         .onEnded { value in
-                            if value.translation.height < -40 {
+                            guard isHeaderVisible else { return }
+                            if value.translation.height < -barSwipeThreshold {
                                 withAnimation(.easeInOut(duration: 0.22)) {
                                     isHeaderVisible = false
                                 }
@@ -68,10 +75,13 @@ struct ModularDashboardView: View {
                     )
                     .offset(y: isFooterVisible ? 0 : (footerHeight + 24))
                     .opacity(isFooterVisible ? 1 : 0)
-                    .gesture(
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(isFooterVisible)
+                    .simultaneousGesture(
                         DragGesture(minimumDistance: 10)
                             .onEnded { value in
-                                if value.translation.height > 40 {
+                                guard isFooterVisible else { return }
+                                if abs(value.translation.height) > barSwipeThreshold {
                                     withAnimation(.easeInOut(duration: 0.22)) {
                                         isFooterVisible = false
                                     }
@@ -84,15 +94,17 @@ struct ModularDashboardView: View {
 
             if !isHeaderVisible {
                 VStack {
-                    Capsule()
-                        .fill(Color.white.opacity(0.45))
-                        .frame(width: 44, height: 5)
+                    hiddenHandle(systemImage: "chevron.down")
                         .padding(.top, 8)
-                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isHeaderVisible = true
+                            }
+                        }
                         .gesture(
-                            DragGesture(minimumDistance: 6)
+                            DragGesture(minimumDistance: 4)
                                 .onEnded { value in
-                                    if value.translation.height > 20 {
+                                    if abs(value.translation.height) > handleDragThreshold {
                                         withAnimation(.easeInOut(duration: 0.22)) {
                                             isHeaderVisible = true
                                         }
@@ -107,15 +119,17 @@ struct ModularDashboardView: View {
             if !isFooterVisible {
                 VStack {
                     Spacer()
-                    Capsule()
-                        .fill(Color.white.opacity(0.45))
-                        .frame(width: 44, height: 5)
+                    hiddenHandle(systemImage: "chevron.up")
                         .padding(.bottom, 8)
-                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isFooterVisible = true
+                            }
+                        }
                         .gesture(
-                            DragGesture(minimumDistance: 6)
+                            DragGesture(minimumDistance: 4)
                                 .onEnded { value in
-                                    if value.translation.height < -20 {
+                                    if abs(value.translation.height) > handleDragThreshold {
                                         withAnimation(.easeInOut(duration: 0.22)) {
                                             isFooterVisible = true
                                         }
@@ -153,16 +167,45 @@ struct ModularDashboardView: View {
         .onPreferenceChange(DashboardHeaderHeightPreferenceKey.self) { headerHeight = $0 }
         .onPreferenceChange(DashboardFooterHeightPreferenceKey.self) { footerHeight = $0 }
     }
+
+    private func hiddenHandle(systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.primary.opacity(0.72))
+            Capsule()
+                .fill(Color.primary.opacity(0.38))
+                .frame(width: 30, height: 4)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 28)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 4)
+        .contentShape(Rectangle())
+    }
     
     @ViewBuilder
     private func dashboardGrid(geo: GeometryProxy) -> some View {
+        let isCompactWidth = geo.size.width <= 390
+        let horizontalPadding: CGFloat = isCompactWidth ? 12 : 16
+        let topPadding: CGFloat = isCompactWidth ? 12 : 16
+        let bottomPadding: CGFloat = isCompactWidth ? 18 : 24
+        let stackSpacing: CGFloat = isCompactWidth ? 12 : 14
+        let gridSpacing: CGFloat = isCompactWidth ? 10 : 12
+        let minColumnWidth: CGFloat = isCompactWidth ? 150 : 160
+        let availableWidth = max(minColumnWidth, geo.size.width - (horizontalPadding * 2))
+
         if viewModel.dashboardManager.widgets.isEmpty {
             VStack(spacing: 20) {
                 Image(systemName: "waveform.circle.fill")
-                    .font(.system(size: 80))
+                    .font(.system(size: isCompactWidth ? 68 : 80))
                     .foregroundColor(.gray.opacity(0.5))
                 Text("Keine Widgets")
-                    .font(.title2)
+                    .font(isCompactWidth ? .title3 : .title2)
                     .foregroundColor(.gray)
                 Button(action: viewModel.addWidget) {
                     Label("Widget hinzufügen", systemImage: "plus.circle.fill")
@@ -177,20 +220,20 @@ struct ModularDashboardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
-            .padding(.top, 50)
+            .padding(.top, isCompactWidth ? 32 : 50)
         } else {
-            VStack(spacing: 14) {
+            VStack(spacing: stackSpacing) {
                 if viewModel.dashboardManager.isEditMode {
                     Text("Widgets verschieben oder skalieren")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                let colCount = max(1, Int(geo.size.width / 160))
+                let colCount = max(1, Int((availableWidth + gridSpacing) / (minColumnWidth + gridSpacing)))
                 let rows = viewModel.computeRows(widgets: viewModel.dashboardManager.widgets, columns: colCount)
-                let columnWidth = (geo.size.width - CGFloat(colCount - 1) * 12) / CGFloat(colCount)
+                let columnWidth = (availableWidth - CGFloat(colCount - 1) * gridSpacing) / CGFloat(colCount)
                 
-                Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                Grid(horizontalSpacing: gridSpacing, verticalSpacing: gridSpacing) {
                     ForEach(0..<rows.count, id: \.self) { rowIndex in
                         GridRow {
                             ForEach(rows[rowIndex]) { widget in
@@ -241,9 +284,9 @@ struct ModularDashboardView: View {
                 }
                 .animation(WidgetAnimations.reorderAnimation, value: viewModel.dashboardManager.widgets.map(\.id))
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 24)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.top, topPadding)
+            .padding(.bottom, bottomPadding)
         }
     }
 

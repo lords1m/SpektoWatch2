@@ -4,10 +4,17 @@ import os.signpost
 
 class SpectrogramProcessor {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.spectrogram")
-    var temporalSmoothingFactor: Float = 0.5
+
+    enum SmoothingTrack: Hashable {
+        case z
+        case a
+        case c
+    }
+
+    var temporalSmoothingFactor: Float = 0.25
     var binningFactor: Int = 2
     
-    private var previousBandMagnitudes: [Float] = []
+    private var previousBandMagnitudesByTrack: [SmoothingTrack: [Float]] = [:]
     private let bandstopFilterManager: BandstopFilterManager
     private let octaveCenterFrequencies: [Float] = [
         20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
@@ -31,7 +38,8 @@ class SpectrogramProcessor {
     func process(
         frequencies: [Float],
         dbMagnitudes: [Float],
-        sampleRate: Double
+        sampleRate: Double,
+        smoothingTrack: SmoothingTrack
     ) -> Result {
         let signpostID = OSSignpostID(log: Self.performanceLog)
         os_signpost(.begin, log: Self.performanceLog, name: "SpectrogramProcess", signpostID: signpostID)
@@ -50,7 +58,7 @@ class SpectrogramProcessor {
         let (bandFreqs, bandMags) = aggregateByBinningFactor(frequencies: frequencies, magnitudes: filteredMagnitudes)
         
         // 5. Smoothing
-        let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags)
+        let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags, track: smoothingTrack)
         
         return Result(
             bandFrequencies: bandFreqs,
@@ -155,14 +163,15 @@ class SpectrogramProcessor {
         cachedRangeSampleRate = sampleRate
     }
     
-    private func temporalSmoothing(currentMagnitudes: [Float]) -> [Float] {
-        guard !previousBandMagnitudes.isEmpty, previousBandMagnitudes.count == currentMagnitudes.count else {
-            previousBandMagnitudes = currentMagnitudes
+    private func temporalSmoothing(currentMagnitudes: [Float], track: SmoothingTrack) -> [Float] {
+        guard let previousBandMagnitudes = previousBandMagnitudesByTrack[track],
+              previousBandMagnitudes.count == currentMagnitudes.count else {
+            previousBandMagnitudesByTrack[track] = currentMagnitudes
             return currentMagnitudes
         }
         var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
         vDSP_vintb(previousBandMagnitudes, 1, currentMagnitudes, 1, &temporalSmoothingFactor, &smoothed, 1, vDSP_Length(currentMagnitudes.count))
-        previousBandMagnitudes = smoothed
+        previousBandMagnitudesByTrack[track] = smoothed
         return smoothed
     }
 }

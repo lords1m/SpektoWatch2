@@ -22,17 +22,26 @@ struct WidgetSettingsView: View {
                             get: { settings["colormap"] ?? "0" },
                             set: { settings["colormap"] = $0 }
                         )) {
-                            Text("Turbo").tag("0")
-                            Text("Jet").tag("1")
-                            Text("Viridis").tag("2")
+                            ForEach(ColormapType.allCases) { cm in
+                                Text(cm.label).tag(String(cm.rawValue))
+                            }
                         }
 
-                        Picker("Zeitbereich", selection: Binding(
+                        Picker("Dargestellter Zeitbereich", selection: Binding(
                             get: { settings["timeSpan"] ?? "5" },
                             set: { settings["timeSpan"] = $0 }
                         )) {
-                            Text("1 Sekunde").tag("1")
-                            Text("5 Sekunden").tag("5")
+                            ForEach(SpectrogramTimeSpan.allCases) { span in
+                                Text(span.title).tag(String(span.rawValue))
+                            }
+                        }
+
+                        Picker("Zeitbewertung", selection: Binding(
+                            get: { settings["timeWeighting"] ?? "Fast" },
+                            set: { settings["timeWeighting"] = $0 }
+                        )) {
+                            Text("Fast (125ms)").tag("Fast")
+                            Text("Slow (1s)").tag("Slow")
                         }
 
                         Picker("Frequenzbewertung", selection: Binding(
@@ -142,7 +151,7 @@ struct WidgetSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
                         var validatedSettings = settings
-                        if let colormap = Int(settings["colormap"] ?? "0"), colormap < 0 || colormap > 2 {
+                        if let colormap = Int(settings["colormap"] ?? "0"), colormap < 0 || colormap > ColormapType.allCases.count - 1 {
                             validatedSettings["colormap"] = "0"
                         }
                         onSave(validatedSettings)

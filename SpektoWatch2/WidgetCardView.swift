@@ -13,58 +13,22 @@ struct WidgetCardView: View {
 
     @State private var showSettings = false
     private let cornerRadius: CGFloat = 20
-    private let editHeaderHeight: CGFloat = 46
+    private let overlayTopInset: CGFloat = 46
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if isEditMode {
-                HStack(spacing: 10) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(widget.type.rawValue)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    
-                    Button(action: { showSettings = true }) {
-                        Image(systemName: "gearshape")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 28)
-                            .background(.thinMaterial, in: Circle())
-                    }
-                    
-                    Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            onDelete()
-                        }
-                    }) {
-                        Image(systemName: "trash")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.red)
-                            .frame(width: 28, height: 28)
-                            .background(.thinMaterial, in: Circle())
-                    }
-                }
-                .padding(.horizontal, 12)
-                .frame(height: editHeaderHeight)
-                .background(.ultraThinMaterial)
-            } else {
-                HStack {
-                    Text(widget.type.rawValue)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
-            }
-            
+        ZStack(alignment: .topLeading) {
             renderWidgetContent()
                 .frame(height: widget.size.height)
                 .clipped()
+
+            if isEditMode {
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    editActionPair
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+            }
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
@@ -115,7 +79,7 @@ struct WidgetCardView: View {
                 HStack {
                     Spacer()
                     VStack {
-                        Spacer().frame(height: editHeaderHeight)
+                        Spacer().frame(height: overlayTopInset)
                         Rectangle()
                             .fill(Color.accentColor.opacity(0.001))
                             .contentShape(Rectangle())
@@ -132,7 +96,7 @@ struct WidgetCardView: View {
 
                 HStack {
                     VStack {
-                        Spacer().frame(height: editHeaderHeight)
+                        Spacer().frame(height: overlayTopInset)
                         Rectangle()
                             .fill(Color.accentColor.opacity(0.001))
                             .contentShape(Rectangle())
@@ -169,6 +133,42 @@ struct WidgetCardView: View {
     }
     
     private enum ResizeEdge { case right, left, bottom, top }
+
+    private var editActionPair: some View {
+        HStack(spacing: 0) {
+            Button(action: { showSettings = true }) {
+                Image(systemName: "gearshape")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.18))
+                .frame(width: 1, height: 18)
+
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    onDelete()
+                }
+            }) {
+                Image(systemName: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: 34, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .background(.thinMaterial, in: Capsule(style: .continuous))
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.24), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.10), radius: 5, x: 0, y: 2)
+    }
     
     private func handleResize(translation: CGSize, edge: ResizeEdge) {
         var newCols = widget.size.columns

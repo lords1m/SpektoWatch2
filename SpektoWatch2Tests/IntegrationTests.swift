@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import SpektoWatch2
 
 /// Integrationstests für die Zusammenarbeit verschiedener Komponenten
@@ -215,6 +216,71 @@ final class IntegrationTests: XCTestCase {
         XCTAssertLessThan(avgMs, 8.0, "Spectrogram processing regression: \(avgMs) ms > 8 ms")
     }
 
+    /// FPS-Regression-Guard für den Live-Spektrogramm-Pfad (AudioEngine -> Published SpectrogramData)
+    /// Misst effektiv publizierte Frames pro Sekunde unter Last.
+    func testSpectrogramPipelineFPSBudget() {
+        let filterManager = BandstopFilterManager()
+        let connectivityManager = WatchConnectivityManager()
+        let audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
+        audioEngine.scrollSpeed = .fast
+
+        let fftSize = audioEngine.currentBlockSize.rawValue
+        let hopSize = audioEngine.scrollSpeed.rawValue
+        let warmupChunks = Int(ceil(Double(fftSize) / Double(hopSize))) + 4
+        let measuredChunks = 300
+
+        let sampleRate: Float = 44100.0
+        let toneFreq: Float = 1000.0
+        let testChunk: [Float] = (0..<hopSize).map { i in
+            sin(2 * .pi * toneFreq * Float(i) / sampleRate) * 0.5
+        }
+
+        var publishedFrames = 0
+        let frameCountLock = NSLock()
+        let cancellable = audioEngine.$currentSpectrogramData
+            .compactMap { $0 }
+            .sink { _ in
+                frameCountLock.lock()
+                publishedFrames += 1
+                frameCountLock.unlock()
+            }
+        defer { cancellable.cancel() }
+
+        _ = processChunks(
+            count: warmupChunks,
+            chunk: testChunk,
+            audioEngine: audioEngine,
+            timeout: 5.0
+        )
+        drainMainQueue()
+
+        frameCountLock.lock()
+        let baselineFrames = publishedFrames
+        frameCountLock.unlock()
+
+        let elapsed = processChunks(
+            count: measuredChunks,
+            chunk: testChunk,
+            audioEngine: audioEngine,
+            timeout: 10.0
+        )
+        drainMainQueue()
+
+        frameCountLock.lock()
+        let producedFrames = publishedFrames - baselineFrames
+        frameCountLock.unlock()
+
+        XCTAssertGreaterThan(producedFrames, 0, "No spectrogram frames were published during FPS test")
+
+        let fps = Double(producedFrames) / max(elapsed, 0.0001)
+        let minimumFPS = 25.0
+        XCTAssertGreaterThanOrEqual(
+            fps,
+            minimumFPS,
+            "Spectrogram FPS regression: measured \(String(format: "%.1f", fps)) FPS, expected >= \(minimumFPS) FPS"
+        )
+    }
+
     // MARK: - Edge Case Integration
 
     /// Testet Verhalten bei schnellem Widget-Wechsel
@@ -235,6 +301,36 @@ final class IntegrationTests: XCTestCase {
 
         // Engine sollte noch funktional sein
         XCTAssertEqual(audioEngine.engineStatus, .idle, "Engine should still be functional")
+    }
+
+    private func processChunks(
+        count: Int,
+        chunk: [Float],
+        audioEngine: AudioEngine,
+        timeout: TimeInterval
+    ) -> TimeInterval {
+        let completed = expectation(description: "processChunks")
+        var elapsed: TimeInterval = 0
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let start = CFAbsoluteTimeGetCurrent()
+            for _ in 0..<count {
+                audioEngine.processExternalAudio(chunk)
+            }
+            elapsed = CFAbsoluteTimeGetCurrent() - start
+            completed.fulfill()
+        }
+
+        wait(for: [completed], timeout: timeout)
+        return elapsed
+    }
+
+    private func drainMainQueue() {
+        let drained = expectation(description: "drainMainQueue")
+        DispatchQueue.main.async {
+            drained.fulfill()
+        }
+        wait(for: [drained], timeout: 1.0)
     }
 }
 

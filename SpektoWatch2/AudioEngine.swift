@@ -21,6 +21,11 @@ enum ScrollSpeed: Int, CaseIterable {
         case .fast: return "Schnell"
         }
     }
+
+    static func closest(to hopSize: Int) -> ScrollSpeed {
+        let target = max(1, hopSize)
+        return allCases.min { abs($0.rawValue - target) < abs($1.rawValue - target) } ?? .fast
+    }
 }
 
 enum EngineStatus: Equatable {
@@ -53,7 +58,7 @@ class AudioEngine: ObservableObject {
     // MARK: - Audio Engine
 
     private var audioEngine: AVAudioEngine
-    private var fftSize: Int = 8192
+    private var fftSize: Int = FFTBlockSize.size2048.rawValue
     private let tapBlockSize: AVAudioFrameCount = 512
     private let sampleRate: Double = 44100.0
 
@@ -62,7 +67,7 @@ class AudioEngine: ObservableObject {
     /// Aktuelle Fensterfunktion
     @Published var currentWindowFunction: WindowFunction = .hann
     /// Aktuelle Blockgröße
-    @Published var currentBlockSize: FFTBlockSize = .size8192
+    @Published var currentBlockSize: FFTBlockSize = .size2048
     
     // MARK: - Buffer Management
 
@@ -88,7 +93,7 @@ class AudioEngine: ObservableObject {
     private var maxBufferedSeconds: Double = 0
     private var lastUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
-    private let targetUIInterval: TimeInterval = 1.0 / 60.0
+    private let targetUIInterval: TimeInterval = 1.0 / 120.0
     private let maxRealtimeBacklogSeconds: Double = 0.12
     private let impulseThresholdDbfs: Float = -35.0
     private let impulseCooldownSeconds: TimeInterval = 1.0
@@ -938,17 +943,20 @@ class AudioEngine: ObservableObject {
         let processedZ = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbZ,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            smoothingTrack: .z
         )
         let processedA = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbA,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            smoothingTrack: .a
         )
         let processedC = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbC,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            smoothingTrack: .c
         )
 
         // Use selected weighting for octave bands and spectrum

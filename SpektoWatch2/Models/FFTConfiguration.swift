@@ -15,14 +15,14 @@ class FFTConfiguration: ObservableObject {
     }
 
     /// Aktuelle FFT-Blockgröße
-    @Published var blockSize: FFTBlockSize = .size8192 {
+    @Published var blockSize: FFTBlockSize = .size2048 {
         didSet {
             UserDefaults.standard.set(blockSize.rawValue, forKey: "fft_blockSize")
         }
     }
 
     /// Overlap-Prozentsatz (0-75%)
-    @Published var overlapPercent: Float = 50.0 {
+    @Published var overlapPercent: Float = 75.0 {
         didSet {
             UserDefaults.standard.set(overlapPercent, forKey: "fft_overlapPercent")
         }
@@ -133,7 +133,7 @@ class FFTConfiguration: ObservableObject {
 
         var blockSize: FFTBlockSize {
             switch self {
-            case .general: return .size4096
+            case .general: return .size2048
             case .music: return .size8192
             case .speech: return .size2048
             case .transient: return .size1024
@@ -144,7 +144,7 @@ class FFTConfiguration: ObservableObject {
 
         var overlap: Float {
             switch self {
-            case .general: return 50.0
+            case .general: return 75.0
             case .music: return 75.0
             case .speech: return 50.0
             case .transient: return 25.0

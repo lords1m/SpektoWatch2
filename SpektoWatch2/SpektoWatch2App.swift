@@ -28,6 +28,8 @@ struct SpektoWatch2App: App {
             filterManager: fm,
             connectivityManager: cm
         )
+        engine.applyFFTConfiguration(fftConfig)
+        engine.scrollSpeed = .closest(to: fftConfig.hopSize)
 
         // Initialize the StateObjects
         _filterManager = StateObject(wrappedValue: fm)

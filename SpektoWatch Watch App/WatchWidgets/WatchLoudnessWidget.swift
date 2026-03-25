@@ -16,10 +16,6 @@ struct WatchLoudnessWidget: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.black.opacity(0.6))
-                
                 VStack(spacing: 2) {
                     // Phon-Wert (groß)
                     if let result = calculator.result {
@@ -38,20 +34,22 @@ struct WatchLoudnessWidget: View {
                         // Sone-Wert (klein)
                         Text(String(format: "%.1f Sone", result.sone))
                             .font(.system(size: max(7, geometry.size.height * 0.12)))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.secondary.opacity(0.9))
                             .lineLimit(1)
                     } else {
                         Text("--")
                             .font(.system(size: fontSize(for: geometry.size), weight: .bold))
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary.opacity(0.75))
                         
                         Text("Phon")
                             .font(.system(size: max(8, geometry.size.height * 0.15)))
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary.opacity(0.9))
                     }
                 }
                 .padding(2)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .watchGlassCard(cornerRadius: 10)
             .onTapGesture {
                 showingDetail = true
             }

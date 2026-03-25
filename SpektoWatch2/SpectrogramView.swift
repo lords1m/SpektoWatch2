@@ -2,14 +2,24 @@ import SwiftUI
 
 enum SpectrogramTimeSpan: Int, CaseIterable, Identifiable {
     case seconds1 = 1
+    case seconds2 = 2
     case seconds5 = 5
-    
+    case seconds10 = 10
+    case seconds20 = 20
+    case seconds30 = 30
+    case seconds60 = 60
+
     var id: Int { rawValue }
-    
+
     var title: String {
         switch self {
-        case .seconds1: return "1 Sekunde"
-        case .seconds5: return "5 Sekunden"
+        case .seconds1: return "1s"
+        case .seconds2: return "2s"
+        case .seconds5: return "5s"
+        case .seconds10: return "10s"
+        case .seconds20: return "20s"
+        case .seconds30: return "30s"
+        case .seconds60: return "60s"
         }
     }
 }

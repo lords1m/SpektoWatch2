@@ -12,26 +12,24 @@ struct WatchSingleValueWidget: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.black.opacity(0.6))
-
                 VStack(spacing: 1) {
                     // Value
                     Text(displayValue)
                         .font(.system(size: fontSize(for: geometry.size), weight: .bold, design: .monospaced))
-                        .foregroundColor(isActive ? valueColor : .gray)
+                        .foregroundColor(isActive ? valueColor : .secondary.opacity(0.75))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
 
                     // Label
                     Text(valueType.displayName)
                         .font(.system(size: max(8, geometry.size.height * 0.18)))
-                        .foregroundColor(.gray)
+                        .foregroundColor(.secondary.opacity(0.9))
                         .lineLimit(1)
                 }
                 .padding(2)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .watchGlassCard(cornerRadius: 10)
         }
         .onReceive(connectivityManager.$spectrogramData) { data in
             guard let data = data else {

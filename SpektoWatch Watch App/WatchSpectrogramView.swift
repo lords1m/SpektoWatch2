@@ -18,108 +18,124 @@ struct WatchSpectrogramView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-        ZStack {
-            HStack(spacing: 0) {
-                // Frequenz-Achse
-                VStack(alignment: .trailing) {
-                    Text(formatFreq(22050.0 * zoomLevel))
-                    Spacer()
-                    Text(formatFreq(11025.0 * zoomLevel))
-                    Spacer()
-                    Text("0")
-                }
-                .font(.system(size: 10, design: .rounded))
-                .foregroundColor(.gray)
-                .frame(width: 30, alignment: .trailing)
-                .padding(.vertical, 4)
-                .padding(.trailing, 2)
+            ZStack {
+                WatchAppBackground().ignoresSafeArea()
 
-            // Horizontales Spektrogramm Canvas (Zeit: X-Achse, Frequenz: Y-Achse)
-            Canvas { context, size in
-                let width = size.width
-                let height = size.height
-                
-                // Jede Spalte ist ein Zeit-Frame (Breite)
-                let colWidth = width / CGFloat(maxFrames)
-                // Jede Zeile ist ein Frequenz-Bin (Höhe)
-                let rowHeight = height / CGFloat(displayBins)
-                
-                for (i, magnitudes) in frames.enumerated() {
-                    // Zeit läuft von links nach rechts
-                    // i=0 ist der älteste Frame im Buffer, i=count-1 der neueste
-                    let x = CGFloat(i) * colWidth
-                    
-                    // On-the-fly Downsampling basierend auf Zoom-Level
-                    let effectiveCount = Int(Double(magnitudes.count) * zoomLevel)
-                    let chunkSize = max(1, effectiveCount / displayBins)
-                    
-                    for f in 0..<displayBins {
-                        let start = f * chunkSize
-                        let end = min(start + chunkSize, effectiveCount)
-                        // Max-Pooling
-                        let mag = (start < end && start < magnitudes.count) ? (magnitudes[start..<min(end, magnitudes.count)].max() ?? minDB) : minDB
-                        
-                        // dB Normalisierung (-100 bis -10 dB)
-                        let normalized = (mag - minDB) / (maxDB - minDB)
-                        
-                        if normalized > 0.05 { // Noise Gate
-                            let color = spectrogramColor(Double(normalized))
-                            // Frequenz auf Y-Achse (Tiefe Frequenzen unten)
-                            let y = height - CGFloat(f + 1) * rowHeight
-                            
-                            let rect = CGRect(x: x, y: y, width: colWidth + 0.5, height: rowHeight + 0.5)
-                            context.fill(Path(rect), with: .color(color))
+                VStack(spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(WatchStylePalette.accentBlue)
+                        Text("Spektrogramm")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 0)
+                        Text(String(format: "Zoom %.1fx", zoomLevel))
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.white.opacity(0.10), in: Capsule())
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .watchGlassBar(cornerRadius: 12)
+
+                    HStack(spacing: 0) {
+                        VStack(alignment: .trailing) {
+                            Text(formatFreq(22050.0 * zoomLevel))
+                            Spacer()
+                            Text(formatFreq(11025.0 * zoomLevel))
+                            Spacer()
+                            Text("0")
+                        }
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .frame(width: 30, alignment: .trailing)
+                        .padding(.vertical, 4)
+                        .padding(.trailing, 2)
+
+                        Canvas { context, size in
+                            let width = size.width
+                            let height = size.height
+                            let colWidth = width / CGFloat(maxFrames)
+                            let rowHeight = height / CGFloat(displayBins)
+
+                            for (i, magnitudes) in frames.enumerated() {
+                                let x = CGFloat(i) * colWidth
+                                let effectiveCount = Int(Double(magnitudes.count) * zoomLevel)
+                                let chunkSize = max(1, effectiveCount / displayBins)
+
+                                for f in 0..<displayBins {
+                                    let start = f * chunkSize
+                                    let end = min(start + chunkSize, effectiveCount)
+                                    let mag = (start < end && start < magnitudes.count) ? (magnitudes[start..<min(end, magnitudes.count)].max() ?? minDB) : minDB
+                                    let normalized = (mag - minDB) / (maxDB - minDB)
+
+                                    if normalized > 0.05 {
+                                        let color = spectrogramColor(Double(normalized))
+                                        let y = height - CGFloat(f + 1) * rowHeight
+                                        let rect = CGRect(x: x, y: y, width: colWidth + 0.5, height: rowHeight + 0.5)
+                                        context.fill(Path(rect), with: .color(color))
+                                    }
+                                }
+                            }
                         }
                     }
+                    .padding(6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.black.opacity(0.78))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                    )
+                    .watchGlassCard(cornerRadius: 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    HStack {
+                        Circle()
+                            .fill(connectivityManager.isReachable ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+
+                        Spacer()
+
+                        Button(action: {
+                            print("[WatchView] Play Tapped")
+                            audioEngine.startRecording()
+                        }) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 30, height: 30)
+                                .background(Color.green.opacity(0.28), in: Circle())
+                                .overlay(
+                                    Circle().stroke(Color.white.opacity(0.24), lineWidth: 1)
+                                )
+                        }
+
+                        Button(action: {
+                            print("[WatchView] Stop Tapped")
+                            audioEngine.stopRecording()
+                        }) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 30, height: 30)
+                                .background(Color.red.opacity(0.28), in: Circle())
+                                .overlay(
+                                    Circle().stroke(Color.white.opacity(0.24), lineWidth: 1)
+                                )
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .watchGlassBar(cornerRadius: 14)
                 }
+                .padding(6)
             }
-            .drawingGroup() // Metal-Rendering aktivieren
-            .background(Color.black)
-            .cornerRadius(4)
-            }
-            .edgesIgnoringSafeArea(.bottom)
-            
-            // Status & Steuerung
-            VStack {
-                Spacer()
-                HStack {
-                Circle()
-                    .fill(connectivityManager.isReachable ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                
-                Spacer()
-                
-                // Aufnahme-Steuerung (Lokal auf der Watch)
-                Button(action: {
-                    print("[WatchView] Play Tapped")
-                    audioEngine.startRecording()
-                }) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 12))
-                }
-                .frame(width: 30, height: 30)
-                .background(Color.green.opacity(0.3))
-                .clipShape(Circle())
-                
-                Button(action: {
-                    print("[WatchView] Stop Tapped")
-                    audioEngine.stopRecording()
-                }) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 12))
-                }
-                .frame(width: 30, height: 30)
-                .background(Color.red.opacity(0.3))
-                .clipShape(Circle())
-            }
-            .padding(.horizontal, 4)
-            .padding(.bottom, 8)
-            }
-        }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-            }
-            .scrollDisabled(true)
+            .frame(width: geometry.size.width, height: geometry.size.height)
             .focusable()
             .focused($isFocused)
             .digitalCrownRotation($zoomLevel, from: 0.1, through: 1.0, by: 0.05, sensitivity: .medium, isContinuous: false)

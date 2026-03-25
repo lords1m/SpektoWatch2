@@ -4,6 +4,8 @@ import Combine
 // MARK: - Play/Pause Button Component
 private struct PlayPauseButton: View {
     @ObservedObject var audioEngine: AudioEngine
+    let diameter: CGFloat
+    let iconSize: CGFloat
     let action: () -> Void
 
     private var state: ControlBarState {
@@ -15,17 +17,17 @@ private struct PlayPauseButton: View {
             ZStack {
                 Circle()
                     .fill(state.isLiveMode ? Color.green.opacity(0.2) : Color.clear)
-                    .frame(width: 50, height: 50)
+                    .frame(width: diameter, height: diameter)
 
                 ZStack {
                     if state.isLiveMode {
                         Image(systemName: "pause.circle")
-                            .font(.system(size: 40))
+                            .font(.system(size: iconSize))
                             .foregroundColor(.green)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     } else {
                         Image(systemName: "play.circle")
-                            .font(.system(size: 40))
+                            .font(.system(size: iconSize))
                             .foregroundColor(.green.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
@@ -43,6 +45,8 @@ private struct PlayPauseButton: View {
 // MARK: - Record/Stop Button Component
 private struct RecordStopButton: View {
     @ObservedObject var audioEngine: AudioEngine
+    let diameter: CGFloat
+    let iconSize: CGFloat
     let action: () -> Void
 
     private var state: ControlBarState {
@@ -54,17 +58,17 @@ private struct RecordStopButton: View {
             ZStack {
                 Circle()
                     .fill(state.isRecording ? Color.red.opacity(0.2) : Color.clear)
-                    .frame(width: 50, height: 50)
+                    .frame(width: diameter, height: diameter)
 
                 ZStack {
                     if state.isRecording {
                         Image(systemName: "stop.circle")
-                            .font(.system(size: 40))
+                            .font(.system(size: iconSize))
                             .foregroundColor(.red)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     } else {
                         Image(systemName: "record.circle.fill")
-                            .font(.system(size: 40))
+                            .font(.system(size: iconSize))
                             .foregroundColor(.red.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
@@ -89,6 +93,10 @@ struct ControlBarView: View {
     @State private var recordedDuration: TimeInterval = 0
 
     private let footerVerticalPadding: CGFloat = 10
+    private let regularControlDiameter: CGFloat = 50
+    private let regularControlIconSize: CGFloat = 40
+    private let compactControlDiameter: CGFloat = 44
+    private let compactControlIconSize: CGFloat = 34
 
     // Computed properties für reaktive Updates
     private var state: ControlBarState {
@@ -97,72 +105,46 @@ struct ControlBarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                // Status Info
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statusText)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(statusColor)
-                    if state.isRecording {
-                        Text(timeString(from: recordingManager.currentRecordingDuration))
-                            .font(.caption2)
-                            .monospacedDigit()
-                            .foregroundColor(.secondary)
-                    }
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    statusInfo(alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: true)
 
-                Spacer()
+                    Spacer(minLength: 8)
 
-                // Button Group - Play & Record
-                HStack(spacing: 20) {
-                    // Play/Pause Button (Live-Modus)
-                    // Use audioEngine properties directly to trigger SwiftUI updates
-                    PlayPauseButton(
-                        audioEngine: audioEngine,
-                        action: toggleLiveMode
+                    controlsGroup(
+                        diameter: regularControlDiameter,
+                        iconSize: regularControlIconSize,
+                        spacing: 20
                     )
 
-                    // Record Button
-                    RecordStopButton(
-                        audioEngine: audioEngine,
-                        action: toggleRecording
+                    Spacer(minLength: 8)
+
+                    recordingsButton(font: .title2, badgeOffsetX: 10, badgeOffsetY: -10)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, footerVerticalPadding)
+                .frame(maxWidth: .infinity)
+
+                VStack(spacing: 8) {
+                    HStack {
+                        statusInfo(alignment: .leading)
+                        Spacer()
+                        recordingsButton(font: .headline, badgeOffsetX: 8, badgeOffsetY: -8)
+                    }
+                    controlsGroup(
+                        diameter: compactControlDiameter,
+                        iconSize: compactControlIconSize,
+                        spacing: 16
                     )
                 }
-
-                Spacer()
-
-                // Recordings List Button
-                Button(action: {
-                    showRecordingsList = true
-                }) {
-                    ZStack {
-                        Image(systemName: "folder.fill")
-                            .font(.title2)
-                            .foregroundColor(.blue)
-
-                        // Badge mit Anzahl
-                        if recordingManager.recordings.count > 0 {
-                            Text("\(recordingManager.recordings.count)")
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .padding(4)
-                                .background(Color.red)
-                                .clipShape(Circle())
-                                .offset(x: 10, y: -10)
-                        }
-                    }
-                }
-                .accessibilityIdentifier("recordingsListButton")
-                .accessibilityLabel("Aufnahmen")
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, footerVerticalPadding)
-            .frame(maxWidth: .infinity)
         }
         .backgroundExtensionEffect(cornerRadius: 24)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.bottom, 12)
         .sheet(isPresented: $showSaveDialog) {
             if let audioURL = recordedAudioURL {
@@ -179,6 +161,67 @@ struct ControlBarView: View {
         .onAppear {
             audioEngine.prewarmAudioSession()
         }
+    }
+
+    @ViewBuilder
+    private func statusInfo(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text(statusText)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(statusColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if state.isRecording {
+                Text(timeString(from: recordingManager.currentRecordingDuration))
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func controlsGroup(diameter: CGFloat, iconSize: CGFloat, spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
+            PlayPauseButton(
+                audioEngine: audioEngine,
+                diameter: diameter,
+                iconSize: iconSize,
+                action: toggleLiveMode
+            )
+
+            RecordStopButton(
+                audioEngine: audioEngine,
+                diameter: diameter,
+                iconSize: iconSize,
+                action: toggleRecording
+            )
+        }
+    }
+
+    private func recordingsButton(font: Font, badgeOffsetX: CGFloat, badgeOffsetY: CGFloat) -> some View {
+        Button(action: {
+            showRecordingsList = true
+        }) {
+            ZStack {
+                Image(systemName: "folder.fill")
+                    .font(font)
+                    .foregroundColor(.blue)
+
+                if recordingManager.recordings.count > 0 {
+                    Text("\(recordingManager.recordings.count)")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(4)
+                        .background(Color.red)
+                        .clipShape(Circle())
+                        .offset(x: badgeOffsetX, y: badgeOffsetY)
+                }
+            }
+        }
+        .accessibilityIdentifier("recordingsListButton")
+        .accessibilityLabel("Aufnahmen")
     }
 
     private var statusText: String {

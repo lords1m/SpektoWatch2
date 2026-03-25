@@ -14,16 +14,14 @@ struct WatchLevelMeterWidget: View {
             let isVertical = geometry.size.height > geometry.size.width
 
             ZStack {
-                // Background
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.black.opacity(0.8))
-
                 if isVertical {
                     verticalMeter(size: geometry.size)
                 } else {
                     horizontalMeter(size: geometry.size)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .watchGlassCard(cornerRadius: 10)
         }
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard audioEngine.isRecording, let data = data else { return }
@@ -51,7 +49,7 @@ struct WatchLevelMeterWidget: View {
             ZStack(alignment: .bottom) {
                 // Background
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.3))
+                    .fill(Color.white.opacity(0.18))
                     .frame(width: barWidth, height: barHeight)
 
                 // Level fill
@@ -74,7 +72,7 @@ struct WatchLevelMeterWidget: View {
             ZStack(alignment: .leading) {
                 // Background
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.3))
+                    .fill(Color.white.opacity(0.18))
                     .frame(width: barWidth, height: barHeight)
 
                 // Level fill

@@ -11,6 +11,8 @@ struct DashboardHeaderView: View {
                 Text("Dashboard")
                     .font(.title2)
                     .bold()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 
                 Spacer()
                 
@@ -20,15 +22,19 @@ struct DashboardHeaderView: View {
                             .font(.title2)
                             .foregroundColor(.primary)
                     }
-                    .padding(.trailing, 16)
+                    .padding(.trailing, 10)
                 }
                 
                 if isEditMode {
                     Button(action: onAddWidget) {
-                        Label("Add", systemImage: "plus")
-                            .foregroundColor(.blue)
+                        ViewThatFits {
+                            Label("Add", systemImage: "plus")
+                                .foregroundColor(.blue)
+                            Image(systemName: "plus")
+                                .foregroundColor(.blue)
+                        }
                     }
-                    .padding(.trailing, 8)
+                    .padding(.trailing, 6)
                 }
                 
                 Button(action: {
@@ -41,17 +47,19 @@ struct DashboardHeaderView: View {
                     print("[DashboardHeaderView] Edit mode: \(isEditMode)")
                 }) {
                     Text(isEditMode ? "Fertig" : "Bearbeiten")
+                        .lineLimit(1)
                         .fontWeight(isEditMode ? .bold : .regular)
                         .foregroundColor(.blue)
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .backgroundExtensionEffect(cornerRadius: 22)
             
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
         .background(Color.clear)
     }
 }
