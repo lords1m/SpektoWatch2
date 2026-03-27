@@ -224,6 +224,7 @@ class AudioEngine: ObservableObject {
     @Published var levelHistory: [Float] = []
     @Published var currentPeakLevel: Float = -120.0
     @Published var currentStereoPhase: Float = 1.0
+    @Published var isStereoActive: Bool = false
     @Published var currentOctaveBands: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentOctaveBandsZ: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentOctaveBandsA: [Float] = Array(repeating: -120.0, count: 31)
@@ -232,8 +233,7 @@ class AudioEngine: ObservableObject {
     
     @Published var timeWeighting: TimeWeighting = .fast {
         didSet {
-            // Leichte zeitliche Glättung für stabile Darstellung ohne starke Schmierung.
-            spectrogramProcessor.temporalSmoothingFactor = (timeWeighting == .fast) ? 0.30 : 0.18
+            spectrogramProcessor.spectrogramTimeWeighting = timeWeighting
         }
     }
     @Published var frequencyWeighting: FrequencyWeighting = .a
@@ -278,7 +278,8 @@ class AudioEngine: ObservableObject {
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
         spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
         spectrogramProcessor.binningFactor = 1
-        spectrogramProcessor.temporalSmoothingFactor = 0.30
+        spectrogramProcessor.spectrogramTimeWeighting = .fast
+        spectrogramProcessor.hopDuration = Float(tapBlockSize) / Float(sampleRate)
         testGenerator = TestAudioGenerator(sampleRate: sampleRate)
         
         // Setup test generator callback
@@ -792,6 +793,7 @@ class AudioEngine: ObservableObject {
         let selectedSource = self.selectedDataSource
         let blockSize = self.tapBlockSize
         let rate = self.sampleRate
+        let stereoMode = self.selectedStereoMode
 
         // Move blocking audio session setup to background thread
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -815,7 +817,21 @@ class AudioEngine: ObservableObject {
                     try audioSession.setPreferredInput(builtInMic)
                     dataSources = builtInMic.dataSources ?? []
 
-                    if let source = selectedSource {
+                    // Apply stereo polar pattern BEFORE reading inputNode.outputFormat.
+                    // The format is only 2-channel if the pattern is set beforehand.
+                    let targetOrientation: AVAudioSession.Orientation
+                    switch stereoMode {
+                    case .frontBottom: targetOrientation = .front
+                    case .bottomBack:  targetOrientation = .back
+                    case .frontBack:   targetOrientation = .bottom
+                    }
+                    if let stereoSource = dataSources.first(where: { $0.orientation == targetOrientation }),
+                       stereoSource.supportedPolarPatterns?.contains(.stereo) == true {
+                        try stereoSource.setPreferredPolarPattern(.stereo)
+                        try audioSession.setInputDataSource(stereoSource)
+                        Logger.audioEngine.info("Stereo mic configured: orientation=\(String(describing: targetOrientation))")
+                    } else if let source = selectedSource {
+                        // Fallback: use the previously selected source
                         try audioSession.setInputDataSource(source)
                     }
                 }
@@ -962,11 +978,11 @@ class AudioEngine: ObservableObject {
         }
         
         processSamples(newSamples)
-        
-        if channels > 1 {
-            DispatchQueue.main.async {
-                self.currentStereoPhase = phase
-            }
+
+        let isStereo = channels > 1
+        DispatchQueue.main.async {
+            self.isStereoActive = isStereo
+            self.currentStereoPhase = phase  // 1.0 for mono (no stereo data)
         }
     }
     
@@ -1188,6 +1204,7 @@ class AudioEngine: ObservableObject {
         
         // Update acoustic metrics
         let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
+        spectrogramProcessor.hopDuration = dt
         let levels = metricsCalculator.updateMetrics(
             energyZ: energyZ,
             energyA: energyA,

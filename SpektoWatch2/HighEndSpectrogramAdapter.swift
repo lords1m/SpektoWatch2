@@ -51,6 +51,11 @@ class HighEndSpectrogramAdapter: MTKView {
     private var lastAxisMetricsPushUptime: TimeInterval = 0
     private var columnAdvanceAccumulator: Double = 0
 
+    // MARK: - Smooth Display Scroll
+    private var displayScrollPosition: Double = 0   // in columns, monotonically increasing
+    private var lastCADrawTime: Double = 0
+    private var displayScrollSynced: Bool = false
+
     // MARK: - Configuration
     private let frequencyBins: Int = 1024
     private var timeColumns: Int = 600
@@ -341,13 +346,15 @@ class HighEndSpectrogramAdapter: MTKView {
 
         applyFrequencySmoothingIfNeeded(values: &reusableColumnData)
 
-        // Determine how many columns to write based on elapsed time
+        // Determine how many columns to write based on elapsed time.
+        // Uses effectiveSecondsPerColumn (timeSpan / timeColumns) so the
+        // accumulator stays in sync with the actual texture resolution.
         let columnsToWrite: Int = {
             guard let prev = previousTimestamp else { return 1 }
             let dt = max(0, currentTimestamp - prev)
-            let secondsPerColumn = Double(max(hopSize, 1)) / Double(currentSampleRate)
-            guard secondsPerColumn > 0 else { return 1 }
-            columnAdvanceAccumulator += dt / secondsPerColumn
+            let spc = effectiveSecondsPerColumn
+            guard spc > 0 else { return 1 }
+            columnAdvanceAccumulator += dt / spc
             let advanced = Int(columnAdvanceAccumulator.rounded(.down))
             if advanced > 0 {
                 let clamped = min(advanced, max(1, timeColumns))
@@ -428,18 +435,32 @@ class HighEndSpectrogramAdapter: MTKView {
         let semaphore = inFlightSemaphore
         commandBuffer.addCompletedHandler { _ in semaphore.signal() }
 
-        // Compute scroll offset
+        // Smooth display scroll: advance at a constant rate tied to CACurrentMediaTime()
+        // rather than data timestamps. This eliminates the micro-jumps that occur when
+        // the integer columnsToWrite doesn't match the expected fractional advance.
         let lastWrittenColumn = (currentColumn - 1 + timeColumns) % timeColumns
-        let baseOffset = Float(lastWrittenColumn) / Float(timeColumns)
-        let secondsPerColumn = Double(max(hopSize, 1)) / Double(currentSampleRate)
-        let interpolationOffset: Float
-        if secondsPerColumn > 0, lastDataTimestamp > 0 {
-            let elapsed = max(0, Date().timeIntervalSinceReferenceDate - lastDataTimestamp)
-            interpolationOffset = Float(min(elapsed / secondsPerColumn, 1.0)) / Float(max(timeColumns, 1))
-        } else {
-            interpolationOffset = 0
+        let now = CACurrentMediaTime()
+        let frameDt = lastCADrawTime > 0 ? min(now - lastCADrawTime, 0.05) : 0
+        lastCADrawTime = now
+
+        if !displayScrollSynced && totalColumnsWritten > 0 {
+            displayScrollPosition = Double(lastWrittenColumn)
+            displayScrollSynced = true
+        } else if frameDt > 0 && currentTimeSpanValue > 0 && totalColumnsWritten > 0 {
+            let columnsPerSec = Double(timeColumns) / Double(currentTimeSpanValue)
+            displayScrollPosition += frameDt * columnsPerSec
+
+            // Re-sync if display has drifted more than 5 columns from the data write head.
+            // This corrects for pauses, app-backgrounding, or sample-rate changes.
+            let displayMod = displayScrollPosition.truncatingRemainder(dividingBy: Double(timeColumns))
+            let dataPos = Double(lastWrittenColumn)
+            var diff = displayMod - dataPos
+            while diff >  Double(timeColumns) / 2 { diff -= Double(timeColumns) }
+            while diff < -Double(timeColumns) / 2 { diff += Double(timeColumns) }
+            if abs(diff) > 5.0 { displayScrollPosition -= diff }
         }
-        var totalOffset = baseOffset + interpolationOffset + manualScrollOffset
+
+        var totalOffset = Float(displayScrollPosition.truncatingRemainder(dividingBy: Double(timeColumns))) / Float(timeColumns) + manualScrollOffset
         let fillRatio = min(1.0, Float(totalColumnsWritten) / Float(max(timeColumns, 1)))
 
         // Push axis metrics at ~30 Hz
@@ -493,6 +514,7 @@ class HighEndSpectrogramAdapter: MTKView {
         firstDataTimestamp = nil
         lastDataTimestamp = 0
         previousColumnData = [Float](repeating: 0, count: frequencyBins)
+        displayScrollSynced = false
         clearTexture()
         DispatchQueue.main.async { [weak self] in
             self?.onAxisMetricsChanged?(SpectrogramAxisMetrics())
@@ -552,13 +574,26 @@ class HighEndSpectrogramAdapter: MTKView {
         updateTimeColumns()
     }
 
+    /// Seconds per texture column, derived from timeSpan / timeColumns.
+    /// Used for the column-advance accumulator and draw-time scroll interpolation.
+    private var effectiveSecondsPerColumn: Double {
+        if currentTimeSpanValue > 0 {
+            return Double(currentTimeSpanValue) / Double(max(timeColumns, 1))
+        }
+        // Continuous mode: fall back to audio hop rate
+        return Double(max(hopSize, 1)) / Double(currentSampleRate)
+    }
+
     private func updateTimeColumns() {
         let updateRate = Double(currentSampleRate) / Double(max(hopSize, 1))
         let newColumns: Int
         if currentTimeSpanValue == 0 {
             newColumns = 8192
         } else {
-            newColumns = Int(Double(currentTimeSpanValue) * updateRate)
+            // Ensure enough columns for sub-pixel resolution on modern displays.
+            // Minimum 1200 prevents visible column banding on retina screens.
+            let audioColumns = Int(Double(currentTimeSpanValue) * updateRate)
+            newColumns = max(1200, audioColumns)
         }
         if newColumns != timeColumns {
             timeColumns = max(10, newColumns)

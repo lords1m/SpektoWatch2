@@ -53,9 +53,6 @@ fragment half4 liveSpectrogramFragment(
     texture2d<float> colormap [[texture(1)]],
     constant float& scrollOffset [[buffer(0)]]
 ) {
-    // Preserve smooth frequency rendering (log-mapped in Y from CPU texture),
-    // while interpolating
-    // only along time/X manually for stable scrolling.
     constexpr sampler hs(filter::linear, address::repeat);
     constexpr sampler cs(filter::linear, address::clamp_to_edge);
 
@@ -65,15 +62,23 @@ fragment half4 liveSpectrogramFragment(
     float texY = 1.0 - in.uv.y;
 
     float texWidth = float(history.get_width());
-    float x = texX * texWidth;
-    float x0 = floor(x);
-    float xFrac = x - x0;
-    float x0Norm = (x0 + 0.5) / texWidth;
-    float x1Norm = (x0 + 1.5) / texWidth; // wraps via repeat sampler
+    float cx = texX * texWidth;
+    float x0 = floor(cx);
+    float xFrac = cx - x0;
 
-    float t0 = history.sample(hs, float2(x0Norm, texY)).r;
-    float t1 = history.sample(hs, float2(x1Norm, texY)).r;
-    float t = mix(t0, t1, xFrac);
+    // 3-tap temporal blur [0.2, 0.6, 0.2] to smooth column boundaries.
+    // Each tap is bilinearly interpolated between its two surrounding texels
+    // at the same fractional sub-column position, keeping the filter symmetric.
+    float tm1 = history.sample(hs, float2((x0 - 0.5) / texWidth, texY)).r;
+    float t0v  = history.sample(hs, float2((x0 + 0.5) / texWidth, texY)).r;
+    float t1v  = history.sample(hs, float2((x0 + 1.5) / texWidth, texY)).r;
+    float t2v  = history.sample(hs, float2((x0 + 2.5) / texWidth, texY)).r;
+
+    float v_left  = mix(tm1, t0v, xFrac);
+    float v_mid   = mix(t0v, t1v, xFrac);
+    float v_right = mix(t1v, t2v, xFrac);
+
+    float t = v_left * 0.2 + v_mid * 0.6 + v_right * 0.2;
     return half4(colormap.sample(cs, float2(t, 0.5)));
 }
 

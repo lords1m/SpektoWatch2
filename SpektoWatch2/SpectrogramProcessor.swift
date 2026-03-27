@@ -15,7 +15,11 @@ class SpectrogramProcessor {
         case c
     }
 
-    var temporalSmoothingFactor: Float = 0.25
+    /// IEC 61672 time weighting applied to the spectrogram (Fast = 125 ms, Slow = 1 s).
+    var spectrogramTimeWeighting: TimeWeighting = .fast
+    /// Duration of one FFT hop in seconds – must be kept in sync with the audio engine.
+    var hopDuration: Float = 512.0 / 44100.0
+
     var binningFactor: Int = 2
     
     private var previousBandMagnitudesByTrack: [SmoothingTrack: [Float]] = [:]
@@ -186,10 +190,12 @@ class SpectrogramProcessor {
             previousBandMagnitudesByTrack[track] = currentMagnitudes
             return currentMagnitudes
         }
+        // IEC 61672 exponential time weighting: α = 1 − exp(−dt / τ)
+        // τ = 0.125 s (Fast) or 1.0 s (Slow)
+        var alpha = 1.0 - exp(-hopDuration / spectrogramTimeWeighting.timeConstant)
+        var oneMinusAlpha = 1.0 - alpha
         var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
-        // EMA blend: smoothed = previous * (1-alpha) + current * alpha
-        var oneMinusAlpha = 1.0 - temporalSmoothingFactor
-        var alpha = temporalSmoothingFactor
+        // EMA: smoothed = previous × (1−α) + current × α
         vDSP_vsmsma(previousBandMagnitudes, 1, &oneMinusAlpha, currentMagnitudes, 1, &alpha, &smoothed, 1, vDSP_Length(currentMagnitudes.count))
         previousBandMagnitudesByTrack[track] = smoothed
         return smoothed

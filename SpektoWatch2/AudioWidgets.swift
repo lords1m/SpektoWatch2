@@ -468,95 +468,141 @@ struct OctaveBandWidget: View {
 // MARK: - Phase Meter Widget
 struct PhaseMeterWidget: View {
     @ObservedObject var audioEngine: AudioEngine
-    
+
     var body: some View {
-        HStack {
-            // Correlation Bar
-            VStack {
+        if audioEngine.isStereoActive {
+            stereoContent
+        } else {
+            monoPlaceholder
+        }
+    }
+
+    // MARK: Stereo view
+
+    private var stereoContent: some View {
+        HStack(spacing: 16) {
+            // Correlation bar
+            VStack(spacing: 4) {
                 Text("Korrelation")
                     .font(.caption)
                     .foregroundColor(.gray)
-                
+
                 GeometryReader { geo in
-                    let width = geo.size.width
-                    let height = geo.size.height
-                    let phase = audioEngine.currentStereoPhase // -1 to 1
-                    
-                    // Background
+                    let w = geo.size.width
+                    let h = geo.size.height
+                    let phase = audioEngine.currentStereoPhase
+
+                    // Gradient background: red (–1, out of phase) → green (+1, mono/in phase)
                     Rectangle()
-                        .fill(LinearGradient(colors: [.red, .yellow, .green], startPoint: .leading, endPoint: .trailing))
-                        .mask(
-                            HStack(spacing: 0) {
-                                Rectangle().fill(Color.white).frame(width: width/2) // -1 to 0
-                                Rectangle().fill(Color.white).frame(width: width/2) // 0 to 1
-                            }
-                        )
+                        .fill(LinearGradient(
+                            colors: [.red, .yellow, .green],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ))
                         .opacity(0.3)
-                    
-                    // Center Line
+                        .cornerRadius(4)
+
+                    // Center marker
                     Rectangle()
-                        .fill(Color.white.opacity(0.5))
-                        .frame(width: 1, height: height)
-                        .position(x: width/2, y: height/2)
-                    
-                    // Indicator
-                    let x = (CGFloat(phase) + 1.0) / 2.0 * width
+                        .fill(Color.white.opacity(0.4))
+                        .frame(width: 1, height: h)
+                        .position(x: w / 2, y: h / 2)
+
+                    // Needle
+                    let x = (CGFloat(phase) + 1.0) / 2.0 * w
                     Circle()
-                        .fill(Color.primary)
-                        .frame(width: 10, height: 10)
-                        .position(x: x, y: height/2)
-                        .shadow(radius: 2)
+                        .fill(indicatorColor(phase: phase))
+                        .frame(width: 12, height: 12)
+                        .position(x: x, y: h / 2)
+                        .shadow(color: indicatorColor(phase: phase).opacity(0.6), radius: 4)
                 }
-                .frame(height: 30)
-                
+                .frame(height: 28)
+
                 HStack {
-                    Text("-1").font(.caption2)
+                    Text("−1").font(.caption2)
                     Spacer()
                     Text("0").font(.caption2)
                     Spacer()
                     Text("+1").font(.caption2)
                 }
                 .foregroundColor(.gray)
+
+                // Numeric readout
+                Text(String(format: "%.2f", audioEngine.currentStereoPhase))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(indicatorColor(phase: audioEngine.currentStereoPhase))
             }
             .padding()
-            
-            // Goniometer (Simulated for Mono/Stereo visualization)
-            // Since we don't have full L/R buffer history here easily without copying lots of data,
-            // we visualize the phase correlation as a shape.
+
+            // Correlation ellipse (phase-scope approximation)
             Canvas { context, size in
-                if audioEngine.currentSpectrum.isEmpty {
-                    let text = Text("Warte auf Audio...").font(.caption).foregroundColor(.gray)
-                    context.draw(text, at: CGPoint(x: size.width/2, y: size.height/2))
-                    return
-                }
-                
-                let center = CGPoint(x: size.width/2, y: size.height/2)
-                let radius = min(size.width, size.height) / 2 - 5
-                
-                // Draw Circle
-                context.stroke(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius*2, height: radius*2)), with: .color(.gray.opacity(0.3)))
-                
-                // Draw Phase Vector
-                // +1 = Vertical Line (Mono)
-                // 0 = Circle (Stereo)
-                // -1 = Horizontal Line (Out of Phase)
-                
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = min(size.width, size.height) / 2 - 6
+
+                // Reference circle
+                context.stroke(
+                    Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
+                                           width: radius * 2, height: radius * 2)),
+                    with: .color(.gray.opacity(0.3))
+                )
+
+                // 45° reference lines (L and R axes of a real goniometer)
+                let d = radius * 0.85
+                var lAxis = Path()
+                lAxis.move(to: CGPoint(x: center.x - d * 0.707, y: center.y + d * 0.707))
+                lAxis.addLine(to: CGPoint(x: center.x + d * 0.707, y: center.y - d * 0.707))
+                context.stroke(lAxis, with: .color(.gray.opacity(0.2)), lineWidth: 1)
+
+                var rAxis = Path()
+                rAxis.move(to: CGPoint(x: center.x + d * 0.707, y: center.y + d * 0.707))
+                rAxis.addLine(to: CGPoint(x: center.x - d * 0.707, y: center.y - d * 0.707))
+                context.stroke(rAxis, with: .color(.gray.opacity(0.2)), lineWidth: 1)
+
+                // Phase ellipse:
+                // +1 (mono/in-phase)  → tall vertical line
+                //  0 (uncorrelated)   → circle
+                // –1 (out-of-phase)   → wide horizontal line
                 let phase = CGFloat(audioEngine.currentStereoPhase)
-                // Map phase to ellipse width/height ratio
-                // This is an approximation for visualization
-                
-                let w = radius * (1.0 - phase) // +1 -> 0 width, -1 -> 2*radius width
-                let h = radius * (1.0 + phase) // +1 -> 2*radius height, -1 -> 0 height
-                // Normalize to keep size somewhat constant
-                let scale = radius / (max(w, h) + 1e-5)
-                
-                let ellipseRect = CGRect(x: center.x - w*scale, y: center.y - h*scale, width: w*scale*2, height: h*scale*2)
-                context.stroke(Path(ellipseIn: ellipseRect), with: .color(.green), lineWidth: 2)
+                let scaleX = sqrt(max(0, (1.0 - phase) / 2.0))
+                let scaleY = sqrt(max(0, (1.0 + phase) / 2.0))
+                let ew = radius * scaleX
+                let eh = radius * scaleY
+                if ew > 0.5 || eh > 0.5 {
+                    let ellipseRect = CGRect(x: center.x - ew, y: center.y - eh,
+                                            width: ew * 2, height: eh * 2)
+                    context.stroke(Path(ellipseIn: ellipseRect),
+                                   with: .color(.green), lineWidth: 2)
+                }
             }
-            .frame(width: 100)
+            .frame(width: 110)
         }
-        .onAppear {
-            print("[PhaseMeterWidget] View appeared")
+    }
+
+    // MARK: Mono placeholder
+
+    private var monoPlaceholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "mic.slash")
+                .font(.title2)
+                .foregroundColor(.gray)
+            Text("Kein Stereo-Signal")
+                .font(.caption)
+                .foregroundColor(.gray)
+            Text("Stereo-Mikrofon in den\nEinstellungen aktivieren")
+                .font(.caption2)
+                .foregroundColor(.gray.opacity(0.7))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Helpers
+
+    private func indicatorColor(phase: Float) -> Color {
+        switch phase {
+        case ..<(-0.1): return .red
+        case (-0.1)..<0.3: return .yellow
+        default: return .green
         }
     }
 }
