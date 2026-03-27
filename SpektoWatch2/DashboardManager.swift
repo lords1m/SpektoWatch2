@@ -170,12 +170,22 @@ class DashboardManager: ObservableObject {
         if let layoutsData = UserDefaults.standard.data(forKey: layoutsUserDefaultsKey) {
             do {
                 let state = try decoder.decode(DashboardLayoutsState.self, from: layoutsData)
-                layouts = state.layouts
+                let hadLegacyOctaveWidgets = state.layouts.contains { layout in
+                    layout.widgets.contains(where: { $0.type == .octaveBands })
+                }
+                layouts = state.layouts.map { layout in
+                    var migratedLayout = layout
+                    migratedLayout.widgets = Self.normalizeWidgets(layout.widgets)
+                    return migratedLayout
+                }
                 if layouts.isEmpty {
                     layouts = [DashboardLayout(name: "Layout 1", widgets: Self.defaultWidgets())]
                 }
                 activeLayoutIndex = max(0, min(state.activeLayoutIndex, layouts.count - 1))
                 widgets = layouts[activeLayoutIndex].widgets
+                if hadLegacyOctaveWidgets {
+                    saveConfiguration()
+                }
                 Logger.ui.info("Loaded dashboard layouts: \(self.layouts.count)")
                 return
             } catch {
@@ -193,7 +203,7 @@ class DashboardManager: ObservableObject {
 
         do {
             let decodedWidgets = try decoder.decode([WidgetConfiguration].self, from: data)
-            let migratedWidgets = decodedWidgets.isEmpty ? Self.defaultWidgets() : decodedWidgets
+            let migratedWidgets = decodedWidgets.isEmpty ? Self.defaultWidgets() : Self.normalizeWidgets(decodedWidgets)
             layouts = [DashboardLayout(name: "Layout 1", widgets: migratedWidgets)]
             activeLayoutIndex = 0
             widgets = migratedWidgets
@@ -230,6 +240,19 @@ class DashboardManager: ObservableObject {
             index += 1
         }
         return "\(base) \(index)"
+    }
+
+    private static func normalizeWidgets(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
+        widgets.map { widget in
+            var normalized = widget
+            if normalized.type == .octaveBands {
+                normalized.type = .frequencyDisplay
+                if normalized.settings["frequencyBands"] == nil {
+                    normalized.settings["frequencyBands"] = "terz"
+                }
+            }
+            return normalized
+        }
     }
 
     private static func defaultWidgets() -> [WidgetConfiguration] {

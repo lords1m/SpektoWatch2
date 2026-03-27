@@ -20,9 +20,21 @@ struct LevelHistoryWidget: View {
         }
         return audioEngine.timeWeighting.rawValue
     }
+    private var selectedHistoryMetric: String {
+        if useWidgetOverrides {
+            return settings["historyMetric"] ?? WidgetSettings.defaultLevelHistoryMetric
+        }
+        return WidgetSettings.defaultLevelHistoryMetric
+    }
+    private var resolvedMetricKey: String {
+        if selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric {
+            return "L\(resolvedFrequencyWeighting)\(resolvedTimeWeighting.prefix(1))"
+        }
+        return selectedHistoryMetric
+    }
     
     var metricLabel: String {
-        "L\(resolvedFrequencyWeighting)\(resolvedTimeWeighting.prefix(1))"
+        resolvedMetricKey
     }
     
     var body: some View {

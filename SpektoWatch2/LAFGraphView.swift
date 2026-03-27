@@ -28,6 +28,18 @@ struct LevelHistoryView: View {
         }
         return audioEngine.timeWeighting.rawValue
     }
+    var selectedHistoryMetric: String {
+        if useWidgetOverrides {
+            return settings["historyMetric"] ?? WidgetSettings.defaultLevelHistoryMetric
+        }
+        return WidgetSettings.defaultLevelHistoryMetric
+    }
+    var resolvedMetricKey: String {
+        if selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric {
+            return "L\(freqWeighting)\(timeWeighting.prefix(1))"
+        }
+        return selectedHistoryMetric
+    }
     
     // AudioEngine liefert bereits kalibrierte dB SPL Werte
     let dbOffset: Float = 0.0
@@ -133,15 +145,14 @@ struct LevelHistoryView: View {
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard let data = data, !isPaused else { return }
             observedSampleRate = data.sampleRate
-            // Construct key like "LAF", "LCS", etc.
-            let key = "L\(freqWeighting)\(timeWeighting.prefix(1))"
-            let level = data.levels[key] ?? data.broadbandLevel
+            let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel
             updateLevelBuffer(level: level)
         }
         .onChange(of: timeSpan) { _, _ in resetBuffer() }
         .onChange(of: scrollSpeed) { _, _ in resetBuffer() }
+        .onChange(of: resolvedMetricKey) { _, _ in resetBuffer() }
         .onAppear { resetBuffer() }
-        .id("L\(freqWeighting)\(timeWeighting.prefix(1))") // Reset view when metric changes
+        .id("\(resolvedMetricKey)-\(timeSpan.rawValue)") // Reset view when metric changes
     }
     
     private func resetBuffer() {

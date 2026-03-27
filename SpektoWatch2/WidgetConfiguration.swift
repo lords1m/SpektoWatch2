@@ -13,6 +13,20 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case spektralanalyseLab = "Spektralanalyse-Labor"
 
     var id: String { rawValue }
+
+    // Keep `octaveBands` for backward-compatible decoding, but hide it from picker options.
+    static var allCases: [AudioWidgetType] {
+        [
+            .spectrogram,
+            .levelHistory,
+            .frequencyDisplay,
+            .levelMeter,
+            .phaseMeter,
+            .singleValue,
+            .toneGenerator,
+            .spektralanalyseLab
+        ]
+    }
 }
 
 struct WidgetSize: Codable, Equatable {
@@ -66,6 +80,7 @@ enum WidgetSettings {
     static let defaultSpectrogramSensitivity: Float = 90.0
     static let defaultSpectrumBandMode = "terz"
     static let defaultSingleValueMetric = "LAF"
+    static let defaultLevelHistoryMetric = "AUTO"
 
     static func usesWidgetOverrides(_ settings: [String: String]) -> Bool {
         guard let rawValue = settings[useWidgetOverridesKey]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {

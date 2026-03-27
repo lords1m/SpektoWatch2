@@ -99,6 +99,27 @@ struct WidgetSettingsView: View {
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .levelHistory {
                     Section(header: Text("Pegelverlauf Einstellungen")) {
+                        Picker("Messwert über Zeit", selection: Binding(
+                            get: { settings["historyMetric"] ?? WidgetSettings.defaultLevelHistoryMetric },
+                            set: { settings["historyMetric"] = $0 }
+                        )) {
+                            Text("Automatisch (aus A/C/Z + Fast/Slow)").tag("AUTO")
+                            Text("LAF").tag("LAF")
+                            Text("LAS").tag("LAS")
+                            Text("LCF").tag("LCF")
+                            Text("LCS").tag("LCS")
+                            Text("LZF").tag("LZF")
+                            Text("LZS").tag("LZS")
+                            Text("LAeq").tag("LAeq")
+                            Text("LAFmin").tag("LAFmin")
+                            Text("LAFmax").tag("LAFmax")
+                            Text("LAF5").tag("LAF5")
+                            Text("LAF95").tag("LAF95")
+                            Text("LAFT5").tag("LAFT5")
+                            Text("LAFTeq").tag("LAFTeq")
+                            Text("LCpeak").tag("LCpeak")
+                        }
+
                         Picker("Zeitbereich", selection: Binding(
                             get: { settings["timeSpan"] ?? String(WidgetSettings.defaultTimeSpanSeconds) },
                             set: { settings["timeSpan"] = $0 }
