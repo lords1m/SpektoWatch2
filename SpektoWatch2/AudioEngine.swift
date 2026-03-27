@@ -12,6 +12,7 @@ enum ScrollSpeed: Int, CaseIterable {
     case slow = 2048      // ~21 FPS
     case normal = 1024    // ~43 FPS
     case fast = 512       // ~86 FPS
+    case veryFast = 256   // ~172 FPS
     
     var label: String {
         switch self {
@@ -19,6 +20,7 @@ enum ScrollSpeed: Int, CaseIterable {
         case .slow: return "Langsam"
         case .normal: return "Normal"
         case .fast: return "Schnell"
+        case .veryFast: return "Sehr Schnell"
         }
     }
 
@@ -44,6 +46,10 @@ enum StereoInputMode: String, CaseIterable {
 /// Main audio engine coordinating FFT processing, frequency weighting, and acoustic metrics
 class AudioEngine: ObservableObject {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.audio")
+    private static let thirdOctaveCenters: [Float] = [
+        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
+        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
+    ]
     
     // MARK: - Processing Components
 
@@ -58,21 +64,23 @@ class AudioEngine: ObservableObject {
     // MARK: - Audio Engine
 
     private var audioEngine: AVAudioEngine
-    private var fftSize: Int = FFTBlockSize.size2048.rawValue
+    private var fftSize: Int = FFTBlockSize.size4096.rawValue
     private let tapBlockSize: AVAudioFrameCount = 512
     private let sampleRate: Double = 44100.0
+    private var processingSampleRate: Double = 44100.0
 
     // MARK: - FFT Configuration
 
     /// Aktuelle Fensterfunktion
     @Published var currentWindowFunction: WindowFunction = .hann
     /// Aktuelle Blockgröße
-    @Published var currentBlockSize: FFTBlockSize = .size2048
+    @Published var currentBlockSize: FFTBlockSize = .size4096
     
     // MARK: - Buffer Management
 
     private var sampleBuffer: [Float] = []
     private var sampleBufferOffset: Int = 0  // Index-basierter Ansatz für O(1) "removeFirst"
+    private var fftInputBuffer: [Float] = []
     private var gainBoost: Float = 10.0
 
     // Lock für Thread-sichere FFT-Rekonfiguration
@@ -93,12 +101,15 @@ class AudioEngine: ObservableObject {
     private var maxBufferedSeconds: Double = 0
     private var lastUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
+    private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
     private let targetUIInterval: TimeInterval = 1.0 / 120.0
     private let maxRealtimeBacklogSeconds: Double = 0.12
     private let impulseThresholdDbfs: Float = -35.0
     private let impulseCooldownSeconds: TimeInterval = 1.0
     private var lastImpulseTime: TimeInterval = 0
     private var pendingImpulseLog = false
+    private var spectrumDiagnosticsCounter = 0
+    private var lastObservedInputSampleRate: Double = 44100.0
 
     // MARK: - Microphone Calibration
     // Basierend auf Studio Six Digital AudioTools Kalibrierungsdaten
@@ -178,12 +189,31 @@ class AudioEngine: ObservableObject {
     
     private var recordingStartTime: Date?
     private var audioFile: AVAudioFile?
+    private var measurementWriter: MeasurementDataWriter?
+    private let measurementMetricKeys: [String] = [
+        "LAF", "LAS", "LCF", "LCS", "LZF", "LZS",
+        "LAeq", "LAFmin", "LAFmax", "LCpeak",
+        "LAFT5", "LAF5", "LAF95", "LAFTeq"
+    ]
     var lastRecordingURL: URL?
+    var lastMeasurementDataURL: URL?
     
     // MARK: - Published Properties
 
     /// Gibt an, ob Audio in eine Datei geschrieben wird (true) oder nur Live-Anzeige (false)
     @Published var isRecordingToFile: Bool = false
+    @Published var isMeasurementRecording: Bool = false {
+        didSet {
+            if isRecordingToFile {
+                if isMeasurementRecording {
+                    setupMeasurementDataFileIfNeeded()
+                } else {
+                    lastMeasurementDataURL = nil
+                    closeMeasurementWriter()
+                }
+            }
+        }
+    }
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var engineStatus: EngineStatus = .idle
     @Published var lastError: SpektoWatchError?
@@ -195,14 +225,28 @@ class AudioEngine: ObservableObject {
     @Published var currentPeakLevel: Float = -120.0
     @Published var currentStereoPhase: Float = 1.0
     @Published var currentOctaveBands: [Float] = Array(repeating: -120.0, count: 31)
+    @Published var currentOctaveBandsZ: [Float] = Array(repeating: -120.0, count: 31)
+    @Published var currentOctaveBandsA: [Float] = Array(repeating: -120.0, count: 31)
+    @Published var currentOctaveBandsC: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentSpectrum: [Float] = []
     
     @Published var timeWeighting: TimeWeighting = .fast {
         didSet {
-            spectrogramProcessor.temporalSmoothingFactor = (timeWeighting == .fast) ? 0.5 : 0.9
+            // Leichte zeitliche Glättung für stabile Darstellung ohne starke Schmierung.
+            spectrogramProcessor.temporalSmoothingFactor = (timeWeighting == .fast) ? 0.30 : 0.18
         }
     }
     @Published var frequencyWeighting: FrequencyWeighting = .a
+    @Published var spectrogramFrequencySmoothing: Float = 0.0 {
+        didSet {
+            let clamped = max(0.0, min(1.0, spectrogramFrequencySmoothing))
+            if abs(clamped - spectrogramFrequencySmoothing) > 0.0001 {
+                spectrogramFrequencySmoothing = clamped
+                return
+            }
+            UserDefaults.standard.set(Double(clamped), forKey: "spectrogramFrequencySmoothing")
+        }
+    }
     @Published var scrollSpeed: ScrollSpeed = .fast
     
     @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
@@ -229,10 +273,12 @@ class AudioEngine: ObservableObject {
         audioEngine = AVAudioEngine()
 
         // Initialize processing components
-        fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: sampleRate)
-        weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: sampleRate)
+        fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
+        weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
         spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
+        spectrogramProcessor.binningFactor = 1
+        spectrogramProcessor.temporalSmoothingFactor = 0.30
         testGenerator = TestAudioGenerator(sampleRate: sampleRate)
         
         // Setup test generator callback
@@ -251,6 +297,10 @@ class AudioEngine: ObservableObject {
             calibrationOffset = AudioEngine.getRecommendedCalibrationOffset()
             UserDefaults.standard.set(2, forKey: "calibrationVersion")
             Logger.audioEngine.info("Using device-specific calibration offset: \(self.calibrationOffset) dB for \(AudioEngine.getDeviceModel())")
+        }
+
+        if let savedFrequencySmoothing = UserDefaults.standard.object(forKey: "spectrogramFrequencySmoothing") as? Double {
+            spectrogramFrequencySmoothing = Float(savedFrequencySmoothing)
         }
     }
     
@@ -286,6 +336,7 @@ class AudioEngine: ObservableObject {
         // Buffer leeren um Race-Conditions zu vermeiden
         sampleBuffer.removeAll()
         sampleBufferOffset = 0
+        fftInputBuffer.removeAll()
 
         // Aktualisiere interne Werte
         fftSize = newSize
@@ -296,7 +347,7 @@ class AudioEngine: ObservableObject {
         fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
 
         // Erstelle neuen Weighting Processor (alter wird nach unlock freigegeben)
-        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: sampleRate)
+        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
         weightingProcessor = newWeightingProcessor
 
         processingLock.unlock()
@@ -328,13 +379,14 @@ class AudioEngine: ObservableObject {
         // Buffer leeren um Race-Conditions zu vermeiden
         sampleBuffer.removeAll()
         sampleBufferOffset = 0
+        fftInputBuffer.removeAll()
 
         fftSize = size.rawValue
         currentBlockSize = size
         fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
 
         // Erstelle neuen Weighting Processor
-        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: sampleRate)
+        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: processingSampleRate)
         weightingProcessor = newWeightingProcessor
 
         processingLock.unlock()
@@ -344,12 +396,12 @@ class AudioEngine: ObservableObject {
 
     /// Gibt die aktuelle Frequenzauflösung zurück
     var frequencyResolution: Float {
-        return Float(sampleRate) / Float(fftSize)
+        return Float(processingSampleRate) / Float(fftSize)
     }
 
     /// Gibt die aktuelle Zeitauflösung in ms zurück
     var timeResolutionMs: Float {
-        return Float(fftSize) / Float(sampleRate) * 1000.0
+        return Float(fftSize) / Float(processingSampleRate) * 1000.0
     }
 
     // MARK: - Live/Recording Control
@@ -389,11 +441,21 @@ class AudioEngine: ObservableObject {
                 recordingDuration = 0.0
                 resetMetrics()
                 setupRecordingFile()
+                if isMeasurementRecording {
+                    setupMeasurementDataFileIfNeeded()
+                } else {
+                    lastMeasurementDataURL = nil
+                    closeMeasurementWriter()
+                }
             }
             return
         }
         Logger.audioEngine.info("Starting AudioEngine in RECORDING mode")
         isRecordingToFile = true
+        if !isMeasurementRecording {
+            lastMeasurementDataURL = nil
+            closeMeasurementWriter()
+        }
         print("[AudioEngine] Set isRecordingToFile = true")
         startAudioCapture()
     }
@@ -460,6 +522,7 @@ class AudioEngine: ObservableObject {
 
         recordingStartTime = nil
         audioFile = nil
+        closeMeasurementWriter()
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .idle")
             self.engineStatus = .idle
@@ -489,6 +552,7 @@ class AudioEngine: ObservableObject {
         // Reset buffer state
         sampleBuffer.removeAll()
         sampleBufferOffset = 0
+        fftInputBuffer.removeAll()
     }
 
     private func setupRecordingFile() {
@@ -499,6 +563,45 @@ class AudioEngine: ObservableObject {
         self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
         self.lastRecordingURL = tempURL
         Logger.audioEngine.info("Recording file setup at: \(tempURL.lastPathComponent)")
+    }
+
+    private func setupMeasurementDataFileIfNeeded() {
+        guard isRecordingToFile, isMeasurementRecording else {
+            closeMeasurementWriter()
+            return
+        }
+
+        if measurementWriter != nil { return }
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("measurement_\(Date().timeIntervalSince1970).spekto")
+        let fps = Float(processingSampleRate / Double(max(1, scrollSpeed.rawValue)))
+
+        do {
+            let writer = try MeasurementDataWriter(
+                fileURL: tempURL,
+                metricKeys: measurementMetricKeys,
+                sampleRate: processingSampleRate,
+                fps: fps,
+                fftBlockSize: fftSize
+            )
+            measurementWriter = writer
+            lastMeasurementDataURL = tempURL
+            Logger.audioEngine.info("Measurement file setup at: \(tempURL.lastPathComponent)")
+        } catch {
+            measurementWriter = nil
+            lastMeasurementDataURL = nil
+            Logger.audioEngine.error("Measurement writer setup failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func closeMeasurementWriter() {
+        guard let writer = measurementWriter else { return }
+        do {
+            try writer.close()
+        } catch {
+            Logger.audioEngine.error("Measurement writer close failed: \(error.localizedDescription)")
+        }
+        measurementWriter = nil
     }
 
     func checkAvailableInputs() {
@@ -543,7 +646,16 @@ class AudioEngine: ObservableObject {
         }
     }
     
-    func processExternalAudio(_ samples: [Float]) {
+    func processExternalAudio(_ samples: [Float], sampleRate externalSampleRate: Double? = nil) {
+        if let externalSampleRate = externalSampleRate {
+            lastObservedInputSampleRate = externalSampleRate
+            updateProcessingSampleRateIfNeeded(externalSampleRate, source: "External")
+            if abs(externalSampleRate - processingSampleRate) > 1.0 {
+                Logger.audioEngine.warning(
+                    "External sample-rate mismatch: input \(externalSampleRate, format: .fixed(precision: 1)) Hz vs processing \(self.processingSampleRate, format: .fixed(precision: 1)) Hz"
+                )
+            }
+        }
         lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
         processSamples(samples)
     }
@@ -606,13 +718,22 @@ class AudioEngine: ObservableObject {
             let permission = AVAudioApplication.shared.recordPermission
             if permission == .undetermined {
                 AVAudioApplication.requestRecordPermission { [weak self] granted in
-                    if granted { DispatchQueue.main.async { self?.startRecording() } }
+                    guard let self = self else { return }
+                    if granted {
+                        DispatchQueue.main.async { self.startRecording() }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.isStartingCapture = false
+                            self.engineStatus = .error("Microphone permission denied")
+                        }
+                    }
                 }
                 return
             }
             if permission == .denied {
                 Logger.audioEngine.error("Microphone permission denied")
                 DispatchQueue.main.async {
+                    self.isStartingCapture = false
                     self.engineStatus = .error("Microphone permission denied")
                 }
                 return
@@ -620,13 +741,22 @@ class AudioEngine: ObservableObject {
         } else {
             if audioSession.recordPermission == .undetermined {
                 audioSession.requestRecordPermission { [weak self] granted in
-                    if granted { DispatchQueue.main.async { self?.startRecording() } }
+                    guard let self = self else { return }
+                    if granted {
+                        DispatchQueue.main.async { self.startRecording() }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.isStartingCapture = false
+                            self.engineStatus = .error("Microphone permission denied")
+                        }
+                    }
                 }
                 return
             }
             if audioSession.recordPermission == .denied {
                 Logger.audioEngine.error("Microphone permission denied")
                 DispatchQueue.main.async {
+                    self.isStartingCapture = false
                     self.engineStatus = .error("Microphone permission denied")
                 }
                 return
@@ -635,13 +765,22 @@ class AudioEngine: ObservableObject {
         #else
         if audioSession.recordPermission == .undetermined {
             audioSession.requestRecordPermission { [weak self] granted in
-                if granted { DispatchQueue.main.async { self?.startRecording() } }
+                guard let self = self else { return }
+                if granted {
+                    DispatchQueue.main.async { self.startRecording() }
+                } else {
+                    DispatchQueue.main.async {
+                        self.isStartingCapture = false
+                        self.engineStatus = .error("Microphone permission denied")
+                    }
+                }
             }
             return
         }
         if audioSession.recordPermission == .denied {
             Logger.audioEngine.error("Microphone permission denied")
             DispatchQueue.main.async {
+                self.isStartingCapture = false
                 self.engineStatus = .error("Microphone permission denied")
             }
             return
@@ -726,14 +865,19 @@ class AudioEngine: ObservableObject {
                 return
             }
 
+            // Falls das Gerät nicht mit 44.1 kHz liefert, FFT-Achse entsprechend anpassen.
+            self.updateProcessingSampleRateIfNeeded(recordingFormat.sampleRate, source: "Mic")
+
             // Setup recording file only if recording to file
             if isRecording {
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
                 self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
                 self.lastRecordingURL = tempURL
                 Logger.audioEngine.info("Recording to file: \(tempURL.lastPathComponent)")
+                setupMeasurementDataFileIfNeeded()
             } else {
                 self.audioFile = nil
+                closeMeasurementWriter()
                 Logger.audioEngine.info("Live mode - no file recording")
             }
 
@@ -771,7 +915,7 @@ class AudioEngine: ObservableObject {
             self.levelHistory.removeAll()
             self.currentLevel = -120.0
             self.maxLevel = -120.0
-            self.minLevel = 0.0
+            self.minLevel = -120.0
         }
     }
     
@@ -781,6 +925,17 @@ class AudioEngine: ObservableObject {
         let signpostID = OSSignpostID(log: Self.performanceLog)
         os_signpost(.begin, log: Self.performanceLog, name: "AudioTapCallback", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "AudioTapCallback", signpostID: signpostID) }
+
+        let observedSampleRate = buffer.format.sampleRate
+        if observedSampleRate > 0 {
+            lastObservedInputSampleRate = observedSampleRate
+            updateProcessingSampleRateIfNeeded(observedSampleRate, source: "Mic")
+            if abs(observedSampleRate - processingSampleRate) > 1.0 && debugPrintCounter % 240 == 0 {
+                Logger.audioEngine.warning(
+                    "Mic sample-rate mismatch: input \(observedSampleRate, format: .fixed(precision: 1)) Hz vs processing \(self.processingSampleRate, format: .fixed(precision: 1)) Hz"
+                )
+            }
+        }
 
         lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
         guard let channelData = buffer.floatChannelData else { return }
@@ -856,17 +1011,17 @@ class AudioEngine: ObservableObject {
 
         // Backlog (wie viel Audio noch in der Queue steckt)
         let bufferedSamples = max(0, sampleBuffer.count - sampleBufferOffset)
-        let bufferedSeconds = Double(bufferedSamples) / sampleRate
+        let bufferedSeconds = Double(bufferedSamples) / processingSampleRate
         if bufferedSeconds > maxBufferedSeconds {
             maxBufferedSeconds = bufferedSeconds
         }
         // Keep the visualization near real-time: if processing falls behind,
         // drop oldest queued samples instead of rendering stale history.
         // Never trim below one full FFT window (+ one hop), otherwise no frames can be processed.
-        let minRequiredBufferedSeconds = Double(currentFFTSize + max(1, scrollSpeed.rawValue)) / sampleRate
+        let minRequiredBufferedSeconds = Double(currentFFTSize + max(1, scrollSpeed.rawValue)) / processingSampleRate
         let effectiveBacklogLimitSeconds = max(maxRealtimeBacklogSeconds, minRequiredBufferedSeconds)
         if bufferedSeconds > effectiveBacklogLimitSeconds {
-            let targetBufferedSamples = Int(effectiveBacklogLimitSeconds * sampleRate)
+            let targetBufferedSamples = Int(effectiveBacklogLimitSeconds * processingSampleRate)
             var samplesToDrop = bufferedSamples - targetBufferedSamples
             if samplesToDrop > 0 {
                 let hop = max(1, scrollSpeed.rawValue)
@@ -877,9 +1032,21 @@ class AudioEngine: ObservableObject {
 
         // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
         while sampleBuffer.count - sampleBufferOffset >= currentFFTSize {
-            let samples = Array(sampleBuffer[sampleBufferOffset..<(sampleBufferOffset + currentFFTSize)])
+            if fftInputBuffer.count != currentFFTSize {
+                fftInputBuffer = [Float](repeating: 0, count: currentFFTSize)
+            }
+            sampleBuffer.withUnsafeBufferPointer { source in
+                fftInputBuffer.withUnsafeMutableBufferPointer { target in
+                    guard let sourceBase = source.baseAddress, let targetBase = target.baseAddress else { return }
+                    memcpy(
+                        targetBase,
+                        sourceBase.advanced(by: sampleBufferOffset),
+                        currentFFTSize * MemoryLayout<Float>.stride
+                    )
+                }
+            }
             let t0 = CFAbsoluteTimeGetCurrent()
-            processFFTFrame(samples: samples, peakLevel: peakDB)
+            processFFTFrame(samples: fftInputBuffer, peakLevel: peakDB)
             let t1 = CFAbsoluteTimeGetCurrent()
             fftProcessTimeAccumMs += (t1 - t0) * 1000.0
             fftProcessCount += 1
@@ -943,19 +1110,19 @@ class AudioEngine: ObservableObject {
         let processedZ = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbZ,
-            sampleRate: sampleRate,
+            sampleRate: processingSampleRate,
             smoothingTrack: .z
         )
         let processedA = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbA,
-            sampleRate: sampleRate,
+            sampleRate: processingSampleRate,
             smoothingTrack: .a
         )
         let processedC = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbC,
-            sampleRate: sampleRate,
+            sampleRate: processingSampleRate,
             smoothingTrack: .c
         )
 
@@ -968,6 +1135,28 @@ class AudioEngine: ObservableObject {
             processed = processedC
         case .z:
             processed = processedZ
+        }
+
+        let displayOctaveBandsZ = computeDisplayThirdOctaveBands(
+            frequencies: processedZ.bandFrequencies,
+            magnitudes: processedZ.bandMagnitudes
+        )
+        let displayOctaveBandsA = computeDisplayThirdOctaveBands(
+            frequencies: processedA.bandFrequencies,
+            magnitudes: processedA.bandMagnitudes
+        )
+        let displayOctaveBandsC = computeDisplayThirdOctaveBands(
+            frequencies: processedC.bandFrequencies,
+            magnitudes: processedC.bandMagnitudes
+        )
+        let displayOctaveBands: [Float]
+        switch frequencyWeighting {
+        case .a:
+            displayOctaveBands = displayOctaveBandsA
+        case .c:
+            displayOctaveBands = displayOctaveBandsC
+        case .z:
+            displayOctaveBands = displayOctaveBandsZ
         }
         
         // Calculate energies for acoustic metrics
@@ -998,7 +1187,7 @@ class AudioEngine: ObservableObject {
         energyC *= calibrationFactor
         
         // Update acoustic metrics
-        let dt = Float(scrollSpeed.rawValue) / Float(sampleRate)
+        let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
         let levels = metricsCalculator.updateMetrics(
             energyZ: energyZ,
             energyA: energyA,
@@ -1009,10 +1198,42 @@ class AudioEngine: ObservableObject {
         )
         
         let broadbandLevel = levels["LAF"] ?? -120.0
+
+        if isRecordingToFile && isMeasurementRecording {
+            setupMeasurementDataFileIfNeeded()
+            if let writer = measurementWriter {
+                let timestampSeconds: Float
+                if let startTime = recordingStartTime {
+                    timestampSeconds = Float(Date().timeIntervalSince(startTime))
+                } else {
+                    timestampSeconds = Float(recordingDuration)
+                }
+                let metricValues = measurementMetricKeys.map { levels[$0] ?? -120.0 }
+                do {
+                    try writer.writeFrame(
+                        timestamp: timestampSeconds,
+                        metricValues: metricValues,
+                        broadbandLevel: broadbandLevel,
+                        thirdOctaveZ: displayOctaveBandsZ,
+                        thirdOctaveA: displayOctaveBandsA,
+                        thirdOctaveC: displayOctaveBandsC
+                    )
+                } catch {
+                    Logger.audioEngine.error("Measurement frame write failed: \(error.localizedDescription)")
+                }
+            }
+        }
         
         if debugPrintCounter % 240 == 0 {
             Logger.audioEngine.debug("Broadband Level: \(broadbandLevel, format: .fixed(precision: 1)) dB")
         }
+
+        logSpectrumDiagnosticsIfNeeded(
+            fullFrequencies: localFFTProcessor.frequencies,
+            fullMagnitudes: dbZ,
+            binnedFrequencies: processedZ.bandFrequencies,
+            binnedMagnitudes: processedZ.bandMagnitudes
+        )
         
         // Create spectrogram data with all weightings
         let spectrogramData = SpectrogramData(
@@ -1022,14 +1243,17 @@ class AudioEngine: ObservableObject {
             magnitudesC: processedC.bandMagnitudes,     // C-weighted
             broadbandLevel: broadbandLevel,
             levels: levels,
-            sampleRate: sampleRate,
+            sampleRate: processingSampleRate,
             timestamp: Date(timeIntervalSinceReferenceDate: lastAudioBufferTimestamp)
         )
         
         // Update UI on main thread
         updateUI(
             spectrogramData: spectrogramData,
-            octaveBands: processed.octaveBands,
+            octaveBands: displayOctaveBands,
+            octaveBandsZ: displayOctaveBandsZ,
+            octaveBandsA: displayOctaveBandsA,
+            octaveBandsC: displayOctaveBandsC,
             spectrum: processed.spectrum,
             broadbandLevel: broadbandLevel,
             peakLevel: peakLevel,
@@ -1040,6 +1264,9 @@ class AudioEngine: ObservableObject {
     private func updateUI(
         spectrogramData: SpectrogramData,
         octaveBands: [Float],
+        octaveBandsZ: [Float],
+        octaveBandsA: [Float],
+        octaveBandsC: [Float],
         spectrum: [Float],
         broadbandLevel: Float,
         peakLevel: Float,
@@ -1090,6 +1317,9 @@ class AudioEngine: ObservableObject {
             // Update data
             self.currentSpectrogramData = spectrogramData
             self.currentOctaveBands = octaveBands
+            self.currentOctaveBandsZ = octaveBandsZ
+            self.currentOctaveBandsA = octaveBandsA
+            self.currentOctaveBandsC = octaveBandsC
             self.currentSpectrum = spectrum
             self.currentPeakLevel = peakLevel
             self.currentLevel = broadbandLevel
@@ -1097,7 +1327,7 @@ class AudioEngine: ObservableObject {
             // Update min/max
             self.maxLevel = max(self.maxLevel, broadbandLevel)
             if broadbandLevel > -110 {
-                self.minLevel = min(self.minLevel == 0 ? broadbandLevel : self.minLevel, broadbandLevel)
+                self.minLevel = min(self.minLevel, broadbandLevel)
             }
             
             // Update history (nur einzelnes Element entfernen wenn nötig - O(n) aber selten)
@@ -1113,5 +1343,158 @@ class AudioEngine: ObservableObject {
                 self.lastWatchUpdate = now
             }
         }
+    }
+
+    private func logSpectrumDiagnosticsIfNeeded(
+        fullFrequencies: [Float],
+        fullMagnitudes: [Float],
+        binnedFrequencies: [Float],
+        binnedMagnitudes: [Float]
+    ) {
+        guard enableSpectrumDiagnostics else { return }
+        spectrumDiagnosticsCounter += 1
+        guard spectrumDiagnosticsCounter % 120 == 0 else { return }
+
+        let full = SpectrogramProcessor.makeDiagnosticSnapshot(
+            frequencies: fullFrequencies,
+            magnitudes: fullMagnitudes
+        )
+        let binned = SpectrogramProcessor.makeDiagnosticSnapshot(
+            frequencies: binnedFrequencies,
+            magnitudes: binnedMagnitudes
+        )
+
+        let fullRanges = full.rangeDiagnostics.map {
+            "\($0.label):\($0.energeticBins)/\($0.totalBins),max=\(String(format: "%.1f", $0.maxDb))"
+        }.joined(separator: " | ")
+        let binnedRanges = binned.rangeDiagnostics.map {
+            "\($0.label):\($0.energeticBins)/\($0.totalBins),max=\(String(format: "%.1f", $0.maxDb))"
+        }.joined(separator: " | ")
+        let emptyBands = binned.emptyThirdOctaveBands.prefix(8).map { String(format: "%.0f", $0) }.joined(separator: ",")
+        let binHz = processingSampleRate / Double(max(1, fftSize))
+
+        Logger.audioEngine.debug(
+            """
+            [SpectrumDiag] srIn=\(self.lastObservedInputSampleRate, format: .fixed(precision: 1))Hz srProc=\(self.processingSampleRate, format: .fixed(precision: 1))Hz \
+            fft=\(self.fftSize) binHz=\(binHz, format: .fixed(precision: 2)) \
+            full{\(fullRanges)} binned{\(binnedRanges)} \
+            binnedEmpty3rd=\(emptyBands) fullHigh=\(full.highestEnergeticFrequencyHz, format: .fixed(precision: 0))Hz \
+            binnedHigh=\(binned.highestEnergeticFrequencyHz, format: .fixed(precision: 0))Hz
+            """
+        )
+    }
+
+    private func computeDisplayThirdOctaveBands(frequencies: [Float], magnitudes: [Float]) -> [Float] {
+        let pairCount = min(frequencies.count, magnitudes.count)
+        guard pairCount > 0 else {
+            return [Float](repeating: -120.0, count: Self.thirdOctaveCenters.count)
+        }
+
+        let usableIndices = (0..<pairCount).filter { frequencies[$0] >= 0.0 && frequencies[$0] <= 20000.0 }
+        guard !usableIndices.isEmpty else {
+            return [Float](repeating: -120.0, count: Self.thirdOctaveCenters.count)
+        }
+
+        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
+        let upperFactor = pow(2.0 as Float, 1.0 / 6.0)
+        var bands = [Float](repeating: -120.0, count: Self.thirdOctaveCenters.count)
+
+        for (i, center) in Self.thirdOctaveCenters.enumerated() {
+            let lower = center * lowerFactor
+            let upper = center * upperFactor
+            var hasDirectBin = false
+            var bandLinearSum: Float = 0.0
+            var bandBinCount = 0
+
+            for idx in usableIndices {
+                let f = frequencies[idx]
+                guard f >= lower, f < upper else { continue }
+                hasDirectBin = true
+                bandLinearSum += pow(10.0, magnitudes[idx] / 10.0)
+                bandBinCount += 1
+            }
+
+            if hasDirectBin, bandBinCount > 0 {
+                // Robuste Bandenergie statt Peak-Hold:
+                // verhindert künstlich stabile Spitzen im obersten Band (z.B. 20 kHz).
+                let meanLinear = bandLinearSum / Float(bandBinCount)
+                bands[i] = 10.0 * log10(max(meanLinear, 1e-12))
+            } else {
+                // Nur im unteren Bereich interpolieren (coarse FFT kann dort Bänder verfehlen).
+                // Für hohe Bänder keine künstlichen Werte erzeugen.
+                if center <= 250.0 {
+                    bands[i] = interpolatedMagnitudeAtFrequency(
+                        center,
+                        frequencies: frequencies,
+                        magnitudes: magnitudes,
+                        usableIndices: usableIndices
+                    )
+                } else {
+                    bands[i] = -120.0
+                }
+            }
+        }
+
+        return bands
+    }
+
+    private func interpolatedMagnitudeAtFrequency(
+        _ targetFrequency: Float,
+        frequencies: [Float],
+        magnitudes: [Float],
+        usableIndices: [Int]
+    ) -> Float {
+        guard let first = usableIndices.first, let last = usableIndices.last else { return -120.0 }
+        if targetFrequency <= frequencies[first] { return magnitudes[first] }
+        if targetFrequency >= frequencies[last] { return magnitudes[last] }
+
+        var upperIdx = first
+        for idx in usableIndices where frequencies[idx] >= targetFrequency {
+            upperIdx = idx
+            break
+        }
+
+        guard let position = usableIndices.firstIndex(of: upperIdx), position > 0 else {
+            return magnitudes[upperIdx]
+        }
+
+        let lowerIdx = usableIndices[position - 1]
+        let f0 = frequencies[lowerIdx]
+        let f1 = frequencies[upperIdx]
+        guard abs(f1 - f0) > 0.001 else {
+            return max(magnitudes[lowerIdx], magnitudes[upperIdx])
+        }
+
+        let t = (targetFrequency - f0) / (f1 - f0)
+        return magnitudes[lowerIdx] * (1.0 - t) + magnitudes[upperIdx] * t
+    }
+
+    private func updateProcessingSampleRateIfNeeded(_ newSampleRate: Double, source: String) {
+        guard newSampleRate > 1000 else { return }
+        let normalized = (newSampleRate * 10).rounded() / 10
+        guard abs(normalized - processingSampleRate) > 1.0 else { return }
+
+        processingLock.lock()
+
+        processingSampleRate = normalized
+        sampleBuffer.removeAll()
+        sampleBufferOffset = 0
+        fftInputBuffer.removeAll()
+
+        fftProcessor = FFTProcessor(
+            fftSize: fftSize,
+            sampleRate: normalized,
+            windowFunction: currentWindowFunction
+        )
+        weightingProcessor = FrequencyWeightingProcessor(
+            fftSize: fftSize,
+            sampleRate: normalized
+        )
+
+        processingLock.unlock()
+
+        Logger.audioEngine.info(
+            "Reconfigured DSP sample rate (\(source)): \(normalized, format: .fixed(precision: 1)) Hz"
+        )
     }
 }

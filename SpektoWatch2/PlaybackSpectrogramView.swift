@@ -145,7 +145,7 @@ class PlaybackSpectrogramRenderer: MTKView {
 
         createTexture()
         fillTexture()
-        isTextureReady = true
+        isTextureReady = spectrogramTexture != nil
         setNeedsDisplay()
     }
 
@@ -271,7 +271,8 @@ class PlaybackSpectrogramRenderer: MTKView {
               let drawable = currentDrawable,
               let rpd = currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: rpd)
+              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: rpd),
+              colormapTexture != nil
         else { return }
 
         let clampedWidth = max(0.0001, min(1.0, viewportWidth))
@@ -322,6 +323,31 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
     var colormapType: Int
     var viewportStart: Float
     var viewportWidth: Float
+    var totalDuration: TimeInterval = 0
+    var sampleRate: Float = 44_100
+    var viewWidth: CGFloat = 1
+    var viewHeight: CGFloat = 1
+
+    func valueAt(viewX: CGFloat, viewY: CGFloat) -> (time: TimeInterval, frequency: Float, magnitude: Float)? {
+        guard !magnitudeHistory.isEmpty, viewWidth > 0, viewHeight > 0 else { return nil }
+        let xNorm = Float(max(0, min(1, viewX / viewWidth)))
+        let yNorm = Float(max(0, min(1, 1.0 - (viewY / viewHeight))))
+        let timelineNorm = viewportStart + xNorm * viewportWidth
+        let clampedTimeline = max(0, min(1, timelineNorm))
+        let time = TimeInterval(clampedTimeline) * totalDuration
+
+        let columnIndex = min(magnitudeHistory.count - 1, max(0, Int(clampedTimeline * Float(magnitudeHistory.count - 1))))
+        let column = magnitudeHistory[columnIndex]
+        guard !column.isEmpty else { return nil }
+
+        let minFrequency: Float = 20
+        let maxFrequency = min(sampleRate / 2, 20_000)
+        let frequency = minFrequency * powf(maxFrequency / minFrequency, yNorm)
+        let binIndex = min(column.count - 1, max(0, Int((frequency / maxFrequency) * Float(column.count - 1))))
+        let magnitude = column[binIndex]
+
+        return (time: time, frequency: frequency, magnitude: magnitude)
+    }
 
     func makeUIView(context: Context) -> PlaybackSpectrogramRenderer {
         let view = PlaybackSpectrogramRenderer(
@@ -356,6 +382,8 @@ struct ScrollableSpectrogramView: View {
     let duration: TimeInterval
     var magnitudeHistory: [[Float]]
     var colormapType: Int
+    var sampleRate: Float = 44_100
+    var markers: [MeasurementMarker] = []
     var onSeek: (TimeInterval) -> Void
 
     @StateObject private var gyroManager = GyroscopeScrollManager()
@@ -381,16 +409,32 @@ struct ScrollableSpectrogramView: View {
             let playheadX = totalWidth * CGFloat(localPlayhead)
             let viewportStartTime = TimeInterval(clampedStart) * safeDuration
             let viewportEndTime = min(safeDuration, viewportStartTime + windowDuration)
+            let inspectable = PlaybackSpectrogramView(
+                magnitudeHistory: magnitudeHistory,
+                playheadPosition: localPlayhead,
+                colormapType: colormapType,
+                viewportStart: clampedStart,
+                viewportWidth: viewportWidth,
+                totalDuration: safeDuration,
+                sampleRate: sampleRate,
+                viewWidth: totalWidth,
+                viewHeight: geometry.size.height
+            )
 
             ZStack(alignment: .leading) {
-                PlaybackSpectrogramView(
-                    magnitudeHistory: magnitudeHistory,
-                    playheadPosition: localPlayhead,
-                    colormapType: colormapType,
-                    viewportStart: clampedStart,
-                    viewportWidth: viewportWidth
-                )
+                inspectable
                 .cornerRadius(12)
+
+                ForEach(markers) { marker in
+                    let t = marker.time
+                    if t >= viewportStartTime && t <= viewportEndTime {
+                        let x = totalWidth * CGFloat((t - viewportStartTime) / max(windowDuration, 0.001))
+                        Rectangle()
+                            .fill(Color.red.opacity(0.85))
+                            .frame(width: 1.5)
+                            .offset(x: x)
+                    }
+                }
 
                 Rectangle()
                     .fill(Color.white)
@@ -430,6 +474,10 @@ struct ScrollableSpectrogramView: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 6)
                     .allowsHitTesting(false)
+                }
+
+                SpectrogramCrosshairOverlay { x, y in
+                    inspectable.valueAt(viewX: x, viewY: y)
                 }
             }
             .gesture(

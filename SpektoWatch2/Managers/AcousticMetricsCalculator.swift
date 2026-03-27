@@ -193,16 +193,17 @@ class AcousticMetricsCalculator {
     /// - Returns: Level in dB at the specified percentile
     private func calculatePercentile(targetPercentage: Double) -> Float {
         let targetCount = Int(Double(lafTotalCounts) * targetPercentage)
+        guard targetCount > 0 else { return histMinDB }
         var currentCount = 0
-        
-        // Iterate from high to low for upper percentiles
+
+        // Iterate from high to low (counts levels exceeded >= targetPercentage of the time)
         for i in stride(from: lafHistogram.count - 1, through: 0, by: -1) {
             currentCount += lafHistogram[i]
             if currentCount >= targetCount {
                 return histMinDB + Float(i) / 10.0
             }
         }
-        
+
         return histMinDB
     }
 }

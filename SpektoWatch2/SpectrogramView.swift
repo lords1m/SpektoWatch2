@@ -94,7 +94,7 @@ struct SpectrogramView: View {
             .onReceive(connectivityManager.$audioData) { data in
                 // Hauptweg: Watch sendet Audio, iPhone berechnet FFT
                 if let data = data, selectedMicrophoneSource == .appleWatch {
-                    audioEngine.processExternalAudio(data.samples)
+                    audioEngine.processExternalAudio(data.samples, sampleRate: data.sampleRate)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .startRecordingCommand)) { _ in

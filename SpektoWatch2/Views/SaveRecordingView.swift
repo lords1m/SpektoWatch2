@@ -61,11 +61,21 @@ struct SaveRecordingView: View {
                 
                 Section {
                     Button("Speichern") {
-                        var recording = AudioRecording(
-                            url: audioURL,
-                            date: Date(),
+                        var recording = Recording(
+                            name: title.isEmpty ? "Neue Aufnahme" : title,
+                            description: description,
+                            startDate: Date(),
                             duration: duration,
-                            title: title
+                            audioFileName: audioURL.path,
+                            measurementDataFileName: audioEngine.lastMeasurementDataURL?.path,
+                            sampleRate: audioEngine.currentSpectrogramData?.sampleRate ?? 44100.0,
+                            channelCount: 1,
+                            timeWeighting: audioEngine.timeWeighting.rawValue,
+                            frequencyWeighting: audioEngine.frequencyWeighting.rawValue,
+                            widgetConfigurations: UserDefaults.standard.data(forKey: "DashboardConfiguration_v5"),
+                            markers: [],
+                            calibrationOffset: audioEngine.calibrationOffset,
+                            fftBlockSize: audioEngine.currentBlockSize.rawValue
                         )
                         
                         // Populate statistics from AudioEngine
@@ -74,10 +84,6 @@ struct SaveRecordingView: View {
                             recording.peakLevel = (data.levels["LCpeak"] ?? -120.0) + dbOffset
                             recording.minLevel = (data.levels["LAFmin"] ?? -120.0) + dbOffset
                         }
-                        
-                        recording.timeWeighting = audioEngine.timeWeighting.rawValue
-                        recording.frequencyWeighting = audioEngine.frequencyWeighting.rawValue
-                        recording.description = description
                         
                         recordingManager.addRecording(recording)
                         dismiss()

@@ -6,20 +6,39 @@ struct WidgetSettingsView: View {
     @Environment(\.dismiss) var dismiss
     
     @State private var settings: [String: String]
+    @State private var useWidgetOverrides: Bool
     
     init(widget: WidgetConfiguration, onSave: @escaping ([String: String]) -> Void) {
         self.widget = widget
         self.onSave = onSave
         _settings = State(initialValue: widget.settings)
+        _useWidgetOverrides = State(initialValue: WidgetSettings.usesWidgetOverrides(widget.settings))
+    }
+
+    private var supportsOverrideToggle: Bool {
+        switch widget.type {
+        case .spectrogram, .levelHistory, .frequencyDisplay, .octaveBands, .singleValue:
+            return true
+        default:
+            return false
+        }
     }
     
     var body: some View {
         NavigationView {
             Form {
+                if supportsOverrideToggle {
+                    Section {
+                        Toggle("Widget-Einstellungen aktivieren", isOn: $useWidgetOverrides)
+                    } footer: {
+                        Text(useWidgetOverrides ? "Dieses Widget nutzt eigene Einstellungen." : "Dieses Widget übernimmt die globalen App-Einstellungen.")
+                    }
+                }
+
                 if widget.type == .spectrogram {
                     Section(header: Text("Spektrogramm Einstellungen")) {
                         Picker("Farbschema", selection: Binding(
-                            get: { settings["colormap"] ?? "0" },
+                            get: { settings["colormap"] ?? String(WidgetSettings.defaultSpectrogramColormap) },
                             set: { settings["colormap"] = $0 }
                         )) {
                             ForEach(ColormapType.allCases) { cm in
@@ -28,7 +47,7 @@ struct WidgetSettingsView: View {
                         }
 
                         Picker("Dargestellter Zeitbereich", selection: Binding(
-                            get: { settings["timeSpan"] ?? "5" },
+                            get: { settings["timeSpan"] ?? String(WidgetSettings.defaultTimeSpanSeconds) },
                             set: { settings["timeSpan"] = $0 }
                         )) {
                             ForEach(SpectrogramTimeSpan.allCases) { span in
@@ -53,9 +72,10 @@ struct WidgetSettingsView: View {
                             Text("C-Weighting").tag("C")
                         }
                     }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
 
                     Section(header: Text("Empfindlichkeit")) {
-                        let sensitivityValue = Float(settings["sensitivity"] ?? "50") ?? 50.0
+                        let sensitivityValue = Float(settings["sensitivity"] ?? String(Int(WidgetSettings.defaultSpectrogramSensitivity))) ?? WidgetSettings.defaultSpectrogramSensitivity
 
                         VStack(alignment: .leading) {
                             Text("Dynamikbereich: \(Int(sensitivityValue)) dB")
@@ -64,10 +84,10 @@ struct WidgetSettingsView: View {
 
                             Slider(
                                 value: Binding(
-                                    get: { Double(settings["sensitivity"] ?? "50") ?? 50.0 },
+                                    get: { Double(settings["sensitivity"] ?? String(Int(WidgetSettings.defaultSpectrogramSensitivity))) ?? Double(WidgetSettings.defaultSpectrogramSensitivity) },
                                     set: { settings["sensitivity"] = String(Int($0)) }
                                 ),
-                                in: 30...80,
+                                in: 60...110,
                                 step: 5
                             )
 
@@ -76,10 +96,11 @@ struct WidgetSettingsView: View {
                                 .foregroundColor(.gray)
                         }
                     }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .levelHistory {
                     Section(header: Text("Pegelverlauf Einstellungen")) {
                         Picker("Zeitbereich", selection: Binding(
-                            get: { settings["timeSpan"] ?? "5" },
+                            get: { settings["timeSpan"] ?? String(WidgetSettings.defaultTimeSpanSeconds) },
                             set: { settings["timeSpan"] = $0 }
                         )) {
                             Text("1 Sekunde").tag("1")
@@ -103,6 +124,7 @@ struct WidgetSettingsView: View {
                             Text("Slow (1s)").tag("Slow")
                         }
                     }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .frequencyDisplay || widget.type == .octaveBands {
                     Section(header: Text("Spektrum Einstellungen")) {
                         Picker("Frequenzbewertung", selection: Binding(
@@ -115,7 +137,7 @@ struct WidgetSettingsView: View {
                         }
 
                         Picker("Frequenzbänder", selection: Binding(
-                            get: { settings["frequencyBands"] ?? "terz" },
+                            get: { settings["frequencyBands"] ?? WidgetSettings.defaultSpectrumBandMode },
                             set: { settings["frequencyBands"] = $0 }
                         )) {
                             Text("Bark").tag("bark")
@@ -123,10 +145,11 @@ struct WidgetSettingsView: View {
                             Text("Terz").tag("terz")
                         }
                     }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .singleValue {
                     Section(header: Text("Anzeige")) {
                         Picker("Messwert", selection: Binding(
-                            get: { settings["metric"] ?? "LAF" },
+                            get: { settings["metric"] ?? WidgetSettings.defaultSingleValueMetric },
                             set: { settings["metric"] = $0 }
                         )) {
                             Text("LAF (Aktuell)").tag("LAF")
@@ -142,6 +165,7 @@ struct WidgetSettingsView: View {
                             Text("Lautheit (Sone)").tag("SONE")
                         }
                     }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else {
                     Text("Keine Einstellungen verfügbar für diesen Widget-Typ.")
                 }
@@ -151,8 +175,11 @@ struct WidgetSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
                         var validatedSettings = settings
-                        if let colormap = Int(settings["colormap"] ?? "0"), colormap < 0 || colormap > ColormapType.allCases.count - 1 {
-                            validatedSettings["colormap"] = "0"
+                        if let colormap = Int(settings["colormap"] ?? String(WidgetSettings.defaultSpectrogramColormap)), colormap < 0 || colormap > ColormapType.allCases.count - 1 {
+                            validatedSettings["colormap"] = String(WidgetSettings.defaultSpectrogramColormap)
+                        }
+                        if supportsOverrideToggle {
+                            validatedSettings[WidgetSettings.useWidgetOverridesKey] = useWidgetOverrides ? "1" : "0"
                         }
                         onSave(validatedSettings)
                         dismiss()

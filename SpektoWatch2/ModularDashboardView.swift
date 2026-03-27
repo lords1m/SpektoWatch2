@@ -9,6 +9,7 @@ struct ModularDashboardView: View {
     @State private var isHeaderVisible: Bool = true
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
+    @State private var showLayoutsDialog = false
     private let barSwipeThreshold: CGFloat = 36
     private let handleDragThreshold: CGFloat = 12
 
@@ -18,25 +19,56 @@ struct ModularDashboardView: View {
     
     var body: some View {
         ZStack {
-            // Scrollable Grid (full height)
             GeometryReader { geo in
-                let isCompactWidth = geo.size.width <= 390
-                let verticalInset: CGFloat = isCompactWidth ? 6 : 8
-                ScrollView {
-                    VStack(spacing: 0) {
-                        dashboardGrid(geo: geo)
-                            .padding(.top, max(verticalInset, (isHeaderVisible ? headerHeight : 10) + verticalInset))
-                            .padding(.bottom, max(verticalInset, (isFooterVisible ? footerHeight : 10) + verticalInset))
+                let selection = Binding<Int>(
+                    get: { viewModel.dashboardManager.activeLayoutIndex },
+                    set: { viewModel.dashboardManager.setActiveLayout(index: $0) }
+                )
+
+                TabView(selection: selection) {
+                    ForEach(Array(viewModel.dashboardManager.layouts.indices), id: \.self) { index in
+                        let isCompactWidth = geo.size.width <= 390
+                        let verticalInset: CGFloat = isCompactWidth ? 6 : 8
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                dashboardGrid(
+                                    geo: geo,
+                                    widgets: viewModel.dashboardManager.widgets(forLayoutAt: index),
+                                    isActiveLayout: index == viewModel.dashboardManager.activeLayoutIndex
+                                )
+                                .padding(.top, max(verticalInset, (isHeaderVisible ? headerHeight : 10) + verticalInset))
+                                .padding(.bottom, max(verticalInset, (isFooterVisible ? footerHeight : 10) + verticalInset))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .tag(index)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .overlay(alignment: .top) {
+                    if viewModel.dashboardManager.layouts.count > 1 {
+                        HStack(spacing: 6) {
+                            ForEach(Array(viewModel.dashboardManager.layouts.indices), id: \.self) { index in
+                                Capsule()
+                                    .fill(index == viewModel.dashboardManager.activeLayoutIndex ? Color.primary.opacity(0.8) : Color.primary.opacity(0.25))
+                                    .frame(width: index == viewModel.dashboardManager.activeLayoutIndex ? 20 : 8, height: 4)
+                            }
+                        }
+                        .padding(.top, max(8, headerHeight + 2))
+                        .animation(.easeInOut(duration: 0.2), value: viewModel.dashboardManager.activeLayoutIndex)
+                    }
+                }
             }
 
             VStack {
                 // Header (floating)
                 DashboardHeaderView(
                     isEditMode: $viewModel.dashboardManager.isEditMode,
+                    currentLayoutName: viewModel.dashboardManager.currentLayoutName,
                     onAddWidget: viewModel.addWidget,
+                    onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
+                    onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
+                    onShowLayouts: { showLayoutsDialog = true },
                     onShowSettings: {
                         viewModel.showSettings = true
                     }
@@ -81,7 +113,7 @@ struct ModularDashboardView: View {
                         DragGesture(minimumDistance: 10)
                             .onEnded { value in
                                 guard isFooterVisible else { return }
-                                if abs(value.translation.height) > barSwipeThreshold {
+                                if value.translation.height > barSwipeThreshold {
                                     withAnimation(.easeInOut(duration: 0.22)) {
                                         isFooterVisible = false
                                     }
@@ -143,6 +175,26 @@ struct ModularDashboardView: View {
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
         }
+        .confirmationDialog("Layouts", isPresented: $showLayoutsDialog, titleVisibility: .visible) {
+            Button("Aktuelle Seite speichern") {
+                viewModel.dashboardManager.saveCurrentAsNewLayout()
+            }
+            Button("Neue leere Seite") {
+                viewModel.dashboardManager.addEmptyLayout()
+            }
+
+            ForEach(Array(viewModel.dashboardManager.layouts.enumerated()), id: \.element.id) { index, layout in
+                Button("Öffnen: \(layout.name)") {
+                    viewModel.dashboardManager.setActiveLayout(index: index)
+                }
+            }
+
+            if viewModel.dashboardManager.layouts.count > 1 {
+                Button("Aktuelle Seite löschen", role: .destructive) {
+                    viewModel.dashboardManager.deleteLayout(at: viewModel.dashboardManager.activeLayoutIndex)
+                }
+            }
+        }
         .edgesIgnoringSafeArea(.bottom)
         .sheet(isPresented: $viewModel.showSettings) {
             SpectrogramSettingsView(
@@ -189,7 +241,7 @@ struct ModularDashboardView: View {
     }
     
     @ViewBuilder
-    private func dashboardGrid(geo: GeometryProxy) -> some View {
+    private func dashboardGrid(geo: GeometryProxy, widgets: [WidgetConfiguration], isActiveLayout: Bool) -> some View {
         let isCompactWidth = geo.size.width <= 390
         let horizontalPadding: CGFloat = isCompactWidth ? 12 : 16
         let topPadding: CGFloat = isCompactWidth ? 12 : 16
@@ -199,7 +251,7 @@ struct ModularDashboardView: View {
         let minColumnWidth: CGFloat = isCompactWidth ? 150 : 160
         let availableWidth = max(minColumnWidth, geo.size.width - (horizontalPadding * 2))
 
-        if viewModel.dashboardManager.widgets.isEmpty {
+        if widgets.isEmpty {
             VStack(spacing: 20) {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: isCompactWidth ? 68 : 80))
@@ -223,14 +275,20 @@ struct ModularDashboardView: View {
             .padding(.top, isCompactWidth ? 32 : 50)
         } else {
             VStack(spacing: stackSpacing) {
-                if viewModel.dashboardManager.isEditMode {
+                if viewModel.dashboardManager.isEditMode && isActiveLayout {
                     Text("Widgets verschieben oder skalieren")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if !isActiveLayout {
+                    Text("Swipe für Layout-Wechsel")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 let colCount = max(1, Int((availableWidth + gridSpacing) / (minColumnWidth + gridSpacing)))
-                let rows = viewModel.computeRows(widgets: viewModel.dashboardManager.widgets, columns: colCount)
+                let rows = viewModel.computeRows(widgets: widgets, columns: colCount)
                 let columnWidth = (availableWidth - CGFloat(colCount - 1) * gridSpacing) / CGFloat(colCount)
                 
                 Grid(horizontalSpacing: gridSpacing, verticalSpacing: gridSpacing) {
@@ -238,9 +296,9 @@ struct ModularDashboardView: View {
                         GridRow {
                             ForEach(rows[rowIndex]) { widget in
                                 let span = viewModel.getSpan(for: widget, colCount: colCount)
-                                let card = widgetCard(widget: widget, columnWidth: columnWidth)
+                                let card = widgetCard(widget: widget, columnWidth: columnWidth, isActiveLayout: isActiveLayout)
 
-                                if viewModel.dashboardManager.isEditMode {
+                                if viewModel.dashboardManager.isEditMode && isActiveLayout {
                                     card
                                         .gridCellColumns(span)
                                         .onDrag {
@@ -254,7 +312,7 @@ struct ModularDashboardView: View {
                                                 items: $viewModel.dashboardManager.widgets,
                                                 draggedItem: $viewModel.draggedWidget,
                                                 dropTargetWidgetID: $dropTargetWidgetID,
-                                                isEnabled: viewModel.dashboardManager.isEditMode,
+                                                isEnabled: viewModel.dashboardManager.isEditMode && isActiveLayout,
                                                 onSave: viewModel.dashboardManager.saveConfiguration
                                             )
                                         )
@@ -270,6 +328,7 @@ struct ModularDashboardView: View {
                                     card
                                         .gridCellColumns(span)
                                         .onLongPressGesture(minimumDuration: 0.45) {
+                                            guard isActiveLayout else { return }
                                             let generator = UIImpactFeedbackGenerator(style: .medium)
                                             generator.impactOccurred()
                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -282,7 +341,7 @@ struct ModularDashboardView: View {
                         }
                     }
                 }
-                .animation(WidgetAnimations.reorderAnimation, value: viewModel.dashboardManager.widgets.map(\.id))
+                .animation(WidgetAnimations.reorderAnimation, value: widgets.map(\.id))
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.top, topPadding)
@@ -290,12 +349,12 @@ struct ModularDashboardView: View {
         }
     }
 
-    private func widgetCard(widget: WidgetConfiguration, columnWidth: CGFloat) -> some View {
+    private func widgetCard(widget: WidgetConfiguration, columnWidth: CGFloat, isActiveLayout: Bool) -> some View {
         WidgetCardView(
             widget: widget,
             audioEngine: viewModel.audioEngine,
             fftConfig: fftConfig,
-            isEditMode: viewModel.dashboardManager.isEditMode,
+            isEditMode: viewModel.dashboardManager.isEditMode && isActiveLayout,
             columnWidth: columnWidth,
             onDelete: {
                 withAnimation(.spring()) {

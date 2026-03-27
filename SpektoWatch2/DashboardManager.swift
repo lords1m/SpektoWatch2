@@ -3,24 +3,97 @@ import Combine
 import UIKit
 import OSLog
 
+struct DashboardLayout: Identifiable, Codable {
+    let id: UUID
+    var name: String
+    var widgets: [WidgetConfiguration]
+    let createdAt: Date
+
+    init(id: UUID = UUID(), name: String, widgets: [WidgetConfiguration], createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.widgets = widgets
+        self.createdAt = createdAt
+    }
+}
+
+private struct DashboardLayoutsState: Codable {
+    var layouts: [DashboardLayout]
+    var activeLayoutIndex: Int
+}
+
 class DashboardManager: ObservableObject {
     @Published var widgets: [WidgetConfiguration] = []
+    @Published var layouts: [DashboardLayout] = []
+    @Published private(set) var activeLayoutIndex: Int = 0
     @Published var isEditMode: Bool = false
-    
-    private let userDefaultsKey = "DashboardConfiguration_v5" // v5 für Level History
-    
+
+    private let userDefaultsKey = "DashboardConfiguration_v5" // legacy single-layout key
+    private let layoutsUserDefaultsKey = "DashboardLayouts_v1"
+    /// True when saved data existed but could not be decoded; prevents silently overwriting
+    /// a corrupt save file with defaults.
+    private var configurationLoadFailed = false
+
     init() {
         Logger.ui.debug("DashboardManager Initializing...")
         loadConfiguration()
-        if widgets.isEmpty {
-            // NUR EIN großes Spektrogramm als Default
-            widgets = [
-                WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
-                WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
-            ]
-            Logger.ui.info("Created default configuration with ONE large spectrogram")
+        if layouts.isEmpty && !configurationLoadFailed {
+            let defaults = Self.defaultWidgets()
+            layouts = [DashboardLayout(name: "Layout 1", widgets: defaults)]
+            widgets = defaults
+            activeLayoutIndex = 0
+            Logger.ui.info("Created default dashboard layout")
             saveConfiguration()
         }
+    }
+
+    var currentLayoutName: String {
+        guard activeLayoutIndex >= 0, activeLayoutIndex < layouts.count else { return "Layout" }
+        return layouts[activeLayoutIndex].name
+    }
+
+    func widgets(forLayoutAt index: Int) -> [WidgetConfiguration] {
+        guard index >= 0, index < layouts.count else { return [] }
+        if index == activeLayoutIndex { return widgets }
+        return layouts[index].widgets
+    }
+
+    func setActiveLayout(index: Int) {
+        guard !layouts.isEmpty else { return }
+        storeWidgetsToActiveLayout()
+        let clamped = max(0, min(index, layouts.count - 1))
+        activeLayoutIndex = clamped
+        widgets = layouts[clamped].widgets
+        saveConfiguration()
+    }
+
+    func addEmptyLayout() {
+        storeWidgetsToActiveLayout()
+        let name = "Layout \(layouts.count + 1)"
+        layouts.append(DashboardLayout(name: name, widgets: []))
+        activeLayoutIndex = layouts.count - 1
+        widgets = []
+        saveConfiguration()
+    }
+
+    func saveCurrentAsNewLayout() {
+        storeWidgetsToActiveLayout()
+        let base = currentLayoutName
+        let name = uniqueLayoutName(basedOn: "\(base) Kopie")
+        layouts.append(DashboardLayout(name: name, widgets: widgets))
+        activeLayoutIndex = layouts.count - 1
+        saveConfiguration()
+    }
+
+    func deleteLayout(at index: Int) {
+        guard layouts.count > 1, index >= 0, index < layouts.count else { return }
+        storeWidgetsToActiveLayout()
+        layouts.remove(at: index)
+        if activeLayoutIndex >= layouts.count {
+            activeLayoutIndex = max(0, layouts.count - 1)
+        }
+        widgets = layouts[activeLayoutIndex].widgets
+        saveConfiguration()
     }
     
     func addWidget(type: AudioWidgetType, at position: GridPosition? = nil) {
@@ -74,44 +147,95 @@ class DashboardManager: ObservableObject {
     func saveConfiguration() {
         Logger.ui.debug("Saving configuration...")
         do {
+            storeWidgetsToActiveLayout()
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(widgets)
-            UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            Logger.ui.info("Configuration saved successfully (\(self.widgets.count) widgets)")
+            let state = DashboardLayoutsState(layouts: layouts, activeLayoutIndex: activeLayoutIndex)
+            let data = try encoder.encode(state)
+            UserDefaults.standard.set(data, forKey: layoutsUserDefaultsKey)
+
+            // legacy snapshot for features reading the old key (e.g. recording metadata snapshot)
+            let currentLayoutData = try encoder.encode(widgets)
+            UserDefaults.standard.set(currentLayoutData, forKey: userDefaultsKey)
+            Logger.ui.info("Configuration saved successfully (\(self.layouts.count) layouts, active=\(self.activeLayoutIndex))")
         } catch {
             Logger.ui.error("Error saving dashboard configuration: \(error.localizedDescription)")
         }
     }
-    
+
     func loadConfiguration() {
         Logger.ui.debug("Loading configuration...")
+        let decoder = JSONDecoder()
+
+        if let layoutsData = UserDefaults.standard.data(forKey: layoutsUserDefaultsKey) {
+            do {
+                let state = try decoder.decode(DashboardLayoutsState.self, from: layoutsData)
+                layouts = state.layouts
+                if layouts.isEmpty {
+                    layouts = [DashboardLayout(name: "Layout 1", widgets: Self.defaultWidgets())]
+                }
+                activeLayoutIndex = max(0, min(state.activeLayoutIndex, layouts.count - 1))
+                widgets = layouts[activeLayoutIndex].widgets
+                Logger.ui.info("Loaded dashboard layouts: \(self.layouts.count)")
+                return
+            } catch {
+                Logger.ui.error("Error loading dashboard layouts: \(error.localizedDescription)")
+                configurationLoadFailed = true
+                return
+            }
+        }
+
+        // Legacy migration (single layout)
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
             Logger.ui.info("No saved configuration found")
             return
         }
+
         do {
-            let decoder = JSONDecoder()
-            widgets = try decoder.decode([WidgetConfiguration].self, from: data)
-            Logger.ui.info("Configuration loaded successfully. Found \(self.widgets.count) widgets")
-            for (index, widget) in widgets.enumerated() {
-                Logger.ui.debug("  [\(index)] \(widget.type.rawValue) - \(widget.size.columns)x\(widget.size.rows, format: .fixed(precision: 1))")
-            }
+            let decodedWidgets = try decoder.decode([WidgetConfiguration].self, from: data)
+            let migratedWidgets = decodedWidgets.isEmpty ? Self.defaultWidgets() : decodedWidgets
+            layouts = [DashboardLayout(name: "Layout 1", widgets: migratedWidgets)]
+            activeLayoutIndex = 0
+            widgets = migratedWidgets
+            Logger.ui.info("Migrated legacy dashboard configuration to multi-layout format")
+            saveConfiguration()
         } catch {
-            Logger.ui.error("Error loading dashboard configuration: \(error.localizedDescription)")
+            Logger.ui.error("Error loading legacy dashboard configuration: \(error.localizedDescription)")
+            configurationLoadFailed = true
         }
     }
     
     /// Reset zu Standard-Konfiguration
     func resetToDefault() {
         Logger.ui.info("Resetting to default configuration...")
-        widgets = [
-            WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
-            WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
-        ]
+        layouts = [DashboardLayout(name: "Layout 1", widgets: Self.defaultWidgets())]
+        activeLayoutIndex = 0
+        widgets = layouts[0].widgets
         saveConfiguration()
         
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
+    }
+
+    private func storeWidgetsToActiveLayout() {
+        guard activeLayoutIndex >= 0, activeLayoutIndex < layouts.count else { return }
+        layouts[activeLayoutIndex].widgets = widgets
+    }
+
+    private func uniqueLayoutName(basedOn base: String) -> String {
+        let existing = Set(layouts.map(\.name))
+        if !existing.contains(base) { return base }
+        var index = 2
+        while existing.contains("\(base) \(index)") {
+            index += 1
+        }
+        return "\(base) \(index)"
+    }
+
+    private static func defaultWidgets() -> [WidgetConfiguration] {
+        [
+            WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
+            WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
+        ]
     }
 }

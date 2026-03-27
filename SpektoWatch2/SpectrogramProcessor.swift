@@ -4,6 +4,10 @@ import os.signpost
 
 class SpectrogramProcessor {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.spectrogram")
+    private static let thirdOctaveCenters: [Float] = [
+        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
+        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
+    ]
 
     enum SmoothingTrack: Hashable {
         case z
@@ -16,13 +20,25 @@ class SpectrogramProcessor {
     
     private var previousBandMagnitudesByTrack: [SmoothingTrack: [Float]] = [:]
     private let bandstopFilterManager: BandstopFilterManager
-    private let octaveCenterFrequencies: [Float] = [
-        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-    ]
+    private let octaveCenterFrequencies = SpectrogramProcessor.thirdOctaveCenters
     private var cachedOctaveRanges: [(start: Int, end: Int)] = []
     private var cachedRangeMagnitudeCount: Int = 0
     private var cachedRangeSampleRate: Double = 0.0
+
+    struct RangeDiagnostic {
+        let label: String
+        let lowerHz: Float
+        let upperHz: Float
+        let totalBins: Int
+        let energeticBins: Int
+        let maxDb: Float
+    }
+
+    struct DiagnosticSnapshot {
+        let rangeDiagnostics: [RangeDiagnostic]
+        let emptyThirdOctaveBands: [Float]
+        let highestEnergeticFrequencyHz: Float
+    }
 
     init(bandstopFilterManager: BandstopFilterManager) {
         self.bandstopFilterManager = bandstopFilterManager
@@ -97,8 +113,9 @@ class SpectrogramProcessor {
         ensureOctaveBandRanges(magnitudeCount: magnitudes.count, sampleRate: sampleRate)
         var bands = [Float](repeating: -120.0, count: octaveCenterFrequencies.count)
 
+        let magCount = magnitudes.count
         for (i, range) in cachedOctaveRanges.enumerated() {
-            guard range.start <= range.end else { continue }
+            guard range.start <= range.end, range.end < magCount else { continue }
             var bandMax: Float = -120.0
             for idx in range.start...range.end {
                 if magnitudes[idx] > bandMax {
@@ -170,8 +187,99 @@ class SpectrogramProcessor {
             return currentMagnitudes
         }
         var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
-        vDSP_vintb(previousBandMagnitudes, 1, currentMagnitudes, 1, &temporalSmoothingFactor, &smoothed, 1, vDSP_Length(currentMagnitudes.count))
+        // EMA blend: smoothed = previous * (1-alpha) + current * alpha
+        var oneMinusAlpha = 1.0 - temporalSmoothingFactor
+        var alpha = temporalSmoothingFactor
+        vDSP_vsmsma(previousBandMagnitudes, 1, &oneMinusAlpha, currentMagnitudes, 1, &alpha, &smoothed, 1, vDSP_Length(currentMagnitudes.count))
         previousBandMagnitudesByTrack[track] = smoothed
         return smoothed
+    }
+
+    /// Erzeugt eine kompakte Diagnosesicht für Logging und Tests.
+    /// energeticThresholdDb beschreibt ab welchem Pegel ein Bin als "aktiv" zählt.
+    static func makeDiagnosticSnapshot(
+        frequencies: [Float],
+        magnitudes: [Float],
+        energeticThresholdDb: Float = 25.0
+    ) -> DiagnosticSnapshot {
+        let pairedCount = min(frequencies.count, magnitudes.count)
+        guard pairedCount > 0 else {
+            return DiagnosticSnapshot(
+                rangeDiagnostics: [
+                    RangeDiagnostic(label: "20-125", lowerHz: 20, upperHz: 125, totalBins: 0, energeticBins: 0, maxDb: -120),
+                    RangeDiagnostic(label: "125-250", lowerHz: 125, upperHz: 250, totalBins: 0, energeticBins: 0, maxDb: -120),
+                    RangeDiagnostic(label: "250-8k", lowerHz: 250, upperHz: 8000, totalBins: 0, energeticBins: 0, maxDb: -120),
+                    RangeDiagnostic(label: "8k-16k", lowerHz: 8000, upperHz: 16000, totalBins: 0, energeticBins: 0, maxDb: -120)
+                ],
+                emptyThirdOctaveBands: Self.thirdOctaveCenters,
+                highestEnergeticFrequencyHz: 0
+            )
+        }
+
+        let ranges: [(label: String, lower: Float, upper: Float)] = [
+            ("20-125", 20, 125),
+            ("125-250", 125, 250),
+            ("250-8k", 250, 8000),
+            ("8k-16k", 8000, 16000)
+        ]
+
+        var rangeDiagnostics: [RangeDiagnostic] = []
+        rangeDiagnostics.reserveCapacity(ranges.count)
+
+        for range in ranges {
+            var total = 0
+            var energetic = 0
+            var peak: Float = -120.0
+            for i in 0..<pairedCount {
+                let f = frequencies[i]
+                guard f >= range.lower, f < range.upper else { continue }
+                total += 1
+                let m = magnitudes[i]
+                peak = max(peak, m)
+                if m >= energeticThresholdDb {
+                    energetic += 1
+                }
+            }
+            rangeDiagnostics.append(
+                RangeDiagnostic(
+                    label: range.label,
+                    lowerHz: range.lower,
+                    upperHz: range.upper,
+                    totalBins: total,
+                    energeticBins: energetic,
+                    maxDb: peak
+                )
+            )
+        }
+
+        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
+        let upperFactor = pow(2.0 as Float, 1.0 / 6.0)
+        var emptyBands: [Float] = []
+        for center in Self.thirdOctaveCenters {
+            let lower = center * lowerFactor
+            let upper = center * upperFactor
+            var bandHasBin = false
+            for i in 0..<pairedCount {
+                let f = frequencies[i]
+                if f >= lower && f < upper {
+                    bandHasBin = true
+                    break
+                }
+            }
+            if !bandHasBin {
+                emptyBands.append(center)
+            }
+        }
+
+        var highestEnergeticFrequency: Float = 0
+        for i in 0..<pairedCount where magnitudes[i] >= energeticThresholdDb {
+            highestEnergeticFrequency = max(highestEnergeticFrequency, frequencies[i])
+        }
+
+        return DiagnosticSnapshot(
+            rangeDiagnostics: rangeDiagnostics,
+            emptyThirdOctaveBands: emptyBands,
+            highestEnergeticFrequencyHz: highestEnergeticFrequency
+        )
     }
 }

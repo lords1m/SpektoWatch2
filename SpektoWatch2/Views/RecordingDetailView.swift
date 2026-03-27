@@ -1,102 +1,153 @@
 import SwiftUI
 import AVFoundation
-import Combine
 import Accelerate
+import Combine
 
 struct RecordingDetailView: View {
-    @Environment(\.dismiss) var dismiss
-    let recording: AudioRecording
+    enum DetailTab: String, CaseIterable, Identifiable {
+        case overview = "Details"
+        case analysis = "Analyse"
+        var id: String { rawValue }
+    }
 
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var recordingManager: RecordingManager
+
+    @State private var recording: Recording
+    @State private var selectedTab: DetailTab = .overview
     @StateObject private var audioPlayer = AudioPlayerManager()
     @StateObject private var vizAudioEngine = AudioEngine(
         filterManager: BandstopFilterManager(),
         connectivityManager: WatchConnectivityManager()
     )
-    @State private var showEditSheet = false
-    @State private var showShareSheet = false
+
     @State private var isDraggingSlider = false
     @State private var spectrogramHistory: [[Float]] = []
     @State private var isLoadingSpectrogram = false
-    @State private var useScrollableSpectrogram = true  // Toggle für den neuen Modus
-    
+    @State private var storedDataProvider: StoredDataProvider?
+    @State private var selectedMetrics: Set<String> = []
+    @State private var analysisStartTime: TimeInterval = 0
+    @State private var analysisEndTime: TimeInterval = 0
+
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
+
+    init(recording: Recording) {
+        _recording = State(initialValue: recording)
+    }
+
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Header Card
-                    headerCard
-                    
-                    // Audio Player
-                    audioPlayerCard
-                    
-                    // Statistics
-                    statisticsCard
-                    
-                    // Metadata
-                    metadataCard
-                    
-                    // Description
-                    if !recording.description.isEmpty {
-                        descriptionCard
+            VStack(spacing: 12) {
+                Picker("Tab", selection: $selectedTab) {
+                    ForEach(DetailTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
                     }
                 }
-                .padding()
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+
+                if selectedTab == .overview {
+                    overviewTab
+                } else {
+                    analysisTab
+                }
             }
             .background(GlassBackground())
-            .navigationTitle(recording.title)
+            .navigationTitle(recording.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
-                        Button(action: { showShareSheet = true }) {
-                            Label("Teilen", systemImage: "square.and.arrow.up")
+                        Button {
+                            shareItems = [recordingManager.url(for: recording)]
+                            showShareSheet = true
+                        } label: {
+                            Label("Audio teilen", systemImage: "square.and.arrow.up")
                         }
-                        
-                        Button(action: { showEditSheet = true }) {
-                            Label("Bearbeiten", systemImage: "pencil")
+
+                        Button {
+                            createPDFReport()
+                        } label: {
+                            Label("PDF erstellen", systemImage: "doc.richtext")
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
-                
+
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Fertig") {
-                        dismiss()
-                    }
+                    Button("Fertig") { dismiss() }
                 }
             }
         }
+        .sheet(isPresented: $showShareSheet) {
+            ActivityView(activityItems: shareItems)
+        }
         .onAppear {
-            let url = recording.url
-            audioPlayer.loadAudio(url: url)
+            reloadRecordingState()
+            let audioURL = recordingManager.url(for: recording)
+            audioPlayer.loadAudio(url: audioURL)
             audioPlayer.onAudioSamples = { samples in
-                vizAudioEngine.processExternalAudio(samples)
+                vizAudioEngine.processExternalAudio(samples, sampleRate: recording.sampleRate)
             }
-
-            // Berechne Spektrogramm-Historie für scrollbare Ansicht
-            if useScrollableSpectrogram {
-                loadSpectrogramHistory(from: url)
-            }
+            analysisEndTime = max(audioPlayer.duration, recording.duration)
+            loadStoredMeasurementDataIfAvailable()
         }
         .onDisappear {
             audioPlayer.stop()
+            storedDataProvider?.pause()
+        }
+        .onChange(of: audioPlayer.currentTime) { _, time in
+            storedDataProvider?.scrub(to: time)
         }
     }
-    
-    // MARK: - Header Card
-    
+
+    private var overviewTab: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                headerCard
+                audioPlayerCard
+                statisticsCard
+                metadataCard
+                if !recording.description.isEmpty {
+                    descriptionCard
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var analysisTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let provider = storedDataProvider {
+                    analysisRangeCard(duration: provider.duration)
+                    metricSelectionCard(metricKeys: provider.metricKeys)
+                    lineHistoryCard(values: provider.levelHistory)
+                    metricsTableCard(provider: provider)
+                    exportCard
+                } else {
+                    Text("Keine .spekto-Messdaten vorhanden. Für tiefe Analyse bitte Messdatenaufzeichnung aktivieren.")
+                        .foregroundColor(.secondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glassCard(cornerRadius: 14)
+                }
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Cards
+
     private var headerCard: some View {
         VStack(spacing: 12) {
             Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 60))
+                .font(.system(size: 56))
                 .foregroundColor(.blue)
-            
-            Text(recording.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .multilineTextAlignment(.center)
-            
+            Text(recording.name)
+                .font(.title3.bold())
             Text(recording.formattedDate)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -105,85 +156,67 @@ struct RecordingDetailView: View {
         .padding()
         .glassCard(cornerRadius: 14)
     }
-    
-    // MARK: - Audio Player Card
 
     private var audioPlayerCard: some View {
         VStack(spacing: 16) {
-            // Spectrogram Visualization - Scrollbar oder Live
-            if useScrollableSpectrogram && !spectrogramHistory.isEmpty {
-                // Scrollbares Spektrogramm mit Playhead
+            if !spectrogramHistory.isEmpty {
                 ScrollableSpectrogramView(
                     currentTime: Binding(
                         get: { isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime },
                         set: { _ in }
                     ),
-                    duration: audioPlayer.duration,
+                    duration: max(audioPlayer.duration, recording.duration),
                     magnitudeHistory: spectrogramHistory,
                     colormapType: 0,
+                    sampleRate: Float(recording.sampleRate),
+                    markers: recording.markers ?? [],
                     onSeek: { time in
                         audioPlayer.scrubTime = time
                         audioPlayer.seek(to: time)
                     }
                 )
-                .frame(height: 200)
+                .frame(height: 220)
                 .background(Color.black)
                 .cornerRadius(12)
             } else if isLoadingSpectrogram {
-                // Loading indicator
                 ZStack {
                     Color.black
-                    VStack {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        Text("Spektrogramm wird berechnet...")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                            .padding(.top, 8)
-                    }
+                    ProgressView("Spektrogramm wird berechnet...")
+                        .tint(.white)
+                        .foregroundColor(.white)
                 }
-                .frame(height: 200)
+                .frame(height: 220)
                 .cornerRadius(12)
             } else {
-                // Live Spektrogramm (Fallback)
                 HighEndSpectrogramAdapterWithAxes(audioEngine: vizAudioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
-                    .frame(height: 200)
-                    .background(Color.black)
+                    .frame(height: 220)
                     .cornerRadius(12)
             }
 
-            // Playback Controls
             HStack(spacing: 20) {
-                // Backward Button
                 Button(action: { audioPlayer.seek(by: -5) }) {
-                    Image(systemName: "gobackward.5")
-                        .font(.title2)
-                }
-                .disabled(!audioPlayer.isLoaded)
+                    Image(systemName: "gobackward.5").font(.title2)
+                }.disabled(!audioPlayer.isLoaded)
 
-                // Play/Pause Button
-                Button(action: {
-                    if audioPlayer.isPlaying {
-                        audioPlayer.pause()
-                    } else {
-                        audioPlayer.play()
-                    }
-                }) {
+                Button(action: togglePlayback) {
                     Image(systemName: audioPlayer.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 60))
-                }
-                .disabled(!audioPlayer.isLoaded)
+                        .font(.system(size: 58))
+                }.disabled(!audioPlayer.isLoaded)
 
-                // Forward Button
                 Button(action: { audioPlayer.seek(by: 5) }) {
-                    Image(systemName: "goforward.5")
-                        .font(.title2)
-                }
-                .disabled(!audioPlayer.isLoaded)
+                    Image(systemName: "goforward.5").font(.title2)
+                }.disabled(!audioPlayer.isLoaded)
             }
             .foregroundColor(.blue)
 
-            // Progress Bar
+            Button {
+                addMarkerAtCurrentTime()
+            } label: {
+                Label("Marker setzen", systemImage: "bookmark.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!audioPlayer.isLoaded)
+
             VStack(spacing: 4) {
                 Slider(
                     value: Binding(
@@ -216,17 +249,13 @@ struct RecordingDetailView: View {
         .padding()
         .glassCard(cornerRadius: 14)
     }
-    
-    // MARK: - Statistics Card
-    
+
     private var statisticsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Statistik")
                 .font(.headline)
-            
             Divider()
-            
-            StatRow(icon: "waveform.path", title: "LA eq,Fast", value: String(format: "%.1f dB", recording.laeqFast))
+            StatRow(icon: "waveform.path", title: "LAeq,Fast", value: String(format: "%.1f dB", recording.laeqFast))
             StatRow(icon: "arrow.up.circle", title: "Maximum", value: String(format: "%.1f dB", recording.peakLevel))
             StatRow(icon: "arrow.down.circle", title: "Minimum", value: String(format: "%.1f dB", recording.minLevel))
             StatRow(icon: "clock", title: "Dauer", value: recording.formattedDuration)
@@ -234,34 +263,27 @@ struct RecordingDetailView: View {
         .padding()
         .glassCard(cornerRadius: 14)
     }
-    
-    // MARK: - Metadata Card
-    
+
     private var metadataCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Konfiguration")
                 .font(.headline)
-            
             Divider()
-            
             StatRow(icon: "gauge", title: "Zeitbewertung", value: recording.timeWeighting)
             StatRow(icon: "slider.horizontal.3", title: "Frequenzbewertung", value: recording.frequencyWeighting)
             StatRow(icon: "music.note", title: "Samplerate", value: "\(Int(recording.sampleRate)) Hz")
-            StatRow(icon: "speaker.wave.2", title: "Kanäle", value: "\(recording.channelCount)")
+            StatRow(icon: "hammer", title: "FFT", value: "\(recording.fftBlockSize)")
+            StatRow(icon: "ruler", title: "Kalibrierung", value: String(format: "%.1f dB", recording.calibrationOffset))
         }
         .padding()
         .glassCard(cornerRadius: 14)
     }
-    
-    // MARK: - Description Card
-    
+
     private var descriptionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Beschreibung")
                 .font(.headline)
-            
             Divider()
-            
             Text(recording.description)
                 .font(.body)
                 .foregroundColor(.secondary)
@@ -269,8 +291,246 @@ struct RecordingDetailView: View {
         .padding()
         .glassCard(cornerRadius: 14)
     }
-    
-    // MARK: - Helper Functions
+
+    private func analysisRangeCard(duration: TimeInterval) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Zeitraum")
+                .font(.headline)
+
+            Text("Start: \(formatTime(analysisStartTime))")
+                .font(.caption)
+            Slider(value: $analysisStartTime, in: 0...max(duration, 0.1))
+                .onChange(of: analysisStartTime) { _, newValue in
+                    if newValue > analysisEndTime {
+                        analysisEndTime = newValue
+                    }
+                }
+
+            Text("Ende: \(formatTime(analysisEndTime))")
+                .font(.caption)
+            Slider(value: $analysisEndTime, in: 0...max(duration, 0.1))
+                .onChange(of: analysisEndTime) { _, newValue in
+                    if newValue < analysisStartTime {
+                        analysisStartTime = newValue
+                    }
+                }
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
+    private func metricSelectionCard(metricKeys: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Metrik-Spalten")
+                .font(.headline)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
+                ForEach(metricKeys, id: \.self) { key in
+                    Button {
+                        if selectedMetrics.contains(key) {
+                            selectedMetrics.remove(key)
+                        } else {
+                            selectedMetrics.insert(key)
+                        }
+                    } label: {
+                        Text(key)
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity)
+                            .background(selectedMetrics.contains(key) ? Color.blue.opacity(0.25) : Color.secondary.opacity(0.15))
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
+    private func lineHistoryCard(values: [Float]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pegelverlauf")
+                .font(.headline)
+            MiniLineChart(values: values)
+                .frame(height: 130)
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
+    private func metricsTableCard(provider: StoredDataProvider) -> some View {
+        let range = analysisStartTime...analysisEndTime
+        let effectiveMetrics = selectedMetrics.isEmpty ? Set(provider.metricKeys.prefix(6)) : selectedMetrics
+        let orderedMetrics = Array(effectiveMetrics).sorted()
+        let rows = provider.rows(in: range, step: 4)
+        let timeColumnWidth: CGFloat = 72
+        let metricColumnWidth: CGFloat = 84
+        let spacing: CGFloat = 12
+        let tableMinWidth = timeColumnWidth + CGFloat(orderedMetrics.count) * metricColumnWidth + CGFloat(orderedMetrics.count + 1) * spacing
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Messwerttabelle")
+                .font(.headline)
+
+            ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: spacing) {
+                        Text("t [s]").bold().frame(width: timeColumnWidth, alignment: .leading)
+                        ForEach(orderedMetrics, id: \.self) { metric in
+                            Text(metric).bold().frame(width: metricColumnWidth, alignment: .leading)
+                        }
+                    }
+                    .font(.caption)
+
+                    Divider()
+
+                    ForEach(rows.prefix(250)) { row in
+                        HStack(spacing: spacing) {
+                            Text(String(format: "%.2f", row.time))
+                                .frame(width: timeColumnWidth, alignment: .leading)
+                            ForEach(orderedMetrics, id: \.self) { metric in
+                                Text(String(format: "%.1f", row.values[metric] ?? -120))
+                                    .frame(width: metricColumnWidth, alignment: .leading)
+                            }
+                        }
+                        .font(.caption2.monospacedDigit())
+                    }
+                }
+                .frame(minWidth: tableMinWidth, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+            }
+            .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 260, alignment: .topLeading)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.45), lineWidth: 0.8)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
+    private var exportCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Export")
+                .font(.headline)
+            HStack {
+                Button {
+                    createCSVExport()
+                } label: {
+                    Label("CSV exportieren", systemImage: "tablecells")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    createPDFReport()
+                } label: {
+                    Label("PDF erstellen", systemImage: "doc.richtext")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
+    // MARK: - Actions
+
+    private func togglePlayback() {
+        if audioPlayer.isPlaying {
+            audioPlayer.pause()
+            storedDataProvider?.pause()
+        } else {
+            audioPlayer.play()
+            storedDataProvider?.play()
+        }
+    }
+
+    private func addMarkerAtCurrentTime() {
+        var markers = recording.markers ?? []
+        let marker = MeasurementMarker(
+            time: audioPlayer.currentTime,
+            title: "Marker \(markers.count + 1)"
+        )
+        markers.append(marker)
+        markers.sort { $0.time < $1.time }
+        recording.markers = markers
+        recordingManager.updateRecording(recording)
+    }
+
+    private func loadStoredMeasurementDataIfAvailable() {
+        guard let measurementURL = recordingManager.measurementURL(for: recording),
+              FileManager.default.fileExists(atPath: measurementURL.path) else {
+            loadSpectrogramHistoryFallback()
+            return
+        }
+
+        do {
+            let provider = try StoredDataProvider(fileURL: measurementURL)
+            storedDataProvider = provider
+            spectrogramHistory = provider.spectrogramHistory
+            if selectedMetrics.isEmpty {
+                selectedMetrics = Set(provider.metricKeys.prefix(6))
+            }
+            analysisEndTime = max(analysisEndTime, provider.duration)
+        } catch {
+            print("[RecordingDetailView] Failed to load stored measurement data: \(error)")
+            loadSpectrogramHistoryFallback()
+        }
+    }
+
+    private func loadSpectrogramHistoryFallback() {
+        let url = recordingManager.url(for: recording)
+        isLoadingSpectrogram = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let history = try computeSpectrogramHistoryStreaming(url: url)
+                DispatchQueue.main.async {
+                    self.spectrogramHistory = history
+                    self.isLoadingSpectrogram = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoadingSpectrogram = false
+                }
+            }
+        }
+    }
+
+    private func createCSVExport() {
+        guard let measurementURL = recordingManager.measurementURL(for: recording) else { return }
+        do {
+            let reader = try MeasurementDataReader(fileURL: measurementURL)
+            let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(recording.id.uuidString)_analyse.csv")
+            let metrics = selectedMetrics.isEmpty ? reader.header.metricKeys : Array(selectedMetrics)
+            try CSVExporter().export(reader: reader, to: outputURL, selectedMetrics: metrics, includeThirdOctaves: true)
+            shareItems = [outputURL]
+            showShareSheet = true
+        } catch {
+            print("[RecordingDetailView] CSV export failed: \(error)")
+        }
+    }
+
+    private func createPDFReport() {
+        do {
+            let pdfURL = try PDFReportGenerator().generateReport(for: recording, recordingManager: recordingManager)
+            shareItems = [pdfURL]
+            showShareSheet = true
+        } catch {
+            print("[RecordingDetailView] PDF generation failed: \(error)")
+        }
+    }
+
+    private func reloadRecordingState() {
+        if let updated = recordingManager.recordings.first(where: { $0.id == recording.id }) {
+            recording = updated
+        }
+    }
+
+    // MARK: - Helpers
 
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
@@ -278,129 +538,170 @@ struct RecordingDetailView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    // MARK: - Spectrogram Loading
-
-    private func loadSpectrogramHistory(from url: URL) {
-        isLoadingSpectrogram = true
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let audioFile = try AVAudioFile(forReading: url)
-                let format = audioFile.processingFormat
-                let sampleRate = format.sampleRate
-                let frameCount = AVAudioFrameCount(audioFile.length)
-
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
-                    DispatchQueue.main.async { isLoadingSpectrogram = false }
-                    return
-                }
-
-                try audioFile.read(into: buffer)
-
-                guard let channelData = buffer.floatChannelData else {
-                    DispatchQueue.main.async { isLoadingSpectrogram = false }
-                    return
-                }
-
-                // Extract samples from first channel
-                let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(frameCount)))
-
-                // Compute spectrogram
-                let history = computeSpectrogramHistory(samples: samples, sampleRate: sampleRate)
-
-                DispatchQueue.main.async {
-                    self.spectrogramHistory = history
-                    self.isLoadingSpectrogram = false
-                }
-            } catch {
-                print("[RecordingDetailView] Error loading audio for spectrogram: \(error)")
-                DispatchQueue.main.async {
-                    self.isLoadingSpectrogram = false
-                }
-            }
-        }
-    }
-
-    private func computeSpectrogramHistory(samples: [Float], sampleRate: Double) -> [[Float]] {
+    private func computeSpectrogramHistoryStreaming(url: URL) throws -> [[Float]] {
         let fftSize = 4096
         let hopSize = 512
         let frequencyBins = 512
         let splToDbfsOffset: Float = 120.0
+        let chunkFrames = fftSize * 8
 
-        guard samples.count > fftSize else { return [] }
+        let audioFile = try AVAudioFile(forReading: url)
+        let format = audioFile.processingFormat
 
-        var history: [[Float]] = []
-
-        // FFT Setup
         guard let fftSetup = vDSP_DFT_zrop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD) else { return [] }
         defer { vDSP_DFT_DestroySetup(fftSetup) }
 
-        // Hann Window
         var window = [Float](repeating: 0, count: fftSize)
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
 
-        var offset = 0
-        while offset + fftSize <= samples.count {
-            // Extract window
-            let windowSamples = Array(samples[offset..<(offset + fftSize)])
+        var history: [[Float]] = []
+        var overlap = [Float]()
 
-            // Apply window
-            var windowed = [Float](repeating: 0, count: fftSize)
-            vDSP_vmul(windowSamples, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
+        while audioFile.framePosition < audioFile.length {
+            let remaining = audioFile.length - audioFile.framePosition
+            let toRead = AVAudioFrameCount(min(Int64(chunkFrames), remaining))
 
-            // Prepare for zrop (interleaved input)
-            var realIn = [Float](repeating: 0, count: fftSize / 2)
-            var imagIn = [Float](repeating: 0, count: fftSize / 2)
-            for i in 0..<(fftSize / 2) {
-                realIn[i] = windowed[2 * i]
-                imagIn[i] = windowed[2 * i + 1]
-            }
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: toRead),
+                  (try? audioFile.read(into: buffer)) != nil,
+                  let channelData = buffer.floatChannelData else { break }
 
-            var realOut = [Float](repeating: 0, count: fftSize / 2)
-            var imagOut = [Float](repeating: 0, count: fftSize / 2)
+            let frameLength = Int(buffer.frameLength)
+            let samples = overlap + Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
 
-            vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
-
-            // Compute magnitude
-            var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-            realOut.withUnsafeMutableBufferPointer { realPtr in
-                imagOut.withUnsafeMutableBufferPointer { imagPtr in
-                    var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                    vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+            var offset = 0
+            while offset + fftSize <= samples.count {
+                var windowed = [Float](repeating: 0, count: fftSize)
+                samples.withUnsafeBufferPointer { ptr in
+                    vDSP_vmul(ptr.baseAddress! + offset, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
                 }
+
+                var realIn = [Float](repeating: 0, count: fftSize / 2)
+                var imagIn = [Float](repeating: 0, count: fftSize / 2)
+                for i in 0..<(fftSize / 2) {
+                    realIn[i] = windowed[2 * i]
+                    imagIn[i] = windowed[2 * i + 1]
+                }
+
+                var realOut = [Float](repeating: 0, count: fftSize / 2)
+                var imagOut = [Float](repeating: 0, count: fftSize / 2)
+                vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
+
+                var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+                realOut.withUnsafeMutableBufferPointer { realPtr in
+                    imagOut.withUnsafeMutableBufferPointer { imagPtr in
+                        var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                        vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                    }
+                }
+
+                var column = [Float](repeating: -120.0, count: frequencyBins)
+                for i in 0..<frequencyBins {
+                    let srcIndex = Int(Float(i) / Float(frequencyBins) * Float(magnitudes.count))
+                    let mag = magnitudes[min(srcIndex, magnitudes.count - 1)]
+                    column[i] = 20.0 * log10(mag + 1e-10) + splToDbfsOffset
+                }
+
+                history.append(column)
+                offset += hopSize
             }
 
-            // Convert to dB SPL and resample to frequencyBins
-            var column = [Float](repeating: -120.0, count: frequencyBins)
-            for i in 0..<frequencyBins {
-                let srcIndex = Int(Float(i) / Float(frequencyBins) * Float(magnitudes.count))
-                let mag = magnitudes[min(srcIndex, magnitudes.count - 1)]
-                let db = 20.0 * log10(mag + 1e-10) + splToDbfsOffset
-                column[i] = db
-            }
-
-            history.append(column)
-            offset += hopSize
+            overlap = offset < samples.count ? Array(samples[offset..<samples.count]) : []
         }
 
         return history
     }
 }
 
-// MARK: - Stat Row
+// MARK: - Supporting Views
+
+struct MiniLineChart: View {
+    let values: [Float]
+
+    var body: some View {
+        GeometryReader { geo in
+            let leftPadding: CGFloat = 32
+            let rightPadding: CGFloat = 8
+            let topPadding: CGFloat = 8
+            let bottomPadding: CGFloat = 16
+            let chartRect = CGRect(
+                x: leftPadding,
+                y: topPadding,
+                width: max(1, geo.size.width - leftPadding - rightPadding),
+                height: max(1, geo.size.height - topPadding - bottomPadding)
+            )
+
+            let measuredMin = Double(values.min() ?? -120)
+            let measuredMax = Double(values.max() ?? -120)
+            let minValue = floor((measuredMin - 2) / 5.0) * 5.0
+            let maxValue = ceil((measuredMax + 2) / 5.0) * 5.0
+            let majorTicks = ScientificAxis.majorTicks(min: minValue, max: maxValue, targetTicks: 5)
+            let minorTicks = ScientificAxis.minorTicks(major: majorTicks, subdivisions: 2)
+
+            Canvas { context, size in
+                for tick in minorTicks where tick >= minValue && tick <= maxValue {
+                    let yNorm = ScientificAxis.normalized(tick, min: minValue, max: maxValue)
+                    let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                    var path = Path()
+                    path.move(to: CGPoint(x: chartRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                    context.stroke(path, with: .color(ScientificChartPalette.gridMinor), lineWidth: 0.5)
+                }
+
+                for tick in majorTicks where tick >= minValue && tick <= maxValue {
+                    let yNorm = ScientificAxis.normalized(tick, min: minValue, max: maxValue)
+                    let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                    var path = Path()
+                    path.move(to: CGPoint(x: chartRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                    context.stroke(path, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.8)
+                    context.draw(
+                        Text("\(Int(tick))").font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        at: CGPoint(x: chartRect.minX - 14, y: y)
+                    )
+                }
+
+                guard values.count > 1 else { return }
+
+                var seriesPath = Path()
+                for (index, value) in values.enumerated() {
+                    let x = chartRect.minX + chartRect.width * CGFloat(index) / CGFloat(max(values.count - 1, 1))
+                    let yNorm = ScientificAxis.normalized(Double(value), min: minValue, max: maxValue)
+                    let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                    if index == 0 {
+                        seriesPath.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        seriesPath.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+
+                var fillPath = seriesPath
+                fillPath.addLine(to: CGPoint(x: chartRect.maxX, y: chartRect.maxY))
+                fillPath.addLine(to: CGPoint(x: chartRect.minX, y: chartRect.maxY))
+                fillPath.closeSubpath()
+                context.fill(fillPath, with: .color(ScientificChartPalette.fill))
+                context.stroke(seriesPath, with: .color(ScientificChartPalette.series), lineWidth: 1.6)
+
+                var axis = Path()
+                axis.move(to: CGPoint(x: chartRect.minX, y: chartRect.minY))
+                axis.addLine(to: CGPoint(x: chartRect.minX, y: chartRect.maxY))
+                axis.addLine(to: CGPoint(x: chartRect.maxX, y: chartRect.maxY))
+                context.stroke(axis, with: .color(ScientificChartPalette.axis), lineWidth: 1.0)
+            }
+        }
+    }
+}
 
 struct StatRow: View {
     let icon: String
     let title: String
     let value: String
-    
+
     var body: some View {
         HStack {
             Image(systemName: icon)
                 .foregroundColor(.blue)
                 .frame(width: 24)
             Text(title)
-                .foregroundColor(.primary)
             Spacer()
             Text(value)
                 .foregroundColor(.secondary)
@@ -409,17 +710,17 @@ struct StatRow: View {
     }
 }
 
-// MARK: - Audio Player Manager
+// MARK: - Audio Player
 
-class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isPlaying = false
     @Published var isLoaded = false
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
     @Published var scrubTime: TimeInterval = 0
-    
+
     var onAudioSamples: (([Float]) -> Void)?
-    
+
     private var engine = AVAudioEngine()
     private var playerNode = AVAudioPlayerNode()
     private var audioFile: AVAudioFile?
@@ -428,31 +729,31 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var sampleRate: Double = 44100.0
     private var wasPlayingBeforeScrub = false
     private let processingQueue = DispatchQueue(label: "com.spektowatch.audioprocessing", qos: .userInteractive)
-    
+
     override init() {
         super.init()
         setupEngine()
     }
-    
+
+    deinit {
+        engine.mainMixerNode.removeTap(onBus: 0)
+        engine.stop()
+    }
+
     private func setupEngine() {
         engine.attach(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
-        
-        // Install tap for visualization
+
         engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            guard let self = self, self.isPlaying else { return }
-            guard let channelData = buffer.floatChannelData else { return }
+            guard let self, self.isPlaying, let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            
-            // WICHTIG: Nicht auf Main Thread dispatchen!
-            // AudioEngine.processExternalAudio ist thread-safe und dispatched UI-Updates selbst.
             self.processingQueue.async {
                 self.onAudioSamples?(samples)
             }
         }
     }
-    
+
     func loadAudio(url: URL) {
         do {
             audioFile = try AVAudioFile(forReading: url)
@@ -461,55 +762,51 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 duration = Double(file.length) / sampleRate
             }
             isLoaded = true
-            print("[AudioPlayerManager] Audio loaded: \(url.lastPathComponent)")
         } catch {
             print("[AudioPlayerManager] ERROR loading audio: \(error.localizedDescription)")
         }
     }
-    
+
     func play() {
         guard let file = audioFile, !isPlaying else { return }
-        
-        // Configure Audio Session for Playback
+
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             print("[AudioPlayerManager] Session error: \(error)")
         }
-        
+
         if !engine.isRunning {
-            try? engine.start()
+            do {
+                try engine.start()
+            } catch {
+                print("[AudioPlayerManager] Engine start failed: \(error)")
+                return
+            }
         }
-        
-        // Schedule remaining frames
+
         let remainingFrames = AVAudioFrameCount(file.length - seekFrame)
         if remainingFrames > 0 {
             playerNode.scheduleSegment(file, startingFrame: seekFrame, frameCount: remainingFrames, at: nil) {
                 DispatchQueue.main.async {
-                    if self.isPlaying {
-                        self.stop() // Auto-stop at end
-                    }
+                    if self.isPlaying { self.stop() }
                 }
             }
         }
-        
+
         playerNode.play()
         isPlaying = true
         startTimer()
     }
-    
+
     func pause() {
         playerNode.pause()
         isPlaying = false
         stopTimer()
-        
-        // Store current position roughly
-        // Note: Precise pausing with AVAudioEngine requires more complex node time calculation
-        // For this simple player, we rely on the timer's last value
         seekFrame = AVAudioFramePosition(currentTime * sampleRate)
     }
-    
+
     func stop() {
         playerNode.stop()
         engine.stop()
@@ -518,7 +815,7 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         seekFrame = 0
         stopTimer()
     }
-    
+
     func beginScrubbing() {
         wasPlayingBeforeScrub = isPlaying
         if isPlaying {
@@ -526,61 +823,51 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             stopTimer()
         }
     }
-    
+
     func endScrubbing() {
         if wasPlayingBeforeScrub {
             play()
         }
     }
-    
+
     func seek(to time: TimeInterval) {
-        // Nur seeken, wenn wir nicht gerade aktiv abspielen (wird durch beginScrubbing pausiert)
-        // oder wenn wir programmgesteuert springen
-        if isPlaying {
+        let wasPlaying = isPlaying
+        if wasPlaying {
             playerNode.stop()
+            isPlaying = false
+            stopTimer()
         }
-        
+
         currentTime = time
         scrubTime = time
         seekFrame = AVAudioFramePosition(time * sampleRate)
-        
-        if isPlaying {
+
+        if wasPlaying {
             play()
         }
     }
-    
+
     func seek(by offset: TimeInterval) {
         let newTime = currentTime + offset
         seek(to: max(0, min(newTime, duration)))
     }
-    
+
     private func startTimer() {
         stopTimer()
-        // Schnellerer Timer für flüssigere UI (0.03s = ~30fps)
         updateTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
-            guard let self = self, self.isPlaying else { return }
-            
-            // Präzisere Zeitberechnung basierend auf Node Time
+            guard let self, self.isPlaying else { return }
             if let nodeTime = self.playerNode.lastRenderTime,
                let playerTime = self.playerNode.playerTime(forNodeTime: nodeTime) {
                 let currentFrame = self.seekFrame + playerTime.sampleTime
                 self.currentTime = Double(currentFrame) / self.sampleRate
-            } else {
-                // Fallback
-                if self.currentTime < self.duration {
-                    self.currentTime += 0.03
-                }
+            } else if self.currentTime < self.duration {
+                self.currentTime += 0.03
             }
         }
     }
-    
+
     private func stopTimer() {
         updateTimer?.invalidate()
         updateTimer = nil
-    }
-    
-    // AVAudioPlayerDelegate
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        // Handled in scheduleSegment completion
     }
 }

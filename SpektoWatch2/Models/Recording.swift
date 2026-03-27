@@ -30,7 +30,8 @@ struct Recording: Identifiable, Codable {
     let duration: TimeInterval
     
     // Audio-Daten
-    let audioFileName: String  // Referenz zur .wav/.m4a Datei
+    var audioFileName: String  // Referenz zur .wav/.m4a Datei
+    var measurementDataFileName: String?  // Referenz zur .spekto Datei
     let sampleRate: Double
     let channelCount: Int
     
@@ -47,6 +48,10 @@ struct Recording: Identifiable, Codable {
     // Mess-Konfiguration
     var timeWeighting: String   // "Fast" oder "Slow"
     var frequencyWeighting: String  // "A", "C" oder "Z"
+    var widgetConfigurations: Data?  // JSON-Snapshot der Dashboard-Widgets
+    var markers: [MeasurementMarker]?  // Benutzer-Marker
+    var calibrationOffset: Float
+    var fftBlockSize: Int
     
     // Computed property für location
     var location: CLLocationCoordinate2D? {
@@ -61,6 +66,7 @@ struct Recording: Identifiable, Codable {
         case startDate
         case duration
         case audioFileName
+        case measurementDataFileName
         case sampleRate
         case channelCount
         case laeqFast
@@ -71,6 +77,10 @@ struct Recording: Identifiable, Codable {
         case tags
         case timeWeighting
         case frequencyWeighting
+        case widgetConfigurations
+        case markers
+        case calibrationOffset
+        case fftBlockSize
     }
     
     init(
@@ -80,6 +90,7 @@ struct Recording: Identifiable, Codable {
         startDate: Date,
         duration: TimeInterval,
         audioFileName: String,
+        measurementDataFileName: String? = nil,
         sampleRate: Double = 44100.0,
         channelCount: Int = 1,
         laeqFast: Float = -120.0,
@@ -89,7 +100,11 @@ struct Recording: Identifiable, Codable {
         photoFileNames: [String] = [],
         tags: [String] = [],
         timeWeighting: String = "Fast",
-        frequencyWeighting: String = "A"
+        frequencyWeighting: String = "A",
+        widgetConfigurations: Data? = nil,
+        markers: [MeasurementMarker]? = nil,
+        calibrationOffset: Float = 94.0,
+        fftBlockSize: Int = 4096
     ) {
         self.id = id
         self.name = name
@@ -97,6 +112,7 @@ struct Recording: Identifiable, Codable {
         self.startDate = startDate
         self.duration = duration
         self.audioFileName = audioFileName
+        self.measurementDataFileName = measurementDataFileName
         self.sampleRate = sampleRate
         self.channelCount = channelCount
         self.laeqFast = laeqFast
@@ -107,6 +123,10 @@ struct Recording: Identifiable, Codable {
         self.tags = tags
         self.timeWeighting = timeWeighting
         self.frequencyWeighting = frequencyWeighting
+        self.widgetConfigurations = widgetConfigurations
+        self.markers = markers
+        self.calibrationOffset = calibrationOffset
+        self.fftBlockSize = fftBlockSize
     }
     
     /// Formatierte Anzeige der Dauer
@@ -123,5 +143,35 @@ struct Recording: Identifiable, Codable {
         formatter.timeStyle = .short
         formatter.locale = Locale(identifier: "de_DE")
         return formatter.string(from: startDate)
+    }
+
+    /// Datei-Titel für Listenansicht
+    var title: String {
+        name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Aufnahme"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        startDate = try container.decodeIfPresent(Date.self, forKey: .startDate) ?? Date()
+        duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
+        audioFileName = try container.decodeIfPresent(String.self, forKey: .audioFileName) ?? ""
+        measurementDataFileName = try container.decodeIfPresent(String.self, forKey: .measurementDataFileName)
+        sampleRate = try container.decodeIfPresent(Double.self, forKey: .sampleRate) ?? 44100.0
+        channelCount = try container.decodeIfPresent(Int.self, forKey: .channelCount) ?? 1
+        laeqFast = try container.decodeIfPresent(Float.self, forKey: .laeqFast) ?? -120.0
+        peakLevel = try container.decodeIfPresent(Float.self, forKey: .peakLevel) ?? -120.0
+        minLevel = try container.decodeIfPresent(Float.self, forKey: .minLevel) ?? -120.0
+        _location = try container.decodeIfPresent(CodableCoordinate.self, forKey: ._location)
+        photoFileNames = try container.decodeIfPresent([String].self, forKey: .photoFileNames) ?? []
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        timeWeighting = try container.decodeIfPresent(String.self, forKey: .timeWeighting) ?? "Fast"
+        frequencyWeighting = try container.decodeIfPresent(String.self, forKey: .frequencyWeighting) ?? "A"
+        widgetConfigurations = try container.decodeIfPresent(Data.self, forKey: .widgetConfigurations)
+        markers = try container.decodeIfPresent([MeasurementMarker].self, forKey: .markers)
+        calibrationOffset = try container.decodeIfPresent(Float.self, forKey: .calibrationOffset) ?? 94.0
+        fftBlockSize = try container.decodeIfPresent(Int.self, forKey: .fftBlockSize) ?? 4096
     }
 }

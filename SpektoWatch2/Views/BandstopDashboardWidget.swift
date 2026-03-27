@@ -74,7 +74,7 @@ struct BandstopDashboardWidget: View {
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .cornerRadius(12)
         .sheet(isPresented: $showFullSettings) {
-            BandstopFilterSettingsView(filters: $filterManager.filters)
+            BandstopFilterSettingsView(filters: $filterManager.filters, onFilterChanged: filterManager.updateFilter)
         }
     }
     
@@ -187,7 +187,7 @@ struct BandstopMiniWidget: View {
         }
         .buttonStyle(PlainButtonStyle())
         .sheet(isPresented: $showFullSettings) {
-            BandstopFilterSettingsView(filters: $filterManager.filters)
+            BandstopFilterSettingsView(filters: $filterManager.filters, onFilterChanged: filterManager.updateFilter)
         }
     }
     

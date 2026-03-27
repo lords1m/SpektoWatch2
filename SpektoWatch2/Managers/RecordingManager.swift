@@ -8,7 +8,11 @@ class RecordingManager: ObservableObject {
     @Published var recordings: [Recording] = []
     @Published var isRecording: Bool = false
     @Published var currentRecordingDuration: TimeInterval = 0
-    
+
+    // Preserved after stopRecording so saveRecording can read the correct values
+    private(set) var lastRecordingDuration: TimeInterval = 0
+    private(set) var lastRecordingStart: Date?
+
     private var recordingTimer: Timer?
     private var currentRecordingStart: Date?
     private var audioRecorder: AVAudioRecorder?
@@ -95,17 +99,20 @@ class RecordingManager: ObservableObject {
         audioRecorder?.stop()
         recordingTimer?.invalidate()
         recordingTimer = nil
-        
+
         let audioURL = audioRecorder?.url
-        let duration = currentRecordingDuration
-        
+        // Preserve for saveRecording before clearing live state
+        lastRecordingDuration = currentRecordingDuration
+        lastRecordingStart = currentRecordingStart
+
         isRecording = false
         currentRecordingDuration = 0
+        currentRecordingStart = nil
         
         // Berechne Statistiken aus AudioEngine
         let stats = audioEngine.getRecordingStatistics()
         
-        print("[RecordingManager] Recording stopped. Duration: \(String(format: "%.1f", duration))s")
+        print("[RecordingManager] Recording stopped. Duration: \(String(format: "%.1f", lastRecordingDuration))s")
         print("[RecordingManager] LAeq,Fast: \(String(format: "%.1f", stats.laeqFast)) dB")
         print("[RecordingManager] Peak: \(String(format: "%.1f", stats.peak)) dB")
         
@@ -126,8 +133,8 @@ class RecordingManager: ObservableObject {
         let recording = Recording(
             name: name.isEmpty ? "Messung \(recordings.count + 1)" : name,
             description: description,
-            startDate: currentRecordingStart ?? Date(),
-            duration: currentRecordingDuration,
+            startDate: lastRecordingStart ?? Date(),
+            duration: lastRecordingDuration,
             audioFileName: audioURL.lastPathComponent,
             sampleRate: 44100.0,
             channelCount: 1,

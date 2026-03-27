@@ -6,60 +6,55 @@ struct LevelHistoryWidget: View {
     @StateObject private var loudnessCalculator = LoudnessCalculator()
     @State private var phonValue: Double?
     @State private var soneValue: Double?
+
+    private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
+    private var resolvedFrequencyWeighting: String {
+        if useWidgetOverrides {
+            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
+        }
+        return audioEngine.frequencyWeighting.rawValue
+    }
+    private var resolvedTimeWeighting: String {
+        if useWidgetOverrides {
+            return settings["timeWeighting"] ?? audioEngine.timeWeighting.rawValue
+        }
+        return audioEngine.timeWeighting.rawValue
+    }
     
     var metricLabel: String {
-        "L\(settings["freqWeighting"] ?? "A")\(settings["timeWeighting"]?.prefix(1) ?? "F")"
+        "L\(resolvedFrequencyWeighting)\(resolvedTimeWeighting.prefix(1))"
     }
     
     var body: some View {
-        HStack(spacing: 4) {
-            // Y-Axis
-            GeometryReader { geo in
-                ZStack(alignment: .topTrailing) {
-                    Text("100")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                        .position(x: 17.5, y: 8)
-                    Text("50")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                        .position(x: 17.5, y: geo.size.height / 2)
-                    Text("0")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                        .position(x: 17.5, y: geo.size.height - 8)
+        LevelHistoryView(
+            audioEngine: audioEngine,
+            settings: settings,
+            scrollSpeed: .fast,
+            isPaused: false,
+            scrollOffset: 0.0
+        )
+        .cornerRadius(10)
+        .overlay(alignment: .topLeading) {
+            Text(metricLabel)
+                .font(.caption)
+                .foregroundColor(.white)
+                .padding(4)
+                .background(Color.black.opacity(0.5))
+                .cornerRadius(4)
+                .padding(4)
+        }
+        .overlay(alignment: .topTrailing) {
+            if let phon = phonValue, let sone = soneValue {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(String(format: "%.1f phon", phon))
+                    Text(String(format: "%.2f sone", sone))
                 }
-            }
-            .frame(width: 35)
-            
-            LevelHistoryView(
-                audioEngine: audioEngine,
-                settings: settings,
-                scrollSpeed: .fast,
-                isPaused: false,
-                scrollOffset: 0.0
-            )
-            .cornerRadius(10)
-            .overlay(alignment: .topLeading) {
-                Text(metricLabel)
-                    .font(.caption)
-                    .padding(4)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(4)
-                    .padding(4)
-            }
-            .overlay(alignment: .topTrailing) {
-                if let phon = phonValue, let sone = soneValue {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(String(format: "%.1f phon", phon))
-                        Text(String(format: "%.2f sone", sone))
-                    }
-                    .font(.caption2)
-                    .padding(4)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(4)
-                    .padding(4)
-                }
+                .font(.caption2)
+                .foregroundColor(.white)
+                .padding(4)
+                .background(Color.black.opacity(0.5))
+                .cornerRadius(4)
+                .padding(4)
             }
         }
         .onReceive(audioEngine.$currentSpectrogramData) { data in

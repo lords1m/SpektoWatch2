@@ -2,17 +2,27 @@ import SwiftUI
 
 struct DashboardHeaderView: View {
     @Binding var isEditMode: Bool
+    var currentLayoutName: String
     var onAddWidget: () -> Void
+    var onAddLayout: () -> Void
+    var onSaveLayout: () -> Void
+    var onShowLayouts: () -> Void
     var onShowSettings: () -> Void
     
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Dashboard")
-                    .font(.title2)
-                    .bold()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dashboard")
+                        .font(.title2)
+                        .bold()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Text(currentLayoutName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 
                 Spacer()
                 
@@ -23,6 +33,23 @@ struct DashboardHeaderView: View {
                             .foregroundColor(.primary)
                     }
                     .padding(.trailing, 10)
+
+                    Menu {
+                        Button(action: onAddLayout) {
+                            Label("Neue Seite", systemImage: "rectangle.stack.badge.plus")
+                        }
+                        Button(action: onSaveLayout) {
+                            Label("Aktuelle Seite speichern", systemImage: "square.on.square")
+                        }
+                        Button(action: onShowLayouts) {
+                            Label("Layouts abrufen", systemImage: "list.bullet.rectangle.portrait")
+                        }
+                    } label: {
+                        Image(systemName: "rectangle.stack")
+                            .font(.title3)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.trailing, 8)
                 }
                 
                 if isEditMode {

@@ -76,8 +76,9 @@ struct WatchDashboardView: View {
 
     @State private var crownValue: Double = 0.0
     @State private var isArmed: Bool = false
-    @State private var isRecording: Bool = false
     @FocusState private var crownFocused: Bool
+
+    private var isRecording: Bool { audioEngine.isRecording }
 
     private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 6), count: 2)
     private let values: [WatchSingleValueType] = [.laeq, .lafMax, .lafMin, .lceq]
@@ -167,7 +168,6 @@ struct WatchDashboardView: View {
                 } else {
                     connectivityManager.requestRecordingStart()
                 }
-                isRecording.toggle()
                 isArmed = false
                 crownValue = 0.0
                 WKInterfaceDevice.current().play(.success)

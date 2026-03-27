@@ -58,3 +58,19 @@ struct WidgetConfiguration: Identifiable, Codable {
         }
     }
 }
+
+enum WidgetSettings {
+    static let useWidgetOverridesKey = "useWidgetOverrides"
+    static let defaultSpectrogramColormap = 0
+    static let defaultTimeSpanSeconds = 5
+    static let defaultSpectrogramSensitivity: Float = 90.0
+    static let defaultSpectrumBandMode = "terz"
+    static let defaultSingleValueMetric = "LAF"
+
+    static func usesWidgetOverrides(_ settings: [String: String]) -> Bool {
+        guard let rawValue = settings[useWidgetOverridesKey]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return rawValue == "1" || rawValue == "true" || rawValue == "yes" || rawValue == "on"
+    }
+}

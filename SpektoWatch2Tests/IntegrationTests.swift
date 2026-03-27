@@ -207,7 +207,8 @@ final class IntegrationTests: XCTestCase {
             _ = processor.process(
                 frequencies: frequencies,
                 dbMagnitudes: dbMagnitudes,
-                sampleRate: 44100.0
+                sampleRate: 44100.0,
+                smoothingTrack: .z
             )
         }
         let totalMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0

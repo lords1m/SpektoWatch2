@@ -71,10 +71,14 @@ class ToneGenerator: ObservableObject {
         guard !isPlaying else { return }
 
         do {
-            // Configure audio session for playback
+            // Configure audio session for playback only if it is not already set up
+            // for a compatible category to avoid disrupting active microphone capture.
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
-            try session.setActive(true)
+            let currentCategory = session.category
+            if currentCategory != .playAndRecord && currentCategory != .playback {
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
+                try session.setActive(true)
+            }
 
             audioEngine = AVAudioEngine()
             guard let engine = audioEngine else { return }
@@ -90,13 +94,16 @@ class ToneGenerator: ObservableObject {
                     return noErr
                 }
 
+                // Snapshot @Published properties under the lock before render loop
+                // to avoid data races with main-thread writes.
+                self.phaseLock.lock()
                 let freq = Double(self.frequency)
                 let amp = Double(self.amplitude)
                 let waveformType = self.waveform
-                let phaseIncrement = 2.0 * .pi * freq / self.sampleRate
-
-                self.phaseLock.lock()
                 var currentPhase = self.phase
+                self.phaseLock.unlock()
+
+                let phaseIncrement = 2.0 * .pi * freq / self.sampleRate
 
                 for frame in 0..<Int(frameCount) {
                     let sample: Double
@@ -121,6 +128,7 @@ class ToneGenerator: ObservableObject {
                     }
                 }
 
+                self.phaseLock.lock()
                 self.phase = currentPhase
                 self.phaseLock.unlock()
 

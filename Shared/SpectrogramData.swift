@@ -94,23 +94,48 @@ public struct SpectrogramData: Codable {
         let floatSize = MemoryLayout<Float>.size
         let doubleSize = MemoryLayout<Double>.size
         let int32Size = MemoryLayout<Int32>.size
+
+        func readInt32(_ bytes: Data, _ offset: inout Int) -> Int32? {
+            guard bytes.count >= offset + int32Size else { return nil }
+            var value: Int32 = 0
+            _ = withUnsafeMutableBytes(of: &value) { destination in
+                bytes.copyBytes(to: destination, from: offset..<(offset + int32Size))
+            }
+            offset += int32Size
+            return Int32(littleEndian: value)
+        }
+
+        func readFloat(_ bytes: Data, _ offset: inout Int) -> Float? {
+            guard bytes.count >= offset + floatSize else { return nil }
+            var bits: UInt32 = 0
+            _ = withUnsafeMutableBytes(of: &bits) { destination in
+                bytes.copyBytes(to: destination, from: offset..<(offset + floatSize))
+            }
+            offset += floatSize
+            return Float(bitPattern: UInt32(littleEndian: bits))
+        }
+
+        func readDouble(_ bytes: Data, _ offset: inout Int) -> Double? {
+            guard bytes.count >= offset + doubleSize else { return nil }
+            var bits: UInt64 = 0
+            _ = withUnsafeMutableBytes(of: &bits) { destination in
+                bytes.copyBytes(to: destination, from: offset..<(offset + doubleSize))
+            }
+            offset += doubleSize
+            return Double(bitPattern: UInt64(littleEndian: bits))
+        }
         
         var offset = 0
         
         // 1. Broadband Level
-        guard data.count >= offset + floatSize else { return nil }
-        let broadbandLevel = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Float.self) }
-        offset += floatSize
+        guard let broadbandLevel = readFloat(data, &offset) else { return nil }
         
         // 2. Sample Rate
-        guard data.count >= offset + doubleSize else { return nil }
-        let sampleRate = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Double.self) }
-        offset += doubleSize
+        guard let sampleRate = readDouble(data, &offset) else { return nil }
         
         // 3. Magnitudes
-        guard data.count >= offset + int32Size else { return nil }
-        let magCount = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Int32.self) })
-        offset += int32Size
+        guard let magCountRaw = readInt32(data, &offset) else { return nil }
+        let magCount = Int(magCountRaw)
         
         let magByteCount = magCount * floatSize
         guard data.count >= offset + magByteCount else { return nil }
@@ -120,9 +145,8 @@ public struct SpectrogramData: Codable {
         offset += magByteCount
         
         // 4. Frequencies
-        guard data.count >= offset + int32Size else { return nil }
-        let freqCount = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Int32.self) })
-        offset += int32Size
+        guard let freqCountRaw = readInt32(data, &offset) else { return nil }
+        let freqCount = Int(freqCountRaw)
         
         let freqByteCount = freqCount * floatSize
         guard data.count >= offset + freqByteCount else { return nil }
@@ -132,24 +156,20 @@ public struct SpectrogramData: Codable {
         offset += freqByteCount
         
         // 5. Levels
-        guard data.count >= offset + int32Size else { return nil }
-        let levelsCount = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Int32.self) })
-        offset += int32Size
+        guard let levelsCountRaw = readInt32(data, &offset) else { return nil }
+        let levelsCount = Int(levelsCountRaw)
         
         var levels = [String: Float]()
         for _ in 0..<levelsCount {
-            guard data.count >= offset + int32Size else { return nil }
-            let keyLen = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Int32.self) })
-            offset += int32Size
+            guard let keyLenRaw = readInt32(data, &offset) else { return nil }
+            let keyLen = Int(keyLenRaw)
             
             guard data.count >= offset + keyLen else { return nil }
             let keyData = data.subdata(in: offset..<offset+keyLen)
             guard let key = String(data: keyData, encoding: .utf8) else { return nil }
             offset += keyLen
             
-            guard data.count >= offset + floatSize else { return nil }
-            let val = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Float.self) }
-            offset += floatSize
+            guard let val = readFloat(data, &offset) else { return nil }
             
             levels[key] = val
         }
@@ -202,18 +222,35 @@ public struct AudioData: Codable {
         let doubleSize = MemoryLayout<Double>.size
         let int32Size = MemoryLayout<Int32>.size
         let floatSize = MemoryLayout<Float>.size
+
+        func readInt32(_ bytes: Data, _ offset: inout Int) -> Int32? {
+            guard bytes.count >= offset + int32Size else { return nil }
+            var value: Int32 = 0
+            _ = withUnsafeMutableBytes(of: &value) { destination in
+                bytes.copyBytes(to: destination, from: offset..<(offset + int32Size))
+            }
+            offset += int32Size
+            return Int32(littleEndian: value)
+        }
+
+        func readDouble(_ bytes: Data, _ offset: inout Int) -> Double? {
+            guard bytes.count >= offset + doubleSize else { return nil }
+            var bits: UInt64 = 0
+            _ = withUnsafeMutableBytes(of: &bits) { destination in
+                bytes.copyBytes(to: destination, from: offset..<(offset + doubleSize))
+            }
+            offset += doubleSize
+            return Double(bitPattern: UInt64(littleEndian: bits))
+        }
         
         var offset = 0
         
         // 1. Sample Rate
-        guard data.count >= offset + doubleSize else { return nil }
-        let sampleRate = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Double.self) }
-        offset += doubleSize
+        guard let sampleRate = readDouble(data, &offset) else { return nil }
         
         // 2. Sample Count
-        guard data.count >= offset + int32Size else { return nil }
-        let count = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: Int32.self) })
-        offset += int32Size
+        guard let countRaw = readInt32(data, &offset) else { return nil }
+        let count = Int(countRaw)
         
         // 3. Samples
         let samplesByteCount = count * floatSize

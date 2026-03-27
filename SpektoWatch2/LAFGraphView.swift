@@ -7,74 +7,132 @@ struct LevelHistoryView: View {
     var isPaused: Bool
     var scrollOffset: Float
     
-    var timeSpan: SpectrogramTimeSpan { SpectrogramTimeSpan(rawValue: Int(settings["timeSpan"] ?? "5") ?? 5) ?? .seconds5 }
-    var freqWeighting: String { settings["freqWeighting"] ?? "A" }
-    var timeWeighting: String { settings["timeWeighting"] ?? "Fast" }
+    private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
+    var timeSpan: SpectrogramTimeSpan {
+        let fallback = WidgetSettings.defaultTimeSpanSeconds
+        guard useWidgetOverrides else {
+            return SpectrogramTimeSpan(rawValue: fallback) ?? .seconds5
+        }
+        let raw = Int(settings["timeSpan"] ?? String(fallback)) ?? fallback
+        return SpectrogramTimeSpan(rawValue: raw) ?? SpectrogramTimeSpan(rawValue: fallback) ?? .seconds5
+    }
+    var freqWeighting: String {
+        if useWidgetOverrides {
+            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
+        }
+        return audioEngine.frequencyWeighting.rawValue
+    }
+    var timeWeighting: String {
+        if useWidgetOverrides {
+            return settings["timeWeighting"] ?? audioEngine.timeWeighting.rawValue
+        }
+        return audioEngine.timeWeighting.rawValue
+    }
     
     // AudioEngine liefert bereits kalibrierte dB SPL Werte
     let dbOffset: Float = 0.0
     
     @State private var levelBuffer: [Float] = []
     @State private var writeIndex: Int = 0
+    @State private var observedSampleRate: Double = 44100.0
     
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(UIColor.systemBackground))
-                
                 Canvas { context, size in
                     guard !levelBuffer.isEmpty else { return }
                     
                     let width = size.width
                     let height = size.height
                     let count = levelBuffer.count
-                    
-                    // Scale: 0 dB (bottom) to 100 dB (top) Absolute
-                    let minDB: Float = 0.0
-                    let maxDB: Float = 100.0
-                    let range = maxDB - minDB
-                    
+
+                    let leftPadding: CGFloat = 36
+                    let rightPadding: CGFloat = 8
+                    let topPadding: CGFloat = 8
+                    let bottomPadding: CGFloat = 20
+                    let chartRect = CGRect(
+                        x: leftPadding,
+                        y: topPadding,
+                        width: max(1, width - leftPadding - rightPadding),
+                        height: max(1, height - topPadding - bottomPadding)
+                    )
+
+                    let minDB: Double = 20
+                    let maxDB: Double = 110
+                    let majorTicks = ScientificAxis.majorTicks(min: minDB, max: maxDB, targetTicks: 9)
+                    let minorTicks = ScientificAxis.minorTicks(major: majorTicks, subdivisions: 2)
+
+                    for tick in minorTicks where tick >= minDB && tick <= maxDB {
+                        let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
+                        let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                        var grid = Path()
+                        grid.move(to: CGPoint(x: chartRect.minX, y: y))
+                        grid.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                        context.stroke(grid, with: .color(ScientificChartPalette.gridMinor), lineWidth: 0.5)
+                    }
+
+                    for tick in majorTicks where tick >= minDB && tick <= maxDB {
+                        let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
+                        let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                        var grid = Path()
+                        grid.move(to: CGPoint(x: chartRect.minX, y: y))
+                        grid.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                        context.stroke(grid, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.8)
+
+                        let label = Text("\(Int(tick))").font(.system(size: 9, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis)
+                        context.draw(label, at: CGPoint(x: chartRect.minX - 16, y: y))
+                    }
+
+                    let timeDivisions = 5
+                    for division in 0...timeDivisions {
+                        let x = chartRect.minX + CGFloat(division) / CGFloat(timeDivisions) * chartRect.width
+                        var vGrid = Path()
+                        vGrid.move(to: CGPoint(x: x, y: chartRect.minY))
+                        vGrid.addLine(to: CGPoint(x: x, y: chartRect.maxY))
+                        context.stroke(vGrid, with: .color(ScientificChartPalette.gridMinor), lineWidth: 0.5)
+
+                        let secondsFromNow = Double(timeSpan.rawValue) * (Double(division) / Double(timeDivisions) - 1.0)
+                        let label = Text(String(format: "%.1fs", secondsFromNow))
+                            .font(.system(size: 8, weight: .regular, design: .monospaced))
+                            .foregroundColor(ScientificChartPalette.axis)
+                        context.draw(label, at: CGPoint(x: x, y: chartRect.maxY + 10))
+                    }
+
                     var path = Path()
-                    
                     let offsetSamples = Int(scrollOffset * Float(count))
-                    
                     for i in 0..<count {
-                        let x = width * CGFloat(i) / CGFloat(count - 1)
-                        
-                        // Ring buffer index
+                        let x = chartRect.minX + chartRect.width * CGFloat(i) / CGFloat(max(count - 1, 1))
                         let index = (writeIndex + offsetSamples - i + 2 * count) % count
-                        let level = levelBuffer[index]
-                        let absLevel = level + dbOffset
-                        let clampedLevel = max(minDB, min(maxDB, absLevel))
-                        
-                        // Map level to height
-                        let normalized = CGFloat((clampedLevel - minDB) / range)
-                        let y = height * (1.0 - normalized)
-                        
+                        let level = Double(levelBuffer[index] + dbOffset)
+                        let clampedLevel = min(max(level, minDB), maxDB)
+                        let yNorm = ScientificAxis.normalized(clampedLevel, min: minDB, max: maxDB)
+                        let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
                         if i == 0 {
                             path.move(to: CGPoint(x: x, y: y))
                         } else {
                             path.addLine(to: CGPoint(x: x, y: y))
                         }
                     }
-                    
-                    // Stroke
-                    context.stroke(path, with: .color(Color.primary), lineWidth: 2.0)
-                    
-                    // Fill (Gradient)
+
                     var fillPath = path
-                    fillPath.addLine(to: CGPoint(x: width, y: height))
-                    fillPath.addLine(to: CGPoint(x: 0, y: height))
+                    fillPath.addLine(to: CGPoint(x: chartRect.maxX, y: chartRect.maxY))
+                    fillPath.addLine(to: CGPoint(x: chartRect.minX, y: chartRect.maxY))
                     fillPath.closeSubpath()
-                    
-                    let gradient = Gradient(colors: [Color.primary.opacity(0.3), Color.primary.opacity(0.0)])
-                    context.fill(fillPath, with: .linearGradient(gradient, startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: height)))
+                    context.fill(fillPath, with: .color(ScientificChartPalette.fill))
+                    context.stroke(path, with: .color(ScientificChartPalette.series), lineWidth: 1.6)
+
+                    var axisPath = Path()
+                    axisPath.move(to: CGPoint(x: chartRect.minX, y: chartRect.minY))
+                    axisPath.addLine(to: CGPoint(x: chartRect.minX, y: chartRect.maxY))
+                    axisPath.addLine(to: CGPoint(x: chartRect.maxX, y: chartRect.maxY))
+                    context.stroke(axisPath, with: .color(ScientificChartPalette.axis), lineWidth: 1.0)
                 }
-            }.drawingGroup() // Metal acceleration
+            }
+            .drawingGroup()
         }
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard let data = data, !isPaused else { return }
+            observedSampleRate = data.sampleRate
             // Construct key like "LAF", "LCS", etc.
             let key = "L\(freqWeighting)\(timeWeighting.prefix(1))"
             let level = data.levels[key] ?? data.broadbandLevel
@@ -87,7 +145,7 @@ struct LevelHistoryView: View {
     }
     
     private func resetBuffer() {
-        let updateRate = 44100.0 / Double(scrollSpeed.rawValue)
+        let updateRate = observedSampleRate / Double(max(scrollSpeed.rawValue, 1))
         let columns = Int(Double(timeSpan.rawValue) * updateRate)
         let safeColumns = max(10, columns)
         levelBuffer = [Float](repeating: -120.0, count: safeColumns)

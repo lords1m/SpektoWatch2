@@ -3,12 +3,6 @@ import WatchConnectivity
 import Combine
 import os.signpost
 
-extension Notification.Name {
-    static let startRecordingCommand = Notification.Name("startRecordingCommand")
-    static let stopRecordingCommand = Notification.Name("stopRecordingCommand")
-    static let gainOrBandwidthChangedNotification = Notification.Name("gainOrBandwidthChangedNotification")
-}
-
 class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.connectivity")
@@ -71,7 +65,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             return
         }
 
-        let message = ["microphoneSource": source.rawValue]
+        let message: [String: Any] = ["type": "microphoneSource", "source": source.rawValue]
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending microphone source: \(error.localizedDescription)")
         }
@@ -83,8 +77,8 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             print("[WCM] Error: Not reachable")
             return
         }
-
-        let message = ["command": "startRecording"]
+        // Key "type" matches what the iOS-side WatchConnectivityManager expects.
+        let message: [String: Any] = ["type": "startRecording"]
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending start command: \(error.localizedDescription)")
         }
@@ -96,15 +90,15 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             print("[WCM] Error: Not reachable")
             return
         }
-
-        let message = ["command": "stopRecording"]
+        let message: [String: Any] = ["type": "stopRecording"]
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending stop command: \(error.localizedDescription)")
         }
     }
 
     func sendGainValue(_ gain: Float) {
-        let message = ["gain": gain]
+        guard WCSession.default.isReachable else { return }
+        let message: [String: Any] = ["type": "gain", "value": gain]
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending gain: \(error.localizedDescription)")
         }
@@ -235,52 +229,54 @@ extension WatchConnectivityManager: WCSessionDelegate {
         os_signpost(.begin, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID) }
 
-        if let jsonString = message["spectrogramData"] as? String,
-           let jsonData = jsonString.data(using: .utf8) {
-            do {
-                let decoder = JSONDecoder()
-                let data = try decoder.decode(SpectrogramData.self, from: jsonData)
-
-                DispatchQueue.main.async {
-                    self.spectrogramData = data
-                }
-            } catch {
-                print("Error decoding spectrogram data: \(error)")
-            }
-        } else if let jsonString = message["audioData"] as? String,
-                  let jsonData = jsonString.data(using: .utf8) {
-            do {
-                let decoder = JSONDecoder()
-                let data = try decoder.decode(AudioData.self, from: jsonData)
-
-                DispatchQueue.main.async {
-                    self.audioData = data
-                }
-            } catch {
-                print("Error decoding audio data: \(error)")
-            }
-        } else if let sourceString = message["microphoneSource"] as? String,
-                  let source = MicrophoneSource(rawValue: sourceString) {
-            DispatchQueue.main.async {
-                self.selectedMicrophoneSource = source
-                self.onMicrophoneSourceChanged?(source)
-            }
-        } else if let command = message["command"] as? String {
-            print("[WCM] Received command '\(command)'")
-            if command == "startRecording" {
+        // The iOS-side uses a ["type": "..."] envelope for all control messages.
+        if let type = message["type"] as? String {
+            switch type {
+            case "startRecording":
                 NotificationCenter.default.post(name: .startRecordingCommand, object: nil)
-            } else if command == "stopRecording" {
+            case "stopRecording":
                 NotificationCenter.default.post(name: .stopRecordingCommand, object: nil)
+            case "gain":
+                if let gain = message["value"] as? Float {
+                    NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
+                }
+            case "microphoneSource":
+                if let sourceString = message["source"] as? String,
+                   let source = MicrophoneSource(rawValue: sourceString) {
+                    DispatchQueue.main.async {
+                        self.selectedMicrophoneSource = source
+                        self.onMicrophoneSourceChanged?(source)
+                    }
+                }
+            case "watchDashboardConfig":
+                if let configString = message["config"] as? String,
+                   let configData = configString.data(using: .utf8),
+                   let config = WatchDashboardConfig.decode(from: configData) {
+                    DispatchQueue.main.async {
+                        self.watchDashboardConfig = config
+                        NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
+                        print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
+                    }
+                }
+            default:
+                print("[WCM] Unknown message type: \(type)")
             }
-        } else if let gain = message["gain"] as? Float {
-            NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
-        } else if let configString = message["watchDashboardConfig"] as? String,
-                  let configData = configString.data(using: .utf8),
-                  let config = WatchDashboardConfig.decode(from: configData) {
-            DispatchQueue.main.async {
-                self.watchDashboardConfig = config
-                NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
-                print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
+        }
+    }
+
+    /// Handles binary-encoded spectrogram (0x01) and audio (0x02) data from iOS.
+    func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
+        guard !messageData.isEmpty else { return }
+        let type = messageData[0]
+        let payload = messageData.dropFirst()
+
+        if type == 0x01 {
+            if let specData = SpectrogramData.fromBinaryData(payload) {
+                DispatchQueue.main.async { self.spectrogramData = specData }
+            }
+        } else if type == 0x02 {
+            if let audioData = AudioData.fromBinaryData(payload) {
+                DispatchQueue.main.async { self.audioData = audioData }
             }
         }
     }

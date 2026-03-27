@@ -5,7 +5,13 @@ struct SingleValueWidget: View {
     var settings: [String: String]
     @StateObject private var loudnessCalculator = LoudnessCalculator()
     
-    var metricKey: String { settings["metric"] ?? "LAF" }
+    private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
+    var metricKey: String {
+        if useWidgetOverrides {
+            return settings["metric"] ?? WidgetSettings.defaultSingleValueMetric
+        }
+        return WidgetSettings.defaultSingleValueMetric
+    }
     
     var displayTitle: String {
         switch metricKey {

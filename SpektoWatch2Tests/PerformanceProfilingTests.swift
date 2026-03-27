@@ -132,11 +132,11 @@ final class PerformanceProfilingTests: XCTestCase {
 
         processor.binningFactor = 2
         (fullUs, fullFPS) = bench(n: n) {
-            _ = processor.process(frequencies: freqs, dbMagnitudes: dbMags, sampleRate: sr)
+            _ = processor.process(frequencies: freqs, dbMagnitudes: dbMags, sampleRate: sr, smoothingTrack: .z)
         }
         processor.binningFactor = 1
         (noBinUs, noBinFPS) = bench(n: n) {
-            _ = processor.process(frequencies: freqs, dbMagnitudes: dbMags, sampleRate: sr)
+            _ = processor.process(frequencies: freqs, dbMagnitudes: dbMags, sampleRate: sr, smoothingTrack: .z)
         }
 
         let binCost = max(0.0, fullUs - noBinUs)
@@ -177,12 +177,12 @@ final class PerformanceProfilingTests: XCTestCase {
 
         // Erster Aufruf: baut Mapping-Cache auf (2048 Bins mit log-Mathematik)
         let buildStart = CFAbsoluteTimeGetCurrent()
-        adapter.updateWithFFTMagnitudes(dbMags, timestamp: now)
+        adapter.updateWithFFTMagnitudes(dbMags, sampleRate: sampleRate, timestamp: now)
         let buildUs = (CFAbsoluteTimeGetCurrent() - buildStart) * 1_000_000.0
 
         // Folgeaufrufe: Cache gecacht, nur Texture-Column-Write
         let (cachedUs, cachedFPS) = bench(n: iterations) {
-            adapter.updateWithFFTMagnitudes(dbMags, timestamp: now)
+            adapter.updateWithFFTMagnitudes(dbMags, sampleRate: sampleRate, timestamp: now)
         }
 
         print("\n┌──────────────────────────────────────────────────────────┐")
@@ -284,7 +284,7 @@ final class PerformanceProfilingTests: XCTestCase {
         // Shared static instance avoids os_signpost TaskLocal deinit crash.
         var procUs: Double = 0
         (procUs, _) = bench(n: 300) {
-            _ = Self.sharedSpectProc.process(frequencies: freqs, dbMagnitudes: dbMags, sampleRate: sampleRate)
+            _ = Self.sharedSpectProc.process(frequencies: freqs, dbMagnitudes: dbMags, sampleRate: sampleRate, smoothingTrack: .z)
         }
 
         let cpuTotal  = fftUs + dbUs + weightUs + procUs

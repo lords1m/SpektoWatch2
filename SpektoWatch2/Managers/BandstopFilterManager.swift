@@ -120,27 +120,28 @@ class BandstopFilterManager: ObservableObject {
             let endIndex = frequencies.partitionPoint { $0 <= maxFreq }
             
             if startIndex < endIndex {
-                // Apply attenuation with smooth cosine taper
+                // Apply attenuation with smooth cosine taper at the edges of the stop band.
+                // Zones (outside → inside):
+                //   pass (1.0) | lower taper [minFreq, lowFrequency) | stop (0.0) | upper taper (highFrequency, maxFreq] | pass (1.0)
                 for i in startIndex..<endIndex {
                     let freq = frequencies[i]
-                    var attenuation: Float = 1.0
-                    
+                    let attenuation: Float
+
                     if freq >= filter.lowFrequency && freq <= filter.highFrequency {
-                        // Inside bandstop region
-                        if freq < filter.lowFrequency + transitionWidth {
-                            // Lower transition
-                            let position = (freq - filter.lowFrequency) / transitionWidth
-                            attenuation = (1.0 - cos(position * .pi)) / 2.0
-                        } else if freq > filter.highFrequency - transitionWidth {
-                            // Upper transition
-                            let position = (filter.highFrequency - freq) / transitionWidth
-                            attenuation = (1.0 - cos(position * .pi)) / 2.0
-                        } else {
-                            // Full attenuation
-                            attenuation = 0.0
-                        }
+                        // Full stop band
+                        attenuation = 0.0
+                    } else if freq >= minFreq && freq < filter.lowFrequency {
+                        // Lower transition: fade from pass (1.0) to full block (0.0)
+                        let position = (freq - minFreq) / transitionWidth  // 0 → 1
+                        attenuation = (1.0 + cos(position * .pi)) / 2.0   // 1 → 0
+                    } else if freq > filter.highFrequency && freq <= maxFreq {
+                        // Upper transition: fade from full block (0.0) to pass (1.0)
+                        let position = (freq - filter.highFrequency) / transitionWidth  // 0 → 1
+                        attenuation = (1.0 - cos(position * .pi)) / 2.0                // 0 → 1
+                    } else {
+                        attenuation = 1.0
                     }
-                    
+
                     map[i] *= attenuation
                 }
             }

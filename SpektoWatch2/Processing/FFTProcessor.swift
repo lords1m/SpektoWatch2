@@ -184,6 +184,8 @@ class FFTProcessor {
     private var imagIn: [Float]
     private var realPart: [Float]
     private var imagPart: [Float]
+    private var windowedSamples: [Float]
+    private var magnitudesBuffer: [Float]
 
     /// Frequency array corresponding to FFT bins
     private(set) var frequencies: [Float]
@@ -211,6 +213,8 @@ class FFTProcessor {
         self.imagIn = [Float](repeating: 0, count: fftSize / 2)
         self.realPart = [Float](repeating: 0, count: fftSize / 2)
         self.imagPart = [Float](repeating: 0, count: fftSize / 2)
+        self.windowedSamples = [Float](repeating: 0, count: fftSize)
+        self.magnitudesBuffer = [Float](repeating: 0, count: fftSize / 2)
 
         // Create window
         self.window = windowFunction.generate(size: fftSize)
@@ -279,6 +283,8 @@ class FFTProcessor {
         imagIn = [Float](repeating: 0, count: fftSize / 2)
         realPart = [Float](repeating: 0, count: fftSize / 2)
         imagPart = [Float](repeating: 0, count: fftSize / 2)
+        windowedSamples = [Float](repeating: 0, count: fftSize)
+        magnitudesBuffer = [Float](repeating: 0, count: fftSize / 2)
 
         // Recompute frequency bins
         let nyquist = Float(sampleRate / 2.0)
@@ -319,12 +325,11 @@ class FFTProcessor {
         }
 
         // Apply window and gain
-        var windowed = [Float](repeating: 0, count: fftSize)
-        vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
+        vDSP_vmul(samples, 1, window, 1, &windowedSamples, 1, vDSP_Length(fftSize))
 
         if gainBoost != 1.0 {
             var gain = gainBoost
-            vDSP_vsmul(windowed, 1, &gain, &windowed, 1, vDSP_Length(fftSize))
+            vDSP_vsmul(windowedSamples, 1, &gain, &windowedSamples, 1, vDSP_Length(fftSize))
         }
 
         // Perform FFT
@@ -334,26 +339,25 @@ class FFTProcessor {
 
         // zrop expects interleaved input: even indices -> realIn, odd indices -> imagIn
         for i in 0..<(fftSize / 2) {
-            realIn[i] = windowed[2 * i]
-            imagIn[i] = windowed[2 * i + 1]
+            realIn[i] = windowedSamples[2 * i]
+            imagIn[i] = windowedSamples[2 * i + 1]
         }
 
         vDSP_DFT_Execute(setup, realIn, imagIn, &realPart, &imagPart)
 
         // Compute magnitudes using DSPSplitComplex
-        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
         realPart.withUnsafeMutableBufferPointer { realPtr in
             imagPart.withUnsafeMutableBufferPointer { imagPtr in
                 var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                vDSP_zvabs(&splitComplex, 1, &magnitudesBuffer, 1, vDSP_Length(fftSize / 2))
             }
         }
 
         // Normalize
         var scale = 2.0 / Float(fftSize)
-        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize / 2))
+        vDSP_vsmul(magnitudesBuffer, 1, &scale, &magnitudesBuffer, 1, vDSP_Length(fftSize / 2))
 
-        return magnitudes
+        return magnitudesBuffer
     }
     
     /// Converts linear magnitudes to dB scale

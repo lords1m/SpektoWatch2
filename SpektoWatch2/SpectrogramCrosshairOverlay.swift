@@ -1,0 +1,66 @@
+import SwiftUI
+
+struct SpectrogramCrosshairOverlay: View {
+    let inspector: (CGFloat, CGFloat) -> (time: TimeInterval, frequency: Float, magnitude: Float)?
+
+    @State private var isActive = false
+    @State private var position: CGPoint = .zero
+    @State private var inspection: (time: TimeInterval, frequency: Float, magnitude: Float)?
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if isActive {
+                    let x = max(0, min(geo.size.width, position.x))
+                    let y = max(0, min(geo.size.height, position.y))
+
+                    Path { path in
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: geo.size.height))
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: geo.size.width, y: y))
+                    }
+                    .stroke(Color.white.opacity(0.85), lineWidth: 1)
+
+                    if let inspection {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(String(format: "t %.2fs", inspection.time))
+                            Text(String(format: "f %.0fHz", inspection.frequency))
+                            Text(String(format: "%.1f dB", inspection.magnitude))
+                        }
+                        .font(.caption2.monospacedDigit())
+                        .padding(6)
+                        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
+                        .foregroundColor(.white)
+                        .offset(
+                            x: max(-geo.size.width / 2 + 48, min(geo.size.width / 2 - 48, x - geo.size.width / 2 + 40)),
+                            y: max(-geo.size.height / 2 + 24, min(geo.size.height / 2 - 24, y - geo.size.height / 2 - 20))
+                        )
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0.25) {
+                isActive = true
+                position = CGPoint(x: geo.size.width * 0.5, y: geo.size.height * 0.5)
+                inspection = inspector(position.x, position.y)
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard isActive else { return }
+                        position = CGPoint(
+                            x: max(0, min(geo.size.width, value.location.x)),
+                            y: max(0, min(geo.size.height, value.location.y))
+                        )
+                        inspection = inspector(position.x, position.y)
+                    }
+                    .onEnded { _ in
+                        isActive = false
+                        inspection = nil
+                    }
+            )
+        }
+    }
+}
+

@@ -101,17 +101,19 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         let handlePermission: (Bool) -> Void = { [weak self] granted in
             guard granted, let self = self else { return }
             
-            let inputNode = self.audioEngine.inputNode
-            inputNode.removeTap(onBus: 0) // Remove existing tap to prevent crash
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-            inputNode.installTap(onBus: 0, bufferSize: self.bufferSize, format: recordingFormat) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer)
-            }
-
             do {
+                // Configure audio session BEFORE querying inputNode format or installing tap,
+                // otherwise the tap may be installed with the wrong sample rate/channel layout.
                 try session.setCategory(.record, mode: .measurement)
                 try session.setActive(true)
+
+                let inputNode = self.audioEngine.inputNode
+                inputNode.removeTap(onBus: 0) // Remove existing tap to prevent crash
+                let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+                inputNode.installTap(onBus: 0, bufferSize: self.bufferSize, format: recordingFormat) { [weak self] buffer, _ in
+                    self?.processAudioBuffer(buffer)
+                }
 
                 try self.audioEngine.start()
                 
@@ -153,11 +155,11 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0] else { return }
 
-        // Apply gain
-        vDSP_vsmul(channelData, 1, &gain, channelData, 1, vDSP_Length(buffer.frameLength))
-
         let frameCount = Int(buffer.frameLength)
-        let samples = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+        // Copy into a local buffer before applying gain — channelData points into
+        // AVAudioPCMBuffer's internal storage which must not be written in-place.
+        var samples = [Float](repeating: 0, count: frameCount)
+        vDSP_vsmul(channelData, 1, &gain, &samples, 1, vDSP_Length(frameCount))
 
         // DEBUG: Input Level prüfen
         var rms: Float = 0
@@ -248,7 +250,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             }
         }
         
-        return fftMagnitudes
+        return Array(fftMagnitudes)
     }
     
     // MARK: - WKExtendedRuntimeSessionDelegate

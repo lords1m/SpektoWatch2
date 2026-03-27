@@ -38,7 +38,8 @@ class DashboardViewModel: ObservableObject {
         if audioEngine.engineStatus == .running {
             audioEngine.stopRecording()
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self = self else { return }
                 if newSource == .iPhone {
                     self.audioEngine.startRecording()
                 } else {

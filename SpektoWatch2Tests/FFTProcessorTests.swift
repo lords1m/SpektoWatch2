@@ -186,6 +186,42 @@ final class FFTProcessorTests: XCTestCase {
         }
     }
 
+    // MARK: - Diagnostics Tests
+
+    /// Prüft, dass die Diagnostik "leere Terzbänder" bei grober Frequenzrasterung erkennt.
+    func testDiagnosticSnapshotDetectsSparseThirdOctaveCoverage() {
+        let coarseFrequencies = stride(from: Float(10.75), through: Float(22050.0), by: Float(43.066)).map { $0 }
+        let coarseMagnitudes = [Float](repeating: 55.0, count: coarseFrequencies.count)
+
+        let diagnostic = SpectrogramProcessor.makeDiagnosticSnapshot(
+            frequencies: coarseFrequencies,
+            magnitudes: coarseMagnitudes,
+            energeticThresholdDb: 30.0
+        )
+
+        XCTAssertTrue(
+            diagnostic.emptyThirdOctaveBands.contains(160.0),
+            "Sparse frequency grid should expose at least one empty 1/3-octave band around 160 Hz"
+        )
+    }
+
+    /// Prüft, dass bei dichtem Raster keine künstlichen Lücken in den Terzbändern entstehen.
+    func testDiagnosticSnapshotDenseGridHasNoEmptyThirdOctaveBands() {
+        let denseFrequencies = stride(from: Float(20.0), through: Float(20000.0), by: Float(1.0)).map { $0 }
+        let denseMagnitudes = [Float](repeating: 60.0, count: denseFrequencies.count)
+
+        let diagnostic = SpectrogramProcessor.makeDiagnosticSnapshot(
+            frequencies: denseFrequencies,
+            magnitudes: denseMagnitudes,
+            energeticThresholdDb: 30.0
+        )
+
+        XCTAssertTrue(
+            diagnostic.emptyThirdOctaveBands.isEmpty,
+            "Dense frequency grid should provide coverage for all 1/3-octave bands"
+        )
+    }
+
     // MARK: - Thread Safety Tests
 
     /// Testet gleichzeitige Rekonfiguration und FFT-Berechnung

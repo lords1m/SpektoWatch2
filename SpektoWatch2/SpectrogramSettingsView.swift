@@ -73,6 +73,23 @@ struct SpectrogramSettingsView: View {
                     }
                 }
 
+                Section(header: Text("Spektrogramm")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Frequenzglättung")
+                            Spacer()
+                            Text(smoothingLabel(audioEngine.spectrogramFrequencySmoothing))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: $audioEngine.spectrogramFrequencySmoothing, in: 0...1, step: 0.05)
+
+                        Text("0 = aus, höher = weichere Frequenzverläufe")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Section(header: Text("Kalibrierung: \(Int(audioEngine.calibrationOffset)) dB")) {
                     HStack {
                         Text("80")
@@ -192,6 +209,15 @@ struct SpectrogramSettingsView: View {
             if newValue {
                 audioEngine.applyStereoMode()
             }
+        }
+    }
+
+    private func smoothingLabel(_ value: Float) -> String {
+        switch value {
+        case ..<0.05: return "Aus"
+        case ..<0.35: return "Leicht"
+        case ..<0.7: return "Mittel"
+        default: return "Stark"
         }
     }
 }

@@ -166,6 +166,24 @@ final class AudioEngineTests: XCTestCase {
         // (Allerdings nur wenn genug für FFT-Größe gesammelt wurde)
     }
 
+    /// Prüft, dass externe Samplerate in der Pipeline übernommen wird.
+    func testProcessExternalAudioUsesExternalSampleRate() {
+        let expectation = XCTestExpectation(description: "Spectrogram data published with external sample rate")
+        let sampleRate: Double = 48000.0
+        let samples: [Float] = (0..<32768).map { sin(2 * .pi * Float($0) / 80.0) * 0.5 }
+
+        audioEngine.processExternalAudio(samples, sampleRate: sampleRate)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if let data = self.audioEngine.currentSpectrogramData {
+                XCTAssertEqual(data.sampleRate, sampleRate, accuracy: 0.5, "Spectrogram sample rate should match external stream")
+                expectation.fulfill()
+            }
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
     /// Testet Verarbeitung mit leeren Samples
     func testProcessEmptySamples() {
         let emptySamples: [Float] = []
@@ -280,8 +298,8 @@ final class FFTConfigurationTests: XCTestCase {
         let config = FFTConfiguration()
 
         XCTAssertEqual(config.windowFunction, .hann, "Default window should be Hann")
-        XCTAssertEqual(config.blockSize, .size8192, "Default block size should be 8192")
-        XCTAssertEqual(config.overlapPercent, 50.0, "Default overlap should be 50%")
+        XCTAssertEqual(config.blockSize, .size4096, "Default block size should be 4096")
+        XCTAssertEqual(config.overlapPercent, 87.5, "Default overlap should be 87.5%")
         XCTAssertFalse(config.comparisonModeEnabled, "Comparison mode should be disabled by default")
     }
 
@@ -329,6 +347,7 @@ final class ScrollSpeedTests: XCTestCase {
         XCTAssertEqual(ScrollSpeed.slow.rawValue, 2048)
         XCTAssertEqual(ScrollSpeed.normal.rawValue, 1024)
         XCTAssertEqual(ScrollSpeed.fast.rawValue, 512)
+        XCTAssertEqual(ScrollSpeed.veryFast.rawValue, 256)
     }
 
     /// Testet Labels
@@ -337,5 +356,6 @@ final class ScrollSpeedTests: XCTestCase {
         XCTAssertEqual(ScrollSpeed.slow.label, "Langsam")
         XCTAssertEqual(ScrollSpeed.normal.label, "Normal")
         XCTAssertEqual(ScrollSpeed.fast.label, "Schnell")
+        XCTAssertEqual(ScrollSpeed.veryFast.label, "Sehr Schnell")
     }
 }

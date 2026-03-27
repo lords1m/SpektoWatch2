@@ -206,9 +206,9 @@ extension TestAudioGenerator {
             let t = Double(i) / sampleRate
             let progress = t / duration
             
-            // Linear frequency sweep
-            let freq = startFreq + (endFreq - startFreq) * progress
-            let phase = 2.0 * .pi * freq * t
+            // Linear chirp: phase = integral of instantaneous frequency over time
+            // phase = 2π * (startFreq * t + (endFreq - startFreq) * t² / (2 * duration))
+            let phase = 2.0 * .pi * (startFreq * t + (endFreq - startFreq) * t * t / (2.0 * duration))
             let sample = Float(amplitude * sin(phase))
             samples.append(sample)
         }

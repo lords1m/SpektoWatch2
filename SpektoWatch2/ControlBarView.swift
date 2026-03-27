@@ -120,7 +120,10 @@ struct ControlBarView: View {
 
                     Spacer(minLength: 8)
 
-                    recordingsButton(font: .title2, badgeOffsetX: 10, badgeOffsetY: -10)
+                    HStack(spacing: 12) {
+                        measurementToggleButton(font: .title3)
+                        recordingsButton(font: .title2, badgeOffsetX: 10, badgeOffsetY: -10)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, footerVerticalPadding)
@@ -130,7 +133,10 @@ struct ControlBarView: View {
                     HStack {
                         statusInfo(alignment: .leading)
                         Spacer()
-                        recordingsButton(font: .headline, badgeOffsetX: 8, badgeOffsetY: -8)
+                        HStack(spacing: 10) {
+                            measurementToggleButton(font: .callout)
+                            recordingsButton(font: .headline, badgeOffsetX: 8, badgeOffsetY: -8)
+                        }
                     }
                     controlsGroup(
                         diameter: compactControlDiameter,
@@ -222,6 +228,18 @@ struct ControlBarView: View {
         }
         .accessibilityIdentifier("recordingsListButton")
         .accessibilityLabel("Aufnahmen")
+    }
+
+    private func measurementToggleButton(font: Font) -> some View {
+        Button(action: {
+            audioEngine.isMeasurementRecording.toggle()
+        }) {
+            Image(systemName: audioEngine.isMeasurementRecording ? "waveform.badge.checkmark" : "waveform.badge.plus")
+                .font(font)
+                .foregroundColor(audioEngine.isMeasurementRecording ? .orange : .secondary)
+        }
+        .accessibilityIdentifier("measurementRecordingToggle")
+        .accessibilityLabel(audioEngine.isMeasurementRecording ? "Messdatenaufzeichnung aktiv" : "Messdatenaufzeichnung inaktiv")
     }
 
     private var statusText: String {

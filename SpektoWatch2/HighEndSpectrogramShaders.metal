@@ -53,6 +53,9 @@ fragment half4 liveSpectrogramFragment(
     texture2d<float> colormap [[texture(1)]],
     constant float& scrollOffset [[buffer(0)]]
 ) {
+    // Preserve smooth frequency rendering (log-mapped in Y from CPU texture),
+    // while interpolating
+    // only along time/X manually for stable scrolling.
     constexpr sampler hs(filter::linear, address::repeat);
     constexpr sampler cs(filter::linear, address::clamp_to_edge);
 
@@ -61,7 +64,16 @@ fragment half4 liveSpectrogramFragment(
     // Flip Y: low frequencies at bottom, high at top
     float texY = 1.0 - in.uv.y;
 
-    float t = history.sample(hs, float2(texX, texY)).r;
+    float texWidth = float(history.get_width());
+    float x = texX * texWidth;
+    float x0 = floor(x);
+    float xFrac = x - x0;
+    float x0Norm = (x0 + 0.5) / texWidth;
+    float x1Norm = (x0 + 1.5) / texWidth; // wraps via repeat sampler
+
+    float t0 = history.sample(hs, float2(x0Norm, texY)).r;
+    float t1 = history.sample(hs, float2(x1Norm, texY)).r;
+    float t = mix(t0, t1, xFrac);
     return half4(colormap.sample(cs, float2(t, 0.5)));
 }
 

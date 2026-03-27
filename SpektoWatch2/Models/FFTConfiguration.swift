@@ -15,14 +15,14 @@ class FFTConfiguration: ObservableObject {
     }
 
     /// Aktuelle FFT-Blockgröße
-    @Published var blockSize: FFTBlockSize = .size2048 {
+    @Published var blockSize: FFTBlockSize = .size4096 {
         didSet {
             UserDefaults.standard.set(blockSize.rawValue, forKey: "fft_blockSize")
         }
     }
 
-    /// Overlap-Prozentsatz (0-75%)
-    @Published var overlapPercent: Float = 75.0 {
+    /// Overlap-Prozentsatz (0-87.5%)
+    @Published var overlapPercent: Float = 87.5 {
         didSet {
             UserDefaults.standard.set(overlapPercent, forKey: "fft_overlapPercent")
         }
@@ -56,8 +56,8 @@ class FFTConfiguration: ObservableObject {
 
     /// Hop-Größe basierend auf Overlap
     var hopSize: Int {
-        let overlap = min(max(overlapPercent, 0), 75) / 100.0
-        return Int(Float(blockSize.rawValue) * (1.0 - overlap))
+        let overlap = min(max(overlapPercent, 0), 87.5) / 100.0
+        return max(1, Int(Float(blockSize.rawValue) * (1.0 - overlap)))
     }
 
     /// Anzahl der Frequenzbins
@@ -82,10 +82,10 @@ class FFTConfiguration: ObservableObject {
             blockSize = block
         }
 
-        let overlap = UserDefaults.standard.float(forKey: "fft_overlapPercent")
-        if overlap > 0 {
-            overlapPercent = overlap
+        if UserDefaults.standard.object(forKey: "fft_overlapPercent") != nil {
+            overlapPercent = UserDefaults.standard.float(forKey: "fft_overlapPercent")
         }
+        overlapPercent = min(max(overlapPercent, 0), 87.5)
 
         showExplanations = UserDefaults.standard.object(forKey: "fft_showExplanations") as? Bool ?? true
     }
@@ -133,7 +133,7 @@ class FFTConfiguration: ObservableObject {
 
         var blockSize: FFTBlockSize {
             switch self {
-            case .general: return .size2048
+            case .general: return .size4096
             case .music: return .size8192
             case .speech: return .size2048
             case .transient: return .size1024
@@ -144,11 +144,11 @@ class FFTConfiguration: ObservableObject {
 
         var overlap: Float {
             switch self {
-            case .general: return 75.0
-            case .music: return 75.0
-            case .speech: return 50.0
+            case .general: return 87.5
+            case .music: return 87.5
+            case .speech: return 75.0
             case .transient: return 25.0
-            case .precision: return 75.0
+            case .precision: return 87.5
             case .educational: return 0.0
             }
         }

@@ -89,10 +89,13 @@ struct BandstopRegionView: View {
     }
     
     private func logPosition(for frequency: Float, width: CGFloat) -> CGFloat {
+        guard frequencyRange.lowerBound > 0 else { return 0 }
         let minLog = log10(frequencyRange.lowerBound)
         let maxLog = log10(frequencyRange.upperBound)
+        let span = maxLog - minLog
+        guard span > 1e-9 else { return 0 }
         let freqLog = log10(max(frequencyRange.lowerBound, min(frequencyRange.upperBound, frequency)))
-        let normalized = (freqLog - minLog) / (maxLog - minLog)
+        let normalized = (freqLog - minLog) / span
         return CGFloat(normalized) * width
     }
 }

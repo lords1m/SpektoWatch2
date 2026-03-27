@@ -204,7 +204,7 @@ class LoudnessCalculator: ObservableObject {
             let upperSPL = freqData[upperPhon]!
             
             if spl >= lowerSPL && spl <= upperSPL {
-                // Lineare Interpolation
+                guard abs(upperSPL - lowerSPL) > 1e-9 else { return lowerPhon }
                 let ratio = (spl - lowerSPL) / (upperSPL - lowerSPL)
                 return lowerPhon + ratio * (upperPhon - lowerPhon)
             }
@@ -212,9 +212,13 @@ class LoudnessCalculator: ObservableObject {
         
         // Extrapolation außerhalb des Bereichs
         if spl < freqData[phonLevels.first!]! {
-            return phonLevels.first! * (spl / freqData[phonLevels.first!]!)
+            let firstSPL = freqData[phonLevels.first!]!
+            guard abs(firstSPL) > 1e-9 else { return phonLevels.first! }
+            return phonLevels.first! * (spl / firstSPL)
         } else {
-            return phonLevels.last! * (spl / freqData[phonLevels.last!]!)
+            let lastSPL = freqData[phonLevels.last!]!
+            guard abs(lastSPL) > 1e-9 else { return phonLevels.last! }
+            return phonLevels.last! * (spl / lastSPL)
         }
     }
     
@@ -234,9 +238,13 @@ class LoudnessCalculator: ObservableObject {
         }
         
         if phon < phonLevels.first! {
-            return freqData[phonLevels.first!]! * (phon / phonLevels.first!)
+            let firstPhon = phonLevels.first!
+            guard abs(firstPhon) > 1e-9 else { return freqData[firstPhon]! }
+            return freqData[firstPhon]! * (phon / firstPhon)
         } else {
-            return freqData[phonLevels.last!]! * (phon / phonLevels.last!)
+            let lastPhon = phonLevels.last!
+            guard abs(lastPhon) > 1e-9 else { return freqData[lastPhon]! }
+            return freqData[lastPhon]! * (phon / lastPhon)
         }
     }
     

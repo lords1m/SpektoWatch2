@@ -363,6 +363,8 @@ struct BandstopFilterEditView: View {
 struct BandstopFilterSettingsView: View {
     @Environment(\.dismiss) var dismiss
     @Binding var filters: [BandstopFilter]
+    /// Called for each filter on dismiss to run autoCorrect + validate via the manager.
+    var onFilterChanged: ((BandstopFilter) -> Void)? = nil
     
     var body: some View {
         NavigationView {
@@ -427,6 +429,8 @@ struct BandstopFilterSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Fertig") {
+                        // Run validation through the manager for all edited filters
+                        filters.forEach { onFilterChanged?($0) }
                         dismiss()
                     }
                 }

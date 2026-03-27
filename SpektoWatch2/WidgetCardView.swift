@@ -30,15 +30,13 @@ struct WidgetCardView: View {
                 .padding(.top, 10)
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(
-                    isEditMode ? Color.accentColor.opacity(0.42) : Color.white.opacity(0.16),
+                    isEditMode ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.28),
                     lineWidth: isEditMode ? 1.6 : 1
                 )
         )
-        .shadow(color: .black.opacity(0.16), radius: 14, x: 0, y: 8)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             resizeHandles
@@ -60,7 +58,7 @@ struct WidgetCardView: View {
         case .levelMeter:
             LevelMeterWidget(audioEngine: audioEngine)
         case .octaveBands:
-            FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
+            OctaveBandWidget(audioEngine: audioEngine)
         case .phaseMeter:
             PhaseMeterWidget(audioEngine: audioEngine)
         case .singleValue:
