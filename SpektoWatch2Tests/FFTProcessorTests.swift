@@ -1,4 +1,5 @@
 import XCTest
+import Accelerate
 @testable import SpektoWatch2
 
 /// Tests für FFTProcessor - Testet FFT-Berechnungen, Fensterfunktionen und Rekonfiguration
