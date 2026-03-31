@@ -11,20 +11,25 @@ final class PDFReportGeneratorTests: XCTestCase {
     var pdfGenerator: PDFReportGenerator!
     var recordingManager: RecordingManager!
     var audioEngine: AudioEngine!
+    var filterManager: BandstopFilterManager!
+    var connectivityManager: WatchConnectivityManager!
     var tempDirectory: URL!
     
     override func setUp() async throws {
         try await super.setUp()
         
         pdfGenerator = PDFReportGenerator()
-        audioEngine = AudioEngine(fftBlockSize: 4096)
+        filterManager = BandstopFilterManager()
+        // Create a new instance for testing
+        connectivityManager = WatchConnectivityManager()
+        audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
         
         // Create unique temp directory for each test
         tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PDFTests_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         
-        recordingManager = RecordingManager(baseDirectory: tempDirectory)
+        recordingManager = RecordingManager()
     }
     
     override func tearDown() async throws {
@@ -52,20 +57,38 @@ final class PDFReportGeneratorTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.5)
         
         let expectation = XCTestExpectation(description: "Stop recording")
-        var stoppedRecording: Recording?
-        recordingManager.stopRecording(audioEngine: audioEngine) { recording in
-            stoppedRecording = recording
+        var stoppedAudioURL: URL?
+        recordingManager.stopRecording(audioEngine: audioEngine) { audioURL in
+            stoppedAudioURL = audioURL
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 3.0)
         
-        guard let recording = stoppedRecording else {
+        guard let audioURL = stoppedAudioURL else {
             XCTFail("Should have stopped recording")
             return
         }
         
+        // Create and add the recording
+        let stats = audioEngine.getRecordingStatistics()
+        let recording = Recording(
+            name: "Test Recording",
+            startDate: Date(),
+            duration: 0.5,
+            audioFileName: audioURL.path,
+            laeqFast: stats.laeqFast,
+            peakLevel: stats.peak,
+            minLevel: stats.min
+        )
+        recordingManager.addRecording(recording)
+        
+        guard let savedRecording = recordingManager.recordings.first else {
+            XCTFail("Should have saved recording")
+            return
+        }
+        
         // Generate PDF
-        let pdfURL = try pdfGenerator.generateReport(for: recording, recordingManager: recordingManager)
+        let pdfURL = try pdfGenerator.generateReport(for: savedRecording, recordingManager: recordingManager)
         
         // Verify PDF exists
         XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path), "PDF file should exist")
@@ -344,21 +367,23 @@ final class PDFReportGeneratorTests: XCTestCase {
         description: String = ""
     ) -> Recording {
         // Create audio file
-        let audioURL = recordingManager.baseDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+        let audioFileName = "\(UUID().uuidString).m4a"
+        let audioURL = tempDirectory.appendingPathComponent(audioFileName)
         createDummyAudioFile(at: audioURL)
         
         var recording = Recording(
             id: UUID(),
             name: name,
-            date: Date(),
+            startDate: Date(),
             duration: 10.0,
+            audioFileName: audioURL.path,
             laeqFast: laeq,
             peakLevel: peakLevel,
             minLevel: minLevel,
-            fftBlockSize: fftBlockSize,
-            calibrationOffset: calibrationOffset,
             timeWeighting: "Fast",
-            frequencyWeighting: "A"
+            frequencyWeighting: "A",
+            calibrationOffset: calibrationOffset,
+            fftBlockSize: fftBlockSize
         )
         
         if let location = location {
@@ -367,10 +392,11 @@ final class PDFReportGeneratorTests: XCTestCase {
         
         recording.description = description
         
-        // Save recording to manager
-        try? recordingManager.saveRecording(recording, audioURL: audioURL, measurementData: nil, statistics: MeasurementStatistics.placeholder)
+        // Add recording to manager using addRecording
+        recordingManager.addRecording(recording)
         
-        return recording
+        // Get the updated recording from the manager (it may have been modified)
+        return recordingManager.recordings.first ?? recording
     }
     
     private func createTestRecordingWithPhoto() -> Recording {
@@ -384,9 +410,11 @@ final class PDFReportGeneratorTests: XCTestCase {
         createDummyImage(at: photoURL)
         
         recording.photoFileNames = [photoName]
-        try? recordingManager.saveRecording(recording, audioURL: recordingManager.url(for: recording), measurementData: nil, statistics: MeasurementStatistics.placeholder)
         
-        return recording
+        // Update recording in manager
+        recordingManager.updateRecording(recording)
+        
+        return recordingManager.recordings.first(where: { $0.id == recording.id }) ?? recording
     }
     
     private func createTestRecordingWithMultiplePhotos(count: Int) -> Recording {
@@ -403,9 +431,11 @@ final class PDFReportGeneratorTests: XCTestCase {
         }
         
         recording.photoFileNames = photoNames
-        try? recordingManager.saveRecording(recording, audioURL: recordingManager.url(for: recording), measurementData: nil, statistics: MeasurementStatistics.placeholder)
         
-        return recording
+        // Update recording in manager
+        recordingManager.updateRecording(recording)
+        
+        return recordingManager.recordings.first(where: { $0.id == recording.id }) ?? recording
     }
     
     private func createDummyAudioFile(at url: URL) {

@@ -510,26 +510,23 @@ final class CSVExporterTests: XCTestCase {
         let tempURL = tempDirectory.appendingPathComponent("test_measurement_\(UUID().uuidString).dat")
         
         // Create test measurement file
-        let header = MeasurementDataFormat.Header(
-            version: 1,
+        let writer = try! MeasurementDataWriter(
+            fileURL: tempURL,
+            metricKeys: ["LAeq", "LAFmax", "LAFmin"],
             sampleRate: 44100,
             fps: 10,
-            thirdOctaveBandCount: 31,
-            metricKeys: ["LAeq", "LAFmax", "LAFmin"]
+            fftBlockSize: 4096
         )
         
-        let writer = try! MeasurementDataWriter(fileURL: tempURL, header: header)
-        
         for i in 0..<frameCount {
-            let frame = MeasurementDataFormat.Frame(
+            try! writer.writeFrame(
                 timestamp: Float(i) * 0.1,
+                metricValues: [65.0, 85.0, 45.0],
                 broadbandLevel: 65.0 + Float.random(in: -5...5),
-                metrics: [65.0, 85.0, 45.0],
                 thirdOctaveZ: Array(repeating: 60.0, count: 31),
                 thirdOctaveA: Array(repeating: 58.0, count: 31),
                 thirdOctaveC: Array(repeating: 62.0, count: 31)
             )
-            try! writer.write(frame: frame)
         }
         
         try! writer.close()
@@ -544,15 +541,16 @@ final class CSVExporterTests: XCTestCase {
         Recording(
             id: UUID(),
             name: name,
-            date: Date(),
+            startDate: Date(),
             duration: duration,
+            audioFileName: "test.m4a",
             laeqFast: 65.0,
             peakLevel: 85.0,
             minLevel: 45.0,
-            fftBlockSize: 4096,
-            calibrationOffset: 0.0,
             timeWeighting: "Fast",
-            frequencyWeighting: "A"
+            frequencyWeighting: "A",
+            calibrationOffset: 0.0,
+            fftBlockSize: 4096
         )
     }
 }
