@@ -39,12 +39,16 @@ vertex VertexOut spectrogramVertex(uint vid [[vertex_id]]) {
 // MARK: - Live Spectrogram Fragment Shader
 // ============================================================================
 //
-// Ultra-minimal: 2 texture samples per pixel.
 // - history texture (R32Float): pre-normalized [0,1] values written by CPU
 // - colormap texture (RGBA8): 256×1 LUT baked once on init
 //
 // All dB conversion, noise gating, gamma, and normalization happen on CPU
 // via vDSP before writing to the history texture.
+//
+// 7-tap symmetric Gaussian blur in time direction (8 texel reads).
+// Epoch width at hop=512, 44.1 kHz, 5 s span, 1050 px ≈ 2.4 px.
+// The 7-column kernel spans ~6 px, blending ~2.5 epochs together
+// so individual FFT frame boundaries become imperceptible.
 // ============================================================================
 
 fragment half4 liveSpectrogramFragment(
@@ -66,19 +70,29 @@ fragment half4 liveSpectrogramFragment(
     float x0 = floor(cx);
     float xFrac = cx - x0;
 
-    // 3-tap temporal blur [0.2, 0.6, 0.2] to smooth column boundaries.
-    // Each tap is bilinearly interpolated between its two surrounding texels
-    // at the same fractional sub-column position, keeping the filter symmetric.
-    float tm1 = history.sample(hs, float2((x0 - 0.5) / texWidth, texY)).r;
-    float t0v  = history.sample(hs, float2((x0 + 0.5) / texWidth, texY)).r;
-    float t1v  = history.sample(hs, float2((x0 + 1.5) / texWidth, texY)).r;
-    float t2v  = history.sample(hs, float2((x0 + 2.5) / texWidth, texY)).r;
+    // Sample 8 texel centres — enough for 7 bilinearly-interpolated taps.
+    float s0 = history.sample(hs, float2((x0 - 2.5) / texWidth, texY)).r;
+    float s1 = history.sample(hs, float2((x0 - 1.5) / texWidth, texY)).r;
+    float s2 = history.sample(hs, float2((x0 - 0.5) / texWidth, texY)).r;
+    float s3 = history.sample(hs, float2((x0 + 0.5) / texWidth, texY)).r;
+    float s4 = history.sample(hs, float2((x0 + 1.5) / texWidth, texY)).r;
+    float s5 = history.sample(hs, float2((x0 + 2.5) / texWidth, texY)).r;
+    float s6 = history.sample(hs, float2((x0 + 3.5) / texWidth, texY)).r;
+    float s7 = history.sample(hs, float2((x0 + 4.5) / texWidth, texY)).r;
 
-    float v_left  = mix(tm1, t0v, xFrac);
-    float v_mid   = mix(t0v, t1v, xFrac);
-    float v_right = mix(t1v, t2v, xFrac);
+    // Interpolate each tap to the exact fractional sub-column position.
+    float v0 = mix(s0, s1, xFrac);   // column x0−2
+    float v1 = mix(s1, s2, xFrac);   // column x0−1
+    float v2 = mix(s2, s3, xFrac);   // column x0
+    float v3 = mix(s3, s4, xFrac);   // column x0+1
+    float v4 = mix(s4, s5, xFrac);   // column x0+2
+    float v5 = mix(s5, s6, xFrac);   // column x0+3
+    float v6 = mix(s6, s7, xFrac);   // column x0+4
 
-    float t = v_left * 0.2 + v_mid * 0.6 + v_right * 0.2;
+    // Gaussian kernel σ ≈ 1.5:  [0.02, 0.08, 0.22, 0.36, 0.22, 0.08, 0.02]
+    float t = v0 * 0.02 + v1 * 0.08 + v2 * 0.22 + v3 * 0.36
+            + v4 * 0.22 + v5 * 0.08 + v6 * 0.02;
+
     return half4(colormap.sample(cs, float2(t, 0.5)));
 }
 

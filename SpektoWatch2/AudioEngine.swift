@@ -247,6 +247,17 @@ class AudioEngine: ObservableObject {
             UserDefaults.standard.set(Double(clamped), forKey: "spectrogramFrequencySmoothing")
         }
     }
+    @Published var spectrogramTemporalSmoothing: Float = 1.0 {
+        didSet {
+            let clamped = max(0.0, min(1.0, spectrogramTemporalSmoothing))
+            if abs(clamped - spectrogramTemporalSmoothing) > 0.0001 {
+                spectrogramTemporalSmoothing = clamped
+                return
+            }
+            spectrogramProcessor.temporalSmoothingIntensity = clamped
+            UserDefaults.standard.set(Double(clamped), forKey: "spectrogramTemporalSmoothing")
+        }
+    }
     @Published var scrollSpeed: ScrollSpeed = .fast
     
     @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
@@ -281,6 +292,7 @@ class AudioEngine: ObservableObject {
         spectrogramProcessor.spectrogramTimeWeighting = .fast
         spectrogramProcessor.hopDuration = Float(tapBlockSize) / Float(sampleRate)
         testGenerator = TestAudioGenerator(sampleRate: sampleRate)
+        spectrogramProcessor.temporalSmoothingIntensity = spectrogramTemporalSmoothing
         
         // Setup test generator callback
         testGenerator.onDataGenerated = { [weak self] samples in
@@ -302,6 +314,9 @@ class AudioEngine: ObservableObject {
 
         if let savedFrequencySmoothing = UserDefaults.standard.object(forKey: "spectrogramFrequencySmoothing") as? Double {
             spectrogramFrequencySmoothing = Float(savedFrequencySmoothing)
+        }
+        if let savedTemporalSmoothing = UserDefaults.standard.object(forKey: "spectrogramTemporalSmoothing") as? Double {
+            spectrogramTemporalSmoothing = Float(savedTemporalSmoothing)
         }
     }
     
@@ -432,6 +447,11 @@ class AudioEngine: ObservableObject {
             return
         }
 
+        // Always capture measurement data when starting a recording.
+        if !isMeasurementRecording {
+            isMeasurementRecording = true
+        }
+
         guard engineStatus != .running else {
             // Wenn bereits im Live-Modus, nur auf Aufnahme umschalten
             if !isRecordingToFile {
@@ -485,6 +505,10 @@ class AudioEngine: ObservableObject {
         #if targetEnvironment(simulator)
         Logger.audioEngine.info("Running on Simulator - using test audio generator")
         print("[AudioEngine] Starting test generator")
+        if isRecordingToFile {
+            setupRecordingFile()
+            setupMeasurementDataFileIfNeeded()
+        }
         testGenerator.start()
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .running")
@@ -721,10 +745,15 @@ class AudioEngine: ObservableObject {
                 AVAudioApplication.requestRecordPermission { [weak self] granted in
                     guard let self = self else { return }
                     if granted {
-                        DispatchQueue.main.async { self.startRecording() }
+                        DispatchQueue.main.async {
+                            // Continue the pending capture startup instead of re-entering
+                            // startRecording(), which is ignored while engineStatus == .starting.
+                            self.startRealRecording()
+                        }
                     } else {
                         DispatchQueue.main.async {
                             self.isStartingCapture = false
+                            self.isRecordingToFile = false
                             self.engineStatus = .error("Microphone permission denied")
                         }
                     }
@@ -735,6 +764,7 @@ class AudioEngine: ObservableObject {
                 Logger.audioEngine.error("Microphone permission denied")
                 DispatchQueue.main.async {
                     self.isStartingCapture = false
+                    self.isRecordingToFile = false
                     self.engineStatus = .error("Microphone permission denied")
                 }
                 return
@@ -744,10 +774,13 @@ class AudioEngine: ObservableObject {
                 audioSession.requestRecordPermission { [weak self] granted in
                     guard let self = self else { return }
                     if granted {
-                        DispatchQueue.main.async { self.startRecording() }
+                        DispatchQueue.main.async {
+                            self.startRealRecording()
+                        }
                     } else {
                         DispatchQueue.main.async {
                             self.isStartingCapture = false
+                            self.isRecordingToFile = false
                             self.engineStatus = .error("Microphone permission denied")
                         }
                     }
@@ -758,6 +791,7 @@ class AudioEngine: ObservableObject {
                 Logger.audioEngine.error("Microphone permission denied")
                 DispatchQueue.main.async {
                     self.isStartingCapture = false
+                    self.isRecordingToFile = false
                     self.engineStatus = .error("Microphone permission denied")
                 }
                 return
@@ -768,10 +802,13 @@ class AudioEngine: ObservableObject {
             audioSession.requestRecordPermission { [weak self] granted in
                 guard let self = self else { return }
                 if granted {
-                    DispatchQueue.main.async { self.startRecording() }
+                    DispatchQueue.main.async {
+                        self.startRealRecording()
+                    }
                 } else {
                     DispatchQueue.main.async {
                         self.isStartingCapture = false
+                        self.isRecordingToFile = false
                         self.engineStatus = .error("Microphone permission denied")
                     }
                 }
@@ -782,6 +819,7 @@ class AudioEngine: ObservableObject {
             Logger.audioEngine.error("Microphone permission denied")
             DispatchQueue.main.async {
                 self.isStartingCapture = false
+                self.isRecordingToFile = false
                 self.engineStatus = .error("Microphone permission denied")
             }
             return

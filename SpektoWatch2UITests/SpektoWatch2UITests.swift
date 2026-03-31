@@ -14,6 +14,15 @@ final class SpektoWatch2UITests: XCTestCase {
     private let mediumWait: TimeInterval = 3
     private let longWait: TimeInterval = 15
     private let pollInterval: TimeInterval = 0.2
+    private let permissionButtonLabels = [
+        "Allow",
+        "Allow Once",
+        "Allow While Using App",
+        "Erlauben",
+        "Nur einmal erlauben",
+        "Beim Verwenden der App erlauben",
+        "OK"
+    ]
 
     // MARK: - Helpers
 
@@ -24,6 +33,51 @@ final class SpektoWatch2UITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
         }
         return condition()
+    }
+
+    private func waitForConditionHandlingAlerts(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let start = Date()
+        while Date().timeIntervalSince(start) < timeout {
+            if condition() { return true }
+            _ = handleSystemAlertsIfNeeded(timeout: 0.1)
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        _ = handleSystemAlertsIfNeeded(timeout: 0.1)
+        return condition()
+    }
+
+    @discardableResult
+    private func handleSystemAlertsIfNeeded(timeout: TimeInterval = 2.5) -> Bool {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.alerts.firstMatch
+        guard alert.exists || alert.waitForExistence(timeout: timeout) else {
+            return false
+        }
+
+        for label in permissionButtonLabels {
+            let button = alert.buttons[label]
+            if button.exists {
+                button.tap()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+                return true
+            }
+        }
+
+        // Safe fallback without index-race on dynamic alert trees.
+        let fallbackButtons = alert.buttons.allElementsBoundByIndex
+        if let lastButton = fallbackButtons.last {
+            lastButton.tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            return true
+        }
+
+        return false
+    }
+
+    private func tapAndHandleAlerts(_ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: mediumWait), "Expected element to exist before tap")
+        element.tap()
+        handleSystemAlertsIfNeeded()
     }
 
     override func setUpWithError() throws {
@@ -49,30 +103,8 @@ final class SpektoWatch2UITests: XCTestCase {
         // Launch app
         self.app.launch()
 
-        // CRITICAL: Handle microphone permission dialog
-        // This must happen immediately after launch
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-
-        // Try both German and English button labels
-        var permissionGranted = false
-        let allowButton = springboard.buttons["Allow"]
-        let erlaubenButton = springboard.buttons["Erlauben"]
-
-        if allowButton.waitForExistence(timeout: 5) {
-            print("[Test Setup] Microphone permission dialog appeared (English), tapping Allow...")
-            allowButton.tap()
-            permissionGranted = true
-            Thread.sleep(forTimeInterval: 0.5)
-        } else if erlaubenButton.waitForExistence(timeout: 1) {
-            print("[Test Setup] Microphone permission dialog appeared (German), tapping Erlauben...")
-            erlaubenButton.tap()
-            permissionGranted = true
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-
-        if !permissionGranted {
-            print("[Test Setup] No permission dialog appeared - might already be granted")
-        }
+        // Handle potential startup permission/system dialogs.
+        handleSystemAlertsIfNeeded(timeout: 5)
 
         // Warte bis die App vollständig geladen ist
         _ = waitForCondition(timeout: mediumWait) {
@@ -134,24 +166,24 @@ final class SpektoWatch2UITests: XCTestCase {
         // Play -> Pause -> Play
         let playButton = app.buttons["playButton"]
         XCTAssertTrue(playButton.waitForExistence(timeout: mediumWait))
-        playButton.tap()
+        tapAndHandleAlerts(playButton)
 
         let pauseButton = app.buttons["pauseButton"]
         XCTAssertTrue(pauseButton.waitForExistence(timeout: longWait))
-        pauseButton.tap()
+        tapAndHandleAlerts(pauseButton)
 
         XCTAssertTrue(playButton.waitForExistence(timeout: mediumWait))
 
         // Record -> Stop -> Record
         let recordButton = app.buttons["recordButton"]
         XCTAssertTrue(recordButton.waitForExistence(timeout: mediumWait))
-        recordButton.tap()
+        tapAndHandleAlerts(recordButton)
 
         let stopButton = app.buttons["stopButton"]
         XCTAssertTrue(stopButton.waitForExistence(timeout: longWait))
 
         XCTAssertTrue(waitForCondition(timeout: 6) { stopButton.isEnabled })
-        stopButton.tap()
+        tapAndHandleAlerts(stopButton)
 
         XCTAssertTrue(recordButton.waitForExistence(timeout: mediumWait))
     }
@@ -167,7 +199,7 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // Tippe auf Play
         print("[TEST] Tapping play button...")
-        playButton.tap()
+        tapAndHandleAlerts(playButton)
 
         // Warte und prüfe Buttons
         print("[TEST] Waiting for button state change...")
@@ -192,17 +224,18 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(playButton.waitForExistence(timeout: mediumWait))
 
         // Starte Live-Modus
-        playButton.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(playButton)
 
         let pauseButton = app.buttons["pauseButton"]
         XCTAssertTrue(pauseButton.waitForExistence(timeout: longWait))
 
         // Stoppe Live-Modus
-        pauseButton.tap()
+        tapAndHandleAlerts(pauseButton)
 
         // Prüfe ob Play-Button wieder erscheint
-        XCTAssertTrue(playButton.waitForExistence(timeout: mediumWait), "Play button should reappear after tapping pause")
+        XCTAssertTrue(waitForCondition(timeout: mediumWait) {
+            self.app.buttons["playButton"].exists && !self.app.buttons["pauseButton"].exists
+        }, "Play button should reappear after tapping pause")
     }
 
     @MainActor
@@ -211,12 +244,12 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(recordButton.waitForExistence(timeout: mediumWait))
 
         // Tippe auf Record
-        recordButton.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(recordButton)
 
         // Warte auf Stop-Button (länger Timeout wegen Audio-Engine Start)
-        let stopButton = app.buttons["stopButton"]
-        XCTAssertTrue(stopButton.waitForExistence(timeout: longWait), "Stop button should appear after tapping record")
+        XCTAssertTrue(waitForConditionHandlingAlerts(timeout: longWait) {
+            self.app.buttons["stopButton"].exists
+        }, "Stop button should appear after tapping record")
     }
 
     @MainActor
@@ -225,11 +258,10 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(recordButton.waitForExistence(timeout: mediumWait))
 
         // Starte Aufnahme
-        recordButton.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(recordButton)
 
+        XCTAssertTrue(waitForConditionHandlingAlerts(timeout: longWait) { self.app.buttons["stopButton"].exists })
         let stopButton = app.buttons["stopButton"]
-        XCTAssertTrue(stopButton.waitForExistence(timeout: longWait))
 
         // Play-Button sollte weiter verfügbar sein (nicht disabled)
         let playButton = app.buttons["playButton"]
@@ -238,7 +270,7 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // Stoppe Aufnahme nach Minimum-Dauer
         XCTAssertTrue(waitForCondition(timeout: 6) { stopButton.isEnabled })
-        stopButton.tap()
+        tapAndHandleAlerts(stopButton)
     }
 
     @MainActor
@@ -270,18 +302,17 @@ final class SpektoWatch2UITests: XCTestCase {
         // 1. Starte Aufnahme
         let recordButton = app.buttons["recordButton"]
         XCTAssertTrue(recordButton.waitForExistence(timeout: mediumWait))
-        recordButton.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(recordButton)
 
+        XCTAssertTrue(waitForConditionHandlingAlerts(timeout: longWait) { self.app.buttons["stopButton"].exists }, "Stop button should appear")
         let stopButton = app.buttons["stopButton"]
-        XCTAssertTrue(stopButton.waitForExistence(timeout: longWait), "Stop button should appear")
 
         // 2. Warte Minimum-Dauer (5 Sekunden)
         XCTAssertTrue(waitForCondition(timeout: 6) { stopButton.isEnabled })
 
         // 3. Stoppe Aufnahme
         XCTAssertTrue(stopButton.isEnabled, "Stop button should be enabled")
-        stopButton.tap()
+        tapAndHandleAlerts(stopButton)
 
         // 4. Save-Dialog sollte erscheinen
         let saveDialog = app.sheets.firstMatch
@@ -305,8 +336,7 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // Starte Live-Modus
         let playButton = app.buttons["playButton"]
-        playButton.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(playButton)
 
         // Prüfe "Live-Modus" Status
         let liveModeLabel = app.staticTexts["Live-Modus"]
@@ -314,10 +344,12 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // Stoppe Live-Modus
         let pauseButton = app.buttons["pauseButton"]
-        pauseButton.tap()
+        tapAndHandleAlerts(pauseButton)
 
         // Zurück zu "Bereit"
-        XCTAssertTrue(bereitLabel.waitForExistence(timeout: mediumWait), "Should return to 'Bereit' status")
+        XCTAssertTrue(waitForCondition(timeout: mediumWait) {
+            self.app.staticTexts["Bereit"].exists
+        }, "Should return to 'Bereit' status")
     }
 
     // MARK: - Visual State Tests
@@ -332,7 +364,7 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // 2. Starte Aufnahme → Button sollte zu Stop wechseln
         print("[TEST] Tapping record button...")
-        recordButton.tap()
+        tapAndHandleAlerts(recordButton)
 
         // Warte und prüfe mehrfach mit längeren Intervallen
         var stopButtonAppeared = false
@@ -361,7 +393,7 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(waitForCondition(timeout: 6) { stopButton.isEnabled })
 
         // 4. Stoppe Aufnahme → Button sollte zurück zu Record wechseln
-        stopButton.tap()
+        tapAndHandleAlerts(stopButton)
 
         // Schließe Save-Dialog
         let cancelButton = app.buttons["Abbrechen"]
@@ -383,19 +415,16 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertFalse(app.buttons["pauseButton"].exists, "Pause button should NOT exist initially")
 
         // 2. Starte Live-Modus → Button sollte zu Pause wechseln
-        playButton.tap()
-
-        // Kurze Pause für UI-Update und AudioEngine-Start
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(playButton)
 
         let pauseButton = app.buttons["pauseButton"]
         XCTAssertTrue(pauseButton.waitForExistence(timeout: longWait), "Pause button should appear")
         XCTAssertFalse(app.buttons["playButton"].exists, "Play button should NOT exist during live mode")
 
         // 3. Stoppe Live-Modus → Button sollte zurück zu Play wechseln
-        pauseButton.tap()
+        tapAndHandleAlerts(pauseButton)
 
-        XCTAssertTrue(playButton.waitForExistence(timeout: mediumWait), "Play button should reappear")
+        XCTAssertTrue(waitForCondition(timeout: mediumWait) { self.app.buttons["playButton"].exists }, "Play button should reappear")
         XCTAssertFalse(app.buttons["pauseButton"].exists, "Pause button should NOT exist after stopping")
     }
 
@@ -409,21 +438,18 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(app.buttons["recordButton"].exists)
 
         // 2. Live-Modus: "Live-Modus" + Pause-Button
-        app.buttons["playButton"].tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(app.buttons["playButton"])
         XCTAssertTrue(app.staticTexts["Live-Modus"].waitForExistence(timeout: longWait))
         XCTAssertTrue(app.buttons["pauseButton"].exists)
         XCTAssertTrue(app.buttons["recordButton"].exists)
 
         // 3. Zurück zu Bereit
-        app.buttons["pauseButton"].tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(app.buttons["pauseButton"])
         XCTAssertTrue(app.staticTexts["Bereit"].waitForExistence(timeout: mediumWait))
         XCTAssertTrue(app.buttons["playButton"].exists)
 
         // 4. Recording: "Aufnahme läuft" + Stop-Button
-        app.buttons["recordButton"].tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(shortWait))
+        tapAndHandleAlerts(app.buttons["recordButton"])
         XCTAssertTrue(app.staticTexts["Aufnahme läuft"].waitForExistence(timeout: longWait))
         XCTAssertTrue(app.buttons["stopButton"].exists)
         XCTAssertTrue(app.buttons["playButton"].exists)
@@ -431,7 +457,7 @@ final class SpektoWatch2UITests: XCTestCase {
 
         // Cleanup
         XCTAssertTrue(waitForCondition(timeout: 6) { self.app.buttons["stopButton"].isEnabled })
-        app.buttons["stopButton"].tap()
+        tapAndHandleAlerts(app.buttons["stopButton"])
         if app.buttons["Abbrechen"].waitForExistence(timeout: 2) {
             app.buttons["Abbrechen"].tap()
         }

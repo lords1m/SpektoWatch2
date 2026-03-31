@@ -1,6 +1,8 @@
 import XCTest
 import MetalKit
 import Combine
+import SwiftUI
+import UIKit
 @testable import SpektoWatch2
 
 // MARK: - Pipeline Overview
@@ -19,8 +21,22 @@ import Combine
 @MainActor
 final class PerformanceProfilingTests: XCTestCase {
 
-    private let iterations = 500
+    private let iterations: Int = {
+        if let raw = ProcessInfo.processInfo.environment["SPEKTO_PERF_ITERS"],
+           let value = Int(raw),
+           value > 0 {
+            return value
+        }
+        return 500
+    }()
     private let sampleRate: Double = 44100.0
+    private let shouldPrintReport: Bool = {
+        ProcessInfo.processInfo.environment["SPEKTO_PERF_REPORT"] == "1"
+    }()
+    private final class DisplayLinkFrameCounter: NSObject {
+        var frames: Int = 0
+        @objc func step() { frames += 1 }
+    }
 
     // Static singletons: never deallocated → avoids os_signpost TaskLocal deinit crash.
     private static let sharedFilterMgr  = BandstopFilterManager()
@@ -39,20 +55,20 @@ final class PerformanceProfilingTests: XCTestCase {
             (16384, "16384"),
         ]
 
-        print("\n┌────────────────────────────────────────────────┐")
-        print("│  STAGE 1: FFT Computation (Accelerate vDSP)   │")
-        print("├─────────────┬────────────┬──────────┬─────────┤")
-        print("│  Block Size │  Mean (µs) │ Mean(ms) │ Max FPS │")
-        print("├─────────────┼────────────┼──────────┼─────────┤")
+        report("\n┌────────────────────────────────────────────────┐")
+        report("│  STAGE 1: FFT Computation (Accelerate vDSP)   │")
+        report("├─────────────┬────────────┬──────────┬─────────┤")
+        report("│  Block Size │  Mean (µs) │ Mean(ms) │ Max FPS │")
+        report("├─────────────┼────────────┼──────────┼─────────┤")
 
         for cfg in configs {
             let proc = FFTProcessor(fftSize: cfg.size, sampleRate: sampleRate)
             let samples = makeSineWave(frequency: 1000, count: cfg.size)
             let (meanUs, fps) = bench(n: iterations) { _ = proc.performFFT(on: samples) }
             let line = "│  \(cfg.label)        │\(fmt9(meanUs))  │\(fmt7ms(meanUs)) │\(fmt6fps(fps)) │"
-            print(line)
+            report(line)
         }
-        print("└─────────────┴────────────┴──────────┴─────────┘")
+        report("└─────────────┴────────────┴──────────┴─────────┘")
 
         // Regression
         let refProc = FFTProcessor(fftSize: 8192, sampleRate: sampleRate)
@@ -70,19 +86,19 @@ final class PerformanceProfilingTests: XCTestCase {
             (512,  "512  "), (1024, "1024 "), (2048, "2048 "), (4096, "4096 "),
         ]
 
-        print("\n┌──────────────────────────────────────────────────┐")
-        print("│  STAGE 2: dB Conversion (vDSP_vdbcon)           │")
-        print("├──────────┬────────────┬────────────┬────────────┤")
-        print("│  Bins    │  Mean (µs) │  Mean (ms) │    Max FPS │")
-        print("├──────────┼────────────┼────────────┼────────────┤")
+        report("\n┌──────────────────────────────────────────────────┐")
+        report("│  STAGE 2: dB Conversion (vDSP_vdbcon)           │")
+        report("├──────────┬────────────┬────────────┬────────────┤")
+        report("│  Bins    │  Mean (µs) │  Mean (ms) │    Max FPS │")
+        report("├──────────┼────────────┼────────────┼────────────┤")
 
         for cfg in configs {
             let proc = FFTProcessor(fftSize: cfg.bins * 2, sampleRate: sampleRate)
             let mags = [Float](repeating: 0.5, count: cfg.bins)
             let (meanUs, fps) = bench(n: iterations) { _ = proc.convertToDB(mags) }
-            print("│  \(cfg.label)   │\(fmt9(meanUs))  │\(fmt8ms4(meanUs)) │\(fmt9fps(fps)) │")
+            report("│  \(cfg.label)   │\(fmt9(meanUs))  │\(fmt8ms4(meanUs)) │\(fmt9fps(fps)) │")
         }
-        print("└──────────┴────────────┴────────────┴────────────┘")
+        report("└──────────┴────────────┴────────────┴────────────┘")
     }
 
     // MARK: - Stage 3: Frequency Weighting
@@ -96,20 +112,20 @@ final class PerformanceProfilingTests: XCTestCase {
         let dbMags = proc.convertToDB(mags)
         let freqs = proc.frequencies
 
-        print("\n┌───────────────────────────────────────────────────┐")
-        print("│  STAGE 3: Frequency Weighting (8192 bins)         │")
-        print("├────────────┬────────────┬────────────┬────────────┤")
-        print("│  Weighting │  Mean (µs) │  Mean (ms) │    Max FPS │")
-        print("├────────────┼────────────┼────────────┼────────────┤")
+        report("\n┌───────────────────────────────────────────────────┐")
+        report("│  STAGE 3: Frequency Weighting (8192 bins)         │")
+        report("├────────────┬────────────┬────────────┬────────────┤")
+        report("│  Weighting │  Mean (µs) │  Mean (ms) │    Max FPS │")
+        report("├────────────┼────────────┼────────────┼────────────┤")
 
         for weighting in FrequencyWeighting.allCases {
             let (meanUs, fps) = bench(n: iterations) {
                 _ = weightProc.applyWeighting(to: dbMags, frequencies: freqs, weighting: weighting)
             }
             let wLabel = weighting.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
-            print("│  \(wLabel)  │\(fmt9(meanUs))  │\(fmt8ms4(meanUs)) │\(fmt9fps(fps)) │")
+            report("│  \(wLabel)  │\(fmt9(meanUs))  │\(fmt8ms4(meanUs)) │\(fmt9fps(fps)) │")
         }
-        print("└────────────┴────────────┴────────────┴────────────┘")
+        report("└────────────┴────────────┴────────────┴────────────┘")
     }
 
     // MARK: - Stage 4: SpectrogramProcessor
@@ -142,15 +158,15 @@ final class PerformanceProfilingTests: XCTestCase {
         let binCost = max(0.0, fullUs - noBinUs)
         let binPct  = fullUs > 0 ? 100.0 * binCost / fullUs : 0
 
-        print("\n┌─────────────────────────────────────────────────────┐")
-        print("│  STAGE 4: SpectrogramProcessor (8192 bins in)       │")
-        print("├──────────────────────┬────────────┬─────────────────┤")
-        print("│  Configuration       │  Mean (µs) │  Max FPS        │")
-        print("├──────────────────────┼────────────┼─────────────────┤")
-        print("│  Full (binFactor=2)  │\(fmt9(fullUs))  │\(fmt9fps(fullFPS))       │")
-        print("│  No binning          │\(fmt9(noBinUs))  │\(fmt9fps(noBinFPS))       │")
-        print("│  Binning overhead    │\(fmt9(binCost))  │  \(String(format: "%.0f", binPct))% share           │")
-        print("└──────────────────────┴────────────┴─────────────────┘")
+        report("\n┌─────────────────────────────────────────────────────┐")
+        report("│  STAGE 4: SpectrogramProcessor (8192 bins in)       │")
+        report("├──────────────────────┬────────────┬─────────────────┤")
+        report("│  Configuration       │  Mean (µs) │  Max FPS        │")
+        report("├──────────────────────┼────────────┼─────────────────┤")
+        report("│  Full (binFactor=2)  │\(fmt9(fullUs))  │\(fmt9fps(fullFPS))       │")
+        report("│  No binning          │\(fmt9(noBinUs))  │\(fmt9fps(noBinFPS))       │")
+        report("│  Binning overhead    │\(fmt9(binCost))  │  \(String(format: "%.0f", binPct))% share           │")
+        report("└──────────────────────┴────────────┴─────────────────┘")
 
         XCTAssertLessThan(fullUs / 1000.0, 8.0,
             "SpectrogramProcessor regression: \(String(format: "%.2f", fullUs/1000.0)) ms > 8 ms budget")
@@ -185,15 +201,15 @@ final class PerformanceProfilingTests: XCTestCase {
             adapter.updateWithFFTMagnitudes(dbMags, sampleRate: sampleRate, timestamp: now)
         }
 
-        print("\n┌──────────────────────────────────────────────────────────┐")
-        print("│  STAGE 5: HighEndSpectrogramAdapter CPU (2048 freq bins) │")
-        print("├───────────────────────────────────────┬──────────────────┤")
-        print("│  Operation                            │  Time            │")
-        print("├───────────────────────────────────────┼──────────────────┤")
-        print(String(format: "│  First call (cache build + write)     │  %8.1f µs     │", buildUs))
-        print(String(format: "│  Cached calls (write only, mean)      │  %8.1f µs     │", cachedUs))
-        print(String(format: "│  Max FPS (cached path)                │  %8.0f FPS    │", cachedFPS))
-        print("└───────────────────────────────────────┴──────────────────┘")
+        report("\n┌──────────────────────────────────────────────────────────┐")
+        report("│  STAGE 5: HighEndSpectrogramAdapter CPU (2048 freq bins) │")
+        report("├───────────────────────────────────────┬──────────────────┤")
+        report("│  Operation                            │  Time            │")
+        report("├───────────────────────────────────────┼──────────────────┤")
+        report(String(format: "│  First call (cache build + write)     │  %8.1f µs     │", buildUs))
+        report(String(format: "│  Cached calls (write only, mean)      │  %8.1f µs     │", cachedUs))
+        report(String(format: "│  Max FPS (cached path)                │  %8.0f FPS    │", cachedFPS))
+        report("└───────────────────────────────────────┴──────────────────┘")
 
         XCTAssertLessThan(cachedUs / 1000.0, 3.0,
             "Adapter CPU regression: \(String(format: "%.2f", cachedUs/1000.0)) ms > 3 ms budget")
@@ -213,11 +229,11 @@ final class PerformanceProfilingTests: XCTestCase {
             Cfg(speed: .verySlow, minFPS:  8, label: "VsSlow  (hopSize=4096, ~10 FPS target)"),
         ]
 
-        print("\n┌────────────────────────────────────────────────────────────────┐")
-        print("│  FPS BUDGET: Published SpectrogramData Frames Per Second       │")
-        print("├──────────────────────────────────────────┬─────────────────────┤")
-        print("│  Config                                  │  Measured / Min FPS │")
-        print("├──────────────────────────────────────────┼─────────────────────┤")
+        report("\n┌────────────────────────────────────────────────────────────────┐")
+        report("│  FPS BUDGET: Published SpectrogramData Frames Per Second       │")
+        report("├──────────────────────────────────────────┬─────────────────────┤")
+        report("│  Config                                  │  Measured / Min FPS │")
+        report("├──────────────────────────────────────────┼─────────────────────┤")
 
         for cfg in configs {
             let filterMgr = BandstopFilterManager()
@@ -254,12 +270,113 @@ final class PerformanceProfilingTests: XCTestCase {
             let fps = frames > 0 ? Double(frames) / max(elapsed, 0.001) : 0.0
 
             let label = cfg.label.padding(toLength: 40, withPad: " ", startingAt: 0)
-            print(String(format: "│  %@  │  %6.1f / %4.0f FPS    │", label, fps, cfg.minFPS))
+            report(String(format: "│  %@  │  %6.1f / %4.0f FPS    │", label, fps, cfg.minFPS))
 
             XCTAssertGreaterThanOrEqual(fps, cfg.minFPS,
                 "FPS regression [\(cfg.label)]: \(String(format: "%.1f", fps)) FPS < \(cfg.minFPS) FPS minimum")
         }
-        print("└──────────────────────────────────────────┴─────────────────────┘")
+        report("└──────────────────────────────────────────┴─────────────────────┘")
+    }
+
+    // MARK: - FPS Budget: Widgets
+
+    /// Misst die effektive Render-Cadence eines echten SwiftUI-Widget-Stacks (Canvas-basiert).
+    /// Dieser Test ist ein Regression-Guard für sichtbares Dashboard-Rendering unter Live-Updates.
+    func testWidgetRenderFPSBudget() throws {
+        let filterMgr = BandstopFilterManager()
+        let connMgr = WatchConnectivityManager()
+        let engine = AudioEngine(filterManager: filterMgr, connectivityManager: connMgr)
+
+        let historySettings: [String: String] = [
+            WidgetSettings.useWidgetOverridesKey: "1",
+            "historyMetric": "LAF",
+            "timeSpan": "5",
+            "freqWeighting": "A",
+            "timeWeighting": "Fast"
+        ]
+        let spectrumSettings: [String: String] = [
+            WidgetSettings.useWidgetOverridesKey: "1",
+            "freqWeighting": "A",
+            "frequencyBands": "terz"
+        ]
+
+        let rootView = VStack(spacing: 8) {
+            LevelHistoryWidget(audioEngine: engine, settings: historySettings)
+                .frame(width: 360, height: 150)
+            FrequencySpectrumWidget(audioEngine: engine, settings: spectrumSettings)
+                .frame(width: 360, height: 150)
+        }
+        .frame(width: 390, height: 330)
+
+        let host = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 390))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        let binCount = 1024
+        let frequencies: [Float] = (0..<binCount).map { Float($0) * 22050.0 / Float(max(1, binCount - 1)) }
+        let levelKeys = ["LAF", "LAS", "LCF", "LCS", "LZF", "LZS", "LAeq", "LAFmin", "LAFmax", "LAF5", "LAF95", "LAFT5", "LAFTeq", "LCpeak"]
+
+        var phase: Float = 0
+        let updateTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
+            phase += 0.045
+            var magnitudes = [Float](repeating: -90.0, count: binCount)
+            for i in 0..<binCount {
+                let x = Float(i) / Float(binCount)
+                let harmonic = sinf((x * 28.0 + phase) * .pi)
+                let envelope = expf(-x * 3.5)
+                magnitudes[i] = -90.0 + envelope * (harmonic * 35.0 + 40.0)
+            }
+
+            let broadband = 65.0 + sinf(phase * 0.8) * 4.0
+            var levels: [String: Float] = [:]
+            for (index, key) in levelKeys.enumerated() {
+                levels[key] = broadband + Float(index % 4) - 1.5
+            }
+
+            engine.currentSpectrogramData = SpectrogramData(
+                frequencies: frequencies,
+                magnitudes: magnitudes,
+                magnitudesA: magnitudes,
+                magnitudesC: magnitudes,
+                broadbandLevel: broadband,
+                levels: levels,
+                sampleRate: 44100.0
+            )
+        }
+        RunLoop.main.add(updateTimer, forMode: .common)
+        defer { updateTimer.invalidate() }
+
+        let frameCounter = DisplayLinkFrameCounter()
+        let displayLink = CADisplayLink(target: frameCounter, selector: #selector(DisplayLinkFrameCounter.step))
+        if #available(iOS 15.0, *) {
+            displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
+        } else {
+            displayLink.preferredFramesPerSecond = 60
+        }
+        displayLink.add(to: .main, forMode: .common)
+        defer { displayLink.invalidate() }
+
+        let duration: TimeInterval = 2.0
+        let done = expectation(description: "Collect widget render frames")
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            done.fulfill()
+        }
+        wait(for: [done], timeout: duration + 1.0)
+
+        let fps = Double(frameCounter.frames) / duration
+        let displayMax = Double(UIScreen.main.maximumFramesPerSecond)
+        let minFPS = max(30.0, min(60.0, displayMax * 0.75))
+        XCTAssertGreaterThanOrEqual(
+            fps,
+            minFPS,
+            "Widget render FPS regression: measured \(String(format: "%.1f", fps)) FPS, expected >= \(minFPS) FPS"
+        )
     }
 
     // MARK: - Bottleneck Summary
@@ -301,7 +418,7 @@ final class PerformanceProfilingTests: XCTestCase {
                 + bar + " " + flag + "║"
         }
 
-        print("""
+        report("""
 
         ╔══════════════════════════════════════════════════════════════════╗
         ║      PIPELINE BOTTLENECK SUMMARY  (FFT=8192, Fast / 86 FPS)     ║
@@ -333,9 +450,10 @@ final class PerformanceProfilingTests: XCTestCase {
     @discardableResult
     private func bench(n: Int, block: () -> Void) -> (meanUs: Double, maxFPS: Double) {
         for _ in 0..<min(10, n / 5) { block() }
-        let t0 = CFAbsoluteTimeGetCurrent()
+        let t0 = DispatchTime.now().uptimeNanoseconds
         for _ in 0..<n { block() }
-        let meanUs = (CFAbsoluteTimeGetCurrent() - t0) * 1_000_000.0 / Double(n)
+        let t1 = DispatchTime.now().uptimeNanoseconds
+        let meanUs = Double(t1 - t0) / 1_000.0 / Double(n)
         return (meanUs, meanUs > 0 ? 1_000_000.0 / meanUs : .infinity)
     }
 
@@ -343,6 +461,12 @@ final class PerformanceProfilingTests: XCTestCase {
         let exp = expectation(description: "mainQueue")
         DispatchQueue.main.async { exp.fulfill() }
         wait(for: [exp], timeout: 3.0)
+    }
+
+    private func report(_ message: String) {
+        if shouldPrintReport {
+            print(message)
+        }
     }
 
     // MARK: - Formatters (avoid %s crash with Swift strings)

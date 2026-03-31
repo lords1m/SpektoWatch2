@@ -47,6 +47,7 @@ private struct RecordStopButton: View {
     @ObservedObject var audioEngine: AudioEngine
     let diameter: CGFloat
     let iconSize: CGFloat
+    let isEnabled: Bool
     let action: () -> Void
 
     private var state: ControlBarState {
@@ -77,6 +78,8 @@ private struct RecordStopButton: View {
             }
         }
         .buttonStyle(PlainButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1.0 : 0.5)
         .animation(.easeInOut(duration: 0.2), value: state.isRecording)
         .accessibilityIdentifier(state.recordStopAccessibilityIdentifier)
         .accessibilityLabel(state.recordStopAccessibilityLabel)
@@ -196,10 +199,12 @@ struct ControlBarView: View {
                 action: toggleLiveMode
             )
 
+            let canStopRecording = !(state.isRecording && recordingManager.currentRecordingDuration < 1.0)
             RecordStopButton(
                 audioEngine: audioEngine,
                 diameter: diameter,
                 iconSize: iconSize,
+                isEnabled: canStopRecording,
                 action: toggleRecording
             )
         }
@@ -232,6 +237,9 @@ struct ControlBarView: View {
 
     private func measurementToggleButton(font: Font) -> some View {
         Button(action: {
+            if audioEngine.isRecordingToFile {
+                return
+            }
             audioEngine.isMeasurementRecording.toggle()
         }) {
             Image(systemName: audioEngine.isMeasurementRecording ? "waveform.badge.checkmark" : "waveform.badge.plus")
@@ -240,6 +248,7 @@ struct ControlBarView: View {
         }
         .accessibilityIdentifier("measurementRecordingToggle")
         .accessibilityLabel(audioEngine.isMeasurementRecording ? "Messdatenaufzeichnung aktiv" : "Messdatenaufzeichnung inaktiv")
+        .disabled(audioEngine.isRecordingToFile)
     }
 
     private var statusText: String {
@@ -291,7 +300,15 @@ struct ControlBarView: View {
         generator.impactOccurred()
 
         if audioEngine.engineStatus == .starting {
-            print("[ControlBarView] Ignoring toggleRecording while starting")
+            // Allow canceling a pending recording startup; ignore only when startup
+            // belongs to live mode.
+            if audioEngine.isRecordingToFile {
+                print("[ControlBarView] Cancelling pending recording while starting")
+                audioEngine.stopRecording()
+                recordingManager.stopRecording(audioEngine: audioEngine) { _ in }
+            } else {
+                print("[ControlBarView] Ignoring toggleRecording while starting live mode")
+            }
             return
         }
 
@@ -324,6 +341,7 @@ struct ControlBarView: View {
             }
         } else {
             print("[ControlBarView] Starting recording...")
+            audioEngine.isMeasurementRecording = true
             let recordingStarted = recordingManager.startRecording(audioEngine: audioEngine)
             print("[ControlBarView] RecordingManager.startRecording() returned: \(recordingStarted)")
             if recordingStarted {

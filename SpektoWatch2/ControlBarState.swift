@@ -5,7 +5,7 @@ struct ControlBarState: Equatable {
     let isRecordingToFile: Bool
 
     var engineRunning: Bool {
-        engineStatus == .running || engineStatus == .starting
+        engineStatus == .running
     }
 
     var isLiveMode: Bool {
@@ -13,7 +13,7 @@ struct ControlBarState: Equatable {
     }
 
     var isRecording: Bool {
-        engineStatus == .running && isRecordingToFile
+        isRecordingToFile && (engineStatus == .running || engineStatus == .starting)
     }
 
     var playPauseIconName: String {

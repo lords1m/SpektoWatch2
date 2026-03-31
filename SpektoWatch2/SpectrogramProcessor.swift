@@ -19,6 +19,8 @@ class SpectrogramProcessor {
     var spectrogramTimeWeighting: TimeWeighting = .fast
     /// Duration of one FFT hop in seconds – must be kept in sync with the audio engine.
     var hopDuration: Float = 512.0 / 44100.0
+    /// 0 = no temporal smoothing, 1 = full IEC time weighting smoothing.
+    var temporalSmoothingIntensity: Float = 1.0
 
     var binningFactor: Int = 2
     
@@ -192,7 +194,10 @@ class SpectrogramProcessor {
         }
         // IEC 61672 exponential time weighting: α = 1 − exp(−dt / τ)
         // τ = 0.125 s (Fast) or 1.0 s (Slow)
-        var alpha = 1.0 - exp(-hopDuration / spectrogramTimeWeighting.timeConstant)
+        let baseAlpha = 1.0 - exp(-hopDuration / spectrogramTimeWeighting.timeConstant)
+        let intensity = max(0.0, min(1.0, temporalSmoothingIntensity))
+        var alpha = (1.0 - intensity) + intensity * baseAlpha
+        alpha = max(0.0, min(1.0, alpha))
         var oneMinusAlpha = 1.0 - alpha
         var smoothed = [Float](repeating: 0, count: currentMagnitudes.count)
         // EMA: smoothed = previous × (1−α) + current × α

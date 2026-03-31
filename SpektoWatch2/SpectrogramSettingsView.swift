@@ -88,6 +88,21 @@ struct SpectrogramSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Zeitglättung")
+                            Spacer()
+                            Text(smoothingLabel(audioEngine.spectrogramTemporalSmoothing))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: $audioEngine.spectrogramTemporalSmoothing, in: 0...1, step: 0.05)
+
+                        Text("0 = aus, 1 = volle IEC-Zeitbewertung")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Section(header: Text("Kalibrierung: \(Int(audioEngine.calibrationOffset)) dB")) {
