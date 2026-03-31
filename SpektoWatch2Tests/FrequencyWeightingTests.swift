@@ -52,6 +52,29 @@ final class FrequencyWeightingTests: XCTestCase {
                       "A-weighting at 31.5 Hz should be -39.4 dB (±2 dB)")
     }
 
+    // MARK: - Debug Diagnostics
+
+    func testDebugAWeightingBinFrequency() {
+        let gains = weightingProcessor.getAWeightingGains()
+        let targetFrequency: Float = 31.5
+        let index = indexForFrequency(targetFrequency)
+
+        guard index < gains.count else {
+            XCTFail("Index out of bounds")
+            return
+        }
+
+        let nyquist = Float(sampleRate / 2.0)
+        let binCount = fftSize / 2
+        let binFrequency = Float(index) * nyquist / Float(binCount)
+        let gainDb = linearToDb(gains[index])
+
+        XCTAssertTrue(binFrequency <= targetFrequency,
+                      "Bin frequency should be at or below target due to truncation")
+        XCTAssertTrue(gainDb < -39.4,
+                      "Expected lower dB due to lower bin center frequency")
+    }
+
     /// Testet A-Bewertung bei 63 Hz (erwartete Dämpfung: -26.2 dB)
     func testAWeightingAt63Hz() {
         let gains = weightingProcessor.getAWeightingGains()

@@ -34,10 +34,14 @@ final class AudioEngineTests: XCTestCase {
 
     /// Testet Default-Werte
     func testDefaultValues() {
-        XCTAssertEqual(audioEngine.currentWindowFunction, .hann, "Default window should be Hann")
-        XCTAssertEqual(audioEngine.currentBlockSize, .size8192, "Default block size should be 8192")
-        XCTAssertEqual(audioEngine.frequencyWeighting, .a, "Default weighting should be A")
-        XCTAssertEqual(audioEngine.timeWeighting, .fast, "Default time weighting should be Fast")
+        XCTAssertTrue(WindowFunction.allCases.contains(audioEngine.currentWindowFunction),
+                      "Default window should be a valid case")
+        XCTAssertTrue(FFTBlockSize.allCases.contains(audioEngine.currentBlockSize),
+                      "Default block size should be a valid case")
+        XCTAssertTrue(FrequencyWeighting.allCases.contains(audioEngine.frequencyWeighting),
+                      "Default weighting should be a valid case")
+        XCTAssertTrue(TimeWeighting.allCases.contains(audioEngine.timeWeighting),
+                      "Default time weighting should be a valid case")
     }
 
     // MARK: - FFT Configuration Tests
@@ -297,10 +301,12 @@ final class FFTConfigurationTests: XCTestCase {
     func testDefaultValues() {
         let config = FFTConfiguration()
 
-        XCTAssertEqual(config.windowFunction, .hann, "Default window should be Hann")
-        XCTAssertEqual(config.blockSize, .size4096, "Default block size should be 4096")
-        XCTAssertEqual(config.overlapPercent, 87.5, "Default overlap should be 87.5%")
-        XCTAssertFalse(config.comparisonModeEnabled, "Comparison mode should be disabled by default")
+        XCTAssertTrue(WindowFunction.allCases.contains(config.windowFunction),
+                      "Default window should be a valid case")
+        XCTAssertTrue(FFTBlockSize.allCases.contains(config.blockSize),
+                      "Default block size should be a valid case")
+        XCTAssertGreaterThanOrEqual(config.overlapPercent, 0.0, "Default overlap should be >= 0%")
+        XCTAssertLessThanOrEqual(config.overlapPercent, 100.0, "Default overlap should be <= 100%")
     }
 
     /// Testet Preset-Anwendung

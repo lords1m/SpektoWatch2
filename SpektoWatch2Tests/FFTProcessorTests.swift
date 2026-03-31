@@ -46,6 +46,22 @@ final class FFTProcessorTests: XCTestCase {
         XCTAssertEqual(maxValue, 1.0, accuracy: 0.01, "Hann window max should be ~1.0")
     }
 
+    // MARK: - Debug Diagnostics
+
+    func testDebugHannWindowNormalization() {
+        var normWindow = [Float](repeating: 0, count: 1024)
+        var denormWindow = [Float](repeating: 0, count: 1024)
+
+        vDSP_hann_window(&normWindow, vDSP_Length(normWindow.count), Int32(vDSP_HANN_NORM))
+        vDSP_hann_window(&denormWindow, vDSP_Length(denormWindow.count), Int32(vDSP_HANN_DENORM))
+
+        let normMax = normWindow.max() ?? 0
+        let denormMax = denormWindow.max() ?? 0
+
+        XCTAssertTrue(normMax > 1.0, "Normalized Hann should exceed 1.0")
+        XCTAssertEqual(denormMax, 1.0, accuracy: 0.01, "Denormalized Hann should peak at ~1.0")
+    }
+
     /// Testet Rectangular-Fensterfunktion (alle Werte = 1)
     func testRectangularWindowProperties() {
         let window = WindowFunction.rectangular.generate(size: 512)
