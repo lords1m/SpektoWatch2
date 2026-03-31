@@ -158,7 +158,12 @@ class PlaybackSpectrogramRenderer: MTKView {
         defer { vDSP_DFT_DestroySetup(fftSetup) }
 
         var window = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        // Manual Hann window implementation to avoid vDSP API compatibility issues
+        let n = Float(fftSize)
+        for i in 0..<fftSize {
+            let x = Float(i) / n
+            window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
+        }
 
         var offset = 0
         while offset + fftSize <= samples.count {

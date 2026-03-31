@@ -82,13 +82,28 @@ enum WindowFunction: String, CaseIterable, Identifiable {
             }
 
         case .hann:
-            vDSP_hann_window(&window, vDSP_Length(size), Int32(vDSP_HANN_NORM))
+            // Manual implementation to avoid vDSP API compatibility issues
+            for i in 0..<size {
+                let x = Float(i) / n
+                window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
+            }
 
         case .hamming:
-            vDSP_hamm_window(&window, vDSP_Length(size), 0)
+            // Manual implementation to avoid vDSP API compatibility issues
+            for i in 0..<size {
+                let x = Float(i) / n
+                window[i] = 0.54 - 0.46 * cos(2 * .pi * x)
+            }
 
         case .blackman:
-            vDSP_blkman_window(&window, vDSP_Length(size), 0)
+            // Manual implementation to avoid vDSP API compatibility issues
+            let a0: Float = 0.42
+            let a1: Float = 0.5
+            let a2: Float = 0.08
+            for i in 0..<size {
+                let x = Float(i) / n
+                window[i] = a0 - a1 * cos(2 * .pi * x) + a2 * cos(4 * .pi * x)
+            }
 
         case .blackmanHarris:
             // 4-term Blackman-Harris
