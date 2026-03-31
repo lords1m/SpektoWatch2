@@ -8,37 +8,33 @@ private enum PhysicalScopeScale {
     static let scopeWidthMM: CGFloat = 42.0
     static let scopeHeightMM: CGFloat = 14.0
 
-    static var pointsPerMillimeter: CGFloat {
-        let ppi = estimatedPPI
-        return (ppi / 25.4) / UIScreen.main.scale
+    static func pointsPerMillimeter(for traitCollection: UITraitCollection) -> CGFloat {
+        let ppi = estimatedPPI(for: traitCollection)
+        let scale = traitCollection.displayScale
+        return (ppi / 25.4) / scale
     }
 
-    static var scopeSizePoints: CGSize {
-        CGSize(
-            width: scopeWidthMM * pointsPerMillimeter,
-            height: scopeHeightMM * pointsPerMillimeter
+    static func scopeSizePoints(for traitCollection: UITraitCollection) -> CGSize {
+        let ppm = pointsPerMillimeter(for: traitCollection)
+        return CGSize(
+            width: scopeWidthMM * ppm,
+            height: scopeHeightMM * ppm
         )
     }
 
-    private static var estimatedPPI: CGFloat {
-        let native = UIScreen.main.nativeBounds.size
-        let shortEdge = Int(min(native.width, native.height))
-        let longEdge = Int(max(native.width, native.height))
-
-        switch (shortEdge, longEdge) {
-        case (640, 1136), (750, 1334), (828, 1792):
-            return 326.0
-        case (1080, 1920), (1242, 2208):
-            return 401.0
-        case (1125, 2436), (1242, 2688):
-            return 458.0
-        case (1170, 2532), (1179, 2556), (1290, 2796):
-            return 460.0
-        case (1080, 2340):
-            return 476.0
+    private static func estimatedPPI(for traitCollection: UITraitCollection) -> CGFloat {
+        // Use trait collection's displayGamut as a proxy for device class
+        // This is a best-effort approach for iOS 26+
+        let scale = traitCollection.displayScale
+        
+        // Approximate PPI based on display scale
+        switch scale {
+        case 2.0:
+            return 326.0  // Standard retina (iPhone 6/7/8, etc.)
+        case 3.0:
+            return 458.0  // Super retina (iPhone X and later)
         default:
-            // Fallback for unknown/new iPhone models.
-            return 460.0
+            return 460.0  // Modern devices fallback
         }
     }
 }
@@ -305,14 +301,20 @@ struct OscilloscopeView: View {
     private let timer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
     private let speedOfSoundMetersPerSecond: Double = 344.0
 
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
+    
     var body: some View {
-        let pointsPerMillimeter = Double(PhysicalScopeScale.pointsPerMillimeter)
+        let traitCollection = UITraitCollection(traitsFrom: [
+            UITraitCollection(displayScale: displayScale)
+        ])
+        let pointsPerMillimeter = Double(PhysicalScopeScale.pointsPerMillimeter(for: traitCollection))
         let cornerRadius: CGFloat = 10
 
         return Group {
             switch layoutMode {
             case .physicalFixed:
-                let scopeSize = PhysicalScopeScale.scopeSizePoints
+                let scopeSize = PhysicalScopeScale.scopeSizePoints(for: traitCollection)
                 scopeContent(viewportSize: scopeSize, pointsPerMillimeter: pointsPerMillimeter)
                     .frame(width: scopeSize.width, height: scopeSize.height)
                     .frame(maxWidth: .infinity)

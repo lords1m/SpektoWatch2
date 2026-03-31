@@ -204,7 +204,6 @@ extension TestAudioGenerator {
         
         for i in 0..<numSamples {
             let t = Double(i) / sampleRate
-            let progress = t / duration
             
             // Linear chirp: phase = integral of instantaneous frequency over time
             // phase = 2π * (startFreq * t + (endFreq - startFreq) * t² / (2 * duration))
