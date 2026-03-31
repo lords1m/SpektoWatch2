@@ -305,9 +305,9 @@ struct OscilloscopeView: View {
     @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
-        let traitCollection = UITraitCollection(traitsFrom: [
-            UITraitCollection(displayScale: displayScale)
-        ])
+        let traitCollection = UITraitCollection { mutableTraits in
+            mutableTraits.displayScale = displayScale
+        }
         let pointsPerMillimeter = Double(PhysicalScopeScale.pointsPerMillimeter(for: traitCollection))
         let cornerRadius: CGFloat = 10
 
