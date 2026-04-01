@@ -139,7 +139,11 @@ class HighEndSpectrogramAdapter: MTKView {
         }
         commandQueue = queue
         setupPipeline()
-        guard isMetalReady else { return }
+        guard isMetalReady else {
+            print("[HighEndSpectrogramAdapter] ❌ Setup failed - Metal not ready")
+            return
+        }
+        print("[HighEndSpectrogramAdapter] ✅ Metal initialized successfully")
         setupTexture()
         setupScrollBuffers()
         buildColormapTexture(type: colormapType)
@@ -263,7 +267,12 @@ class HighEndSpectrogramAdapter: MTKView {
     /// Accepts FFT magnitudes (in dB SPL from AudioEngine) and writes a
     /// pre-normalized [0,1] column into the history texture.
     func updateWithFFTMagnitudes(_ magnitudes: [Float], sampleRate: Double, timestamp: Date) {
-        guard isMetalReady, spectrogramTexture != nil, !isUpdatesPaused else { return }
+        guard isMetalReady, spectrogramTexture != nil, !isUpdatesPaused else {
+            if !isMetalReady {
+                print("[HighEndSpectrogramAdapter] ⚠️ Cannot update - Metal not ready")
+            }
+            return
+        }
         updateSampleRateIfNeeded(sampleRate)
 
         let currentTimestamp = timestamp.timeIntervalSinceReferenceDate
@@ -626,6 +635,7 @@ class HighEndSpectrogramAdapter: MTKView {
     }
 
     private func markMetalUnavailable(_ reason: String) {
+        print("[HighEndSpectrogramAdapter] ⚠️ Metal unavailable: \(reason)")
         isMetalReady = false
         metalFailureReason = reason
         isPaused = true
@@ -757,7 +767,7 @@ struct SpectrogramWidgetView: View {
             }
         }
     }
-
+    
     private func yPosition(for freq: Double, height: CGFloat) -> CGFloat {
         let minF = 20.0
         let maxF = 20000.0
@@ -794,122 +804,116 @@ struct HighEndSpectrogramAdapterWithAxes: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let totalSpacing = axisSpacing
-            let spectrogramHeight = geometry.size.height - axisHeight - totalSpacing
-
-            HStack(spacing: axisSpacing) {
-                // Y-Axis (Frequency)
-                VStack(spacing: axisSpacing) {
-                    ZStack(alignment: .topTrailing) {
-                        ForEach(axisFrequencies, id: \.self) { freq in
-                            Text(frequencyLabel(freq))
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                                .frame(width: axisWidth, alignment: .trailing)
-                                .position(x: axisWidth / 2, y: yPosition(for: freq, height: spectrogramHeight))
-                                .offset(y: freq == 20000 ? 6 : 0)
-                        }
-                    }
-                    .frame(width: axisWidth, height: spectrogramHeight)
-                    .clipped()
-
-                    Spacer().frame(height: axisHeight)
+            VStack(spacing: axisSpacing) {
+                spectrogramContent
+            }
+        }
+    }
+    
+    private var spectrogramView: some View {
+        HighEndSpectrogramAdapterView(
+            audioEngine: audioEngine,
+            colormapType: colormapType,
+            timeSpan: timeSpan,
+            scrollSpeed: scrollSpeed,
+            isPaused: isPaused,
+            scrollOffset: scrollOffset,
+            freqWeighting: freqWeighting,
+            sensitivity: sensitivity,
+            frequencySmoothing: frequencySmoothing,
+            onAxisMetricsChanged: { metrics in
+                axisMetrics = metrics
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(4)
+    }
+    
+    private var frequencyAxisOverlay: some View {
+        GeometryReader { spectroGeo in
+            ZStack(alignment: .topLeading) {
+                ForEach(axisFrequencies, id: \.self) { freq in
+                    Text(frequencyLabel(freq))
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0)
+                        .padding(.leading, 8)
+                        .position(x: 25, y: yPosition(for: freq, height: spectroGeo.size.height))
                 }
-
-                // Spectrogram View & X-Axis
-                VStack(spacing: axisSpacing) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.black.opacity(0.24))
-
-                        HighEndSpectrogramAdapterView(
-                            audioEngine: audioEngine,
-                            colormapType: colormapType,
-                            timeSpan: timeSpan,
-                            scrollSpeed: scrollSpeed,
-                            isPaused: isPaused,
-                            scrollOffset: scrollOffset,
-                            freqWeighting: freqWeighting,
-                            sensitivity: sensitivity,
-                            frequencySmoothing: frequencySmoothing,
-                            onAxisMetricsChanged: { metrics in
-                                axisMetrics = metrics
-                            }
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .padding(4)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .padding(4)
+    }
+    
+    private var timeAxisOverlay: some View {
+        GeometryReader { spectroGeo in
+            Canvas { context, size in
+                let duration = max(axisMetrics.recordingTimeSeconds, 0)
+                let span = Double(timeSpan.rawValue)
+                guard span > 0 else { return }
+                
+                let visibleEnd = duration
+                let visibleStart = max(0, visibleEnd - span)
+                let visibleRange = visibleEnd - visibleStart
+                let filledRatio = min(max(Double(axisMetrics.fillRatio), 0), 1)
+                let axisVisibleWidth = size.width * CGFloat(filledRatio)
+                let baselineY = size.height - 12
+                
+                let tickStep = self.xAxisTickStep(for: visibleRange)
+                guard tickStep > 0 else { return }
+                
+                let firstTick = Foundation.ceil(visibleStart / tickStep) * tickStep
+                let lastTick = visibleEnd + (tickStep * 0.5)
+                var lastLabelX: CGFloat = -.greatestFiniteMagnitude
+                
+                for tick in stride(from: firstTick, through: lastTick, by: tickStep) {
+                    let x = CGFloat((visibleEnd - tick) / span) * size.width
+                    guard x >= 0 && x <= axisVisibleWidth else { continue }
+                    
+                    if abs(x - lastLabelX) > 28 {
+                        var shadowContext = context
+                        shadowContext.addFilter(.shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0))
+                        
+                        let text = Text(self.formatAxisTime(tick))
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.9))
+                        
+                        shadowContext.draw(text, at: CGPoint(x: x, y: baselineY), anchor: .center)
+                        lastLabelX = x
                     }
-                    .frame(height: spectrogramHeight)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.black.opacity(0.75), lineWidth: 18)
-                            .blur(radius: 10)
-                            .mask(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [Color.black.opacity(0.70), Color.white.opacity(0.08)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-
-                    // X-Axis (Time)
-                    GeometryReader { axisGeo in
-                        Canvas { context, size in
-                            let duration = max(axisMetrics.recordingTimeSeconds, 0)
-                            let span = Double(timeSpan.rawValue)
-                            guard span > 0 else { return }
-
-                            let visibleEnd = duration
-                            let visibleStart = max(0, visibleEnd - span)
-                            let visibleRange = visibleEnd - visibleStart
-                            let filledRatio = min(max(Double(axisMetrics.fillRatio), 0), 1)
-                            let axisVisibleWidth = size.width * CGFloat(filledRatio)
-                            let baselineY: CGFloat = 3
-
-                            var baseline = Path()
-                            baseline.move(to: CGPoint(x: 0, y: baselineY))
-                            baseline.addLine(to: CGPoint(x: axisVisibleWidth, y: baselineY))
-                            context.stroke(baseline, with: .color(Color.gray.opacity(0.7)), lineWidth: 0.8)
-
-                            let tickStep = xAxisTickStep(for: visibleRange)
-                            if tickStep <= 0 { return }
-
-                            let firstTick = ceil(visibleStart / tickStep) * tickStep
-                            let lastTick = visibleEnd + (tickStep * 0.5)
-                            var lastLabelX: CGFloat = -.greatestFiniteMagnitude
-
-                            for tick in stride(from: firstTick, through: lastTick, by: tickStep) {
-                                let x = CGFloat((visibleEnd - tick) / span) * size.width
-                                guard x >= 0 && x <= axisVisibleWidth else { continue }
-
-                                var tickPath = Path()
-                                tickPath.move(to: CGPoint(x: x, y: baselineY))
-                                tickPath.addLine(to: CGPoint(x: x, y: baselineY + 5))
-                                context.stroke(tickPath, with: .color(Color.gray.opacity(0.75)), lineWidth: 0.9)
-
-                                if abs(x - lastLabelX) > 22 {
-                                    context.draw(
-                                        Text(formatAxisTime(tick))
-                                            .font(.caption2)
-                                            .foregroundColor(.gray),
-                                        at: CGPoint(x: x, y: baselineY + 13),
-                                        anchor: .center
-                                    )
-                                    lastLabelX = x
-                                }
-                            }
-                        }
-                    }
-                    .frame(height: axisHeight)
                 }
             }
         }
+        .padding(4)
+    }
+    
+    private var spectrogramContent: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.black.opacity(0.24))
+
+            spectrogramView
+            frequencyAxisOverlay
+            timeAxisOverlay
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.black.opacity(0.75), lineWidth: 18)
+                .blur(radius: 10)
+                .mask(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.70), Color.white.opacity(0.08)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
     }
 
     private func yPosition(for freq: Double, height: CGFloat) -> CGFloat {

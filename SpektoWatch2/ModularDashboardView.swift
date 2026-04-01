@@ -10,8 +10,11 @@ struct ModularDashboardView: View {
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
     @State private var showLayoutsDialog = false
+    @State private var lastScrollOffset: CGFloat? = nil
+    @State private var scrollOffset: CGFloat = 0
     private let barSwipeThreshold: CGFloat = 36
     private let handleDragThreshold: CGFloat = 12
+    private let scrollThreshold: CGFloat = 20
 
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
         _viewModel = StateObject(wrappedValue: DashboardViewModel(audioEngine: audioEngine, connectivityManager: connectivityManager))
@@ -30,6 +33,14 @@ struct ModularDashboardView: View {
                         let isCompactWidth = geo.size.width <= 390
                         let verticalInset: CGFloat = isCompactWidth ? 6 : 8
                         ScrollView {
+                            GeometryReader { scrollGeo in
+                                Color.clear.preference(
+                                    key: ScrollOffsetPreferenceKey.self,
+                                    value: scrollGeo.frame(in: .named("scroll")).minY
+                                )
+                            }
+                            .frame(height: 0)
+                            
                             VStack(spacing: 0) {
                                 dashboardGrid(
                                     geo: geo,
@@ -39,6 +50,10 @@ struct ModularDashboardView: View {
                                 .padding(.top, max(verticalInset, (isHeaderVisible ? headerHeight : 10) + verticalInset))
                                 .padding(.bottom, max(verticalInset, (isFooterVisible ? footerHeight : 10) + verticalInset))
                             }
+                        }
+                        .coordinateSpace(name: "scroll")
+                        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                            handleScrollChange(value)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .tag(index)
@@ -219,6 +234,25 @@ struct ModularDashboardView: View {
         .onPreferenceChange(DashboardHeaderHeightPreferenceKey.self) { headerHeight = $0 }
         .onPreferenceChange(DashboardFooterHeightPreferenceKey.self) { footerHeight = $0 }
     }
+    
+    private func handleScrollChange(_ offset: CGFloat) {
+        guard let previous = lastScrollOffset else {
+            lastScrollOffset = offset
+            return
+        }
+
+        let delta = offset - previous
+
+        // Bei jeder signifikanten Scroll-Bewegung (egal in welche Richtung) ausblenden
+        if abs(delta) > scrollThreshold && (isHeaderVisible || isFooterVisible) {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                isHeaderVisible = false
+                isFooterVisible = false
+            }
+        }
+
+        lastScrollOffset = offset
+    }
 
     private func hiddenHandle(systemImage: String) -> some View {
         HStack(spacing: 8) {
@@ -287,7 +321,7 @@ struct ModularDashboardView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                let colCount = max(1, Int((availableWidth + gridSpacing) / (minColumnWidth + gridSpacing)))
+                let colCount = 3  // Fest 3 Spalten
                 let rows = viewModel.computeRows(widgets: widgets, columns: colCount)
                 let columnWidth = (availableWidth - CGFloat(colCount - 1) * gridSpacing) / CGFloat(colCount)
                 
@@ -372,6 +406,13 @@ struct ModularDashboardView: View {
         )
     }
 
+}
+
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 private struct DashboardHeaderHeightPreferenceKey: PreferenceKey {

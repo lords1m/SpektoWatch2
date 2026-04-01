@@ -8,7 +8,7 @@ class FFTConfiguration: ObservableObject {
     // MARK: - Published Properties
 
     /// Aktuelle Fensterfunktion
-    @Published var windowFunction: WindowFunction = .hann {
+    @Published var windowFunction: WindowFunction = .blackmanHarris {
         didSet {
             UserDefaults.standard.set(windowFunction.rawValue, forKey: "fft_windowFunction")
         }

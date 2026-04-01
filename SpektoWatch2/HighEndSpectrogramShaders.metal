@@ -70,28 +70,34 @@ fragment half4 liveSpectrogramFragment(
     float x0 = floor(cx);
     float xFrac = cx - x0;
 
-    // Sample 8 texel centres — enough for 7 bilinearly-interpolated taps.
-    float s0 = history.sample(hs, float2((x0 - 2.5) / texWidth, texY)).r;
-    float s1 = history.sample(hs, float2((x0 - 1.5) / texWidth, texY)).r;
-    float s2 = history.sample(hs, float2((x0 - 0.5) / texWidth, texY)).r;
-    float s3 = history.sample(hs, float2((x0 + 0.5) / texWidth, texY)).r;
-    float s4 = history.sample(hs, float2((x0 + 1.5) / texWidth, texY)).r;
-    float s5 = history.sample(hs, float2((x0 + 2.5) / texWidth, texY)).r;
-    float s6 = history.sample(hs, float2((x0 + 3.5) / texWidth, texY)).r;
-    float s7 = history.sample(hs, float2((x0 + 4.5) / texWidth, texY)).r;
+    // Extended 11-tap Gaussian blur for smoother time interpolation
+    float s0 = history.sample(hs, float2((x0 - 4.5) / texWidth, texY)).r;
+    float s1 = history.sample(hs, float2((x0 - 3.5) / texWidth, texY)).r;
+    float s2 = history.sample(hs, float2((x0 - 2.5) / texWidth, texY)).r;
+    float s3 = history.sample(hs, float2((x0 - 1.5) / texWidth, texY)).r;
+    float s4 = history.sample(hs, float2((x0 - 0.5) / texWidth, texY)).r;
+    float s5 = history.sample(hs, float2((x0 + 0.5) / texWidth, texY)).r;
+    float s6 = history.sample(hs, float2((x0 + 1.5) / texWidth, texY)).r;
+    float s7 = history.sample(hs, float2((x0 + 2.5) / texWidth, texY)).r;
+    float s8 = history.sample(hs, float2((x0 + 3.5) / texWidth, texY)).r;
+    float s9 = history.sample(hs, float2((x0 + 4.5) / texWidth, texY)).r;
+    float s10 = history.sample(hs, float2((x0 + 5.5) / texWidth, texY)).r;
 
-    // Interpolate each tap to the exact fractional sub-column position.
-    float v0 = mix(s0, s1, xFrac);   // column x0−2
-    float v1 = mix(s1, s2, xFrac);   // column x0−1
-    float v2 = mix(s2, s3, xFrac);   // column x0
-    float v3 = mix(s3, s4, xFrac);   // column x0+1
-    float v4 = mix(s4, s5, xFrac);   // column x0+2
-    float v5 = mix(s5, s6, xFrac);   // column x0+3
-    float v6 = mix(s6, s7, xFrac);   // column x0+4
+    // Interpolate each tap to the exact fractional sub-column position
+    float v0 = mix(s0, s1, xFrac);
+    float v1 = mix(s1, s2, xFrac);
+    float v2 = mix(s2, s3, xFrac);
+    float v3 = mix(s3, s4, xFrac);
+    float v4 = mix(s4, s5, xFrac);
+    float v5 = mix(s5, s6, xFrac);
+    float v6 = mix(s6, s7, xFrac);
+    float v7 = mix(s7, s8, xFrac);
+    float v8 = mix(s8, s9, xFrac);
+    float v9 = mix(s9, s10, xFrac);
 
-    // Gaussian kernel σ ≈ 1.5:  [0.02, 0.08, 0.22, 0.36, 0.22, 0.08, 0.02]
-    float t = v0 * 0.02 + v1 * 0.08 + v2 * 0.22 + v3 * 0.36
-            + v4 * 0.22 + v5 * 0.08 + v6 * 0.02;
+    // Gaussian kernel σ ≈ 2.0 for smoother blending (10 taps, sum = 1.0)
+    float t = v0 * 0.01 + v1 * 0.03 + v2 * 0.07 + v3 * 0.12 + v4 * 0.18
+            + v5 * 0.18 + v6 * 0.18 + v7 * 0.12 + v8 * 0.07 + v9 * 0.04;
 
     return half4(colormap.sample(cs, float2(t, 0.5)));
 }

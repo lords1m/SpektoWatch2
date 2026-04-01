@@ -160,26 +160,6 @@ struct SpectrogramSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-
-                    Menu {
-                        ForEach(FFTConfiguration.Preset.allCases) { preset in
-                            Button {
-                                fftConfiguration.applyPreset(preset)
-                            } label: {
-                                VStack(alignment: .leading) {
-                                    Text(preset.rawValue)
-                                    Text(preset.description)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "slider.horizontal.3")
-                            Text("Voreinstellungen")
-                        }
-                    }
                 }
 
                 Section(header: Text("Apple Watch")) {

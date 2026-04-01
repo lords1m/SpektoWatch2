@@ -80,7 +80,7 @@ struct WatchDashboardView: View {
 
     private var isRecording: Bool { audioEngine.isRecording }
 
-    private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 6), count: 2)
+    private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
     private let values: [WatchSingleValueType] = [.laeq, .lafMax, .lafMin, .lceq]
 
     var body: some View {
@@ -90,13 +90,14 @@ struct WatchDashboardView: View {
             VStack(spacing: 6) {
                 statusHeader
 
-                LazyVGrid(columns: gridItems, spacing: 6) {
+                LazyVGrid(columns: gridItems, spacing: 4) {
                     ForEach(values, id: \.self) { valueType in
                         WatchSingleValueWidget(valueType: valueType)
+                            .frame(height: 50)
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.top, 6)
+                .padding(.horizontal, 4)
+                .padding(.top, 4)
 
                 Spacer(minLength: 4)
 

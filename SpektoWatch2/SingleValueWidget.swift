@@ -13,21 +13,46 @@ struct SingleValueWidget: View {
         return WidgetSettings.defaultSingleValueMetric
     }
     
-    var displayTitle: String {
+    var displayTitle: AttributedString {
+        var result = AttributedString()
+        
         switch metricKey {
-        case "LAF": return "LAF (Aktuell)"
-        case "LAeq": return "LAeq (Mittel)"
-        case "LAFmin": return "LAFmin (Min)"
-        case "LAFmax": return "LAFmax (Max)"
-        case "LAF5": return "LAF5 (5%)"
-        case "LAF95": return "LAF95 (95%)"
-        case "LAFT5": return "LAFT5 (Takt)"
-        case "LAFTeq": return "LAFTeq (Takt Mittel)"
-        case "LCpeak": return "LCpeak (Spitze)"
-        case "PHON": return "Lautheit"
-        case "SONE": return "Wahrg. Lautheit"
-        default: return metricKey
+        case "LAF":
+            result = "L"
+            result += AttributedString("A,F", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAeq":
+            result = "L"
+            result += AttributedString("A,eq", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAFmin":
+            result = "L"
+            result += AttributedString("A,F,min", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAFmax":
+            result = "L"
+            result += AttributedString("A,F,max", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAF5":
+            result = "L"
+            result += AttributedString("A,F,5", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAF95":
+            result = "L"
+            result += AttributedString("A,F,95", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAFT5":
+            result = "L"
+            result += AttributedString("A,FT,5", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LAFTeq":
+            result = "L"
+            result += AttributedString("A,FT,eq", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "LCpeak":
+            result = "L"
+            result += AttributedString("C,peak", attributes: AttributeContainer([.baselineOffset: -3, .font: Font.caption.weight(.regular)]))
+        case "PHON":
+            result = "Lautheit"
+        case "SONE":
+            result = "Wahrg. Lautheit"
+        default:
+            result = AttributedString(metricKey)
         }
+        
+        return result
     }
 
     var unitLabel: String {

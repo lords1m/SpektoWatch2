@@ -90,10 +90,7 @@ struct ControlBarView: View {
     @ObservedObject var audioEngine: AudioEngine
     @EnvironmentObject private var recordingManager: RecordingManager
 
-    @State private var showSaveDialog = false
     @State private var showRecordingsList = false
-    @State private var recordedAudioURL: URL?
-    @State private var recordedDuration: TimeInterval = 0
 
     private let footerVerticalPadding: CGFloat = 10
     private let regularControlDiameter: CGFloat = 50
@@ -123,10 +120,7 @@ struct ControlBarView: View {
 
                     Spacer(minLength: 8)
 
-                    HStack(spacing: 12) {
-                        measurementToggleButton(font: .title3)
-                        recordingsButton(font: .title2, badgeOffsetX: 10, badgeOffsetY: -10)
-                    }
+                    recordingsButton(font: .title2, badgeOffsetX: 10, badgeOffsetY: -10)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, footerVerticalPadding)
@@ -136,10 +130,7 @@ struct ControlBarView: View {
                     HStack {
                         statusInfo(alignment: .leading)
                         Spacer()
-                        HStack(spacing: 10) {
-                            measurementToggleButton(font: .callout)
-                            recordingsButton(font: .headline, badgeOffsetX: 8, badgeOffsetY: -8)
-                        }
+                        recordingsButton(font: .headline, badgeOffsetX: 8, badgeOffsetY: -8)
                     }
                     controlsGroup(
                         diameter: compactControlDiameter,
@@ -155,15 +146,6 @@ struct ControlBarView: View {
         .backgroundExtensionEffect(cornerRadius: 24)
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
-        .sheet(isPresented: $showSaveDialog) {
-            if let audioURL = recordedAudioURL {
-                SaveRecordingView(
-                    audioURL: audioURL,
-                    duration: recordedDuration,
-                    audioEngine: audioEngine
-                )
-            }
-        }
         .sheet(isPresented: $showRecordingsList) {
             RecordingsListView().environmentObject(recordingManager)
         }
@@ -233,22 +215,6 @@ struct ControlBarView: View {
         }
         .accessibilityIdentifier("recordingsListButton")
         .accessibilityLabel("Aufnahmen")
-    }
-
-    private func measurementToggleButton(font: Font) -> some View {
-        Button(action: {
-            if audioEngine.isRecordingToFile {
-                return
-            }
-            audioEngine.isMeasurementRecording.toggle()
-        }) {
-            Image(systemName: audioEngine.isMeasurementRecording ? "waveform.badge.checkmark" : "waveform.badge.plus")
-                .font(font)
-                .foregroundColor(audioEngine.isMeasurementRecording ? .orange : .secondary)
-        }
-        .accessibilityIdentifier("measurementRecordingToggle")
-        .accessibilityLabel(audioEngine.isMeasurementRecording ? "Messdatenaufzeichnung aktiv" : "Messdatenaufzeichnung inaktiv")
-        .disabled(audioEngine.isRecordingToFile)
     }
 
     private var statusText: String {
@@ -327,16 +293,50 @@ struct ControlBarView: View {
             }
 
             print("[ControlBarView] Stopping recording...")
+            
+            // Dauer vor dem Stoppen speichern
+            let recordedDuration = recordingManager.currentRecordingDuration
+            
             audioEngine.stopRecording()
 
             recordingManager.stopRecording(audioEngine: audioEngine) { audioURL in
                 if let url = audioURL {
-                    recordedAudioURL = url
-                    recordedDuration = recordingManager.currentRecordingDuration
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showSaveDialog = true
+                    // Automatisch speichern mit Zeitstempel als Name
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "dd.MM.yyyy HH:mm"
+                    let timestamp = dateFormatter.string(from: Date())
+                    
+                    var recording = Recording(
+                        name: "Messung \(timestamp)",
+                        description: "",
+                        startDate: Date().addingTimeInterval(-recordedDuration),
+                        duration: recordedDuration,
+                        audioFileName: url.path,
+                        measurementDataFileName: audioEngine.lastMeasurementDataURL?.path,
+                        sampleRate: audioEngine.currentSpectrogramData?.sampleRate ?? 44100.0,
+                        channelCount: 1,
+                        timeWeighting: audioEngine.timeWeighting.rawValue,
+                        frequencyWeighting: audioEngine.frequencyWeighting.rawValue,
+                        widgetConfigurations: UserDefaults.standard.data(forKey: "DashboardConfiguration_v5"),
+                        markers: [],
+                        calibrationOffset: audioEngine.calibrationOffset,
+                        fftBlockSize: audioEngine.currentBlockSize.rawValue
+                    )
+                    
+                    // Statistiken aus AudioEngine übernehmen
+                    if let data = audioEngine.currentSpectrogramData {
+                        recording.laeqFast = data.levels["LAeq"] ?? -120.0
+                        recording.peakLevel = data.levels["LCpeak"] ?? -120.0
+                        recording.minLevel = data.levels["LAFmin"] ?? -120.0
                     }
+                    
+                    recordingManager.addRecording(recording)
+                    
+                    // Success feedback
+                    let notificationGenerator = UINotificationFeedbackGenerator()
+                    notificationGenerator.notificationOccurred(.success)
+                    
+                    print("[ControlBarView] Recording automatically saved: \(recording.name)")
                 }
             }
         } else {
