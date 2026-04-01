@@ -9,6 +9,22 @@ struct ContentView: View {
             GlassBackground()
                 .ignoresSafeArea()
             ModularDashboardView(audioEngine: audioEngine, connectivityManager: connectivityManager)
+#if DEBUG
+            VStack {
+                HStack {
+                    Text("DEBUG UI VISIBLE")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.yellow.opacity(0.9))
+                        .foregroundColor(.black)
+                        .cornerRadius(8)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(12)
+#endif
         }
     }
 }

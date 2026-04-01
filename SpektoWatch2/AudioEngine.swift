@@ -102,7 +102,7 @@ class AudioEngine: ObservableObject {
     private var lastUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
     private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
-    private let targetUIInterval: TimeInterval = 1.0 / 120.0
+    private let targetUIInterval: TimeInterval = 1.0 / 60.0
     private let maxRealtimeBacklogSeconds: Double = 0.12
     private let impulseThresholdDbfs: Float = -35.0
     private let impulseCooldownSeconds: TimeInterval = 1.0

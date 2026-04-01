@@ -8,13 +8,11 @@ struct AdvancedAnalysisView: View {
     @ObservedObject var audioEngine: AudioEngine
 
     @State private var selectedTab: AnalysisTab = .parameters
-    @State private var showPresetPicker = false
 
     enum AnalysisTab: String, CaseIterable {
         case parameters = "Parameter"
         case windows = "Fenster"
         case resolution = "Auflösung"
-        case comparison = "Vergleich"
     }
 
     var body: some View {
@@ -38,8 +36,6 @@ struct AdvancedAnalysisView: View {
                         WindowFunctionSection(fftConfig: fftConfig)
                     case .resolution:
                         ResolutionSection(fftConfig: fftConfig)
-                    case .comparison:
-                        ComparisonSection(fftConfig: fftConfig, audioEngine: audioEngine)
                     }
                 }
             }
@@ -53,25 +49,6 @@ struct AdvancedAnalysisView: View {
                 audioEngine.setBlockSize(newValue)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        ForEach(FFTConfiguration.Preset.allCases) { preset in
-                            Button {
-                                fftConfig.applyPreset(preset)
-                            } label: {
-                                VStack(alignment: .leading) {
-                                    Text(preset.rawValue)
-                                    Text(preset.description)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Voreinstellungen", systemImage: "slider.horizontal.3")
-                    }
-                }
-
                 ToolbarItem(placement: .topBarLeading) {
                     Toggle(isOn: $fftConfig.showExplanations) {
                         Image(systemName: fftConfig.showExplanations ? "info.circle.fill" : "info.circle")
@@ -406,158 +383,6 @@ private struct ResolutionSection: View {
                         """)
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding()
-    }
-}
-
-// MARK: - Comparison Section
-
-private struct ComparisonSection: View {
-    @ObservedObject var fftConfig: FFTConfiguration
-    @ObservedObject var audioEngine: AudioEngine
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Enable Comparison Mode
-            GroupBox {
-                Toggle(isOn: $fftConfig.comparisonModeEnabled) {
-                    HStack {
-                        Image(systemName: "rectangle.split.2x1")
-                            .foregroundStyle(.blue)
-                        Text("A/B Vergleichsmodus")
-                            .font(.headline)
-                    }
-                }
-            }
-
-            if fftConfig.comparisonModeEnabled {
-                // Configuration A (Current)
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Circle()
-                                .fill(.blue)
-                                .frame(width: 12, height: 12)
-                            Text("Konfiguration A")
-                                .font(.headline)
-                        }
-
-                        HStack {
-                            Text("Fenster:")
-                            Spacer()
-                            Text(fftConfig.windowFunction.localizedName)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack {
-                            Text("Blockgröße:")
-                            Spacer()
-                            Text("\(fftConfig.blockSize.rawValue)")
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack {
-                            Text("Δf:")
-                            Spacer()
-                            Text(String(format: "%.2f Hz", fftConfig.frequencyResolution))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                // Configuration B
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Circle()
-                                .fill(.orange)
-                                .frame(width: 12, height: 12)
-                            Text("Konfiguration B")
-                                .font(.headline)
-                        }
-
-                        Picker("Fenster", selection: $fftConfig.comparisonWindowFunction) {
-                            ForEach(WindowFunction.allCases) { window in
-                                Text(window.localizedName).tag(window)
-                            }
-                        }
-
-                        Picker("Blockgröße", selection: $fftConfig.comparisonBlockSize) {
-                            ForEach(FFTBlockSize.allCases) { size in
-                                Text(size.shortDescription).tag(size)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        let freqResB = 44100.0 / Float(fftConfig.comparisonBlockSize.rawValue)
-                        HStack {
-                            Text("Δf:")
-                            Spacer()
-                            Text(String(format: "%.2f Hz", freqResB))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                // Comparison Chart (Placeholder for real spectrum)
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Spektrum-Vergleich")
-                            .font(.headline)
-
-                        ComparisonSpectrumView(
-                            configA: (fftConfig.windowFunction, fftConfig.blockSize),
-                            configB: (fftConfig.comparisonWindowFunction, fftConfig.comparisonBlockSize)
-                        )
-                        .frame(height: 200)
-
-                        Text("Blau = Konfiguration A, Orange = Konfiguration B")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                // Difference Summary
-                if fftConfig.showExplanations {
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Unterschiede")
-                                .font(.headline)
-
-                            let sidelobeA = fftConfig.windowFunction.sidelobeAttenuation
-                            let sidelobeB = fftConfig.comparisonWindowFunction.sidelobeAttenuation
-
-                            if sidelobeA < sidelobeB {
-                                DifferenceRow(
-                                    text: "Konfiguration A hat \(Int(sidelobeB - sidelobeA)) dB weniger Leckage",
-                                    color: .blue
-                                )
-                            } else if sidelobeB < sidelobeA {
-                                DifferenceRow(
-                                    text: "Konfiguration B hat \(Int(sidelobeA - sidelobeB)) dB weniger Leckage",
-                                    color: .orange
-                                )
-                            }
-
-                            let lobeA = fftConfig.windowFunction.mainLobeWidth
-                            let lobeB = fftConfig.comparisonWindowFunction.mainLobeWidth
-
-                            if lobeA < lobeB {
-                                DifferenceRow(
-                                    text: "Konfiguration A hat schärfere Peaks",
-                                    color: .blue
-                                )
-                            } else if lobeB < lobeA {
-                                DifferenceRow(
-                                    text: "Konfiguration B hat schärfere Peaks",
-                                    color: .orange
-                                )
-                            }
-                        }
                     }
                 }
             }

@@ -15,7 +15,7 @@ class FFTConfiguration: ObservableObject {
     }
 
     /// Aktuelle FFT-Blockgröße
-    @Published var blockSize: FFTBlockSize = .size4096 {
+    @Published var blockSize: FFTBlockSize = .size2048 {
         didSet {
             UserDefaults.standard.set(blockSize.rawValue, forKey: "fft_blockSize")
         }
@@ -34,13 +34,6 @@ class FFTConfiguration: ObservableObject {
             UserDefaults.standard.set(showExplanations, forKey: "fft_showExplanations")
         }
     }
-
-    /// Aktiviert den A/B Vergleichsmodus
-    @Published var comparisonModeEnabled: Bool = false
-
-    /// Konfiguration B für Vergleich
-    @Published var comparisonWindowFunction: WindowFunction = .rectangular
-    @Published var comparisonBlockSize: FFTBlockSize = .size2048
 
     // MARK: - Computed Properties
 
@@ -90,77 +83,6 @@ class FFTConfiguration: ObservableObject {
         showExplanations = UserDefaults.standard.object(forKey: "fft_showExplanations") as? Bool ?? true
     }
 
-    // MARK: - Preset Configurations
-
-    /// Voreinstellungen für verschiedene Anwendungsfälle
-    enum Preset: String, CaseIterable, Identifiable {
-        case general = "Allgemein"
-        case music = "Musik"
-        case speech = "Sprache"
-        case transient = "Transienten"
-        case precision = "Präzision"
-        case educational = "Didaktisch"
-
-        var id: String { rawValue }
-
-        var description: String {
-            switch self {
-            case .general:
-                return "Ausgewogene Einstellungen für allgemeine Analyse"
-            case .music:
-                return "Optimiert für musikalische Inhalte mit guter Frequenzauflösung"
-            case .speech:
-                return "Optimiert für Sprachanalyse mit schneller Zeitauflösung"
-            case .transient:
-                return "Für perkussive Sounds und schnelle Änderungen"
-            case .precision:
-                return "Maximale Frequenzauflösung für stationäre Signale"
-            case .educational:
-                return "Zeigt spektrale Leckage deutlich (Rectangular Window)"
-            }
-        }
-
-        var windowFunction: WindowFunction {
-            switch self {
-            case .general: return .hann
-            case .music: return .blackman
-            case .speech: return .hamming
-            case .transient: return .hann
-            case .precision: return .blackmanHarris
-            case .educational: return .rectangular
-            }
-        }
-
-        var blockSize: FFTBlockSize {
-            switch self {
-            case .general: return .size4096
-            case .music: return .size8192
-            case .speech: return .size2048
-            case .transient: return .size1024
-            case .precision: return .size16384
-            case .educational: return .size2048
-            }
-        }
-
-        var overlap: Float {
-            switch self {
-            case .general: return 87.5
-            case .music: return 87.5
-            case .speech: return 75.0
-            case .transient: return 25.0
-            case .precision: return 87.5
-            case .educational: return 0.0
-            }
-        }
-    }
-
-    /// Wendet eine Voreinstellung an
-    func applyPreset(_ preset: Preset) {
-        windowFunction = preset.windowFunction
-        blockSize = preset.blockSize
-        overlapPercent = preset.overlap
-    }
-
     // MARK: - Educational Helpers
 
     /// Heisenberg-Unsicherheit: Produkt aus Zeit- und Frequenzauflösung
@@ -175,23 +97,4 @@ class FFTConfiguration: ObservableObject {
         return "Δf = \(freqRes) Hz, Δt = \(timeRes) ms"
     }
 
-    /// Vergleich der Konfigurationen A und B
-    var comparisonSummary: String {
-        guard comparisonModeEnabled else { return "" }
-
-        let freqA = frequencyResolution
-        let freqB = 44100.0 / Float(comparisonBlockSize.rawValue)
-        let timeA = timeResolutionMs
-        let timeB = Float(comparisonBlockSize.rawValue) / 44100.0 * 1000.0
-
-        return """
-        Konfiguration A: \(windowFunction.localizedName), \(blockSize.rawValue) Samples
-        Δf = \(String(format: "%.1f", freqA)) Hz, Δt = \(String(format: "%.0f", timeA)) ms
-        Seitenlappen: \(Int(windowFunction.sidelobeAttenuation)) dB
-
-        Konfiguration B: \(comparisonWindowFunction.localizedName), \(comparisonBlockSize.rawValue) Samples
-        Δf = \(String(format: "%.1f", freqB)) Hz, Δt = \(String(format: "%.0f", timeB)) ms
-        Seitenlappen: \(Int(comparisonWindowFunction.sidelobeAttenuation)) dB
-        """
-    }
 }

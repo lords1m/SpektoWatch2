@@ -13,14 +13,12 @@ struct SpektralanalyseLaborWidget: View {
         case parameters = "Parameter"
         case window = "Fenster"
         case resolution = "Auflösung"
-        case comparison = "Vergleich"
 
         var icon: String {
             switch self {
             case .parameters: return "slider.horizontal.3"
             case .window: return "waveform.path"
             case .resolution: return "atom"
-            case .comparison: return "rectangle.split.2x1"
             }
         }
     }
@@ -60,8 +58,6 @@ struct SpektralanalyseLaborWidget: View {
                     WindowTabView(fftConfig: fftConfig)
                 case .resolution:
                     ResolutionTabView(fftConfig: fftConfig)
-                case .comparison:
-                    ComparisonTabView(fftConfig: fftConfig)
                 }
             }
         }
@@ -273,101 +269,6 @@ private struct ResolutionTabView: View {
     }
 }
 
-// MARK: - Comparison Tab
-
-private struct ComparisonTabView: View {
-    @ObservedObject var fftConfig: FFTConfiguration
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Toggle
-            Toggle(isOn: $fftConfig.comparisonModeEnabled) {
-                HStack {
-                    Image(systemName: "rectangle.split.2x1")
-                        .foregroundStyle(fftConfig.comparisonModeEnabled ? .blue : .gray)
-                    Text("A/B Vergleich")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-
-            if fftConfig.comparisonModeEnabled {
-                HStack(spacing: 8) {
-                    // Config A
-                    ConfigCard(
-                        label: "A",
-                        color: .blue,
-                        windowName: fftConfig.windowFunction.localizedName,
-                        blockSize: fftConfig.blockSize.rawValue,
-                        freqRes: fftConfig.frequencyResolution
-                    )
-
-                    // Config B (editable)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Circle().fill(.orange).frame(width: 8, height: 8)
-                            Text("B").font(.caption).fontWeight(.bold)
-                        }
-
-                        Menu {
-                            ForEach(WindowFunction.allCases) { window in
-                                Button(window.localizedName) {
-                                    fftConfig.comparisonWindowFunction = window
-                                }
-                            }
-                        } label: {
-                            Text(fftConfig.comparisonWindowFunction.localizedName)
-                                .font(.caption2)
-                        }
-
-                        Menu {
-                            ForEach(FFTBlockSize.allCases) { size in
-                                Button("\(size.rawValue)") {
-                                    fftConfig.comparisonBlockSize = size
-                                }
-                            }
-                        } label: {
-                            Text("\(fftConfig.comparisonBlockSize.rawValue)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        let freqResB = 44100.0 / Float(fftConfig.comparisonBlockSize.rawValue)
-                        Text(String(format: "Δf = %.1f Hz", freqResB))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(8)
-                }
-
-                // Differences
-                DifferenceSummary(
-                    windowA: fftConfig.windowFunction,
-                    windowB: fftConfig.comparisonWindowFunction
-                )
-            } else {
-                VStack {
-                    Spacer()
-                    Image(systemName: "rectangle.split.2x1")
-                        .font(.title)
-                        .foregroundStyle(.gray.opacity(0.3))
-                    Text("Aktivieren für A/B Vergleich")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, minHeight: 100)
-            }
-        }
-        .padding(12)
-    }
-}
-
 // MARK: - Helper Views
 
 private struct ResolutionBadge: View {
@@ -514,73 +415,3 @@ private struct ResolutionRow: View {
     }
 }
 
-private struct ConfigCard: View {
-    let label: String
-    let color: Color
-    let windowName: String
-    let blockSize: Int
-    let freqRes: Float
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Circle().fill(color).frame(width: 8, height: 8)
-                Text(label).font(.caption).fontWeight(.bold)
-            }
-            Text(windowName)
-                .font(.caption2)
-            Text("\(blockSize) Samples")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(String(format: "Δf = %.1f Hz", freqRes))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(0.1))
-        .cornerRadius(8)
-    }
-}
-
-private struct DifferenceSummary: View {
-    let windowA: WindowFunction
-    let windowB: WindowFunction
-
-    var body: some View {
-        let sidelobeA = windowA.sidelobeAttenuation
-        let sidelobeB = windowB.sidelobeAttenuation
-        let lobeA = windowA.mainLobeWidth
-        let lobeB = windowB.mainLobeWidth
-
-        HStack(spacing: 8) {
-            if sidelobeA < sidelobeB {
-                DifferenceChip(text: "A: weniger Leckage", color: .blue)
-            } else if sidelobeB < sidelobeA {
-                DifferenceChip(text: "B: weniger Leckage", color: .orange)
-            }
-
-            if lobeA < lobeB {
-                DifferenceChip(text: "A: schärfer", color: .blue)
-            } else if lobeB < lobeA {
-                DifferenceChip(text: "B: schärfer", color: .orange)
-            }
-        }
-    }
-}
-
-private struct DifferenceChip: View {
-    let text: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).font(.caption2)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.1))
-        .cornerRadius(12)
-    }
-}

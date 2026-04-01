@@ -68,13 +68,6 @@ final class AudioEngineTests: XCTestCase {
     /// beim schnellen Wechseln der FFT-Konfiguration im Test-Kontext
     func testApplyFFTConfiguration() throws {
         throw XCTSkip("Test temporarily disabled due to memory management issues in test context")
-
-        // let config = FFTConfiguration()
-        // config.windowFunction = .blackmanHarris
-        // config.blockSize = .size16384
-        // audioEngine.applyFFTConfiguration(config)
-        // XCTAssertEqual(audioEngine.currentWindowFunction, .blackmanHarris)
-        // XCTAssertEqual(audioEngine.currentBlockSize, .size16384)
     }
 
     /// Testet Frequenzauflösung-Berechnung
@@ -309,26 +302,6 @@ final class FFTConfigurationTests: XCTestCase {
         XCTAssertLessThanOrEqual(config.overlapPercent, 100.0, "Default overlap should be <= 100%")
     }
 
-    /// Testet Preset-Anwendung
-    func testApplyPreset() {
-        let config = FFTConfiguration()
-
-        config.applyPreset(.music)
-        XCTAssertEqual(config.windowFunction, .blackman, "Music preset should use Blackman")
-        XCTAssertEqual(config.blockSize, .size8192, "Music preset should use 8192")
-
-        config.applyPreset(.speech)
-        XCTAssertEqual(config.windowFunction, .hamming, "Speech preset should use Hamming")
-        XCTAssertEqual(config.blockSize, .size2048, "Speech preset should use 2048")
-
-        config.applyPreset(.transient)
-        XCTAssertEqual(config.windowFunction, .hann, "Transient preset should use Hann")
-        XCTAssertEqual(config.blockSize, .size1024, "Transient preset should use 1024")
-
-        config.applyPreset(.precision)
-        XCTAssertEqual(config.windowFunction, .blackmanHarris, "Precision preset should use Blackman-Harris")
-        XCTAssertEqual(config.blockSize, .size16384, "Precision preset should use 16384")
-    }
 
     /// Testet berechnete Eigenschaften
     func testComputedProperties() {

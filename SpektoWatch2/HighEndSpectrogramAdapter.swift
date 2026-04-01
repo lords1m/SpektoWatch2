@@ -128,7 +128,7 @@ class HighEndSpectrogramAdapter: MTKView {
         self.framebufferOnly = true   // We only render to it, no compute writes
         self.enableSetNeedsDisplay = false
         self.isPaused = false
-        self.preferredFramesPerSecond = 120
+        self.preferredFramesPerSecond = 60
         self.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         self.colorPixelFormat = .bgra8Unorm
         self.sampleCount = 1
@@ -441,6 +441,11 @@ class HighEndSpectrogramAdapter: MTKView {
     // MARK: - Rendering
 
     override func draw(_ rect: CGRect) {
+#if canImport(UIKit)
+        if UIApplication.shared.applicationState != .active {
+            return
+        }
+#endif
         guard isMetalReady,
               pipelineState != nil,
               commandQueue != nil,
@@ -713,8 +718,10 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
             self.freqWeighting = freqWeighting
             super.init()
 
+            let updateQueue = DispatchQueue(label: "com.spektowatch.spectrogram.update", qos: .userInteractive)
             cancellable = audioEngine.$currentSpectrogramData
                 .compactMap { $0 }
+                .receive(on: updateQueue)
                 .sink { [weak self] data in
                     guard let self = self else { return }
                     let magnitudes = data.magnitudes(for: self.freqWeighting)

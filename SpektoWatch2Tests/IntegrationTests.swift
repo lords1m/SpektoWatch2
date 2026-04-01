@@ -129,25 +129,6 @@ final class IntegrationTests: XCTestCase {
 
     // MARK: - AudioEngine Integration
 
-    /// Testet AudioEngine mit FFTConfiguration
-    /// AKTUALISIERT: Test reaktiviert nach struct-Refactoring von FrequencyWeightingProcessor
-    func testAudioEngineWithFFTConfiguration() {
-        let filterManager = BandstopFilterManager()
-        let connectivityManager = WatchConnectivityManager()
-        let audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
-        let config = FFTConfiguration()
-
-        // Teste verschiedene Presets
-        for preset in FFTConfiguration.Preset.allCases {
-            config.applyPreset(preset)
-            audioEngine.applyFFTConfiguration(config)
-
-            XCTAssertEqual(audioEngine.currentWindowFunction, config.windowFunction,
-                          "Window function should match config for preset \(preset)")
-            XCTAssertEqual(audioEngine.currentBlockSize, config.blockSize,
-                          "Block size should match config for preset \(preset)")
-        }
-    }
 
     // MARK: - Stress Tests
 
@@ -284,25 +265,6 @@ final class IntegrationTests: XCTestCase {
 
     // MARK: - Edge Case Integration
 
-    /// Testet Verhalten bei schnellem Widget-Wechsel
-    /// AKTUALISIERT: Test reaktiviert nach struct-Refactoring
-    func testRapidConfigurationChanges() {
-        let filterManager = BandstopFilterManager()
-        let connectivityManager = WatchConnectivityManager()
-        let audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
-
-        // Simuliere schnelle Konfigurationswechsel
-        let config = FFTConfiguration()
-        let presets = FFTConfiguration.Preset.allCases
-
-        for i in 0..<50 {
-            config.applyPreset(presets[i % presets.count])
-            audioEngine.applyFFTConfiguration(config)
-        }
-
-        // Engine sollte noch funktional sein
-        XCTAssertEqual(audioEngine.engineStatus, .idle, "Engine should still be functional")
-    }
 
     private func processChunks(
         count: Int,
