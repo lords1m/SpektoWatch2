@@ -32,6 +32,8 @@ class HighEndSpectrogramAdapter: MTKView {
     // MARK: - Metal Resources
     private var commandQueue: MTLCommandQueue!
     private var pipelineState: MTLRenderPipelineState!
+    private var isMetalReady = false
+    private var metalFailureReason: String?
 
     // Triple-buffered scroll offset
     private var scrollBuffers: [MTLBuffer] = []
@@ -119,7 +121,8 @@ class HighEndSpectrogramAdapter: MTKView {
 
     private func setupMetal() {
         guard let device = device else {
-            fatalError("Metal is not supported on this device")
+            markMetalUnavailable("Metal is not supported on this device")
+            return
         }
 
         self.framebufferOnly = true   // We only render to it, no compute writes
@@ -130,8 +133,13 @@ class HighEndSpectrogramAdapter: MTKView {
         self.colorPixelFormat = .bgra8Unorm
         self.sampleCount = 1
 
-        commandQueue = device.makeCommandQueue()
+        guard let queue = device.makeCommandQueue() else {
+            markMetalUnavailable("Failed to create Metal command queue")
+            return
+        }
+        commandQueue = queue
         setupPipeline()
+        guard isMetalReady else { return }
         setupTexture()
         setupScrollBuffers()
         buildColormapTexture(type: colormapType)
@@ -140,7 +148,8 @@ class HighEndSpectrogramAdapter: MTKView {
     private func setupPipeline() {
         guard let device = device,
               let library = device.makeDefaultLibrary() else {
-            fatalError("Could not load Metal library")
+            markMetalUnavailable("Could not load Metal library")
+            return
         }
 
         let vertexFunction = library.makeFunction(name: "spectrogramVertex")
@@ -154,12 +163,14 @@ class HighEndSpectrogramAdapter: MTKView {
         do {
             pipelineState = try device.makeRenderPipelineState(descriptor: desc)
         } catch {
-            fatalError("Failed to create render pipeline state: \(error)")
+            markMetalUnavailable("Failed to create render pipeline state: \(error)")
+            return
         }
+        isMetalReady = true
     }
 
     private func setupTexture() {
-        guard let device = device else { return }
+        guard isMetalReady, let device = device else { return }
 
         let desc = MTLTextureDescriptor()
         desc.textureType = .type2D
@@ -186,7 +197,7 @@ class HighEndSpectrogramAdapter: MTKView {
     }
 
     private func setupScrollBuffers() {
-        guard let device = device else { return }
+        guard isMetalReady, let device = device else { return }
         scrollBuffers.removeAll()
         for _ in 0..<maxInFlightBuffers {
             if let buf = device.makeBuffer(length: MemoryLayout<Float>.stride, options: .storageModeShared) {
@@ -196,7 +207,7 @@ class HighEndSpectrogramAdapter: MTKView {
     }
 
     private func buildColormapTexture(type: Int) {
-        guard let device = device else { return }
+        guard isMetalReady, let device = device else { return }
         let cmType = ColormapType(rawValue: type) ?? .turbo
         if colormapTextures[type] == nil {
             colormapTextures[type] = ColormapTexture.makeTexture(device: device, type: cmType)
@@ -252,7 +263,7 @@ class HighEndSpectrogramAdapter: MTKView {
     /// Accepts FFT magnitudes (in dB SPL from AudioEngine) and writes a
     /// pre-normalized [0,1] column into the history texture.
     func updateWithFFTMagnitudes(_ magnitudes: [Float], sampleRate: Double, timestamp: Date) {
-        guard spectrogramTexture != nil, !isUpdatesPaused else { return }
+        guard isMetalReady, spectrogramTexture != nil, !isUpdatesPaused else { return }
         updateSampleRateIfNeeded(sampleRate)
 
         let currentTimestamp = timestamp.timeIntervalSinceReferenceDate
@@ -421,6 +432,12 @@ class HighEndSpectrogramAdapter: MTKView {
     // MARK: - Rendering
 
     override func draw(_ rect: CGRect) {
+        guard isMetalReady,
+              pipelineState != nil,
+              commandQueue != nil,
+              spectrogramTexture != nil,
+              !scrollBuffers.isEmpty
+        else { return }
         guard inFlightSemaphore.wait(timeout: .now()) == .success else { return }
 
         guard let drawable = currentDrawable,
@@ -515,7 +532,9 @@ class HighEndSpectrogramAdapter: MTKView {
         lastDataTimestamp = 0
         previousColumnData = [Float](repeating: 0, count: frequencyBins)
         displayScrollSynced = false
-        clearTexture()
+        if isMetalReady {
+            clearTexture()
+        }
         DispatchQueue.main.async { [weak self] in
             self?.onAxisMetricsChanged?(SpectrogramAxisMetrics())
         }
@@ -598,11 +617,19 @@ class HighEndSpectrogramAdapter: MTKView {
         if newColumns != timeColumns {
             timeColumns = max(10, newColumns)
             // Pause the display link so no draw() fires while the texture is replaced.
+            guard isMetalReady else { return }
             isPaused = true
             setupTexture()
             reset()
             isPaused = false
         }
+    }
+
+    private func markMetalUnavailable(_ reason: String) {
+        isMetalReady = false
+        metalFailureReason = reason
+        isPaused = true
+        enableSetNeedsDisplay = false
     }
 }
 

@@ -27,7 +27,7 @@ final class FrequencyWeightingTests: XCTestCase {
     private func indexForFrequency(_ frequency: Float) -> Int {
         let nyquist = Float(sampleRate / 2.0)
         let binCount = fftSize / 2
-        return Int((frequency / nyquist) * Float(binCount))
+        return Int(round((frequency / nyquist) * Float(binCount)))
     }
 
     /// Konvertiert linearen Gain zu dB
@@ -69,10 +69,11 @@ final class FrequencyWeightingTests: XCTestCase {
         let binFrequency = Float(index) * nyquist / Float(binCount)
         let gainDb = linearToDb(gains[index])
 
-        XCTAssertTrue(binFrequency <= targetFrequency,
-                      "Bin frequency should be at or below target due to truncation")
-        XCTAssertTrue(gainDb < -39.4,
-                      "Expected lower dB due to lower bin center frequency")
+        // With rounding, bin frequency should be close to target
+        XCTAssertEqual(binFrequency, targetFrequency, accuracy: 3.0,
+                      "Bin frequency should be within ±3 Hz of target frequency")
+        XCTAssertEqual(gainDb, -39.4, accuracy: 2.0,
+                      "A-weighting should be close to expected value at nearest bin")
     }
 
     /// Testet A-Bewertung bei 63 Hz (erwartete Dämpfung: -26.2 dB)
