@@ -227,7 +227,7 @@ class PlaybackSpectrogramRenderer: MTKView {
     private func fillTexture() {
         guard let texture = spectrogramTexture else { return }
 
-        let minSPL: Float = 110.0 - 50.0  // 60 dB SPL floor
+        let minSPL: Float = 20.0
         let maxSPL: Float = 110.0
         let range = maxSPL - minSPL
         let nfSPL: Float = noiseFloor + 120.0

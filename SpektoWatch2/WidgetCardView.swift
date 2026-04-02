@@ -30,6 +30,7 @@ struct WidgetCardView: View {
                 .padding(.top, 10)
             }
         }
+        .glassCardLite(cornerRadius: cornerRadius)
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(

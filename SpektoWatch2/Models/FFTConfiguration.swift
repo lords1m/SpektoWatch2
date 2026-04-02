@@ -65,22 +65,29 @@ class FFTConfiguration: ObservableObject {
     }
 
     private func loadSavedSettings() {
-        if let windowRaw = UserDefaults.standard.string(forKey: "fft_windowFunction"),
+        let defaults = UserDefaults.standard
+        let configVersion = defaults.integer(forKey: "fft_configVersion")
+        if configVersion < 2 {
+            defaults.set(FFTBlockSize.size2048.rawValue, forKey: "fft_blockSize")
+            defaults.set(2, forKey: "fft_configVersion")
+        }
+
+        if let windowRaw = defaults.string(forKey: "fft_windowFunction"),
            let window = WindowFunction(rawValue: windowRaw) {
             windowFunction = window
         }
 
-        let blockRaw = UserDefaults.standard.integer(forKey: "fft_blockSize")
+        let blockRaw = defaults.integer(forKey: "fft_blockSize")
         if blockRaw > 0, let block = FFTBlockSize(rawValue: blockRaw) {
             blockSize = block
         }
 
-        if UserDefaults.standard.object(forKey: "fft_overlapPercent") != nil {
-            overlapPercent = UserDefaults.standard.float(forKey: "fft_overlapPercent")
+        if defaults.object(forKey: "fft_overlapPercent") != nil {
+            overlapPercent = defaults.float(forKey: "fft_overlapPercent")
         }
         overlapPercent = min(max(overlapPercent, 0), 87.5)
 
-        showExplanations = UserDefaults.standard.object(forKey: "fft_showExplanations") as? Bool ?? true
+        showExplanations = defaults.object(forKey: "fft_showExplanations") as? Bool ?? true
     }
 
     // MARK: - Educational Helpers

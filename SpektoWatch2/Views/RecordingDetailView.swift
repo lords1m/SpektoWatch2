@@ -20,6 +20,7 @@ struct RecordingDetailView: View {
         filterManager: BandstopFilterManager(),
         connectivityManager: WatchConnectivityManager()
     )
+    @StateObject private var playbackFFTConfig = FFTConfiguration()
 
     @State private var isDraggingSlider = false
     @State private var spectrogramHistory: [[Float]] = []
@@ -28,6 +29,7 @@ struct RecordingDetailView: View {
     @State private var selectedMetrics: Set<String> = []
     @State private var analysisStartTime: TimeInterval = 0
     @State private var analysisEndTime: TimeInterval = 0
+    @State private var playbackWidgets: [WidgetConfiguration] = []
 
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
@@ -91,7 +93,19 @@ struct RecordingDetailView: View {
             audioPlayer.onAudioSamples = { samples in
                 vizAudioEngine.processExternalAudio(samples, sampleRate: recording.sampleRate)
             }
+            vizAudioEngine.calibrationOffset = recording.calibrationOffset
+            if let weighting = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
+                vizAudioEngine.setFrequencyWeighting(weighting)
+            }
+            if let timeWeighting = TimeWeighting(rawValue: recording.timeWeighting) {
+                vizAudioEngine.setTimeWeighting(timeWeighting)
+            }
+            if let blockSize = FFTBlockSize(rawValue: recording.fftBlockSize) {
+                playbackFFTConfig.blockSize = blockSize
+                vizAudioEngine.setBlockSize(blockSize)
+            }
             analysisEndTime = max(audioPlayer.duration, recording.duration)
+            loadPlaybackWidgets()
             loadStoredMeasurementDataIfAvailable()
         }
         .onDisappear {
@@ -108,6 +122,7 @@ struct RecordingDetailView: View {
             VStack(spacing: 20) {
                 headerCard
                 audioPlayerCard
+                playbackWidgetsCard
                 statisticsCard
                 metadataCard
                 if !recording.description.isEmpty {
@@ -248,6 +263,31 @@ struct RecordingDetailView: View {
         }
         .padding()
         .glassCard(cornerRadius: 14)
+    }
+
+    @ViewBuilder
+    private var playbackWidgetsCard: some View {
+        let widgets = playbackWidgets.filter { $0.type != .spectrogram }
+        if !widgets.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Widgets")
+                    .font(.headline)
+                ForEach(widgets) { widget in
+                    WidgetCardView(
+                        widget: widget,
+                        audioEngine: vizAudioEngine,
+                        fftConfig: playbackFFTConfig,
+                        isEditMode: false,
+                        columnWidth: 160,
+                        onDelete: {},
+                        onResize: { _ in },
+                        onUpdateSettings: { _ in }
+                    )
+                }
+            }
+            .padding()
+            .glassCard(cornerRadius: 14)
+        }
     }
 
     private var statisticsCard: some View {
@@ -459,6 +499,29 @@ struct RecordingDetailView: View {
         markers.sort { $0.time < $1.time }
         recording.markers = markers
         recordingManager.updateRecording(recording)
+    }
+
+    private func loadPlaybackWidgets() {
+        guard let data = recording.widgetConfigurations else {
+            playbackWidgets = []
+            return
+        }
+        do {
+            let decoded = try JSONDecoder().decode([WidgetConfiguration].self, from: data)
+            playbackWidgets = decoded.map { widget in
+                var normalized = widget
+                if normalized.type == .octaveBands {
+                    normalized.type = .frequencyDisplay
+                    if normalized.settings["frequencyBands"] == nil {
+                        normalized.settings["frequencyBands"] = "terz"
+                    }
+                }
+                return normalized
+            }
+        } catch {
+            print("[RecordingDetailView] Failed to decode widget configurations: \(error)")
+            playbackWidgets = []
+        }
     }
 
     private func loadStoredMeasurementDataIfAvailable() {
