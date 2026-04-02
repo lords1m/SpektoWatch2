@@ -28,6 +28,9 @@ final class StoredDataProvider: AudioDataProvider {
     var metricKeys: [String] {
         reader.header.metricKeys
     }
+    var sampleRate: Double { reader.header.sampleRate }
+    var fftBinCount: Int { reader.header.fftBinCount }
+    var hasFullFFT: Bool { reader.header.hasFullFFT }
 
     init(fileURL: URL) throws {
         self.reader = try MeasurementDataReader(fileURL: fileURL)
@@ -112,7 +115,11 @@ final class StoredDataProvider: AudioDataProvider {
 
         for index in 0..<reader.frameCount {
             let frame = try reader.readFrame(at: index)
-            spectrogramHistory.append(frame.thirdOctaveZ)
+            if !frame.fullFFT.isEmpty {
+                spectrogramHistory.append(frame.fullFFT)
+            } else {
+                spectrogramHistory.append(frame.thirdOctaveZ)
+            }
             levelHistory.append(frame.broadbandLevel)
 
             var valueMap: [String: Float] = [:]

@@ -28,10 +28,11 @@ enum MeasurementDataError: LocalizedError {
 
 enum MeasurementDataFormat {
     static let magic: UInt32 = 0x53504B54 // "SPKT"
-    static let version: UInt16 = 1
+    static let version: UInt16 = 2
     static let thirdOctaveBandCount = 31
     static let fixedHeaderSize = 36
     static let frameCountOffset = 8
+    static let flagHasFullFFT: UInt16 = 1 << 0
 }
 
 struct MeasurementDataHeader {
@@ -41,7 +42,11 @@ struct MeasurementDataHeader {
     let sampleRate: Double
     let fps: Float
     let fftBlockSize: Int
+    let fftBinCount: Int
+    let flags: UInt16
     let headerSize: Int
+
+    var hasFullFFT: Bool { (flags & MeasurementDataFormat.flagHasFullFFT) != 0 }
 }
 
 struct MeasurementFrame {
@@ -51,6 +56,7 @@ struct MeasurementFrame {
     let thirdOctaveZ: [Float]
     let thirdOctaveA: [Float]
     let thirdOctaveC: [Float]
+    let fullFFT: [Float]
 }
 
 extension MeasurementFrame {

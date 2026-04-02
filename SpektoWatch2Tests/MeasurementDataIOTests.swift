@@ -12,12 +12,14 @@ final class MeasurementDataIOTests: XCTestCase {
             metricKeys: metrics,
             sampleRate: 48_000,
             fps: 93.75,
-            fftBlockSize: 4096
+            fftBlockSize: 4096,
+            fftBinCount: 2048
         )
 
         let z = Array(repeating: Float(10), count: MeasurementDataFormat.thirdOctaveBandCount)
         let a = Array(repeating: Float(20), count: MeasurementDataFormat.thirdOctaveBandCount)
         let c = Array(repeating: Float(30), count: MeasurementDataFormat.thirdOctaveBandCount)
+        let fullFFT = Array(repeating: Float(-80), count: 2048)
 
         try writer.writeFrame(
             timestamp: 0.0,
@@ -25,7 +27,8 @@ final class MeasurementDataIOTests: XCTestCase {
             broadbandLevel: 50.0,
             thirdOctaveZ: z,
             thirdOctaveA: a,
-            thirdOctaveC: c
+            thirdOctaveC: c,
+            fullFFT: fullFFT
         )
         try writer.writeFrame(
             timestamp: 0.5,
@@ -33,7 +36,8 @@ final class MeasurementDataIOTests: XCTestCase {
             broadbandLevel: 50.8,
             thirdOctaveZ: z,
             thirdOctaveA: a,
-            thirdOctaveC: c
+            thirdOctaveC: c,
+            fullFFT: fullFFT
         )
         try writer.close()
 
@@ -47,6 +51,6 @@ final class MeasurementDataIOTests: XCTestCase {
         XCTAssertEqual(first.metrics[0], 51.2, accuracy: 0.001)
         XCTAssertEqual(first.broadbandLevel, 50.0, accuracy: 0.001)
         XCTAssertEqual(first.thirdOctaveZ.count, MeasurementDataFormat.thirdOctaveBandCount)
+        XCTAssertEqual(first.fullFFT.count, 2048)
     }
 }
-

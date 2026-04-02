@@ -515,9 +515,11 @@ final class CSVExporterTests: XCTestCase {
             metricKeys: ["LAeq", "LAFmax", "LAFmin"],
             sampleRate: 44100,
             fps: 10,
-            fftBlockSize: 4096
+            fftBlockSize: 4096,
+            fftBinCount: 2048
         )
-        
+
+        let fullFFT = Array(repeating: Float(-70.0), count: 2048)
         for i in 0..<frameCount {
             try! writer.writeFrame(
                 timestamp: Float(i) * 0.1,
@@ -525,7 +527,8 @@ final class CSVExporterTests: XCTestCase {
                 broadbandLevel: 65.0 + Float.random(in: -5...5),
                 thirdOctaveZ: Array(repeating: 60.0, count: 31),
                 thirdOctaveA: Array(repeating: 58.0, count: 31),
-                thirdOctaveC: Array(repeating: 62.0, count: 31)
+                thirdOctaveC: Array(repeating: 62.0, count: 31),
+                fullFFT: fullFFT
             )
         }
         

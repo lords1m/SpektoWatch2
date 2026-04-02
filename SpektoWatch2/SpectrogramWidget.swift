@@ -40,7 +40,7 @@ struct SpectrogramWidget: View {
             colormapType: colormapType,
             timeSpan: timeSpan,
             scrollSpeed: scrollSpeed,
-            isPaused: false,
+            isPaused: audioEngine.engineStatus != .running,
             scrollOffset: 0.0,
             freqWeighting: freqWeighting,
             sensitivity: sensitivity,

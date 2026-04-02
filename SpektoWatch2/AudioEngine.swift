@@ -607,7 +607,8 @@ class AudioEngine: ObservableObject {
                 metricKeys: measurementMetricKeys,
                 sampleRate: processingSampleRate,
                 fps: fps,
-                fftBlockSize: fftSize
+                fftBlockSize: fftSize,
+                fftBinCount: max(1, fftSize / 2)
             )
             measurementWriter = writer
             lastMeasurementDataURL = tempURL
@@ -1271,7 +1272,8 @@ class AudioEngine: ObservableObject {
                         broadbandLevel: broadbandLevel,
                         thirdOctaveZ: displayOctaveBandsZ,
                         thirdOctaveA: displayOctaveBandsA,
-                        thirdOctaveC: displayOctaveBandsC
+                        thirdOctaveC: displayOctaveBandsC,
+                        fullFFT: dbZ
                     )
                 } catch {
                     Logger.audioEngine.error("Measurement frame write failed: \(error.localizedDescription)")

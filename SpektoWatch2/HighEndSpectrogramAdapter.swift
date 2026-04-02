@@ -477,7 +477,7 @@ class HighEndSpectrogramAdapter: MTKView {
         if !displayScrollSynced && totalColumnsWritten > 0 {
             displayScrollPosition = Double(lastWrittenColumn)
             displayScrollSynced = true
-        } else if frameDt > 0 && currentTimeSpanValue > 0 && totalColumnsWritten > 0 {
+        } else if frameDt > 0 && currentTimeSpanValue > 0 && totalColumnsWritten > 0 && !isUpdatesPaused {
             let columnsPerSec = Double(timeColumns) / Double(currentTimeSpanValue)
             displayScrollPosition += frameDt * columnsPerSec
 
@@ -592,7 +592,11 @@ class HighEndSpectrogramAdapter: MTKView {
         updateTimeColumns()
     }
 
-    func setPaused(_ paused: Bool) { isUpdatesPaused = paused }
+    func setPaused(_ paused: Bool) {
+        let wasPaused = isUpdatesPaused
+        isUpdatesPaused = paused
+        if wasPaused && !paused { lastCADrawTime = 0 }  // prevent frameDt spike on resume
+    }
     func setManualScrollOffset(_ offset: Float) { manualScrollOffset = offset }
 
     private func updateSampleRateIfNeeded(_ sampleRate: Double) {

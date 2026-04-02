@@ -6,6 +6,7 @@ final class MeasurementDataWriter {
     let sampleRate: Double
     let fps: Float
     let fftBlockSize: Int
+    let fftBinCount: Int
 
     private let fileHandle: FileHandle
     private let frameSize: Int
@@ -17,14 +18,18 @@ final class MeasurementDataWriter {
         metricKeys: [String],
         sampleRate: Double,
         fps: Float,
-        fftBlockSize: Int
+        fftBlockSize: Int,
+        fftBinCount: Int
     ) throws {
         self.fileURL = fileURL
         self.metricKeys = metricKeys
         self.sampleRate = sampleRate
         self.fps = fps
         self.fftBlockSize = fftBlockSize
-        self.frameSize = MemoryLayout<Float>.size * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3))
+        self.fftBinCount = max(0, fftBinCount)
+        let fullFftCount = self.fftBinCount
+        self.frameSize = MemoryLayout<Float>.size
+            * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
 
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         self.fileHandle = try FileHandle(forWritingTo: fileURL)
@@ -41,7 +46,8 @@ final class MeasurementDataWriter {
         broadbandLevel: Float,
         thirdOctaveZ: [Float],
         thirdOctaveA: [Float],
-        thirdOctaveC: [Float]
+        thirdOctaveC: [Float],
+        fullFFT: [Float]
     ) throws {
         guard !isClosed else { return }
         guard metricValues.count == metricKeys.count else {
@@ -52,6 +58,9 @@ final class MeasurementDataWriter {
               thirdOctaveC.count == MeasurementDataFormat.thirdOctaveBandCount else {
             throw MeasurementDataError.invalidFrameIndex
         }
+        if fftBinCount > 0, fullFFT.count != fftBinCount {
+            throw MeasurementDataError.metricCountMismatch(expected: fftBinCount, got: fullFFT.count)
+        }
 
         var frame = Data(capacity: frameSize)
         frame.appendFloatLE(timestamp)
@@ -60,6 +69,9 @@ final class MeasurementDataWriter {
         thirdOctaveZ.forEach { frame.appendFloatLE($0) }
         thirdOctaveA.forEach { frame.appendFloatLE($0) }
         thirdOctaveC.forEach { frame.appendFloatLE($0) }
+        if fftBinCount > 0 {
+            fullFFT.forEach { frame.appendFloatLE($0) }
+        }
 
         fileHandle.write(frame)
         frameCount += 1
@@ -77,13 +89,14 @@ final class MeasurementDataWriter {
         var header = Data(capacity: MeasurementDataFormat.fixedHeaderSize + (metricKeys.count * 16))
         header.appendUInt32LE(MeasurementDataFormat.magic)
         header.appendUInt16LE(MeasurementDataFormat.version)
-        header.appendUInt16LE(0) // reserved
+        header.appendUInt16LE(UInt16(min(fftBinCount, Int(UInt16.max))))
         header.appendUInt64LE(frameCount)
         header.appendDoubleLE(sampleRate)
         header.appendFloatLE(fps)
         header.appendUInt32LE(UInt32(max(1, fftBlockSize)))
         header.appendUInt16LE(UInt16(min(metricKeys.count, Int(UInt16.max))))
-        header.appendUInt16LE(0) // reserved
+        let flags: UInt16 = fftBinCount > 0 ? MeasurementDataFormat.flagHasFullFFT : 0
+        header.appendUInt16LE(flags)
 
         for key in metricKeys {
             let utf8 = key.data(using: .utf8) ?? Data()
@@ -102,4 +115,3 @@ final class MeasurementDataWriter {
         fileHandle.write(countData)
     }
 }
-

@@ -63,16 +63,18 @@ class PlaybackSpectrogramRenderer: MTKView {
     // MARK: - Data
     private var magnitudeHistory: [[Float]] = []
     private var isTextureReady = false
-    private let splToDbfsOffset: Float = 120.0
 
     // MARK: - Display Parameters
     var colormapType: Int = 0 {
         didSet { rebuildColormapTexture() }
     }
-    private let minDB: Float = -90.0
-    private let maxDB: Float = -10.0
-    private let noiseFloor: Float = -90.0
-    private let gamma: Float = 0.8
+    private let displayMaxDBFS: Float = -20.0
+    private let dynamicRange: Float = 90.0
+    private var displayMinDBFS: Float { displayMaxDBFS - dynamicRange }
+    private let noiseFloor: Float = -120.0
+    private let kneeWidth: Float = 0.0
+    private let gamma: Float = 1.15
+    private var calibrationOffset: Float = 94.0
 
     // MARK: - Scroll/Zoom
     var viewportStart: Float = 0.0
@@ -193,13 +195,18 @@ class PlaybackSpectrogramRenderer: MTKView {
             var dbMagnitudes = [Float](repeating: -120.0, count: magnitudes.count)
             for i in 0..<magnitudes.count {
                 let db = 20.0 * log10(magnitudes[i] + 1e-10)
-                dbMagnitudes[i] = db + splToDbfsOffset
+                dbMagnitudes[i] = db + calibrationOffset
             }
 
+            let minFreq: Float = 20.0
+            let maxFreq: Float = min(Float(sampleRate) / 2.0, 20_000.0)
+            let nyquist = Float(sampleRate) / 2.0
             var column = [Float](repeating: -120.0, count: textureHeight)
             for i in 0..<textureHeight {
-                let srcIndex = Int(Float(i) / Float(textureHeight) * Float(dbMagnitudes.count))
-                column[i] = dbMagnitudes[min(srcIndex, dbMagnitudes.count - 1)]
+                let t = Float(i) / Float(textureHeight - 1)
+                let frequency = minFreq * powf(maxFreq / minFreq, t)
+                let srcIndex = min(dbMagnitudes.count - 1, max(0, Int((frequency / nyquist) * Float(dbMagnitudes.count - 1))))
+                column[i] = dbMagnitudes[srcIndex]
             }
 
             history.append(column)
@@ -227,30 +234,31 @@ class PlaybackSpectrogramRenderer: MTKView {
     private func fillTexture() {
         guard let texture = spectrogramTexture else { return }
 
-        let minSPL: Float = 20.0
-        let maxSPL: Float = 110.0
-        let range = maxSPL - minSPL
-        let nfSPL: Float = noiseFloor + 120.0
-        let kw: Float = 10.0
+        let minDBFS = displayMinDBFS
+        let maxDBFS = displayMaxDBFS
+        let range = maxDBFS - minDBFS
+        let floorDBFS = max(noiseFloor, minDBFS)
+        let kw = kneeWidth
         let gam = gamma
+        let calOffset = calibrationOffset
 
         for (columnIndex, column) in magnitudeHistory.enumerated() {
             var columnData = [Float](repeating: 0, count: textureHeight)
             for i in 0..<min(column.count, textureHeight) {
-                var dbValue = column[i]
+                var dbfsValue = column[i] - calOffset
 
-                // Noise gate with soft knee
-                if dbValue < nfSPL {
-                    dbValue = minSPL
-                } else if dbValue < nfSPL + kw {
-                    let t = (dbValue - nfSPL) / kw
-                    let factor = t * t * (3.0 - 2.0 * t)
-                    dbValue = minSPL * (1.0 - factor) + dbValue * factor
+                if kw > 0, dbfsValue < floorDBFS + kw {
+                    if dbfsValue <= floorDBFS {
+                        dbfsValue = minDBFS
+                    } else {
+                        let t = (dbfsValue - floorDBFS) / kw
+                        let factor = t * t * (3.0 - 2.0 * t)
+                        dbfsValue = minDBFS * (1.0 - factor) + dbfsValue * factor
+                    }
                 }
 
-                var normalized = (dbValue - minSPL) / range
+                var normalized = (dbfsValue - minDBFS) / range
                 normalized = max(0, min(1, normalized))
-                normalized = log10(1.0 + 99.0 * normalized) / log10(100.0)
                 normalized = powf(normalized, gam)
 
                 columnData[i] = normalized
@@ -317,6 +325,12 @@ class PlaybackSpectrogramRenderer: MTKView {
         setNeedsDisplay()
     }
 
+    func setCalibrationOffset(_ value: Float) {
+        calibrationOffset = value
+        fillTexture()
+        setNeedsDisplay()
+    }
+
     func getFrameCount() -> Int { magnitudeHistory.count }
 }
 
@@ -332,6 +346,7 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
     var sampleRate: Float = 44_100
     var viewWidth: CGFloat = 1
     var viewHeight: CGFloat = 1
+    var calibrationOffset: Float = 94.0
 
     func valueAt(viewX: CGFloat, viewY: CGFloat) -> (time: TimeInterval, frequency: Float, magnitude: Float)? {
         guard !magnitudeHistory.isEmpty, viewWidth > 0, viewHeight > 0 else { return nil }
@@ -348,7 +363,8 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
         let minFrequency: Float = 20
         let maxFrequency = min(sampleRate / 2, 20_000)
         let frequency = minFrequency * powf(maxFrequency / minFrequency, yNorm)
-        let binIndex = min(column.count - 1, max(0, Int((frequency / maxFrequency) * Float(column.count - 1))))
+        // Data is stored in log-frequency space, so yNorm maps directly to bin index
+        let binIndex = min(column.count - 1, max(0, Int(yNorm * Float(column.count - 1))))
         let magnitude = column[binIndex]
 
         return (time: time, frequency: frequency, magnitude: magnitude)
@@ -361,6 +377,7 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
         )
         view.setColormap(colormapType)
         view.setViewport(start: viewportStart, width: viewportWidth)
+        view.setCalibrationOffset(calibrationOffset)
         if !magnitudeHistory.isEmpty {
             view.loadSpectrogramData(magnitudeHistory)
         }
@@ -371,6 +388,7 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
         uiView.setColormap(colormapType)
         uiView.setPlayheadPosition(playheadPosition)
         uiView.setViewport(start: viewportStart, width: viewportWidth)
+        uiView.setCalibrationOffset(calibrationOffset)
 
         if uiView.getFrameCount() != magnitudeHistory.count && !magnitudeHistory.isEmpty {
             uiView.loadSpectrogramData(magnitudeHistory)
@@ -388,19 +406,22 @@ struct ScrollableSpectrogramView: View {
     var magnitudeHistory: [[Float]]
     var colormapType: Int
     var sampleRate: Float = 44_100
+    var calibrationOffset: Float = 94.0
     var markers: [MeasurementMarker] = []
     var onSeek: (TimeInterval) -> Void
 
     @StateObject private var gyroManager = GyroscopeScrollManager()
     @State private var dragStartTime: TimeInterval?
+    var showsFullDuration: Bool = false
     private let visibleWindowDuration: TimeInterval = 5.0
     private let preferredPlayheadFraction: CGFloat = 0.82
+    private let axisFrequencies: [Double] = [20000, 16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
 
     var body: some View {
         GeometryReader { geometry in
             let totalWidth = geometry.size.width
             let safeDuration = max(duration, 0.001)
-            let windowDuration = min(visibleWindowDuration, safeDuration)
+            let windowDuration = showsFullDuration ? safeDuration : min(visibleWindowDuration, safeDuration)
             let viewportWidth = Float(windowDuration / safeDuration)
             let normalizedTime = Float(currentTime / safeDuration)
 
@@ -423,7 +444,8 @@ struct ScrollableSpectrogramView: View {
                 totalDuration: safeDuration,
                 sampleRate: sampleRate,
                 viewWidth: totalWidth,
-                viewHeight: geometry.size.height
+                viewHeight: geometry.size.height,
+                calibrationOffset: calibrationOffset
             )
 
             ZStack(alignment: .leading) {
@@ -480,6 +502,9 @@ struct ScrollableSpectrogramView: View {
                     .padding(.bottom, 6)
                     .allowsHitTesting(false)
                 }
+
+                frequencyAxisOverlay
+                    .allowsHitTesting(false)
 
                 SpectrogramCrosshairOverlay { x, y in
                     inspectable.valueAt(viewX: x, viewY: y)
@@ -596,8 +621,43 @@ struct ScrollableSpectrogramView: View {
         .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
+    private var frequencyAxisOverlay: some View {
+        GeometryReader { spectroGeo in
+            let minFrequency: Double = 20
+            let maxFrequency: Double = min(Double(sampleRate) / 2.0, 20_000)
+            ZStack(alignment: .topLeading) {
+                ForEach(axisFrequencies.filter { $0 >= minFrequency && $0 <= maxFrequency }, id: \.self) { freq in
+                    Text(formatAxisFrequency(freq))
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0)
+                        .padding(.leading, 8)
+                        .position(x: 24, y: yPosition(for: freq, height: spectroGeo.size.height, minFrequency: minFrequency, maxFrequency: maxFrequency))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .padding(4)
+    }
+
     private func formatAxisTime(_ time: TimeInterval) -> String {
         let rounded = Int(time.rounded())
         return String(format: "%d:%02d", rounded / 60, rounded % 60)
+    }
+
+    private func formatAxisFrequency(_ frequency: Double) -> String {
+        if frequency >= 1000 {
+            return String(format: "%.0f k", frequency / 1000)
+        }
+        if frequency.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", frequency)
+        }
+        return String(format: "%.1f", frequency)
+    }
+
+    private func yPosition(for freq: Double, height: CGFloat, minFrequency: Double, maxFrequency: Double) -> CGFloat {
+        let clamped = max(minFrequency, min(maxFrequency, freq))
+        let normalized = (log10(clamped) - log10(minFrequency)) / (log10(maxFrequency) - log10(minFrequency))
+        return height * (1.0 - CGFloat(normalized))
     }
 }

@@ -24,17 +24,19 @@ final class MeasurementDataReader {
             throw MeasurementDataError.invalidMagic
         }
         let version = try cursor.readUInt16()
-        guard version == MeasurementDataFormat.version else {
+        guard version == 1 || version == MeasurementDataFormat.version else {
             throw MeasurementDataError.unsupportedVersion(version)
         }
 
-        _ = try cursor.readUInt16() // reserved
+        let fftBinCountField = Int(try cursor.readUInt16())
         let frameCount = try cursor.readUInt64()
         let sampleRate = try cursor.readDouble()
         let fps = try cursor.readFloat()
         let fftBlockSize = Int(try cursor.readUInt32())
         let metricCount = Int(try cursor.readUInt16())
-        _ = try cursor.readUInt16() // reserved
+        let flags = try cursor.readUInt16()
+        let fftBinCount = version >= 2 ? fftBinCountField : 0
+        let resolvedFlags: UInt16 = version >= 2 ? flags : 0
 
         var metricKeys: [String] = []
         metricKeys.reserveCapacity(metricCount)
@@ -51,10 +53,14 @@ final class MeasurementDataReader {
             sampleRate: sampleRate,
             fps: fps,
             fftBlockSize: fftBlockSize,
+            fftBinCount: fftBinCount,
+            flags: resolvedFlags,
             headerSize: cursor.offset
         )
         self.frameStartOffset = UInt64(cursor.offset)
-        self.frameSize = MemoryLayout<Float>.size * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3))
+        let fullFftCount = header.hasFullFFT ? header.fftBinCount : 0
+        self.frameSize = MemoryLayout<Float>.size
+            * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
     }
 
     deinit {
@@ -109,14 +115,20 @@ final class MeasurementDataReader {
         for i in 0..<MeasurementDataFormat.thirdOctaveBandCount { a[i] = try cursor.readFloat() }
         for i in 0..<MeasurementDataFormat.thirdOctaveBandCount { c[i] = try cursor.readFloat() }
 
+        var fullFFT: [Float] = []
+        if header.hasFullFFT && header.fftBinCount > 0 {
+            fullFFT = [Float](repeating: -120.0, count: header.fftBinCount)
+            for i in 0..<header.fftBinCount { fullFFT[i] = try cursor.readFloat() }
+        }
+
         return MeasurementFrame(
             timestamp: timestamp,
             metrics: metrics,
             broadbandLevel: broadbandLevel,
             thirdOctaveZ: z,
             thirdOctaveA: a,
-            thirdOctaveC: c
+            thirdOctaveC: c,
+            fullFFT: fullFFT
         )
     }
 }
-
