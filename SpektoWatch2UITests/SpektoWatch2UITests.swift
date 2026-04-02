@@ -13,6 +13,7 @@ final class SpektoWatch2UITests: XCTestCase {
     private let shortWait: TimeInterval = 0.5
     private let mediumWait: TimeInterval = 3
     private let longWait: TimeInterval = 15
+    private let launchWait: TimeInterval = 60
     private let pollInterval: TimeInterval = 0.2
     private let permissionButtonLabels = [
         "Allow",
@@ -100,23 +101,33 @@ final class SpektoWatch2UITests: XCTestCase {
         // Reset authorization BEFORE launch
         self.app.resetAuthorizationStatus(for: .microphone)
 
+        // Auto-grant permission dialogs (mic, etc.) that interrupt tests
+        addUIInterruptionMonitor(withDescription: "System Permission Alert") { [weak self] element in
+            guard let self else { return false }
+            for label in self.permissionButtonLabels {
+                let button = element.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            // Fallback: last button is usually the allow action
+            if let last = element.buttons.allElementsBoundByIndex.last, last.isHittable {
+                last.tap()
+                return true
+            }
+            return false
+        }
+
         // Launch app
         self.app.launch()
 
-        // Handle potential startup permission/system dialogs.
-        handleSystemAlertsIfNeeded(timeout: 5)
+        // Verify app is in foreground (generous timeout for Xcode Cloud simulators)
+        XCTAssertTrue(self.app.wait(for: .runningForeground, timeout: launchWait), "App should be running in foreground")
 
-        // Warte bis die App vollständig geladen ist
-        _ = waitForCondition(timeout: mediumWait) {
-            self.app.state == .runningForeground
-        }
-
-        // Verify app is in foreground
-        XCTAssertTrue(self.app.wait(for: .runningForeground, timeout: mediumWait), "App should be running in foreground")
-
-        // Verify initial UI elements are present
-        XCTAssertTrue(self.app.buttons["playButton"].waitForExistence(timeout: mediumWait), "Play button should exist after setup")
-        XCTAssertTrue(self.app.buttons["recordButton"].waitForExistence(timeout: mediumWait), "Record button should exist after setup")
+        // Verify initial UI elements are present (wait for async AudioEngine init to complete)
+        XCTAssertTrue(self.app.buttons["playButton"].waitForExistence(timeout: launchWait), "Play button should exist after setup")
+        XCTAssertTrue(self.app.buttons["recordButton"].waitForExistence(timeout: launchWait), "Record button should exist after setup")
     }
 
     override func tearDownWithError() throws {
@@ -127,8 +138,9 @@ final class SpektoWatch2UITests: XCTestCase {
 
     @MainActor
     func testAppLaunches() throws {
-        // Einfach prüfen ob die App startet
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        // setUp already verified foreground + UI; just confirm state is stable
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: launchWait))
+        XCTAssertTrue(app.buttons["playButton"].exists, "Play button must be visible on launch")
     }
 
     // MARK: - Launch Performance Test
@@ -314,9 +326,9 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(stopButton.isEnabled, "Stop button should be enabled")
         tapAndHandleAlerts(stopButton)
 
-        // 4. Save-Dialog sollte erscheinen
+        // 4. Save-Dialog sollte erscheinen (longWait: Audiodatei muss erst geschrieben werden)
         let saveDialog = app.sheets.firstMatch
-        XCTAssertTrue(saveDialog.waitForExistence(timeout: mediumWait), "Save dialog should appear")
+        XCTAssertTrue(saveDialog.waitForExistence(timeout: longWait), "Save dialog should appear")
 
         // 5. Abbrechen oder Speichern
         let cancelButton = app.buttons["Abbrechen"]
