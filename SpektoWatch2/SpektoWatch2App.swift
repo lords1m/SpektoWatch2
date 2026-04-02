@@ -5,7 +5,6 @@
 //  Created by Simeon Brandt on 22.01.26.
 //
 
-import Combine
 import SwiftUI
 
 @main
@@ -45,7 +44,7 @@ struct SpektoWatch2App: App {
                 }
             }
             .task {
-                await engineContainer.createEngine(fftConfiguration: fftConfiguration)
+                engineContainer.createEngine(fftConfiguration: fftConfiguration)
             }
         }
     }
@@ -62,14 +61,9 @@ private final class AudioEngineContainer: ObservableObject {
         self.connectivityManager = connectivityManager
     }
 
-    func createEngine(fftConfiguration: FFTConfiguration) async {
-        let fm = filterManager
-        let cm = connectivityManager
-        // Heavy init (vDSP_DFT setup, buffer allocation) on background thread
-        let engine = await Task.detached(priority: .userInitiated) {
-            AudioEngine(filterManager: fm, connectivityManager: cm)
-        }.value
-        // Configuration back on MainActor
+    @MainActor
+    func createEngine(fftConfiguration: FFTConfiguration) {
+        let engine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
         engine.applyFFTConfiguration(fftConfiguration)
         engine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
         self.engine = engine
