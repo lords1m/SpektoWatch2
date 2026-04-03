@@ -199,13 +199,15 @@ class PlaybackSpectrogramRenderer: MTKView {
             }
 
             let minFreq: Float = 20.0
-            let maxFreq: Float = min(Float(sampleRate) / 2.0, 20_000.0)
             let nyquist = Float(sampleRate) / 2.0
+            let maxFreq: Float = min(nyquist, 20_000.0)
+            let denomBins = Float(max(textureHeight - 1, 1))
+            let denomSrc = Float(max(dbMagnitudes.count - 1, 1))
             var column = [Float](repeating: -120.0, count: textureHeight)
             for i in 0..<textureHeight {
-                let t = Float(i) / Float(textureHeight - 1)
+                let t = Float(i) / denomBins
                 let frequency = minFreq * powf(maxFreq / minFreq, t)
-                let srcIndex = min(dbMagnitudes.count - 1, max(0, Int((frequency / nyquist) * Float(dbMagnitudes.count - 1))))
+                let srcIndex = min(dbMagnitudes.count - 1, max(0, Int((frequency / nyquist) * denomSrc)))
                 column[i] = dbMagnitudes[srcIndex]
             }
 
@@ -373,7 +375,7 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
     func makeUIView(context: Context) -> PlaybackSpectrogramRenderer {
         let view = PlaybackSpectrogramRenderer(
             frame: .zero,
-            device: MTLCreateSystemDefaultDevice()
+            device: MetalWidgetManager.shared.sharedDevice
         )
         view.setColormap(colormapType)
         view.setViewport(start: viewportStart, width: viewportWidth)

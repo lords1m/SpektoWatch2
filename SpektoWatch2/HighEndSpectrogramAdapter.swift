@@ -671,7 +671,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
     func makeUIView(context: Context) -> HighEndSpectrogramAdapter {
         let view = HighEndSpectrogramAdapter(
             frame: .zero,
-            device: MTLCreateSystemDefaultDevice()
+            device: MetalWidgetManager.shared.sharedDevice
         )
         view.setColormap(colormapType)
         view.setTimeSpan(timeSpan.rawValue)

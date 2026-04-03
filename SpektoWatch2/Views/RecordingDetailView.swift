@@ -698,13 +698,15 @@ struct RecordingDetailView: View {
                 }
 
                 let minFreq: Float = 20.0
-                let maxFreq: Float = min(Float(format.sampleRate) / 2.0, 20_000.0)
                 let nyquist = Float(format.sampleRate) / 2.0
+                let maxFreq: Float = min(nyquist, 20_000.0)
+                let denomBins = Float(max(frequencyBins - 1, 1))
+                let denomSrc = Float(max(magnitudes.count - 1, 1))
                 var column = [Float](repeating: -120.0, count: frequencyBins)
                 for i in 0..<frequencyBins {
-                    let t = Float(i) / Float(frequencyBins - 1)
+                    let t = Float(i) / denomBins
                     let frequency = minFreq * powf(maxFreq / minFreq, t)
-                    let srcIndex = min(magnitudes.count - 1, max(0, Int((frequency / nyquist) * Float(magnitudes.count - 1))))
+                    let srcIndex = min(magnitudes.count - 1, max(0, Int((frequency / nyquist) * denomSrc)))
                     column[i] = 20.0 * log10(magnitudes[srcIndex] + 1e-10) + calibrationOffset
                 }
 

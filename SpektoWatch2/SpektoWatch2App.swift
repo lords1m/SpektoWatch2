@@ -68,6 +68,9 @@ private final class AudioEngineContainer: ObservableObject {
 
     @MainActor
     func createEngine(fftConfiguration: FFTConfiguration) {
+        // Touch the shared Metal device now so all subsequent makeUIView calls
+        // reuse it instead of each calling MTLCreateSystemDefaultDevice() fresh.
+        _ = MetalWidgetManager.shared.sharedDevice
         let engine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
         engine.applyFFTConfiguration(fftConfiguration)
         engine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
