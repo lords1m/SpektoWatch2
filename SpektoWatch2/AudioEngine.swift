@@ -100,9 +100,14 @@ class AudioEngine: ObservableObject {
     private var fftProcessCount: Int = 0
     private var maxBufferedSeconds: Double = 0
     private var lastUIEnqueueTime: TimeInterval = 0
+    private var lastSpectrogramUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
     private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
     private let targetUIInterval: TimeInterval = 1.0 / 60.0
+    private let targetSpectrogramUIInterval: TimeInterval = 1.0 / 15.0
+
+    /// Direct high-rate subject for spectrogram renderers — does NOT trigger objectWillChange.
+    let spectrogramSubject = PassthroughSubject<SpectrogramData, Never>()
     private let maxRealtimeBacklogSeconds: Double = 0.12
     private let impulseThresholdDbfs: Float = -35.0
     private let impulseCooldownSeconds: TimeInterval = 1.0
@@ -1304,6 +1309,9 @@ class AudioEngine: ObservableObject {
             timestamp: Date(timeIntervalSinceReferenceDate: lastAudioBufferTimestamp)
         )
         
+        // Feed spectrogram renderers directly — bypasses objectWillChange, no SwiftUI re-render.
+        spectrogramSubject.send(spectrogramData)
+
         // Update UI on main thread
         updateUI(
             spectrogramData: spectrogramData,
@@ -1371,8 +1379,14 @@ class AudioEngine: ObservableObject {
                 self.recordingDuration = Date().timeIntervalSince(startTime)
             }
             
-            // Update data
-            self.currentSpectrogramData = spectrogramData
+            // Update data — currentSpectrogramData throttled to 15 Hz to reduce
+            // objectWillChange pressure on the SwiftUI hierarchy (spectrogram
+            // renderers get data at full rate via spectrogramSubject).
+            let nowMain = CFAbsoluteTimeGetCurrent()
+            if nowMain - self.lastSpectrogramUIEnqueueTime >= self.targetSpectrogramUIInterval {
+                self.lastSpectrogramUIEnqueueTime = nowMain
+                self.currentSpectrogramData = spectrogramData
+            }
             self.currentOctaveBands = octaveBands
             self.currentOctaveBandsZ = octaveBandsZ
             self.currentOctaveBandsA = octaveBandsA

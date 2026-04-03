@@ -496,7 +496,7 @@ class HighEndSpectrogramAdapter: MTKView {
 
         // Push axis metrics at ~30 Hz
         let nowUptime = ProcessInfo.processInfo.systemUptime
-        if nowUptime - lastAxisMetricsPushUptime >= (1.0 / 30.0) {
+        if nowUptime - lastAxisMetricsPushUptime >= (1.0 / 10.0) {
             lastAxisMetricsPushUptime = nowUptime
             let recordingTime: Double
             if let first = firstDataTimestamp {
@@ -723,8 +723,9 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
             super.init()
 
             let updateQueue = DispatchQueue(label: "com.spektowatch.spectrogram.update", qos: .userInteractive)
-            cancellable = audioEngine.$currentSpectrogramData
-                .compactMap { $0 }
+            // Subscribe to spectrogramSubject (full audio rate, no objectWillChange trigger)
+            // instead of $currentSpectrogramData (would cause SwiftUI to re-render at 60 Hz).
+            cancellable = audioEngine.spectrogramSubject
                 .receive(on: updateQueue)
                 .sink { [weak self] data in
                     guard let self = self else { return }
@@ -913,6 +914,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                 .stroke(Color.black.opacity(0.75), lineWidth: 18)
                 .blur(radius: 10)
                 .mask(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .drawingGroup()  // rasterize once, avoids per-frame Core Image blur
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)

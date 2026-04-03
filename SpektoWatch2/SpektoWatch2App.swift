@@ -44,8 +44,12 @@ struct SpektoWatch2App: App {
                         .ignoresSafeArea()
                 }
             }
-            .task {
-                engineContainer.createEngine(fftConfiguration: fftConfiguration)
+            .onAppear {
+                // DispatchQueue.main.async guarantees execution after the first
+                // frame is committed — more reliable than .task {} on first launch.
+                DispatchQueue.main.async {
+                    engineContainer.createEngine(fftConfiguration: fftConfiguration)
+                }
             }
         }
     }
