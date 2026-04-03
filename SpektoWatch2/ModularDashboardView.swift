@@ -221,6 +221,11 @@ struct ModularDashboardView: View {
         .onChange(of: viewModel.selectedMicrophoneSource) { _, newSource in
             viewModel.handleMicrophoneSourceChange(newSource)
         }
+        .alert("Apple Watch nicht erreichbar", isPresented: $viewModel.showWatchNotReachableAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Stelle sicher, dass die Watch-App geöffnet ist und Bluetooth aktiv ist.")
+        }
         .onChange(of: viewModel.watchGain) { _, newValue in
             viewModel.updateWatchGain(newValue)
         }

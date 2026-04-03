@@ -3,6 +3,7 @@ import SwiftUI
 import AVFoundation
 import Combine
 
+@MainActor
 final class RecordingManager: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var currentRecordingDuration: TimeInterval = 0

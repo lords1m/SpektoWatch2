@@ -22,6 +22,7 @@ private struct DashboardLayoutsState: Codable {
     var activeLayoutIndex: Int
 }
 
+@MainActor
 class DashboardManager: ObservableObject {
     @Published var widgets: [WidgetConfiguration] = []
     @Published var layouts: [DashboardLayout] = []

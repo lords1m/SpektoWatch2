@@ -228,6 +228,7 @@ struct WidgetPickerSheet: View {
 
 // MARK: - View Model
 
+@MainActor
 class WatchDashboardSettingsViewModel: ObservableObject {
     @Published var config: WatchDashboardConfig
 

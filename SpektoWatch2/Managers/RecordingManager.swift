@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import UIKit
 
+@MainActor
 class RecordingManager: ObservableObject {
     static let shared = RecordingManager()
     

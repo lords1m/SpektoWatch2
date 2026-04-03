@@ -74,10 +74,6 @@ struct WatchDashboardView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
 
-    @State private var crownValue: Double = 0.0
-    @State private var isArmed: Bool = false
-    @FocusState private var crownFocused: Bool
-
     private var isRecording: Bool { audioEngine.isRecording }
 
     private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
@@ -103,20 +99,6 @@ struct WatchDashboardView: View {
 
                 controlBar
             }
-        }
-        .focusable(true)
-        .focused($crownFocused)
-        .digitalCrownRotation($crownValue, from: 0.0, through: 1.0, by: 0.05, sensitivity: .medium, isContinuous: true)
-        .onChange(of: crownValue) { _, newValue in
-            let armed = newValue >= 0.7
-            if armed != isArmed {
-                let generator = WKInterfaceDevice.current()
-                generator.play(.click)
-            }
-            isArmed = armed
-        }
-        .onAppear {
-            crownFocused = true
         }
     }
 
@@ -155,35 +137,34 @@ struct WatchDashboardView: View {
 
     private var controlBar: some View {
         HStack(spacing: 8) {
-            // Status indicator
             Circle()
-                .fill(connectivityManager.isReachable ? Color.green : Color.red)
+                .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
                 .frame(width: 8, height: 8)
+                .animation(.easeInOut(duration: 0.3), value: isRecording)
 
             Spacer()
 
             Button(action: {
-                guard isArmed else { return }
                 if isRecording {
+                    audioEngine.stopRecording()
                     connectivityManager.requestRecordingStop()
                 } else {
+                    audioEngine.startRecording()
                     connectivityManager.requestRecordingStart()
                 }
-                isArmed = false
-                crownValue = 0.0
                 WKInterfaceDevice.current().play(.success)
             }) {
                 HStack(spacing: 6) {
-                    Image(systemName: isRecording ? "stop.fill" : "play.fill")
+                    Image(systemName: isRecording ? "stop.fill" : "record.circle")
                         .font(.system(size: 12))
-                    Text(isArmed ? "Tippen" : "Drehen")
+                    Text(isRecording ? "Stop" : "Start")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.white.opacity(0.9))
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
             }
-            .background(isArmed ? WatchStylePalette.accentBlue.opacity(0.90) : Color.white.opacity(0.14))
+            .background(isRecording ? Color.red.opacity(0.80) : WatchStylePalette.accentBlue.opacity(0.90))
             .overlay(
                 Capsule(style: .continuous)
                     .stroke(Color.white.opacity(0.24), lineWidth: 1)

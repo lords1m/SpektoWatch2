@@ -342,6 +342,7 @@ class AudioEngine: ObservableObject {
     // MARK: - FFT Configuration
 
     /// Wendet eine FFTConfiguration an
+    @MainActor
     func applyFFTConfiguration(_ config: FFTConfiguration) {
         let newSize = config.blockSize.rawValue
         let newWindow = config.windowFunction

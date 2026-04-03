@@ -55,6 +55,7 @@ struct SpektoWatch2App: App {
     }
 }
 
+@MainActor
 private final class AudioEngineContainer: ObservableObject {
     @Published private(set) var engine: AudioEngine?
 

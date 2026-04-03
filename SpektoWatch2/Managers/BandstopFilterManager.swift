@@ -3,13 +3,18 @@ import Accelerate
 import Combine
 import OSLog
 
+@MainActor
 class BandstopFilterManager: ObservableObject {
     @Published var filters: [BandstopFilter] = [] {
         didSet {
+            updateSnapshot()
             self.invalidateCache()
             self.saveFilters()
         }
     }
+
+    private let snapshotLock = NSLock()
+    nonisolated(unsafe) private var enabledFiltersSnapshot: [BandstopFilter] = []
     
     private let userDefaultsKey = "bandstopFilters"
     private var attenuationCache: [Float]?
@@ -25,6 +30,12 @@ class BandstopFilterManager: ObservableObject {
     
     var enabledFilters: [BandstopFilter] {
         filters.filter { $0.isEnabled }
+    }
+
+    nonisolated func snapshotEnabledFilters() -> [BandstopFilter] {
+        snapshotLock.withLock {
+            enabledFiltersSnapshot
+        }
     }
     
     // MARK: - Filter Operations
@@ -82,6 +93,13 @@ class BandstopFilterManager: ObservableObject {
     private func invalidateCache() {
         attenuationCache = nil
         cachedFrequencies = nil
+    }
+
+    private func updateSnapshot() {
+        let enabled = enabledFilters
+        snapshotLock.withLock {
+            enabledFiltersSnapshot = enabled
+        }
     }
     
     /// High-performance attenuation map computation with caching
@@ -262,5 +280,13 @@ extension RandomAccessCollection {
             }
         }
         return low
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
     }
 }

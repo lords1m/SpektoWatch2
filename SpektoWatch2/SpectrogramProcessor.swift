@@ -91,12 +91,13 @@ class SpectrogramProcessor {
     }
     
     private func applyBandstopFilters(frequencies: [Float], magnitudes: [Float]) -> [Float] {
-        guard !bandstopFilterManager.enabledFilters.isEmpty else {
+        let enabledFilters = bandstopFilterManager.snapshotEnabledFilters()
+        guard !enabledFilters.isEmpty else {
             return magnitudes
         }
         
-        // Hole pre-computed Map (O(1) wenn gecached)
-        let attenuationMap = bandstopFilterManager.getAttenuationMap(for: frequencies)
+        // Compute the attenuation map from the nonisolated snapshot.
+        let attenuationMap = computeAttenuationMap(for: frequencies, enabledFilters: enabledFilters)
         var filtered = magnitudes
         
         // Wende Map an (O(n))
@@ -109,6 +110,44 @@ class SpectrogramProcessor {
             }
         }
         return filtered
+    }
+
+    private func computeAttenuationMap(for frequencies: [Float], enabledFilters: [BandstopFilter]) -> [Float] {
+        var map = [Float](repeating: 1.0, count: frequencies.count)
+
+        for filter in enabledFilters {
+            let bandwidth = filter.highFrequency - filter.lowFrequency
+            let transitionWidth = min(bandwidth * 0.1, 20.0)
+
+            let minFreq = filter.lowFrequency - transitionWidth
+            let maxFreq = filter.highFrequency + transitionWidth
+
+            let startIndex = frequencies.partitionPoint { $0 < minFreq }
+            let endIndex = frequencies.partitionPoint { $0 <= maxFreq }
+
+            if startIndex < endIndex {
+                for i in startIndex..<endIndex {
+                    let freq = frequencies[i]
+                    let attenuation: Float
+
+                    if freq >= filter.lowFrequency && freq <= filter.highFrequency {
+                        attenuation = 0.0
+                    } else if freq >= minFreq && freq < filter.lowFrequency {
+                        let position = (freq - minFreq) / transitionWidth
+                        attenuation = (1.0 + cos(position * .pi)) / 2.0
+                    } else if freq > filter.highFrequency && freq <= maxFreq {
+                        let position = (freq - filter.highFrequency) / transitionWidth
+                        attenuation = (1.0 - cos(position * .pi)) / 2.0
+                    } else {
+                        attenuation = 1.0
+                    }
+
+                    map[i] *= attenuation
+                }
+            }
+        }
+
+        return map
     }
     
     private func calculateOctaveBands(frequencies: [Float], magnitudes: [Float], sampleRate: Double) -> [Float] {

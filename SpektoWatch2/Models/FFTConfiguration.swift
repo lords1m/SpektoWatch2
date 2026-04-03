@@ -3,6 +3,7 @@ import Combine
 
 /// Konfiguration für die erweiterte FFT-Analyse
 /// Ermöglicht Studenten, FFT-Parameter zu ändern und deren Auswirkungen zu beobachten
+@MainActor
 class FFTConfiguration: ObservableObject {
 
     // MARK: - Published Properties

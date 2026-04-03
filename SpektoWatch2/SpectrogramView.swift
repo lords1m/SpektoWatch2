@@ -41,6 +41,7 @@ struct SpectrogramView: View {
     @State private var isPaused = false
     @State private var scrollOffset: Double = 0.0
     @State private var pausedDuration: TimeInterval = 0.0
+    @State private var showWatchNotReachableAlert = false
     
     let maxFrames = 1200  // Genug Frames für >10s bei 86 FPS
     let updateThrottleInterval: TimeInterval = 1.0 / 120.0 // Max 120 FPS (ProMotion)
@@ -97,6 +98,13 @@ struct SpectrogramView: View {
                     audioEngine.processExternalAudio(data.samples, sampleRate: data.sampleRate)
                 }
             }
+            .onReceive(connectivityManager.$isReachable) { isReachable in
+                // Auto-Fallback: Watch bricht Verbindung während Aufnahme ab
+                if !isReachable && selectedMicrophoneSource == .appleWatch && isRecording {
+                    selectedMicrophoneSource = .iPhone
+                    // onChange(of: selectedMicrophoneSource) übernimmt den Rest
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .startRecordingCommand)) { _ in
                 if !isRecording {
                     toggleRecording()
@@ -112,16 +120,21 @@ struct SpectrogramView: View {
     private var mainLayout: some View {
         VStack(spacing: 0) {
             headerView
-            
+
             spectrogramContainer
-            
+
             connectivityStatusView
-            
+
             if isPaused {
                 pausedControlsView
             }
-            
+
             mainControlsView
+        }
+        .alert("Apple Watch nicht erreichbar", isPresented: $showWatchNotReachableAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Stelle sicher, dass die Watch-App geöffnet ist und Bluetooth aktiv ist.")
         }
     }
     
@@ -219,12 +232,18 @@ struct SpectrogramView: View {
     }
     
     private func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {
+        if newSource == .appleWatch && !connectivityManager.isReachable {
+            selectedMicrophoneSource = .iPhone
+            showWatchNotReachableAlert = true
+            return
+        }
+
         connectivityManager.selectedMicrophoneSource = newSource
         connectivityManager.sendMicrophoneSourceSelection(newSource)
-        
+
         if isRecording {
             audioEngine.stopRecording()
-            
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 if newSource == .iPhone {
                     audioEngine.startRecording()
@@ -234,10 +253,15 @@ struct SpectrogramView: View {
             }
         }
     }
-    
+
     private func toggleRecording() {
+        if !isRecording && selectedMicrophoneSource == .appleWatch && !connectivityManager.isReachable {
+            showWatchNotReachableAlert = true
+            return
+        }
+
         isRecording.toggle()
-        
+
         if isRecording {
             if selectedMicrophoneSource == .iPhone {
                 audioEngine.startRecording()

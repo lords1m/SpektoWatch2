@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 
+@MainActor
 class DashboardViewModel: ObservableObject {
     // UI State
     @Published var dashboardManager = DashboardManager()
@@ -11,6 +12,7 @@ class DashboardViewModel: ObservableObject {
     // Settings State
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published var watchGain: Float = 1.0
+    @Published var showWatchNotReachableAlert = false
 
     // Dependencies
     let audioEngine: AudioEngine
@@ -28,18 +30,66 @@ class DashboardViewModel: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        // Auto-Fallback: Watch bricht Verbindung während Aufnahme ab
+        connectivityManager.$isReachable
+            .dropFirst()
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.selectedMicrophoneSource == .appleWatch && self.audioEngine.engineStatus == .running {
+                    self.selectedMicrophoneSource = .iPhone
+                    // onChange in ModularDashboardView triggert handleMicrophoneSourceChange(.iPhone)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Start/Stop-Befehle von der Apple Watch empfangen
+        NotificationCenter.default.publisher(for: .startRecordingCommand)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.audioEngine.engineStatus != .running else { return }
+                if self.selectedMicrophoneSource == .iPhone {
+                    self.audioEngine.startRecording()
+                }
+                // .appleWatch: Audio kommt via connectivityManager.$audioData unten
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .stopRecordingCommand)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.audioEngine.engineStatus == .running else { return }
+                self.audioEngine.stopRecording()
+            }
+            .store(in: &cancellables)
+
+        // Watch-Audiodaten verarbeiten wenn Watch als Quelle ausgewählt ist
+        connectivityManager.$audioData
+            .compactMap { $0 }
+            .sink { [weak self] data in
+                guard let self, self.selectedMicrophoneSource == .appleWatch else { return }
+                self.audioEngine.processExternalAudio(data.samples, sampleRate: data.sampleRate)
+            }
+            .store(in: &cancellables)
     }
     
     func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {
+        if newSource == .appleWatch && !connectivityManager.isReachable {
+            selectedMicrophoneSource = .iPhone
+            showWatchNotReachableAlert = true
+            return
+        }
+
         selectedMicrophoneSource = newSource
         connectivityManager.selectedMicrophoneSource = newSource
         connectivityManager.sendMicrophoneSourceSelection(newSource)
-        
+
         if audioEngine.engineStatus == .running {
             audioEngine.stopRecording()
-            
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 if newSource == .iPhone {
                     self.audioEngine.startRecording()
                 } else {
