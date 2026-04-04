@@ -80,10 +80,12 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     @objc private func handleStartRecording() {
+        guard !isRecording else { return }
         startRecording()
     }
 
     @objc private func handleStopRecording() {
+        guard isRecording else { return }
         stopRecording()
     }
 

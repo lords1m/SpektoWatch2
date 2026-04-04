@@ -9,6 +9,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     @Published public var spectrogramData: SpectrogramData?
     @Published public var audioData: AudioData?
     @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    @Published public var frequencyWeighting: String = "A"
     
     // MARK: - Queue Definitionen
     private struct QueuedMessage {
@@ -61,7 +62,10 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     public func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
         let type = messageData[0]
-        let payload = messageData.dropFirst()
+        // dropFirst() liefert einen Slice mit Start-Index 1, nicht 0.
+        // copyBytes(to:from:) in fromBinaryData() verwendet absolute Indices → OOB-Crash.
+        // Data(...) kopiert den Buffer und setzt die Indices auf 0 zurück.
+        let payload = Data(messageData.dropFirst())
         
         if type == 0x01 {
             if let specData = SpectrogramData.fromBinaryData(payload) {
@@ -89,9 +93,21 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
                     NotificationCenter.default.post(name: .startRecordingCommand, object: nil)
                 case "stopRecording":
                     NotificationCenter.default.post(name: .stopRecordingCommand, object: nil)
+                case "frequencyWeighting":
+                    if let weighting = message["value"] as? String {
+                        self.frequencyWeighting = weighting
+                    }
                 default:
                     break
                 }
+            }
+        }
+    }
+
+    public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+        DispatchQueue.main.async {
+            if let weighting = applicationContext["frequencyWeighting"] as? String {
+                self.frequencyWeighting = weighting
             }
         }
     }
@@ -119,6 +135,15 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     public func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
         sendWithRetry(["type": "microphoneSource", "source": source.rawValue])
+    }
+
+    public func sendFrequencyWeightingSelection(_ weighting: String) {
+        sendWithRetry(["type": "frequencyWeighting", "value": weighting])
+        do {
+            try WCSession.default.updateApplicationContext(["frequencyWeighting": weighting])
+        } catch {
+            // Ignore context errors
+        }
     }
     
     public func requestRecordingStart() {

@@ -19,23 +19,19 @@ struct WatchSingleValueWidget: View {
                         .foregroundColor(isActive ? valueColor : .secondary.opacity(0.75))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
-
-                    // Label
-                    Text(valueType.displayName)
-                        .font(.system(size: max(8, geometry.size.height * 0.18)))
-                        .foregroundColor(.secondary.opacity(0.9))
-                        .lineLimit(1)
                 }
-                .padding(2)
+                .padding(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .watchGlassCard(cornerRadius: 10)
+        }
+        .onReceive(audioEngine.$currentSpectrogramData) { data in
+            guard audioEngine.isRecording, let data = data else { return }
+            updateValue(from: data)
+            isActive = true
         }
         .onReceive(connectivityManager.$spectrogramData) { data in
-            guard let data = data else {
-                isActive = false
-                return
-            }
+            guard !audioEngine.isRecording else { return }
+            guard let data = data else { isActive = false; return }
             updateValue(from: data)
             isActive = true
         }
@@ -43,7 +39,7 @@ struct WatchSingleValueWidget: View {
 
     private var displayValue: String {
         guard isActive else { return "--" }
-        return String(format: "%.1f", currentValue)
+        return String(format: "%.1f %@", currentValue, unitLabel)
     }
 
     private func fontSize(for size: CGSize) -> CGFloat {
@@ -56,6 +52,17 @@ struct WatchSingleValueWidget: View {
         if currentValue > 70 { return .orange }
         if currentValue > 55 { return .yellow }
         return .green
+    }
+
+    private var unitLabel: String {
+        switch valueType {
+        case .laeq, .lafMax, .lafMin:
+            return "dB(A)"
+        case .lceq, .lcfMax, .lcfMin:
+            return "dB(C)"
+        case .lzeq:
+            return "dB(Z)"
+        }
     }
 
     private func updateValue(from data: SpectrogramData) {

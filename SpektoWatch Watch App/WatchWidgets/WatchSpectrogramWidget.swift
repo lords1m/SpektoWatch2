@@ -8,52 +8,40 @@ struct WatchSpectrogramWidget: View {
     private let maxFrames = 40
     private let displayBins = 32
 
-    private let minDB: Float = -60.0
-    private let maxDB: Float = -10.0
+    private let minDB: Float = -180.0
+    private let maxDB: Float = -40.0
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.black.opacity(0.78))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
+            Canvas { context, size in
+                let width = size.width
+                let height = size.height
+                let colWidth = width / CGFloat(maxFrames)
+                let rowHeight = height / CGFloat(displayBins)
 
-                Canvas { context, size in
-                    let width = size.width
-                    let height = size.height
-                    let colWidth = width / CGFloat(maxFrames)
-                    let rowHeight = height / CGFloat(displayBins)
+                for (i, magnitudes) in frames.enumerated() {
+                    let x = CGFloat(i) * colWidth
+                    let chunkSize = max(1, magnitudes.count / displayBins)
 
-                    for (i, magnitudes) in frames.enumerated() {
-                        let x = CGFloat(i) * colWidth
-                        let chunkSize = max(1, magnitudes.count / displayBins)
+                    for f in 0..<displayBins {
+                        let start = f * chunkSize
+                        let end = min(start + chunkSize, magnitudes.count)
+                        let mag = (start < end && start < magnitudes.count) ?
+                            (magnitudes[start..<min(end, magnitudes.count)].max() ?? minDB) : minDB
 
-                        for f in 0..<displayBins {
-                            let start = f * chunkSize
-                            let end = min(start + chunkSize, magnitudes.count)
-                            let mag = (start < end && start < magnitudes.count) ?
-                                (magnitudes[start..<min(end, magnitudes.count)].max() ?? minDB) : minDB
+                        let normalized = (mag - minDB) / (maxDB - minDB)
 
-                            let normalized = (mag - minDB) / (maxDB - minDB)
-
-                            if normalized > 0.05 {
-                                let color = spectrogramColor(Double(normalized))
-                                let y = height - CGFloat(f + 1) * rowHeight
-                                let rect = CGRect(x: x, y: y, width: colWidth + 0.5, height: rowHeight + 0.5)
-                                context.fill(Path(rect), with: .color(color))
-                            }
+                        if normalized > 0.05 {
+                            let color = spectrogramColor(Double(normalized))
+                            let y = height - CGFloat(f + 1) * rowHeight
+                            let rect = CGRect(x: x, y: y, width: colWidth + 0.5, height: rowHeight + 0.5)
+                            context.fill(Path(rect), with: .color(color))
                         }
                     }
                 }
-                .drawingGroup()
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .padding(4)
             }
+            .drawingGroup()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .watchGlassCard(cornerRadius: 10)
         }
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard audioEngine.isRecording, let data = data else { return }

@@ -17,39 +17,26 @@ struct WatchLoudnessWidget: View {
         GeometryReader { geometry in
             ZStack {
                 VStack(spacing: 2) {
-                    // Phon-Wert (groß)
                     if let result = calculator.result {
                         Text(String(format: "%.0f", result.phon))
                             .font(.system(size: fontSize(for: geometry.size), weight: .bold, design: .monospaced))
                             .foregroundColor(.blue)
                             .minimumScaleFactor(0.5)
                             .lineLimit(1)
-                        
-                        // Phon Label
-                        Text("Phon")
-                            .font(.system(size: max(8, geometry.size.height * 0.15)))
-                            .foregroundColor(.gray)
-                            .lineLimit(1)
-                        
-                        // Sone-Wert (klein)
-                        Text(String(format: "%.1f Sone", result.sone))
-                            .font(.system(size: max(7, geometry.size.height * 0.12)))
+
+                        Text(String(format: "%.1f", result.sone))
+                            .font(.system(size: max(7, geometry.size.height * 0.14)))
                             .foregroundColor(.secondary.opacity(0.9))
                             .lineLimit(1)
                     } else {
                         Text("--")
                             .font(.system(size: fontSize(for: geometry.size), weight: .bold))
                             .foregroundColor(.secondary.opacity(0.75))
-                        
-                        Text("Phon")
-                            .font(.system(size: max(8, geometry.size.height * 0.15)))
-                            .foregroundColor(.secondary.opacity(0.9))
                     }
                 }
-                .padding(2)
+                .padding(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .watchGlassCard(cornerRadius: 10)
             .onTapGesture {
                 showingDetail = true
             }

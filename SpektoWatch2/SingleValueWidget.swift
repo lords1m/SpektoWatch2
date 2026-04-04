@@ -59,7 +59,11 @@ struct SingleValueWidget: View {
         switch metricKey {
         case "PHON": return "Phon"
         case "SONE": return "Sone"
-        default: return "dB"
+        default:
+            if metricKey.hasPrefix("LA") { return "dB(A)" }
+            if metricKey.hasPrefix("LC") { return "dB(C)" }
+            if metricKey.hasPrefix("LZ") { return "dB(Z)" }
+            return "dB"
         }
     }
     

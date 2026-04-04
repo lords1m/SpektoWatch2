@@ -241,7 +241,11 @@ class AudioEngine: ObservableObject {
             spectrogramProcessor.spectrogramTimeWeighting = timeWeighting
         }
     }
-    @Published var frequencyWeighting: FrequencyWeighting = .a
+    @Published var frequencyWeighting: FrequencyWeighting = .a {
+        didSet {
+            connectivityManager.sendFrequencyWeightingSelection(frequencyWeighting.rawValue)
+        }
+    }
     @Published var spectrogramFrequencySmoothing: Float = 0.0 {
         didSet {
             let clamped = max(0.0, min(1.0, spectrogramFrequencySmoothing))

@@ -17,6 +17,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     @Published var isReachable = false
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published var watchDashboardConfig: WatchDashboardConfig?
+    @Published var frequencyWeighting: String = "A"
 
     var onMicrophoneSourceChanged: ((MicrophoneSource) -> Void)?
     private var hasLoggedUnreachability = false
@@ -258,6 +259,12 @@ extension WatchConnectivityManager: WCSessionDelegate {
                         print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
                     }
                 }
+            case "frequencyWeighting":
+                if let weighting = message["value"] as? String {
+                    DispatchQueue.main.async {
+                        self.frequencyWeighting = weighting
+                    }
+                }
             default:
                 print("[WCM] Unknown message type: \(type)")
             }
@@ -283,6 +290,11 @@ extension WatchConnectivityManager: WCSessionDelegate {
 
     // Handle application context for background config delivery
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+        if let weighting = applicationContext["frequencyWeighting"] as? String {
+            DispatchQueue.main.async {
+                self.frequencyWeighting = weighting
+            }
+        }
         if let configString = applicationContext["watchDashboardConfig"] as? String,
            let configData = configString.data(using: .utf8),
            let config = WatchDashboardConfig.decode(from: configData) {

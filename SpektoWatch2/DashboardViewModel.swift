@@ -49,18 +49,19 @@ class DashboardViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, self.audioEngine.engineStatus != .running else { return }
-                if self.selectedMicrophoneSource == .iPhone {
-                    self.audioEngine.startRecording()
-                }
-                // .appleWatch: Audio kommt via connectivityManager.$audioData unten
+                self.audioEngine.startLiveMode()
             }
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: .stopRecordingCommand)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                guard let self, self.audioEngine.engineStatus == .running else { return }
-                self.audioEngine.stopRecording()
+                guard let self else { return }
+                // Laufende Dateiaufnahmen nicht unterbrechen
+                guard !self.audioEngine.isRecordingToFile else { return }
+                if self.audioEngine.engineStatus == .running {
+                    self.audioEngine.stopLiveMode()
+                }
             }
             .store(in: &cancellables)
 

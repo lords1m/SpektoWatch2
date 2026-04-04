@@ -76,105 +76,64 @@ struct WatchDashboardView: View {
 
     private var isRecording: Bool { audioEngine.isRecording }
 
-    private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
+    private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
     private let values: [WatchSingleValueType] = [.laeq, .lafMax, .lafMin, .lceq]
 
     var body: some View {
         ZStack {
             WatchAppBackground().ignoresSafeArea()
 
-            VStack(spacing: 6) {
-                statusHeader
-
+            VStack(spacing: 2) {
                 LazyVGrid(columns: gridItems, spacing: 4) {
+                    WatchLevelMeterWidget()
+                        .frame(height: 52)
+
                     ForEach(values, id: \.self) { valueType in
                         WatchSingleValueWidget(valueType: valueType)
-                            .frame(height: 50)
+                            .frame(height: 52)
                     }
                 }
-                .padding(.horizontal, 4)
-                .padding(.top, 4)
+                .frame(maxHeight: .infinity)
 
-                Spacer(minLength: 4)
-
-                controlBar
+                HStack {
+                    Circle()
+                        .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
+                        .frame(width: 4, height: 4)
+                        .animation(.easeInOut(duration: 0.3), value: isRecording)
+                    Spacer()
+                    recordButton
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 2)
             }
+            .padding(.horizontal, 2)
+            .padding(.top, 2)
         }
     }
 
-    private var statusHeader: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "waveform.path.ecg")
+    private var recordButton: some View {
+        Button(action: {
+            if isRecording {
+                audioEngine.stopRecording()
+                connectivityManager.requestRecordingStop()
+            } else {
+                audioEngine.startRecording()
+                connectivityManager.requestRecordingStart()
+            }
+            WKInterfaceDevice.current().play(.success)
+        }) {
+            Image(systemName: isRecording ? "stop.fill" : "record.circle.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(WatchStylePalette.accentBlue)
-
-            Text("Dashboard")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(connectivityManager.isReachable ? .green : .red)
-                    .frame(width: 6, height: 6)
-                Text(connectivityManager.isReachable ? "Verbunden" : "Offline")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.white.opacity(0.10), in: Capsule())
+                .foregroundColor(.white)
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle().fill(
+                        isRecording
+                            ? Color.red.opacity(0.80)
+                            : WatchStylePalette.accentBlue.opacity(0.80)
+                    )
+                )
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .watchGlassBar(cornerRadius: 12)
-        .padding(.horizontal, 6)
-        .padding(.top, 2)
-    }
-
-    // MARK: - Control Bar
-
-    private var controlBar: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
-                .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.3), value: isRecording)
-
-            Spacer()
-
-            Button(action: {
-                if isRecording {
-                    audioEngine.stopRecording()
-                    connectivityManager.requestRecordingStop()
-                } else {
-                    audioEngine.startRecording()
-                    connectivityManager.requestRecordingStart()
-                }
-                WKInterfaceDevice.current().play(.success)
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: isRecording ? "stop.fill" : "record.circle")
-                        .font(.system(size: 12))
-                    Text(isRecording ? "Stop" : "Start")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-            }
-            .background(isRecording ? Color.red.opacity(0.80) : WatchStylePalette.accentBlue.opacity(0.90))
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .watchGlassBar(cornerRadius: 14)
-        .padding(.horizontal, 6)
-        .padding(.bottom, 4)
+        .buttonStyle(.plain)
     }
 }

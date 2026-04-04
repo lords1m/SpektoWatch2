@@ -39,7 +39,9 @@ class HighEndSpectrogramAdapter: MTKView {
     private var scrollBuffers: [MTLBuffer] = []
     private let maxInFlightBuffers = 3
     private var currentBufferIndex = 0
-    private var inFlightSemaphore = DispatchSemaphore(value: 3)
+    // 2 statt 3: Metal-Pool hat 3 Drawables, wir reservieren einen frei →
+    // verhindert dass nextDrawable() den Main Thread blockiert (Thread 0 im Crash).
+    private var inFlightSemaphore = DispatchSemaphore(value: 2)
 
     // MARK: - Textures
     private var spectrogramTexture: MTLTexture!

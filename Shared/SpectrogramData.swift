@@ -94,9 +94,14 @@ public struct SpectrogramData: Codable {
         let floatSize = MemoryLayout<Float>.size
         let doubleSize = MemoryLayout<Double>.size
         let int32Size = MemoryLayout<Int32>.size
+        
+        func canReadByteCount(_ byteCount: Int, _ offset: Int, _ total: Int) -> Bool {
+            guard byteCount >= 0, offset >= 0 else { return false }
+            return offset <= total - byteCount
+        }
 
         func readInt32(_ bytes: Data, _ offset: inout Int) -> Int32? {
-            guard bytes.count >= offset + int32Size else { return nil }
+            guard canReadByteCount(int32Size, offset, bytes.count) else { return nil }
             var value: Int32 = 0
             _ = withUnsafeMutableBytes(of: &value) { destination in
                 bytes.copyBytes(to: destination, from: offset..<(offset + int32Size))
@@ -106,7 +111,7 @@ public struct SpectrogramData: Codable {
         }
 
         func readFloat(_ bytes: Data, _ offset: inout Int) -> Float? {
-            guard bytes.count >= offset + floatSize else { return nil }
+            guard canReadByteCount(floatSize, offset, bytes.count) else { return nil }
             var bits: UInt32 = 0
             _ = withUnsafeMutableBytes(of: &bits) { destination in
                 bytes.copyBytes(to: destination, from: offset..<(offset + floatSize))
@@ -116,7 +121,7 @@ public struct SpectrogramData: Codable {
         }
 
         func readDouble(_ bytes: Data, _ offset: inout Int) -> Double? {
-            guard bytes.count >= offset + doubleSize else { return nil }
+            guard canReadByteCount(doubleSize, offset, bytes.count) else { return nil }
             var bits: UInt64 = 0
             _ = withUnsafeMutableBytes(of: &bits) { destination in
                 bytes.copyBytes(to: destination, from: offset..<(offset + doubleSize))
@@ -135,10 +140,11 @@ public struct SpectrogramData: Codable {
         
         // 3. Magnitudes
         guard let magCountRaw = readInt32(data, &offset) else { return nil }
+        guard magCountRaw >= 0 else { return nil }
         let magCount = Int(magCountRaw)
         
         let magByteCount = magCount * floatSize
-        guard data.count >= offset + magByteCount else { return nil }
+        guard canReadByteCount(magByteCount, offset, data.count) else { return nil }
         let magnitudes = data.withUnsafeBytes {
             Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: magCount), count: magCount))
         }
@@ -146,10 +152,11 @@ public struct SpectrogramData: Codable {
         
         // 4. Frequencies
         guard let freqCountRaw = readInt32(data, &offset) else { return nil }
+        guard freqCountRaw >= 0 else { return nil }
         let freqCount = Int(freqCountRaw)
         
         let freqByteCount = freqCount * floatSize
-        guard data.count >= offset + freqByteCount else { return nil }
+        guard canReadByteCount(freqByteCount, offset, data.count) else { return nil }
         let frequencies = data.withUnsafeBytes {
             Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: freqCount), count: freqCount))
         }
@@ -157,14 +164,16 @@ public struct SpectrogramData: Codable {
         
         // 5. Levels
         guard let levelsCountRaw = readInt32(data, &offset) else { return nil }
+        guard levelsCountRaw >= 0 else { return nil }
         let levelsCount = Int(levelsCountRaw)
         
         var levels = [String: Float]()
         for _ in 0..<levelsCount {
             guard let keyLenRaw = readInt32(data, &offset) else { return nil }
+            guard keyLenRaw >= 0 else { return nil }
             let keyLen = Int(keyLenRaw)
             
-            guard data.count >= offset + keyLen else { return nil }
+            guard canReadByteCount(keyLen, offset, data.count) else { return nil }
             let keyData = data.subdata(in: offset..<offset+keyLen)
             guard let key = String(data: keyData, encoding: .utf8) else { return nil }
             offset += keyLen
@@ -222,9 +231,14 @@ public struct AudioData: Codable {
         let doubleSize = MemoryLayout<Double>.size
         let int32Size = MemoryLayout<Int32>.size
         let floatSize = MemoryLayout<Float>.size
+        
+        func canReadByteCount(_ byteCount: Int, _ offset: Int, _ total: Int) -> Bool {
+            guard byteCount >= 0, offset >= 0 else { return false }
+            return offset <= total - byteCount
+        }
 
         func readInt32(_ bytes: Data, _ offset: inout Int) -> Int32? {
-            guard bytes.count >= offset + int32Size else { return nil }
+            guard canReadByteCount(int32Size, offset, bytes.count) else { return nil }
             var value: Int32 = 0
             _ = withUnsafeMutableBytes(of: &value) { destination in
                 bytes.copyBytes(to: destination, from: offset..<(offset + int32Size))
@@ -234,7 +248,7 @@ public struct AudioData: Codable {
         }
 
         func readDouble(_ bytes: Data, _ offset: inout Int) -> Double? {
-            guard bytes.count >= offset + doubleSize else { return nil }
+            guard canReadByteCount(doubleSize, offset, bytes.count) else { return nil }
             var bits: UInt64 = 0
             _ = withUnsafeMutableBytes(of: &bits) { destination in
                 bytes.copyBytes(to: destination, from: offset..<(offset + doubleSize))
@@ -250,11 +264,12 @@ public struct AudioData: Codable {
         
         // 2. Sample Count
         guard let countRaw = readInt32(data, &offset) else { return nil }
+        guard countRaw >= 0 else { return nil }
         let count = Int(countRaw)
         
         // 3. Samples
         let samplesByteCount = count * floatSize
-        guard data.count >= offset + samplesByteCount else { return nil }
+        guard canReadByteCount(samplesByteCount, offset, data.count) else { return nil }
         let samples = data.withUnsafeBytes {
             Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: count), count: count))
         }

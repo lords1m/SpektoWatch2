@@ -5,6 +5,7 @@ struct WatchLevelMeterWidget: View {
     @EnvironmentObject var audioEngine: WatchAudioEngine
 
     @State private var currentLevel: Float = -60.0
+    @State private var unitLabel: String = "dB(Z)"
 
     private let minDB: Float = -60.0
     private let maxDB: Float = 0.0
@@ -21,15 +22,16 @@ struct WatchLevelMeterWidget: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .watchGlassCard(cornerRadius: 10)
         }
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard audioEngine.isRecording, let data = data else { return }
             currentLevel = data.broadbandLevel
+            unitLabel = unitLabel(for: data)
         }
         .onReceive(connectivityManager.$spectrogramData) { data in
             guard !audioEngine.isRecording, let data = data else { return }
             currentLevel = data.broadbandLevel
+            unitLabel = unitLabel(for: data)
         }
     }
 
@@ -41,7 +43,7 @@ struct WatchLevelMeterWidget: View {
 
         VStack(spacing: 2) {
             // dB Label
-            Text(String(format: "%.0f", currentLevel))
+            Text(String(format: "%.0f %@", currentLevel, unitLabel))
                 .font(.system(size: min(size.width * 0.3, 14), weight: .bold, design: .monospaced))
                 .foregroundColor(levelColor(normalized))
 
@@ -58,7 +60,7 @@ struct WatchLevelMeterWidget: View {
                     .frame(width: barWidth, height: barHeight * normalized)
             }
         }
-        .padding(2)
+        .padding(1)
     }
 
     @ViewBuilder
@@ -82,12 +84,12 @@ struct WatchLevelMeterWidget: View {
             }
 
             // dB Label
-            Text(String(format: "%.0f", currentLevel))
+            Text(String(format: "%.0f %@", currentLevel, unitLabel))
                 .font(.system(size: min(size.height * 0.4, 14), weight: .bold, design: .monospaced))
                 .foregroundColor(levelColor(normalized))
                 .frame(width: size.width * 0.25)
         }
-        .padding(2)
+        .padding(1)
     }
 
     private var levelGradient: LinearGradient {
@@ -103,6 +105,23 @@ struct WatchLevelMeterWidget: View {
         if normalized > 0.7 { return .orange }
         if normalized > 0.5 { return .yellow }
         return .green
+    }
+
+    private func unitLabel(for data: SpectrogramData) -> String {
+        let keys = data.levels.keys
+        if keys.contains(where: { $0.hasPrefix("LA") }) { return "dB(A)" }
+        if keys.contains(where: { $0.hasPrefix("LC") }) { return "dB(C)" }
+        if keys.contains(where: { $0.hasPrefix("LZ") }) { return "dB(Z)" }
+        return unitLabel(for: connectivityManager.frequencyWeighting)
+    }
+
+    private func unitLabel(for weighting: String) -> String {
+        switch weighting.uppercased() {
+        case "A": return "dB(A)"
+        case "C": return "dB(C)"
+        case "Z": return "dB(Z)"
+        default: return "dB(A)"
+        }
     }
 }
 

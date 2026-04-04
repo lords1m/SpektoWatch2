@@ -5,6 +5,11 @@ struct WatchContentView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
 
     var body: some View {
-        WatchDashboardView()
+        TabView {
+            WatchDashboardView()
+            WatchSpectrogramView()
+            WatchLevelMeterView()
+        }
+        .tabViewStyle(.page)
     }
 }

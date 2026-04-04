@@ -38,9 +38,12 @@ final class RecordingManager: NSObject, ObservableObject {
         recordingStartTime = Date()
         currentRecordingDuration = 0
 
+        let startTime = recordingStartTime
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, let start = self.recordingStartTime else { return }
-            self.currentRecordingDuration = Date().timeIntervalSince(start)
+            guard let self, let start = startTime else { return }
+            Task { @MainActor in
+                self.currentRecordingDuration = Date().timeIntervalSince(start)
+            }
         }
         return true
     }
