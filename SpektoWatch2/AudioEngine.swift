@@ -1413,9 +1413,21 @@ class AudioEngine: ObservableObject {
             }
             
             // Send to watch (throttled)
+            // Watch display expects dBFS magnitudes (-180…-40), not dB SPL.
+            // Subtract calibrationOffset to convert back from dB SPL → dBFS.
             let now = Date().timeIntervalSince1970
             if now - self.lastWatchUpdate > 0.1 {
-                self.connectivityManager.sendSpectrogramData(spectrogramData)
+                let offset = self.calibrationOffset
+                let dbfsMagnitudes = spectrogramData.magnitudes.map { $0 - offset }
+                let watchData = SpectrogramData(
+                    frequencies: spectrogramData.frequencies,
+                    magnitudes: dbfsMagnitudes,
+                    broadbandLevel: spectrogramData.broadbandLevel,
+                    levels: spectrogramData.levels,
+                    sampleRate: spectrogramData.sampleRate,
+                    timestamp: spectrogramData.timestamp
+                )
+                self.connectivityManager.sendSpectrogramData(watchData)
                 self.lastWatchUpdate = now
             }
         }

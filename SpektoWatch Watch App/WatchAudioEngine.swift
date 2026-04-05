@@ -204,8 +204,12 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
             let level = 10.0 * log10(lafEnergy + 1e-12)
             
-            // Dummy Frequenzen (werden für die Anzeige nicht zwingend gebraucht, da wir Indizes mappen)
-            let freqs = [Float](repeating: 0, count: magnitudes.count)
+            let binCount = magnitudes.count
+            let binWidth = Float(sampleRate) / Float(fftSize)
+            var freqs = [Float](repeating: 0, count: binCount)
+            for i in 0..<binCount {
+                freqs[i] = Float(i) * binWidth
+            }
             let data = SpectrogramData(frequencies: freqs, magnitudes: magnitudes, broadbandLevel: level, sampleRate: sampleRate)
             
             DispatchQueue.main.async {

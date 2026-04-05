@@ -7,6 +7,8 @@ struct WatchLevelMeterView: View {
     private var isRecording: Bool { audioEngine.isRecording }
     @State private var levelHistory: [Float] = []
     @State private var unitLabel: String = "dB(Z)"
+    @State private var latestSampleRate: Double = 44100.0
+    @State private var latestMagnitudesCount: Int = 1024
 
     private let historyLength = 120
     private let minDB: Float = -120.0
@@ -54,6 +56,7 @@ struct WatchLevelMeterView: View {
                 .padding(.bottom, 2)
             }
         }
+        .accessibilityIdentifier("watchLevelMeterView")
         .onReceive(audioEngine.$currentSpectrogramData) { data in
             guard audioEngine.isRecording, let data = data else { return }
             appendLevel(from: data)
@@ -90,30 +93,50 @@ struct WatchLevelMeterView: View {
         .buttonStyle(.plain)
     }
 
+    // Höhe der X-Achsen-Zeile (Record-Button-Inset 22 + Schriftgröße ~9)
+    private let xAxisHeight: CGFloat = 31
+
     private var axisLabels: some View {
         ZStack {
-            VStack {
-                HStack {
-                    Text(unitLabel)
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+            // Y-Achse: dB-Labels entlang der linken Kante.
+            // Unterer Bereich (xAxisHeight) bleibt frei für X-Achse.
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("0")
                     Spacer()
+                    Text("[\(unitLabel)]")
+                    Spacer()
+                    Text("\(Int(minDB))")
                 }
-                .padding(.leading, 4)
-                .padding(.top, 4)
+                .font(.system(size: 7, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.leading, 2)
+                .padding(.top, 6)
+                .padding(.bottom, xAxisHeight)
 
+                Spacer()
+            }
+
+            // X-Achse: Zeit-Ticks entlang der Unterkante
+            VStack {
                 Spacer()
 
                 HStack {
-                    Text("Past")
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                    let totalSeconds = timeWindowSeconds(sampleCount: levelHistory.count, maxCount: historyLength)
+                    let tickLabels = timeTickLabels(totalSeconds: totalSeconds)
+                    Text(tickLabels[0])
+                        .font(.system(size: 7, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
                     Spacer()
-                    Text("Now")
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                    Text(tickLabels[1])
+                        .font(.system(size: 7, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                    Spacer()
+                    Text(tickLabels[2])
+                        .font(.system(size: 7, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 4)
                 .padding(.bottom, 22)
             }
         }
@@ -125,6 +148,8 @@ struct WatchLevelMeterView: View {
             levelHistory.removeFirst(levelHistory.count - historyLength)
         }
         unitLabel = unitLabel(for: data)
+        latestSampleRate = data.sampleRate
+        latestMagnitudesCount = data.magnitudes.count
     }
 
     private func clamp(_ value: Float, _ minValue: Float, _ maxValue: Float) -> Float {
@@ -146,5 +171,26 @@ struct WatchLevelMeterView: View {
         case "Z": return "dB(Z)"
         default: return "dB(A)"
         }
+    }
+
+    private func timeWindowSeconds(sampleCount: Int, maxCount: Int) -> Double {
+        let count = max(sampleCount, 2)
+        let fftSize = max(latestMagnitudesCount * 2, 2)
+        let frameDuration = Double(fftSize) / max(latestSampleRate, 1.0)
+        let windowCount = min(count, maxCount)
+        return Double(windowCount - 1) * frameDuration
+    }
+
+    private func timeTickLabels(totalSeconds: Double) -> [String] {
+        let clamped = max(totalSeconds, 0.0)
+        let mid = clamped * 0.5
+        return [timeLabel(clamped), timeLabel(mid), timeLabel(0)]
+    }
+
+    private func timeLabel(_ seconds: Double) -> String {
+        if seconds <= 0 { return "0s" }
+        if seconds >= 10 { return String(format: "%.0fs", seconds) }
+        if seconds >= 1 { return String(format: "%.1fs", seconds) }
+        return String(format: "%.2fs", seconds)
     }
 }

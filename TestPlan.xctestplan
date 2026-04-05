@@ -12,7 +12,14 @@
     "testTimeoutsEnabled" : true
   },
   "testTargets" : [
-
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:SpektoWatch2.xcodeproj",
+        "identifier" : "SpektoWatch2UITests",
+        "name" : "SpektoWatch2UITests"
+      }
+    }
   ],
   "version" : 1
 }

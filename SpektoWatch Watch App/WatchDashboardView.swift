@@ -109,6 +109,7 @@ struct WatchDashboardView: View {
             .padding(.horizontal, 2)
             .padding(.top, 2)
         }
+        .accessibilityIdentifier("watchDashboardView")
     }
 
     private var recordButton: some View {
