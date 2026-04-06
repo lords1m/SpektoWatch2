@@ -255,6 +255,7 @@ extension WatchConnectivityManager: WCSessionDelegate {
                    let config = WatchDashboardConfig.decode(from: configData) {
                     DispatchQueue.main.async {
                         self.watchDashboardConfig = config
+                        config.save()
                         NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
                         print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
                     }
