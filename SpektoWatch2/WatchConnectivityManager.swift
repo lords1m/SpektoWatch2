@@ -9,6 +9,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     @Published public var spectrogramData: SpectrogramData?
     @Published public var audioData: AudioData?
     @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    @Published public var watchDashboardConfig: WatchDashboardConfig?
     @Published public var frequencyWeighting: String = "A"
     
     // MARK: - Queue Definitionen
@@ -97,6 +98,13 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
                     if let weighting = message["value"] as? String {
                         self.frequencyWeighting = weighting
                     }
+                case "watchDashboardConfig":
+                    if let configString = message["config"] as? String,
+                       let configData = configString.data(using: .utf8),
+                       let config = WatchDashboardConfig.decode(from: configData) {
+                        self.watchDashboardConfig = config
+                        config.save()
+                    }
                 default:
                     break
                 }
@@ -108,6 +116,12 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         DispatchQueue.main.async {
             if let weighting = applicationContext["frequencyWeighting"] as? String {
                 self.frequencyWeighting = weighting
+            }
+            if let configString = applicationContext["watchDashboardConfig"] as? String,
+               let configData = configString.data(using: .utf8),
+               let config = WatchDashboardConfig.decode(from: configData) {
+                self.watchDashboardConfig = config
+                config.save()
             }
         }
     }
