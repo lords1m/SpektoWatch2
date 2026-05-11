@@ -181,6 +181,102 @@ final class AudioEngineTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
     }
 
+    func testLiveSpectrogramOmitsUnrequestedOptionalWeightingTracks() {
+        let expectation = XCTestExpectation(description: "Spectrogram data published without optional A/C tracks")
+        let samples: [Float] = (0..<32768).map { sin(2 * .pi * Float($0) / 80.0) * 0.5 }
+
+        audioEngine.setFrequencyWeighting(.z)
+        audioEngine.setWidgetSpectralWeightingRequirements([])
+        audioEngine.processExternalAudio(samples)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let data = self.audioEngine.currentSpectrogramData else {
+                XCTFail("Expected spectrogram data")
+                expectation.fulfill()
+                return
+            }
+            XCTAssertNil(data.magnitudesA)
+            XCTAssertNil(data.magnitudesC)
+            XCTAssertEqual(data.magnitudes(for: "A"), data.magnitudes)
+            XCTAssertEqual(data.magnitudes(for: "C"), data.magnitudes)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
+    func testWidgetSpectralWeightingRequirementPublishesRequestedTrack() {
+        let expectation = XCTestExpectation(description: "Spectrogram data published with requested C track")
+        let samples: [Float] = (0..<32768).map { sin(2 * .pi * Float($0) / 80.0) * 0.5 }
+
+        audioEngine.setFrequencyWeighting(.z)
+        audioEngine.setWidgetSpectralWeightingRequirements([.c])
+        audioEngine.processExternalAudio(samples)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let data = self.audioEngine.currentSpectrogramData else {
+                XCTFail("Expected spectrogram data")
+                expectation.fulfill()
+                return
+            }
+            XCTAssertNil(data.magnitudesA)
+            XCTAssertNotNil(data.magnitudesC)
+            XCTAssertEqual(data.magnitudes(for: "C").count, data.magnitudes.count)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
+    func testWearableLiveModeUsesAppleWatchSourceWithoutFileRecording() {
+        let expectation = XCTestExpectation(description: "Wearable live mode is running")
+
+        audioEngine.startWearableLiveMode()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            XCTAssertEqual(self.audioEngine.engineStatus, .running)
+            XCTAssertEqual(self.audioEngine.activeMicrophoneSource, .appleWatch)
+            XCTAssertFalse(self.audioEngine.isRecordingToFile)
+
+            self.audioEngine.stopWearableLiveMode()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                XCTAssertEqual(self.audioEngine.engineStatus, .idle)
+                XCTAssertNil(self.audioEngine.activeMicrophoneSource)
+                expectation.fulfill()
+            }
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
+    func testWearableSpectrogramIngestionUpdatesDashboardState() {
+        let expectation = XCTestExpectation(description: "Wearable spectrogram data ingested")
+        let data = SpectrogramData(
+            frequencies: [100, 200, 500, 1_000],
+            magnitudes: [45, 52, 60, 55],
+            broadbandLevel: 62.0,
+            levels: ["LCpeak": 72.0],
+            sampleRate: 44_100
+        )
+
+        audioEngine.startWearableLiveMode()
+        audioEngine.ingestWearableSpectrogramData(data)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertEqual(self.audioEngine.activeMicrophoneSource, .appleWatch)
+            XCTAssertEqual(self.audioEngine.currentSpectrogramData?.frequencies, data.frequencies)
+            XCTAssertEqual(self.audioEngine.currentSpectrogramData?.magnitudes, data.magnitudes)
+            XCTAssertEqual(self.audioEngine.currentLevel, data.broadbandLevel, accuracy: 0.001)
+            XCTAssertEqual(self.audioEngine.currentSpectrum, data.magnitudes)
+            XCTAssertEqual(self.audioEngine.currentOctaveBands.count, MeasurementDataFormat.thirdOctaveBandCount)
+            XCTAssertEqual(self.audioEngine.levelHistory.last, data.broadbandLevel)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
     /// Testet Verarbeitung mit leeren Samples
     func testProcessEmptySamples() {
         let emptySamples: [Float] = []

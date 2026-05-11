@@ -86,6 +86,13 @@ class DashboardManager: ObservableObject {
         saveConfiguration()
     }
 
+    func renameLayout(at index: Int, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, index >= 0, index < layouts.count else { return }
+        layouts[index].name = trimmed
+        saveConfiguration()
+    }
+
     func deleteLayout(at index: Int) {
         guard layouts.count > 1, index >= 0, index < layouts.count else { return }
         storeWidgetsToActiveLayout()

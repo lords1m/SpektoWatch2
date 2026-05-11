@@ -43,40 +43,49 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             return
         }
 
-        let message: [String: Any] = ["type": "microphoneSource", "source": source.rawValue]
+        let message = WatchConnectivityProtocol.makeMicrophoneSourceMessage(source)
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending microphone source: \(error.localizedDescription)")
         }
     }
 
-    func requestRecordingStart() {
+    func requestRecordingStart(source: MicrophoneSource? = nil) {
         print("[WCM] Requesting Start")
         guard WCSession.default.isReachable else {
             print("[WCM] Error: Not reachable")
             return
         }
-        // Key "type" matches what the iOS-side WatchConnectivityManager expects.
-        let message: [String: Any] = ["type": "startRecording"]
+        let message = WatchConnectivityProtocol.makeRecordingStartMessage(source: source)
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending start command: \(error.localizedDescription)")
         }
     }
 
-    func requestRecordingStop() {
+    func requestRecordingStop(source: MicrophoneSource? = nil) {
         print("[WCM] Requesting Stop")
         guard WCSession.default.isReachable else {
             print("[WCM] Error: Not reachable")
             return
         }
-        let message: [String: Any] = ["type": "stopRecording"]
+        let message = WatchConnectivityProtocol.makeRecordingStopMessage(source: source)
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending stop command: \(error.localizedDescription)")
         }
     }
 
+    func requestWearableRecordingStart() {
+        selectedMicrophoneSource = .appleWatch
+        sendMicrophoneSourceSelection(.appleWatch)
+        requestRecordingStart(source: .appleWatch)
+    }
+
+    func requestWearableRecordingStop() {
+        requestRecordingStop(source: .appleWatch)
+    }
+
     func sendGainValue(_ gain: Float) {
         guard WCSession.default.isReachable else { return }
-        let message: [String: Any] = ["type": "gain", "value": gain]
+        let message = WatchConnectivityProtocol.makeGainMessage(gain)
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Error sending gain: \(error.localizedDescription)")
         }
@@ -98,7 +107,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             return
         }
 
-        let message = ["watchDashboardConfig": configString]
+        let message = WatchConnectivityProtocol.makeWatchDashboardConfigMessage(configString)
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("[WCM] Error sending dashboard config: \(error.localizedDescription)")
             // Fallback to application context
@@ -159,8 +168,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         }
         hasLoggedUnreachability = false
 
-        var packet = Data([0x01])
-        packet.append(dataToSend.toBinaryData())
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(dataToSend)
         WCSession.default.sendMessageData(packet, replyHandler: nil) { error in
             print("Error sending spectrogram data: \(error.localizedDescription)")
         }
@@ -173,18 +181,18 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     private func adaptiveSpectrogramSendInterval() -> TimeInterval {
         let processInfo = ProcessInfo.processInfo
         if processInfo.isLowPowerModeEnabled {
-            return 0.25
+            return WatchConnectivityProtocol.lowPowerSpectrogramSendInterval
         }
 
         switch processInfo.thermalState {
         case .serious:
-            return 0.33
+            return WatchConnectivityProtocol.seriousThermalSpectrogramSendInterval
         case .critical:
-            return 0.5
+            return WatchConnectivityProtocol.criticalThermalSpectrogramSendInterval
         case .fair:
-            return 0.2
+            return WatchConnectivityProtocol.fairThermalSpectrogramSendInterval
         default:
-            return 0.1
+            return WatchConnectivityProtocol.normalSpectrogramSendInterval
         }
     }
 }
@@ -201,27 +209,33 @@ extension WatchConnectivityManager: WCSessionDelegate {
         os_signpost(.begin, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID) }
 
-        // The iOS-side uses a ["type": "..."] envelope for all control messages.
-        if let type = message["type"] as? String {
+        if let type = WatchConnectivityProtocol.messageType(from: message) {
             switch type {
-            case "startRecording":
-                NotificationCenter.default.post(name: .startRecordingCommand, object: nil)
-            case "stopRecording":
-                NotificationCenter.default.post(name: .stopRecordingCommand, object: nil)
-            case "gain":
-                if let gain = message["value"] as? Float {
-                    NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
-                }
-            case "microphoneSource":
-                if let sourceString = message["source"] as? String,
-                   let source = MicrophoneSource(rawValue: sourceString) {
+            case .startRecording:
+                let source = WatchConnectivityProtocol.recordingSource(from: message)
+                if let source {
                     DispatchQueue.main.async {
                         self.selectedMicrophoneSource = source
                         self.onMicrophoneSourceChanged?(source)
                     }
                 }
-            case "watchDashboardConfig":
-                if let configString = message["config"] as? String,
+                NotificationCenter.default.post(name: .startRecordingCommand, object: source)
+            case .stopRecording:
+                let source = WatchConnectivityProtocol.recordingSource(from: message)
+                NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
+            case .gain:
+                if let gain = WatchConnectivityProtocol.gain(from: message) {
+                    NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
+                }
+            case .microphoneSource:
+                if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
+                    DispatchQueue.main.async {
+                        self.selectedMicrophoneSource = source
+                        self.onMicrophoneSourceChanged?(source)
+                    }
+                }
+            case .watchDashboardConfig:
+                if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
                    let configData = configString.data(using: .utf8),
                    let config = WatchDashboardConfig.decode(from: configData) {
                     DispatchQueue.main.async {
@@ -231,14 +245,12 @@ extension WatchConnectivityManager: WCSessionDelegate {
                         print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
                     }
                 }
-            case "frequencyWeighting":
-                if let weighting = message["value"] as? String {
+            case .frequencyWeighting:
+                if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
                     DispatchQueue.main.async {
                         self.frequencyWeighting = weighting
                     }
                 }
-            default:
-                print("[WCM] Unknown message type: \(type)")
             }
         }
     }
@@ -246,13 +258,8 @@ extension WatchConnectivityManager: WCSessionDelegate {
     /// Handles binary-encoded spectrogram (0x01) data from iOS.
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
-        let type = messageData[0]
-        let payload = Data(messageData.dropFirst())
-
-        if type == 0x01 {
-            if let specData = SpectrogramData.fromBinaryData(payload) {
-                DispatchQueue.main.async { self.spectrogramData = specData }
-            }
+        if case .spectrogram(let specData) = WatchConnectivityProtocol.decodeBinaryPayload(messageData) {
+            DispatchQueue.main.async { self.spectrogramData = specData }
         }
     }
 

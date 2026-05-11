@@ -1,5 +1,13 @@
 import Foundation
 
+private final class MeasurementFrameBuffer {
+    var values: [Float]
+
+    init(floatCount: Int) {
+        self.values = [Float](repeating: 0, count: floatCount)
+    }
+}
+
 final class MeasurementDataWriter {
     let fileURL: URL
     let metricKeys: [String]
@@ -19,13 +27,10 @@ final class MeasurementDataWriter {
     // bounded — if the disk stalls and we exceed `maxPendingFrames`, we drop the
     // incoming frame and log it instead of letting memory grow unbounded.
     private let writeQueue = DispatchQueue(label: "com.spektowatch.measurement.writer", qos: .utility)
-    private let pendingFramesLock = NSLock()
-    private var pendingFrames: Int = 0
-    private static let maxPendingFrames: Int = 32   // ~370 ms backlog at 86 fps
-
-    // Pre-allocated frame buffer — filled inline each call, then captured by value
-    // for the async write (Swift COW defers the actual copy until next modification).
-    private var frameFloatBuffer: [Float]
+    private let lifecycleLock = NSLock()
+    private let bufferPoolLock = NSLock()
+    private var frameFloatBuffers: [MeasurementFrameBuffer]
+    private var availableFrameBufferIndices: [Int]
     private let frameFloatCount: Int
 
     init(
@@ -34,7 +39,8 @@ final class MeasurementDataWriter {
         sampleRate: Double,
         fps: Float,
         fftBlockSize: Int,
-        fftBinCount: Int
+        fftBinCount: Int,
+        maxPendingFrames: Int = 32
     ) throws {
         self.fileURL = fileURL
         self.metricKeys = metricKeys
@@ -42,11 +48,14 @@ final class MeasurementDataWriter {
         self.fps = fps
         self.fftBlockSize = fftBlockSize
         self.fftBinCount = max(0, fftBinCount)
-        let fullFftCount = self.fftBinCount
+        let pendingFrameCapacity = max(0, maxPendingFrames)
+        let fullFftCount = max(0, fftBinCount)
+        let frameFloatCount = 1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount
         // Frame layout (floats): timestamp + metrics + broadband + 3×thirdOctave + fullFFT
-        self.frameFloatCount = 1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount
+        self.frameFloatCount = frameFloatCount
         self.frameSize = MemoryLayout<Float>.size * frameFloatCount
-        self.frameFloatBuffer = [Float](repeating: 0, count: frameFloatCount)
+        self.frameFloatBuffers = (0..<pendingFrameCapacity).map { _ in MeasurementFrameBuffer(floatCount: frameFloatCount) }
+        self.availableFrameBufferIndices = Array(0..<pendingFrameCapacity)
 
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         self.fileHandle = try FileHandle(forWritingTo: fileURL)
@@ -66,6 +75,9 @@ final class MeasurementDataWriter {
         thirdOctaveC: [Float],
         fullFFT: [Float]
     ) throws {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+
         guard !isClosed else { return }
         guard metricValues.count == metricKeys.count else {
             throw MeasurementDataError.metricCountMismatch(expected: metricKeys.count, got: metricValues.count)
@@ -79,57 +91,47 @@ final class MeasurementDataWriter {
             throw MeasurementDataError.metricCountMismatch(expected: fftBinCount, got: fullFFT.count)
         }
 
-        // Fill the pre-allocated buffer directly (replaces ~4000 individual Data.appendFloatLE calls)
-        var idx = 0
-        frameFloatBuffer[idx] = timestamp; idx += 1
-        for v in metricValues { frameFloatBuffer[idx] = v; idx += 1 }
-        frameFloatBuffer[idx] = broadbandLevel; idx += 1
-        for v in thirdOctaveZ { frameFloatBuffer[idx] = v; idx += 1 }
-        for v in thirdOctaveA { frameFloatBuffer[idx] = v; idx += 1 }
-        for v in thirdOctaveC { frameFloatBuffer[idx] = v; idx += 1 }
-        if fftBinCount > 0 {
-            for v in fullFFT { frameFloatBuffer[idx] = v; idx += 1 }
-        }
-
-        // Bounded async write: cap the in-flight queue depth so a stalled disk
-        // can't grow memory unbounded. On overflow, drop and log instead of
-        // stalling the audio path or ballooning RAM.
-        pendingFramesLock.lock()
-        if pendingFrames >= Self.maxPendingFrames {
-            pendingFramesLock.unlock()
-            droppedFrameCount += 1
-            // Log sparsely — every 32nd drop — to avoid log floods if the disk
-            // stays slow for a long stretch.
-            if droppedFrameCount.isMultiple(of: 32) {
-                NSLog("[MeasurementDataWriter] dropped %llu frames (queue full)", droppedFrameCount)
+        guard let bufferIndex = acquireFrameBufferIndex() else {
+            let dropped = recordDroppedFrame()
+            if dropped.isMultiple(of: 32) {
+                NSLog("[MeasurementDataWriter] dropped %llu frames (queue full)", dropped)
             }
             return
         }
-        pendingFrames += 1
-        pendingFramesLock.unlock()
 
-        // Snapshot by value (COW — copy will happen when the next frame mutates
-        // `frameFloatBuffer`, which is fine because we've already returned to
-        // the caller and the copy happens off the audio thread, on the writer
-        // queue when it picks up the snapshot).
-        let snapshot = frameFloatBuffer
+        // Fill a checked-out reusable buffer directly. The buffer will not be
+        // returned to the pool until the writer queue has finished writing it.
+        let frameBuffer = frameFloatBuffers[bufferIndex]
+        var idx = 0
+        frameBuffer.values[idx] = timestamp; idx += 1
+        for v in metricValues { frameBuffer.values[idx] = v; idx += 1 }
+        frameBuffer.values[idx] = broadbandLevel; idx += 1
+        for v in thirdOctaveZ { frameBuffer.values[idx] = v; idx += 1 }
+        for v in thirdOctaveA { frameBuffer.values[idx] = v; idx += 1 }
+        for v in thirdOctaveC { frameBuffer.values[idx] = v; idx += 1 }
+        if fftBinCount > 0 {
+            for v in fullFFT { frameBuffer.values[idx] = v; idx += 1 }
+        }
+
         let handle = fileHandle
-        writeQueue.async { [weak self] in
-            snapshot.withUnsafeBytes { ptr in
+        writeQueue.async {
+            frameBuffer.values.withUnsafeBytes { ptr in
                 handle.write(Data(ptr))
             }
-            if let self {
-                self.pendingFramesLock.lock()
-                self.pendingFrames -= 1
-                self.pendingFramesLock.unlock()
-            }
+            self.releaseFrameBufferIndex(bufferIndex)
         }
         frameCount += 1
     }
 
     func close() throws {
-        guard !isClosed else { return }
+        lifecycleLock.lock()
+        guard !isClosed else {
+            lifecycleLock.unlock()
+            return
+        }
         isClosed = true
+        lifecycleLock.unlock()
+
         // Drain all pending async writes before syncing the file
         writeQueue.sync {}
         try fileHandle.synchronize()
@@ -165,5 +167,25 @@ final class MeasurementDataWriter {
         var countData = Data()
         countData.appendUInt64LE(frameCount)
         fileHandle.write(countData)
+    }
+
+    private func acquireFrameBufferIndex() -> Int? {
+        bufferPoolLock.lock()
+        defer { bufferPoolLock.unlock() }
+        return availableFrameBufferIndices.popLast()
+    }
+
+    private func releaseFrameBufferIndex(_ index: Int) {
+        bufferPoolLock.lock()
+        availableFrameBufferIndices.append(index)
+        bufferPoolLock.unlock()
+    }
+
+    private func recordDroppedFrame() -> UInt64 {
+        bufferPoolLock.lock()
+        droppedFrameCount += 1
+        let count = droppedFrameCount
+        bufferPoolLock.unlock()
+        return count
     }
 }

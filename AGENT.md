@@ -1,0 +1,75 @@
+# Agent Context Protocol
+
+This repository uses Agent Context Protocol (ACP) as the working context layer
+for coding agents. ACP keeps product intent, design decisions, milestones,
+tasks, progress, and handoff reports in plain files under `agent/`.
+
+## Quick Start
+
+Start every agent session by reading:
+
+1. `AGENT.md`
+2. `agent/progress.yaml`
+3. `agent/design/requirements.md`
+4. `agent/design/project-draft.md`
+5. `agent/design/spektowatch-field-engineering-design.md`
+6. Any milestone or task file referenced by `agent/progress.yaml`
+
+Then run:
+
+```sh
+./agent/scripts/acp-status
+```
+
+Use `./agent/scripts/acp-validate` before handing work back.
+
+## Repository Context
+
+SpektoWatch is a SwiftUI iOS/watchOS acoustic measurement app. The core app
+captures microphone input, performs FFT and weighting, renders spectrogram and
+level widgets, records audio plus measurement metadata, exports reports, and
+synchronizes selected state and live metrics with an Apple Watch companion app.
+
+Important code areas:
+
+- `SpektoWatch2/AudioEngine.swift` - live audio capture, FFT, weighting,
+  acoustic metrics, recording, watch update throttling.
+- `SpektoWatch2/ModularDashboardView.swift` and widget files - primary iOS UI.
+- `SpektoWatch2/Masking/` - masking and trigger-acquisition workflow.
+- `SpektoWatch2/RecordingManager.swift` and
+  `SpektoWatch2/Views/RecordingDetailView.swift` - saved measurements.
+- `Shared/` - models shared by iOS and watchOS targets.
+- `SpektoWatch Watch App/` - watch app, watch audio engine, watch dashboard.
+- `SpektoWatch2Tests/`, `SpektoWatchTests/`, `SpektoWatch2UITests/` - unit and UI
+  tests.
+
+## Agent Rules
+
+- Do not overwrite user work. The repository may contain unrelated uncommitted
+  changes.
+- Keep Swift changes scoped to the feature or bug being addressed.
+- Prefer existing SwiftUI, Combine, AVFoundation, Accelerate, and local helper
+  patterns over new abstractions.
+- For watch communication, preserve the low-bandwidth processed-data approach;
+  do not reintroduce raw audio transfer over WatchConnectivity.
+- For measurement data, use existing readers/writers and typed models instead
+  of ad hoc file parsing.
+- Update ACP task and progress files when a task materially changes state.
+
+## ACP Commands
+
+Command prompt files are stored in `agent/commands/`:
+
+- `acp.status.md` - summarize current project state.
+- `acp.proceed.md` - continue the active task.
+- `acp.init.md` - initialize or repair ACP files.
+- `acp.validate.md` - validate file structure before handoff.
+- `acp.report.md` - create a handoff report.
+- `acp.sync.md` - reconcile progress with task files.
+- `acp.clarification-create.md` - create clarification questions from a draft.
+- `acp.clarification-address.md` - process clarification answers and decisions.
+- `acp.design-create.md` - create a durable design from clarification decisions.
+- `acp.plan.md` - generate milestones and tasks from the active design.
+
+These commands are plain Markdown so any agent can use them even without a
+dedicated ACP CLI.

@@ -178,10 +178,84 @@ final class WatchConnectivityTests: XCTestCase {
             sampleRate: 44100.0
         )
 
-        var packet = Data([0x01]) // Header for Spectrogram
-        packet.append(data.toBinaryData())
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(data)
 
-        XCTAssertEqual(packet[0], 0x01, "First byte should be spectrogram header")
+        XCTAssertEqual(packet[0], WatchConnectivityProtocol.BinaryPacketKind.spectrogram.rawValue, "First byte should be spectrogram header")
+    }
+
+    func testTypedControlMessageFactories() throws {
+        let startMessage = WatchConnectivityProtocol.makeRecordingStartMessage()
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: startMessage), .startRecording)
+        XCTAssertNil(WatchConnectivityProtocol.recordingSource(from: startMessage))
+
+        let wearableStartMessage = WatchConnectivityProtocol.makeRecordingStartMessage(source: .appleWatch)
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: wearableStartMessage), .startRecording)
+        XCTAssertEqual(WatchConnectivityProtocol.recordingSource(from: wearableStartMessage), .appleWatch)
+
+        let stopMessage = WatchConnectivityProtocol.makeRecordingStopMessage()
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: stopMessage), .stopRecording)
+
+        let wearableStopMessage = WatchConnectivityProtocol.makeRecordingStopMessage(source: .appleWatch)
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: wearableStopMessage), .stopRecording)
+        XCTAssertEqual(WatchConnectivityProtocol.recordingSource(from: wearableStopMessage), .appleWatch)
+
+        let gainMessage = WatchConnectivityProtocol.makeGainMessage(2.5)
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: gainMessage), .gain)
+        let parsedGain = try XCTUnwrap(WatchConnectivityProtocol.gain(from: gainMessage))
+        XCTAssertEqual(parsedGain, 2.5, accuracy: 0.001)
+
+        let sourceMessage = WatchConnectivityProtocol.makeMicrophoneSourceMessage(.appleWatch)
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: sourceMessage), .microphoneSource)
+        XCTAssertEqual(WatchConnectivityProtocol.microphoneSource(from: sourceMessage), .appleWatch)
+
+        let weightingMessage = WatchConnectivityProtocol.makeFrequencyWeightingMessage("A")
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: weightingMessage), .frequencyWeighting)
+        XCTAssertEqual(WatchConnectivityProtocol.frequencyWeighting(from: weightingMessage), "A")
+
+        let configMessage = WatchConnectivityProtocol.makeWatchDashboardConfigMessage("{}")
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: configMessage), .watchDashboardConfig)
+        XCTAssertEqual(WatchConnectivityProtocol.dashboardConfigString(from: configMessage), "{}")
+    }
+
+    func testTypedSpectrogramPacketRoundTrip() {
+        let original = SpectrogramData(
+            frequencies: [100, 200, 500],
+            magnitudes: [50, 60, 55],
+            broadbandLevel: 57.0,
+            levels: ["LAF": 57.0],
+            sampleRate: 44_100
+        )
+
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(original)
+        guard case .spectrogram(let restored) = WatchConnectivityProtocol.decodeBinaryPayload(packet) else {
+            XCTFail("Expected spectrogram packet")
+            return
+        }
+
+        XCTAssertEqual(restored.frequencies, original.frequencies)
+        XCTAssertEqual(restored.magnitudes, original.magnitudes)
+        XCTAssertEqual(restored.broadbandLevel, original.broadbandLevel, accuracy: 0.001)
+        XCTAssertEqual(restored.sampleRate, original.sampleRate, accuracy: 0.001)
+    }
+
+    func testUnknownBinaryPacketReturnsNil() {
+        let packet = Data([0xFF, 0x00, 0x01])
+        XCTAssertNil(WatchConnectivityProtocol.decodeBinaryPayload(packet))
+    }
+
+    func testLiveUpdatePolicyKeepsWatchDataFreshWithinOneSecond() {
+        XCTAssertLessThanOrEqual(
+            WatchConnectivityProtocol.normalSpectrogramSendInterval,
+            WatchConnectivityProtocol.maximumLiveDataAgeSeconds
+        )
+        XCTAssertLessThanOrEqual(
+            WatchConnectivityProtocol.lowPowerSpectrogramSendInterval,
+            WatchConnectivityProtocol.maximumLiveDataAgeSeconds
+        )
+        XCTAssertLessThanOrEqual(
+            WatchConnectivityProtocol.criticalThermalSpectrogramSendInterval,
+            WatchConnectivityProtocol.maximumLiveDataAgeSeconds
+        )
     }
 
     // MARK: - Edge Cases

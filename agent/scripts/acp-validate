@@ -1,0 +1,68 @@
+#!/usr/bin/env sh
+set -eu
+
+root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+missing=0
+
+required='
+AGENT.md
+agent/manifest.yaml
+agent/progress.yaml
+agent/design/requirements.md
+agent/design/acp-integration.md
+agent/design/project-draft.md
+agent/design/spektowatch-field-engineering-design.md
+agent/drafts/spektowatch-project.draft.md
+agent/clarifications/spektowatch-project.clarification.md
+agent/commands/acp.status.md
+agent/commands/acp.proceed.md
+agent/commands/acp.init.md
+agent/commands/acp.validate.md
+agent/commands/acp.report.md
+agent/commands/acp.sync.md
+agent/commands/acp.clarification-create.md
+agent/commands/acp.clarification-address.md
+agent/commands/acp.design-create.md
+agent/commands/acp.plan.md
+agent/milestones/milestone-1-acp-bootstrap.md
+agent/milestones/milestone-2-performance-stabilization-watch-architecture.md
+agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls.md
+agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility.md
+agent/patterns/swiftui-audio-pipeline.md
+'
+
+for path in $required; do
+  if [ ! -f "$root/$path" ]; then
+    echo "missing: $path"
+    missing=1
+  fi
+done
+
+if [ "$missing" -ne 0 ]; then
+  exit 1
+fi
+
+current_milestone="$(awk -F': ' '/^current_milestone:/ { print $2 }' "$root/agent/progress.yaml")"
+current_task="$(awk -F': ' '/^current_task:/ { print $2 }' "$root/agent/progress.yaml")"
+if [ -z "$current_milestone" ]; then
+  echo "missing current_milestone in agent/progress.yaml"
+  exit 1
+fi
+if [ -z "$current_task" ]; then
+  echo "missing current_task in agent/progress.yaml"
+  exit 1
+fi
+
+task_path="$root/agent/tasks/$current_milestone/$current_task.md"
+if [ ! -f "$task_path" ]; then
+  echo "current_task does not resolve: $current_task"
+  exit 1
+fi
+
+echo "ACP validation passed"

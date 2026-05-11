@@ -2,11 +2,13 @@ import SwiftUI
 import AVFoundation
 import Accelerate
 import Combine
+import PhotosUI
 
 struct RecordingDetailView: View {
     enum DetailTab: String, CaseIterable, Identifiable {
         case overview = "Details"
         case analysis = "Analyse"
+        case waterfall = "Wasserfall"
         var id: String { rawValue }
     }
 
@@ -34,8 +36,13 @@ struct RecordingDetailView: View {
     @State private var playbackWeighting: FrequencyWeighting = .z
     @State private var weightedSpectrogramCache: [FrequencyWeighting: [[Float]]] = [:]
     @State private var isPromotingSpectrogramResolution = false
+    @State private var waterfallSliceCount: Double = 96
+    @State private var waterfallMinDB: Double = -110
+    @State private var waterfallMaxDB: Double = 20
+    @State private var waterfallDataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: -110, maxDB: 20)
 
     @State private var showShareSheet = false
+    @State private var showPhotoPicker = false
     @State private var shareItems: [Any] = []
 
     init(recording: Recording) {
@@ -53,10 +60,13 @@ struct RecordingDetailView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
 
-                if selectedTab == .overview {
+                switch selectedTab {
+                case .overview:
                     overviewTab
-                } else {
+                case .analysis:
                     analysisTab
+                case .waterfall:
+                    waterfallTab
                 }
             }
             .background(GlassBackground())
@@ -120,6 +130,18 @@ struct RecordingDetailView: View {
         .onChange(of: playbackWeighting) { _, newValue in
             applyPlaybackWeighting(newValue)
         }
+        .onChange(of: spectrogramHistory) { _, _ in
+            rebuildWaterfallDataSet()
+        }
+        .onChange(of: waterfallSliceCount) { _, _ in
+            rebuildWaterfallDataSet()
+        }
+        .onChange(of: waterfallMinDB) { _, _ in
+            rebuildWaterfallDataSet()
+        }
+        .onChange(of: waterfallMaxDB) { _, _ in
+            rebuildWaterfallDataSet()
+        }
         .onChange(of: audioPlayer.currentTime) { _, time in
             storedDataProvider?.scrub(to: time)
         }
@@ -133,9 +155,8 @@ struct RecordingDetailView: View {
                 playbackWidgetsCard
                 statisticsCard
                 metadataCard
-                if !recording.description.isEmpty {
-                    descriptionCard
-                }
+                notesCard
+                photosCard
             }
             .padding()
         }
@@ -157,6 +178,16 @@ struct RecordingDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .glassCard(cornerRadius: 14)
                 }
+            }
+            .padding()
+        }
+    }
+
+    private var waterfallTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                waterfallCard
+                waterfallControlsCard
             }
             .padding()
         }
@@ -297,6 +328,67 @@ struct RecordingDetailView: View {
         .padding(.horizontal, 6)
     }
 
+    private var waterfallCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text("Wasserfall")
+                    .font(.headline)
+                Spacer()
+                playbackWeightingPicker
+                    .frame(maxWidth: 280)
+            }
+
+            WaterfallView(
+                dataSet: waterfallDataSet,
+                highlightedTime: isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime
+            )
+            .frame(height: 360)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            HStack {
+                Text("\(waterfallDataSet.slices.count) Slices")
+                Spacer()
+                Text("\(Int(waterfallDataSet.minDB))...\(Int(waterfallDataSet.maxDB)) dB")
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
+    private var waterfallControlsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Darstellung")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Slices: \(Int(waterfallSliceCount))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Slider(value: $waterfallSliceCount, in: 32...160, step: 8)
+            }
+
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Min: \(Int(waterfallMinDB)) dB")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Slider(value: $waterfallMinDB, in: -140 ... -40, step: 5)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Max: \(Int(waterfallMaxDB)) dB")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Slider(value: $waterfallMaxDB, in: -20 ... 120, step: 5)
+                }
+            }
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
     @ViewBuilder
     private var playbackWidgetsCard: some View {
         let widgets = playbackWidgets.filter { $0.type != .spectrogram }
@@ -351,17 +443,104 @@ struct RecordingDetailView: View {
         .glassCard(cornerRadius: 14)
     }
 
-    private var descriptionCard: some View {
+    private var notesCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Beschreibung")
+            Text("Notizen")
                 .font(.headline)
             Divider()
-            Text(recording.description)
-                .font(.body)
-                .foregroundColor(.secondary)
+            TextEditor(text: Binding(
+                get: { recording.description },
+                set: { newValue in
+                    recording.description = newValue
+                    recordingManager.updateRecording(recording)
+                }
+            ))
+            .font(.body)
+            .foregroundColor(recording.description.isEmpty ? .secondary : .primary)
+            .frame(minHeight: 72)
+            .overlay(alignment: .topLeading) {
+                if recording.description.isEmpty {
+                    Text("Notizen hinzufügen…")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 8)
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .padding()
         .glassCard(cornerRadius: 14)
+    }
+
+    @ViewBuilder
+    private func photoThumbnail(fileName: String) -> some View {
+        let url = recordingManager.getPhotoURL(fileName: fileName)
+        ZStack(alignment: .topTrailing) {
+            if let uiImage = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 90, height: 90)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 90, height: 90)
+                    .overlay(Image(systemName: "photo").foregroundColor(.gray))
+            }
+            Button {
+                recordingManager.deletePhoto(fileName: fileName)
+                recording.photoFileNames.removeAll { $0 == fileName }
+                recordingManager.updateRecording(recording)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.white)
+                    .background(Color.black.opacity(0.5), in: Circle())
+            }
+            .padding(4)
+        }
+    }
+
+    private var photosCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Fotos")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    Label("Hinzufügen", systemImage: "plus")
+                        .font(.caption)
+                }
+            }
+            Divider()
+            if recording.photoFileNames.isEmpty {
+                Text("Keine Fotos")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(recording.photoFileNames, id: \.self) { fileName in
+                            photoThumbnail(fileName: fileName)
+                        }
+                    }
+                }
+            }
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+        .sheet(isPresented: $showPhotoPicker) {
+            PhotoPickerView { imageData in
+                guard let data = imageData else { return }
+                if let fileName = try? recordingManager.savePhoto(data, recordingID: recording.id) {
+                    recording.photoFileNames.append(fileName)
+                    recordingManager.updateRecording(recording)
+                }
+            }
+        }
     }
 
     private func analysisRangeCard(duration: TimeInterval) -> some View {
@@ -635,6 +814,31 @@ struct RecordingDetailView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func rebuildWaterfallDataSet() {
+        guard let firstColumn = spectrogramHistory.first, !firstColumn.isEmpty else {
+            waterfallDataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: Float(waterfallMinDB), maxDB: Float(waterfallMaxDB))
+            return
+        }
+
+        let minDB = Float(min(waterfallMinDB, waterfallMaxDB - 5))
+        let maxDB = Float(max(waterfallMaxDB, waterfallMinDB + 5))
+        let duration = max(audioPlayer.duration, recording.duration, storedDataProvider?.duration ?? 0)
+        let sourceFrequencies = WaterfallDataBuilder.sourceFrequencies(
+            binCount: firstColumn.count,
+            sampleRate: storedDataProvider?.sampleRate ?? recording.sampleRate,
+            storedProviderHasFullFFT: storedDataProvider?.hasFullFFT ?? false
+        )
+
+        waterfallDataSet = WaterfallDataBuilder.build(
+            history: spectrogramHistory,
+            sourceFrequencies: sourceFrequencies,
+            duration: duration,
+            targetSliceCount: Int(waterfallSliceCount),
+            minDB: minDB,
+            maxDB: maxDB
+        )
     }
 
     private func computeSpectrogramHistoryStreaming(url: URL, calibrationOffset: Float) throws -> [[Float]] {
@@ -1063,5 +1267,39 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     private func stopTimer() {
         updateTimer?.invalidate()
         updateTimer = nil
+    }
+}
+
+struct PhotoPickerView: UIViewControllerRepresentable {
+    let onPick: (Data?) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.selectionLimit = 1
+        config.filter = .images
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let onPick: (Data?) -> Void
+        init(onPick: @escaping (Data?) -> Void) { self.onPick = onPick }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            picker.dismiss(animated: true)
+            guard let provider = results.first?.itemProvider, provider.canLoadObject(ofClass: UIImage.self) else {
+                onPick(nil)
+                return
+            }
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+                let data = (object as? UIImage).flatMap { $0.jpegData(compressionQuality: 0.85) }
+                DispatchQueue.main.async { self?.onPick(data) }
+            }
+        }
     }
 }

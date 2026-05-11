@@ -89,7 +89,10 @@ struct SpectrogramView: View {
             .onReceive(connectivityManager.$spectrogramData) { data in
                 // Fallback: Falls die Watch doch mal fertige Spektrogramm-Daten sendet
                 if let data = data, selectedMicrophoneSource == .appleWatch {
-                    audioEngine.currentSpectrogramData = data
+                    if audioEngine.engineStatus != .running {
+                        audioEngine.startWearableLiveMode()
+                    }
+                    audioEngine.ingestWearableSpectrogramData(data)
                 }
             }
             .onReceive(connectivityManager.$isReachable) { isReachable in
@@ -242,7 +245,8 @@ struct SpectrogramView: View {
                 if newSource == .iPhone {
                     audioEngine.startRecording()
                 } else {
-                    connectivityManager.requestRecordingStart()
+                    connectivityManager.requestWearableRecordingStart()
+                    audioEngine.startWearableLiveMode()
                 }
             }
         }
@@ -260,13 +264,15 @@ struct SpectrogramView: View {
             if selectedMicrophoneSource == .iPhone {
                 audioEngine.startRecording()
             } else {
-                connectivityManager.requestRecordingStart()
+                connectivityManager.requestWearableRecordingStart()
+                audioEngine.startWearableLiveMode()
             }
         } else {
             if selectedMicrophoneSource == .iPhone {
                 audioEngine.stopRecording()
             } else {
-                connectivityManager.requestRecordingStop()
+                connectivityManager.requestWearableRecordingStop()
+                audioEngine.stopWearableLiveMode()
             }
         }
     }

@@ -17,7 +17,7 @@ struct WidgetSettingsView: View {
 
     private var supportsOverrideToggle: Bool {
         switch widget.type {
-        case .spectrogram, .levelHistory, .frequencyDisplay, .octaveBands, .singleValue:
+        case .spectrogram, .waterfall, .levelHistory, .frequencyDisplay, .octaveBands, .singleValue:
             return true
         default:
             return false
@@ -95,6 +95,49 @@ struct WidgetSettingsView: View {
                                 .font(.caption2)
                                 .foregroundColor(.gray)
                         }
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
+                } else if widget.type == .waterfall {
+                    Section(header: Text("Wasserfall Einstellungen")) {
+                        Picker("Frequenzbewertung", selection: Binding(
+                            get: { settings["freqWeighting"] ?? "Z" },
+                            set: { settings["freqWeighting"] = $0 }
+                        )) {
+                            Text("Z (Linear)").tag("Z")
+                            Text("A-Weighting").tag("A")
+                            Text("C-Weighting").tag("C")
+                        }
+
+                        Picker("Zeitscheiben", selection: Binding(
+                            get: { settings["waterfallSlices"] ?? String(WidgetSettings.defaultWaterfallSliceCount) },
+                            set: { settings["waterfallSlices"] = $0 }
+                        )) {
+                            Text("48").tag("48")
+                            Text("96").tag("96")
+                            Text("160").tag("160")
+                        }
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    Section(header: Text("Dynamikbereich")) {
+                        Stepper(
+                            "Minimum: \(Int(Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB)) dB",
+                            value: Binding(
+                                get: { Int(Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB) },
+                                set: { settings["waterfallMinDB"] = String($0) }
+                            ),
+                            in: -140 ... -40,
+                            step: 5
+                        )
+                        Stepper(
+                            "Maximum: \(Int(Float(settings["waterfallMaxDB"] ?? String(Int(WidgetSettings.defaultWaterfallMaxDB))) ?? WidgetSettings.defaultWaterfallMaxDB)) dB",
+                            value: Binding(
+                                get: { Int(Float(settings["waterfallMaxDB"] ?? String(Int(WidgetSettings.defaultWaterfallMaxDB))) ?? WidgetSettings.defaultWaterfallMaxDB) },
+                                set: { settings["waterfallMaxDB"] = String($0) }
+                            ),
+                            in: -20 ... 120,
+                            step: 5
+                        )
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .levelHistory {

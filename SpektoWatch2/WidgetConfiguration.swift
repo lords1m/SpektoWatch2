@@ -3,6 +3,7 @@ import CoreGraphics
 
 enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case spectrogram = "Spektrogramm"
+    case waterfall = "Wasserfall"
     case levelHistory = "Pegelverlauf"
     case frequencyDisplay = "Frequenz-Spektrum"
     case levelMeter = "Pegel-Meter"
@@ -19,6 +20,7 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     static var allCases: [AudioWidgetType] {
         [
             .spectrogram,
+            .waterfall,
             .levelHistory,
             .frequencyDisplay,
             .levelMeter,
@@ -63,6 +65,7 @@ struct WidgetConfiguration: Identifiable, Codable {
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
         case .spectrogram: return WidgetSize(columns: 2, rows: 2.0)
+        case .waterfall: return WidgetSize(columns: 2, rows: 2.0)
         case .levelHistory: return WidgetSize(columns: 2, rows: 1.0)
         case .frequencyDisplay: return WidgetSize(columns: 2, rows: 1.0)
         case .levelMeter: return WidgetSize(columns: 1, rows: 1.0)
@@ -82,6 +85,9 @@ enum WidgetSettings {
     static let defaultTimeSpanSeconds = 5
     static let defaultSpectrogramSensitivity: Float = 90.0
     static let defaultSpectrumBandMode = "terz"
+    static let defaultWaterfallSliceCount = 96
+    static let defaultWaterfallMinDB: Float = -110
+    static let defaultWaterfallMaxDB: Float = 20
     static let defaultSingleValueMetric = "LAF"
     static let defaultLevelHistoryMetric = "AUTO"
 

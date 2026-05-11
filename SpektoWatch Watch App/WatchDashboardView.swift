@@ -162,10 +162,10 @@ struct WatchDashboardView: View {
         Button(action: {
             if isRecording {
                 audioEngine.stopRecording()
-                connectivityManager.requestRecordingStop()
+                connectivityManager.requestWearableRecordingStop()
             } else {
+                connectivityManager.requestWearableRecordingStart()
                 audioEngine.startRecording()
-                connectivityManager.requestRecordingStart()
             }
             WKInterfaceDevice.current().play(.success)
         }) {

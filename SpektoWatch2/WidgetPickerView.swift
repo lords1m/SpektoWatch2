@@ -49,6 +49,7 @@ struct WidgetPickerView: View {
     private func symbol(for type: AudioWidgetType) -> String {
         switch type {
         case .spectrogram: return "waveform.path.ecg.rectangle"
+        case .waterfall: return "water.waves"
         case .levelHistory: return "chart.xyaxis.line"
         case .frequencyDisplay: return "chart.bar.xaxis"
         case .levelMeter: return "gauge.with.needle"

@@ -176,6 +176,34 @@ final class FFTProcessorTests: XCTestCase {
         XCTAssertEqual(dbMags[2], -40.0, accuracy: 0.1, "0.01 should be -40 dB")
     }
 
+    func testReusableOutputVariantsMatchReturnValueAPIs() {
+        let samples = (0..<defaultFFTSize).map { Float(sin(Double($0) * 0.05)) }
+
+        let returnedMagnitudes = fftProcessor.performFFT(on: samples)
+        var reusableMagnitudes = [Float](repeating: -1.0, count: defaultFFTSize / 2)
+        fftProcessor.performFFT(on: samples, into: &reusableMagnitudes)
+        XCTAssertEqual(reusableMagnitudes.count, returnedMagnitudes.count)
+        for index in returnedMagnitudes.indices {
+            XCTAssertEqual(reusableMagnitudes[index], returnedMagnitudes[index], accuracy: 1e-6)
+        }
+
+        let returnedDB = fftProcessor.convertToDB(returnedMagnitudes)
+        var reusableDB = [Float](repeating: 0.0, count: returnedMagnitudes.count)
+        fftProcessor.convertToDB(returnedMagnitudes, into: &reusableDB)
+        XCTAssertEqual(reusableDB.count, returnedDB.count)
+        for index in returnedDB.indices {
+            XCTAssertEqual(reusableDB[index], returnedDB[index], accuracy: 1e-5)
+        }
+
+        let returnedLinear = fftProcessor.convertToLinear(returnedDB)
+        var reusableLinear = [Float](repeating: 0.0, count: returnedDB.count)
+        fftProcessor.convertToLinear(returnedDB, into: &reusableLinear)
+        XCTAssertEqual(reusableLinear.count, returnedLinear.count)
+        for index in returnedLinear.indices {
+            XCTAssertEqual(reusableLinear[index], returnedLinear[index], accuracy: 1e-6)
+        }
+    }
+
     /// Testet Frequenz-zu-Bin und Bin-zu-Frequenz Konvertierung
     func testFrequencyBinConversion() {
         let testFrequencies: [Float] = [100, 440, 1000, 5000, 10000, 20000]

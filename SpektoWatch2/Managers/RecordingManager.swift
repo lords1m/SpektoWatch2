@@ -179,9 +179,15 @@ class RecordingManager: ObservableObject {
     func getAudioURL(for recording: Recording) -> URL {
         return recordingsDirectory.appendingPathComponent(recording.audioFileName)
     }
-    
+
     // MARK: - Persistence
-    
+
+    func updateRecording(_ updated: Recording) {
+        guard let index = recordings.firstIndex(where: { $0.id == updated.id }) else { return }
+        recordings[index] = updated
+        saveMetadata()
+    }
+
     private func saveMetadata() {
         do {
             let encoder = JSONEncoder()

@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+set -eu
+
+root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+progress="$root/agent/progress.yaml"
+
+echo "ACP status for $(basename "$root")"
+echo
+
+if [ ! -f "$progress" ]; then
+  echo "Missing agent/progress.yaml"
+  exit 1
+fi
+
+awk '
+  /^current_milestone:/ { print $0 }
+  /^current_task:/ { print $0 }
+  /^status:/ { print $0 }
+  /^  next_action:/ { print $0 }
+' "$progress"
+
+echo
+git -C "$root" status --short

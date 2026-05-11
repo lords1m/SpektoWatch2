@@ -50,6 +50,7 @@ class AudioEngine: ObservableObject {
         20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
         1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
     ]
+    private static let emptyThirdOctaveBands = [Float](repeating: -120.0, count: thirdOctaveCenters.count)
     
     // MARK: - Processing Components
 
@@ -81,6 +82,9 @@ class AudioEngine: ObservableObject {
     private var sampleBuffer: [Float] = []
     private var sampleBufferOffset: Int = 0  // Index-basierter Ansatz für O(1) "removeFirst"
     private var fftInputBuffer: [Float] = []
+    private var fftLinearMagnitudesScratch: [Float] = []
+    private var fftDBMagnitudesScratch: [Float] = []
+    private var fftEnergyScratch: [Float] = []
     private var gainBoost: Float = 10.0
 
     // Reusable scratch buffer for the mono channel of an incoming audio callback.
@@ -120,6 +124,8 @@ class AudioEngine: ObservableObject {
     private var pendingImpulseLog = false
     private var spectrumDiagnosticsCounter = 0
     private var lastObservedInputSampleRate: Double = 44100.0
+    private let widgetSpectralWeightingsLock = NSLock()
+    private var widgetSpectralWeightingRequirements: Set<FrequencyWeighting> = []
 
     // MARK: - Microphone Calibration
     // Basierend auf Studio Six Digital AudioTools Kalibrierungsdaten
@@ -226,6 +232,7 @@ class AudioEngine: ObservableObject {
     }
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var engineStatus: EngineStatus = .idle
+    @Published private(set) var activeMicrophoneSource: MicrophoneSource?
     @Published var lastError: SpektoWatchError?
     @Published var currentSpectrogramData: SpectrogramData?
     @Published var currentLevel: Float = -120.0
@@ -348,6 +355,12 @@ class AudioEngine: ObservableObject {
     func setFrequencyWeighting(_ weighting: FrequencyWeighting) {
         frequencyWeighting = weighting
     }
+
+    func setWidgetSpectralWeightingRequirements(_ weightings: Set<FrequencyWeighting>) {
+        widgetSpectralWeightingsLock.lock()
+        widgetSpectralWeightingRequirements = weightings
+        widgetSpectralWeightingsLock.unlock()
+    }
     
     func setGainBoost(_ gain: Float) {
         gainBoost = gain
@@ -373,6 +386,9 @@ class AudioEngine: ObservableObject {
         sampleBuffer.removeAll()
         sampleBufferOffset = 0
         fftInputBuffer.removeAll()
+        fftLinearMagnitudesScratch.removeAll()
+        fftDBMagnitudesScratch.removeAll()
+        fftEnergyScratch.removeAll()
 
         // Aktualisiere interne Werte
         fftSize = newSize
@@ -416,6 +432,9 @@ class AudioEngine: ObservableObject {
         sampleBuffer.removeAll()
         sampleBufferOffset = 0
         fftInputBuffer.removeAll()
+        fftLinearMagnitudesScratch.removeAll()
+        fftDBMagnitudesScratch.removeAll()
+        fftEnergyScratch.removeAll()
 
         fftSize = size.rawValue
         currentBlockSize = size
@@ -452,6 +471,7 @@ class AudioEngine: ObservableObject {
         }
         Logger.audioEngine.info("Starting AudioEngine in LIVE mode (no file recording)")
         isRecordingToFile = false
+        activeMicrophoneSource = .iPhone
         print("[AudioEngine] Set isRecordingToFile = false")
         startAudioCapture()
     }
@@ -477,6 +497,7 @@ class AudioEngine: ObservableObject {
             if !isRecordingToFile {
                 Logger.audioEngine.info("Switching from LIVE to RECORDING mode")
                 isRecordingToFile = true
+                activeMicrophoneSource = .iPhone
                 print("[AudioEngine] Set isRecordingToFile = true (switching from live)")
                 recordingStartTime = Date()
                 recordingDuration = 0.0
@@ -493,12 +514,37 @@ class AudioEngine: ObservableObject {
         }
         Logger.audioEngine.info("Starting AudioEngine in RECORDING mode")
         isRecordingToFile = true
+        activeMicrophoneSource = .iPhone
         if !isMeasurementRecording {
             lastMeasurementDataURL = nil
             closeMeasurementWriter()
         }
         print("[AudioEngine] Set isRecordingToFile = true")
         startAudioCapture()
+    }
+
+    /// Starts a live measurement whose data source is the Apple Watch microphone.
+    /// This keeps the phone dashboard in a running state without opening the
+    /// iPhone audio input; processed watch spectrogram packets drive the UI.
+    func startWearableLiveMode() {
+        print("[AudioEngine] startWearableLiveMode called")
+        guard engineStatus != .running, engineStatus != .starting else {
+            print("[AudioEngine] Engine already running, returning early")
+            return
+        }
+
+        Logger.audioEngine.info("Starting AudioEngine in WEARABLE live mode")
+        isRecordingToFile = false
+        isMeasurementRecording = false
+        activeMicrophoneSource = .appleWatch
+        recordingStartTime = Date()
+        recordingDuration = 0.0
+        resetMetrics()
+
+        DispatchQueue.main.async {
+            self.engineStatus = .running
+            self.isStartingCapture = false
+        }
     }
 
     private func startAudioCapture() {
@@ -561,6 +607,23 @@ class AudioEngine: ObservableObject {
         stopAudioCapture()
     }
 
+    /// Stops a wearable-source live measurement. This does not touch
+    /// AVAudioEngine because the phone microphone was never opened.
+    func stopWearableLiveMode() {
+        print("[AudioEngine] stopWearableLiveMode called")
+        guard activeMicrophoneSource == .appleWatch else { return }
+
+        recordingStartTime = nil
+        closeMeasurementWriter()
+
+        DispatchQueue.main.async {
+            self.engineStatus = .idle
+            self.isRecordingToFile = false
+            self.isStartingCapture = false
+            self.activeMicrophoneSource = nil
+        }
+    }
+
     private func stopAudioCapture() {
         print("[AudioEngine] stopAudioCapture called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
@@ -573,6 +636,7 @@ class AudioEngine: ObservableObject {
             self.engineStatus = .idle
             print("[AudioEngine] Setting isRecordingToFile to false")
             self.isRecordingToFile = false
+            self.activeMicrophoneSource = nil
             self.isStartingCapture = false
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
             print("[AudioEngine] isRecordingToFile is now: \(self.isRecordingToFile)")
@@ -993,6 +1057,42 @@ class AudioEngine: ObservableObject {
             self.minLevel = -120.0
         }
     }
+
+    /// Applies processed Apple Watch spectrogram data to the phone dashboard.
+    /// The watch sends compact derived data only; no raw audio is accepted here.
+    func ingestWearableSpectrogramData(_ data: SpectrogramData) {
+        guard activeMicrophoneSource == .appleWatch else { return }
+
+        spectrogramSubject.send(data)
+        let octaveBandsZ = computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: data.magnitudes)
+        let octaveBandsA = data.magnitudesA.map { computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0) } ?? octaveBandsZ
+        let octaveBandsC = data.magnitudesC.map { computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0) } ?? octaveBandsZ
+
+        DispatchQueue.main.async {
+            if let startTime = self.recordingStartTime {
+                self.recordingDuration = Date().timeIntervalSince(startTime)
+            }
+
+            self.currentSpectrogramData = data
+            self.currentSpectrum = data.magnitudes
+            self.currentOctaveBands = octaveBandsZ
+            self.currentOctaveBandsZ = octaveBandsZ
+            self.currentOctaveBandsA = octaveBandsA
+            self.currentOctaveBandsC = octaveBandsC
+            self.currentLevel = data.broadbandLevel
+            self.currentPeakLevel = data.levels["LCpeak"] ?? max(self.currentPeakLevel, data.broadbandLevel)
+            self.maxLevel = max(self.maxLevel, data.broadbandLevel)
+            if data.broadbandLevel > -110 {
+                self.minLevel = min(self.minLevel, data.broadbandLevel)
+            }
+            self.levelHistory.append(data.broadbandLevel)
+            let overshootBudget = 64
+            if self.levelHistory.count > self.maxHistorySize + overshootBudget {
+                self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
+            }
+            self.onBandsUpdated?(octaveBandsZ, data.broadbandLevel)
+        }
+    }
     
     // MARK: - Audio Processing
     
@@ -1162,32 +1262,32 @@ class AudioEngine: ObservableObject {
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
         guard samples.count >= currentFFTSize else { return }
 
-        // Perform FFT
-        let linearMagnitudes = localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost)
+        // Perform FFT into reusable buffers to avoid per-frame result arrays.
+        localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost, into: &fftLinearMagnitudesScratch)
+        localFFTProcessor.convertToDB(fftLinearMagnitudesScratch, into: &fftDBMagnitudesScratch)
         
         if enableVerboseLogs && debugPrintCounter % 240 == 0 {
-            let dbMags = localFFTProcessor.convertToDB(linearMagnitudes)
-            let minMag = (dbMags.min() ?? 0) + calibrationOffset
-            let maxMag = (dbMags.max() ?? 0) + calibrationOffset
+            let minMag = (fftDBMagnitudesScratch.min() ?? 0) + calibrationOffset
+            let maxMag = (fftDBMagnitudesScratch.max() ?? 0) + calibrationOffset
             Logger.audioEngine.debug("FFT Processed (dB SPL): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
         }
 
         // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
-        var dbMagnitudes = localFFTProcessor.convertToDB(linearMagnitudes)
         var calOffset = calibrationOffset
-        vDSP_vsadd(dbMagnitudes, 1, &calOffset, &dbMagnitudes, 1, vDSP_Length(dbMagnitudes.count))
+        vDSP_vsadd(fftDBMagnitudesScratch, 1, &calOffset, &fftDBMagnitudesScratch, 1, vDSP_Length(fftDBMagnitudesScratch.count))
 
-        // Gate A/C weighting to tracks that are actually needed:
-        // always compute the selected weighting; only compute others when recording
-        // (measurement file requires all three octave-band sets).
-        let dbZ = dbMagnitudes
-        let needsA = isRecordingToFile || frequencyWeighting == .a
-        let needsC = isRecordingToFile || frequencyWeighting == .c
+        // Gate A/C spectral tracks to data consumers that actually need them.
+        // Z is always available; A/C are emitted only for the selected global
+        // weighting, active widget overrides, or measurement recording.
+        let requiredSpectralWeightings = requiredSpectralWeightingsForCurrentFrame()
+        let dbZ = fftDBMagnitudesScratch
+        let needsA = requiredSpectralWeightings.contains(.a)
+        let needsC = requiredSpectralWeightings.contains(.c)
 
         let dbA = needsA ? localWeightingProcessor.applyWeighting(
-            to: dbMagnitudes, frequencies: localFFTProcessor.frequencies, weighting: .a) : dbZ
+            to: fftDBMagnitudesScratch, frequencies: localFFTProcessor.frequencies, weighting: .a) : nil
         let dbC = needsC ? localWeightingProcessor.applyWeighting(
-            to: dbMagnitudes, frequencies: localFFTProcessor.frequencies, weighting: .c) : dbZ
+            to: fftDBMagnitudesScratch, frequencies: localFFTProcessor.frequencies, weighting: .c) : nil
 
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
         let processedZ = spectrogramProcessor.process(
@@ -1196,24 +1296,28 @@ class AudioEngine: ObservableObject {
             sampleRate: processingSampleRate,
             smoothingTrack: .z
         )
-        let processedA = needsA ? spectrogramProcessor.process(
-            frequencies: localFFTProcessor.frequencies,
-            dbMagnitudes: dbA,
-            sampleRate: processingSampleRate,
-            smoothingTrack: .a
-        ) : processedZ
-        let processedC = needsC ? spectrogramProcessor.process(
-            frequencies: localFFTProcessor.frequencies,
-            dbMagnitudes: dbC,
-            sampleRate: processingSampleRate,
-            smoothingTrack: .c
-        ) : processedZ
+        let processedA = dbA.map {
+            spectrogramProcessor.process(
+                frequencies: localFFTProcessor.frequencies,
+                dbMagnitudes: $0,
+                sampleRate: processingSampleRate,
+                smoothingTrack: .a
+            )
+        }
+        let processedC = dbC.map {
+            spectrogramProcessor.process(
+                frequencies: localFFTProcessor.frequencies,
+                dbMagnitudes: $0,
+                sampleRate: processingSampleRate,
+                smoothingTrack: .c
+            )
+        }
 
         // Use selected weighting for octave bands and spectrum
         let processed: SpectrogramProcessor.Result
         switch frequencyWeighting {
-        case .a: processed = processedA
-        case .c: processed = processedC
+        case .a: processed = processedA ?? processedZ
+        case .c: processed = processedC ?? processedZ
         case .z: processed = processedZ
         }
 
@@ -1221,14 +1325,18 @@ class AudioEngine: ObservableObject {
             frequencies: processedZ.bandFrequencies,
             magnitudes: processedZ.bandMagnitudes
         )
-        let displayOctaveBandsA = needsA ? computeDisplayThirdOctaveBands(
-            frequencies: processedA.bandFrequencies,
-            magnitudes: processedA.bandMagnitudes
-        ) : displayOctaveBandsZ
-        let displayOctaveBandsC = needsC ? computeDisplayThirdOctaveBands(
-            frequencies: processedC.bandFrequencies,
-            magnitudes: processedC.bandMagnitudes
-        ) : displayOctaveBandsZ
+        let displayOctaveBandsA = processedA.map {
+            computeDisplayThirdOctaveBands(
+                frequencies: $0.bandFrequencies,
+                magnitudes: $0.bandMagnitudes
+            )
+        } ?? Self.emptyThirdOctaveBands
+        let displayOctaveBandsC = processedC.map {
+            computeDisplayThirdOctaveBands(
+                frequencies: $0.bandFrequencies,
+                magnitudes: $0.bandMagnitudes
+            )
+        } ?? Self.emptyThirdOctaveBands
         let displayOctaveBands: [Float]
         switch frequencyWeighting {
         case .a: displayOctaveBands = displayOctaveBandsA
@@ -1238,19 +1346,20 @@ class AudioEngine: ObservableObject {
 
         // Calculate energies for acoustic metrics using vectorized Accelerate ops
         let calibrationFactor = pow(10.0, calibrationOffset / 10.0)
-        let rawMagnitudes = linearMagnitudes
-        let energyCount = min(rawMagnitudes.count,
+        let energyCount = min(fftLinearMagnitudesScratch.count,
                               min(localWeightingProcessor.aWeightingGainsSq.count,
                                   localWeightingProcessor.cWeightingGainsSq.count))
-        var magSq = [Float](repeating: 0, count: energyCount)
-        vDSP_vsq(rawMagnitudes, 1, &magSq, 1, vDSP_Length(energyCount))
+        if fftEnergyScratch.count != energyCount {
+            fftEnergyScratch = [Float](repeating: 0, count: energyCount)
+        }
+        vDSP_vsq(fftLinearMagnitudesScratch, 1, &fftEnergyScratch, 1, vDSP_Length(energyCount))
 
         var energyZ: Float = 0.0
         var energyA: Float = 0.0
         var energyC: Float = 0.0
-        vDSP_sve(magSq, 1, &energyZ, vDSP_Length(energyCount))
-        vDSP_dotpr(magSq, 1, localWeightingProcessor.aWeightingGainsSq, 1, &energyA, vDSP_Length(energyCount))
-        vDSP_dotpr(magSq, 1, localWeightingProcessor.cWeightingGainsSq, 1, &energyC, vDSP_Length(energyCount))
+        vDSP_sve(fftEnergyScratch, 1, &energyZ, vDSP_Length(energyCount))
+        vDSP_dotpr(fftEnergyScratch, 1, localWeightingProcessor.aWeightingGainsSq, 1, &energyA, vDSP_Length(energyCount))
+        vDSP_dotpr(fftEnergyScratch, 1, localWeightingProcessor.cWeightingGainsSq, 1, &energyC, vDSP_Length(energyCount))
 
         energyZ *= calibrationFactor
         energyA *= calibrationFactor
@@ -1311,8 +1420,8 @@ class AudioEngine: ObservableObject {
         let spectrogramData = SpectrogramData(
             frequencies: processedZ.bandFrequencies,
             magnitudes: processedZ.bandMagnitudes,      // Z-weighted (linear)
-            magnitudesA: processedA.bandMagnitudes,     // A-weighted
-            magnitudesC: processedC.bandMagnitudes,     // C-weighted
+            magnitudesA: processedA?.bandMagnitudes,    // A-weighted when requested
+            magnitudesC: processedC?.bandMagnitudes,    // C-weighted when requested
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: processingSampleRate,
@@ -1334,6 +1443,20 @@ class AudioEngine: ObservableObject {
             peakLevel: peakLevel,
             processEndTime: CFAbsoluteTimeGetCurrent()
         )
+    }
+
+    private func requiredSpectralWeightingsForCurrentFrame() -> Set<FrequencyWeighting> {
+        var weightings: Set<FrequencyWeighting> = [.z, frequencyWeighting]
+        if isRecordingToFile && isMeasurementRecording {
+            weightings.formUnion([.a, .c])
+        }
+
+        widgetSpectralWeightingsLock.lock()
+        let widgetWeightings = widgetSpectralWeightingRequirements
+        widgetSpectralWeightingsLock.unlock()
+
+        weightings.formUnion(widgetWeightings)
+        return weightings
     }
     
     private func updateUI(

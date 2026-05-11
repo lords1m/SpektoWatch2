@@ -3,7 +3,7 @@ import MetalKit
 import Combine
 import SwiftUI
 import UIKit
-@testable import SpektoWatch2
+@testable @preconcurrency import SpektoWatch2
 
 // MARK: - Pipeline Overview
 //
@@ -259,14 +259,16 @@ final class PerformanceProfilingTests: XCTestCase {
             drainMainQueue()
             lock.lock(); publishedFrames = 0; lock.unlock()
 
-            // Messen
-            let start = CFAbsoluteTimeGetCurrent()
-            for _ in 0..<200 { engine.processExternalAudio(chunk) }
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            // Messen: Die Chunks werden synthetisch ohne Echtzeit-Wartezeit eingespeist.
+            // Daher muss die Cadence gegen simulierte Audiozeit bewertet werden, nicht
+            // gegen CPU-Wall-Clock-Zeit des Test-Runners.
+            let measuredChunks = 200
+            for _ in 0..<measuredChunks { engine.processExternalAudio(chunk) }
             drainMainQueue()
 
             lock.lock(); let frames = publishedFrames; lock.unlock()
-            let fps = frames > 0 ? Double(frames) / max(elapsed, 0.001) : 0.0
+            let simulatedDuration = Double(measuredChunks * hopSize) / sampleRate
+            let fps = frames > 0 ? Double(frames) / max(simulatedDuration, 0.001) : 0.0
 
             let label = cfg.label.padding(toLength: 40, withPad: " ", startingAt: 0)
             report(String(format: "│  %@  │  %6.1f / %4.0f FPS    │", label, fps, cfg.minFPS))

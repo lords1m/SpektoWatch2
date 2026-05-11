@@ -129,6 +129,20 @@ final class RecordingManager: NSObject, ObservableObject {
         return recordingsDirectory.appendingPathComponent(recording.audioFileName)
     }
 
+    func getPhotoURL(fileName: String) -> URL {
+        recordingsDirectory.appendingPathComponent(fileName)
+    }
+
+    func savePhoto(_ imageData: Data, recordingID: UUID) throws -> String {
+        let fileName = "\(recordingID.uuidString)-\(UUID().uuidString).jpg"
+        try imageData.write(to: recordingsDirectory.appendingPathComponent(fileName))
+        return fileName
+    }
+
+    func deletePhoto(fileName: String) {
+        try? fileManager.removeItem(at: recordingsDirectory.appendingPathComponent(fileName))
+    }
+
     func measurementURL(for recording: Recording) -> URL? {
         guard let fileName = recording.measurementDataFileName else { return nil }
         if fileName.contains("/") {

@@ -1,0 +1,18 @@
+protocol: agent-context-protocol
+version: 1
+repository: SpektoWatch2
+installed_at: 2026-05-11
+source: https://github.com/prmichaelsen/agent-context-protocol
+layout:
+  commands: agent/commands
+  clarifications: agent/clarifications
+  drafts: agent/drafts
+  design: agent/design
+  milestones: agent/milestones
+  tasks: agent/tasks
+  patterns: agent/patterns
+  reports: agent/reports
+  scripts: agent/scripts
+entrypoints:
+  status: ./agent/scripts/acp-status
+  validate: ./agent/scripts/acp-validate

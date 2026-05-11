@@ -87,10 +87,10 @@ struct WatchSpectrogramView: View {
         Button(action: {
             if audioEngine.isRecording {
                 audioEngine.stopRecording()
-                connectivityManager.requestRecordingStop()
+                connectivityManager.requestWearableRecordingStop()
             } else {
+                connectivityManager.requestWearableRecordingStart()
                 audioEngine.startRecording()
-                connectivityManager.requestRecordingStart()
             }
             WKInterfaceDevice.current().play(.success)
         }) {

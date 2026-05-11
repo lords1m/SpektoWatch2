@@ -61,45 +61,43 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     public func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
-        let type = messageData[0]
-        // dropFirst() liefert einen Slice mit Start-Index 1, nicht 0.
-        // copyBytes(to:from:) in fromBinaryData() verwendet absolute Indices → OOB-Crash.
-        // Data(...) kopiert den Buffer und setzt die Indices auf 0 zurück.
-        let payload = Data(messageData.dropFirst())
-        
-        if type == 0x01 {
-            if let specData = SpectrogramData.fromBinaryData(payload) {
-                DispatchQueue.main.async { self.spectrogramData = specData }
-            }
+        if case .spectrogram(let specData) = WatchConnectivityProtocol.decodeBinaryPayload(messageData) {
+            DispatchQueue.main.async { self.spectrogramData = specData }
         }
     }
     
     public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         DispatchQueue.main.async {
-            if let type = message["type"] as? String {
+            if let type = WatchConnectivityProtocol.messageType(from: message) {
                 switch type {
-                case "microphoneSource":
-                    if let sourceRaw = message["source"] as? String,
-                       let source = MicrophoneSource(rawValue: sourceRaw) {
+                case .microphoneSource:
+                    if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
                         self.selectedMicrophoneSource = source
                     }
-                case "startRecording":
-                    NotificationCenter.default.post(name: .startRecordingCommand, object: nil)
-                case "stopRecording":
-                    NotificationCenter.default.post(name: .stopRecordingCommand, object: nil)
-                case "frequencyWeighting":
-                    if let weighting = message["value"] as? String {
+                case .startRecording:
+                    let source = WatchConnectivityProtocol.recordingSource(from: message)
+                    if let source {
+                        self.selectedMicrophoneSource = source
+                    }
+                    NotificationCenter.default.post(name: .startRecordingCommand, object: source)
+                case .stopRecording:
+                    let source = WatchConnectivityProtocol.recordingSource(from: message)
+                    NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
+                case .frequencyWeighting:
+                    if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
                         self.frequencyWeighting = weighting
                     }
-                case "watchDashboardConfig":
-                    if let configString = message["config"] as? String,
+                case .watchDashboardConfig:
+                    if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
                        let configData = configString.data(using: .utf8),
                        let config = WatchDashboardConfig.decode(from: configData) {
                         self.watchDashboardConfig = config
                         config.save()
                     }
-                default:
-                    break
+                case .gain:
+                    if let gain = WatchConnectivityProtocol.gain(from: message) {
+                        NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
+                    }
                 }
             }
         }
@@ -124,21 +122,20 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     public func sendSpectrogramData(_ data: SpectrogramData) {
         // Echtzeit-Daten senden wir direkt (Fire & Forget), keine Queue
         guard WCSession.default.isReachable else { return }
-        var packet = Data([0x01]) // Header 0x01 for Spectrogram
-        packet.append(data.toBinaryData())
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(data)
         WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
     }
     
     public func sendGainValue(_ gain: Float) {
-        sendWithRetry(["type": "gain", "value": gain])
+        sendWithRetry(WatchConnectivityProtocol.makeGainMessage(gain))
     }
     
     public func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
-        sendWithRetry(["type": "microphoneSource", "source": source.rawValue])
+        sendWithRetry(WatchConnectivityProtocol.makeMicrophoneSourceMessage(source))
     }
 
     public func sendFrequencyWeightingSelection(_ weighting: String) {
-        sendWithRetry(["type": "frequencyWeighting", "value": weighting])
+        sendWithRetry(WatchConnectivityProtocol.makeFrequencyWeightingMessage(weighting))
         do {
             try WCSession.default.updateApplicationContext(["frequencyWeighting": weighting])
         } catch {
@@ -146,12 +143,22 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         }
     }
     
-    public func requestRecordingStart() {
-        sendWithRetry(["type": "startRecording"])
+    public func requestRecordingStart(source: MicrophoneSource? = nil) {
+        sendWithRetry(WatchConnectivityProtocol.makeRecordingStartMessage(source: source))
     }
     
-    public func requestRecordingStop() {
-        sendWithRetry(["type": "stopRecording"])
+    public func requestRecordingStop(source: MicrophoneSource? = nil) {
+        sendWithRetry(WatchConnectivityProtocol.makeRecordingStopMessage(source: source))
+    }
+
+    public func requestWearableRecordingStart() {
+        selectedMicrophoneSource = .appleWatch
+        sendMicrophoneSourceSelection(.appleWatch)
+        requestRecordingStart(source: .appleWatch)
+    }
+
+    public func requestWearableRecordingStop() {
+        requestRecordingStop(source: .appleWatch)
     }
 
     public func sendWatchDashboardConfig(_ config: WatchDashboardConfig) {
@@ -159,7 +166,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
               let configString = String(data: configData, encoding: .utf8) else {
             return
         }
-        sendWithRetry(["type": "watchDashboardConfig", "config": configString])
+        sendWithRetry(WatchConnectivityProtocol.makeWatchDashboardConfigMessage(configString))
 
         // Also send via application context for background delivery
         do {

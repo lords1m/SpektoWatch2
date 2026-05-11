@@ -1,0 +1,49 @@
+project: SpektoWatch2
+updated_at: 2026-05-12
+current_milestone: milestone-4-export-and-reporting
+current_task: null
+status: milestone_planning
+completed_milestones:
+  - milestone-1-acp-bootstrap
+  - milestone-2-performance-stabilization-watch-architecture
+  - milestone-3-dashboard-and-recording-polish
+completed_tasks:
+  - milestone-1-acp-bootstrap/task-1-install-acp-structure
+  - milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety
+  - milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path
+  - milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure
+  - milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing
+  - milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol
+  - milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls
+  - milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility
+  - milestone-3-dashboard-and-recording-polish/task-1-compile-gate
+  - milestone-3-dashboard-and-recording-polish/task-2-layout-rename
+  - milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit
+  - milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment
+  - milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests
+  - milestone-3-dashboard-and-recording-polish/task-6-acceptance
+planned_milestones:
+  - milestone-4-export-and-reporting
+active_context:
+  summary: >
+    Milestone 2 is complete. All seven tasks are done and the handoff report is
+    written. The performance hot path is optimised, the watch compact-protocol is
+    in place, wearable-source controls are explicit, and legacy .spekto v1
+    compatibility is test-verified. Build-for-testing passes; runtime tests
+    remain blocked by CoreSimulator in the agent environment. Milestone 3
+    (dashboard layouts and recording review polish) has been identified as the
+    next focus. WaterfallView and WaterfallDataBuilder are already partially in
+    place in the repository.
+  next_action: >
+    Milestone 3 complete. Handoff report at
+    agent/reports/2026-05-12-milestone-3-acceptance.md. Run acp.plan to
+    create milestone-4-export-and-reporting covering PDF reports, CSV export,
+    and spectrogram image export.
+known_constraints:
+  - CoreSimulator simulator-runtime discovery fails in the agent environment;
+    runtime test execution is not available from this environment.
+  - Repository contains uncommitted user changes; do not overwrite them.
+  - WatchConnectivity must remain bandwidth-conscious; no raw audio over the link.
+  - Masking is a future core feature, out of scope until a dedicated milestone.
+  - External calibrated microphone compliance workflow is out of scope until a
+    dedicated milestone.

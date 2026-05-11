@@ -53,6 +53,8 @@ struct WidgetCardView: View {
         switch widget.type {
         case .spectrogram:
             SpectrogramWidget(audioEngine: audioEngine, settings: widget.settings)
+        case .waterfall:
+            WaterfallWidget(audioEngine: audioEngine, settings: widget.settings)
         case .levelHistory:
             LevelHistoryWidget(audioEngine: audioEngine, settings: widget.settings)
         case .frequencyDisplay:

@@ -340,13 +340,38 @@ class FFTProcessor {
         }
     }
 
+    /// Performs FFT and writes linear magnitudes into a caller-owned buffer.
+    /// This avoids allocating a new result array in high-rate callers such as
+    /// `AudioEngine.processFFTFrame`.
+    func performFFT(on samples: [Float], gainBoost: Float = 1.0, into output: inout [Float]) {
+        let signpostID = OSSignpostID(log: Self.performanceLog)
+        os_signpost(.begin, log: Self.performanceLog, name: "PerformFFT", signpostID: signpostID)
+        defer { os_signpost(.end, log: Self.performanceLog, name: "PerformFFT", signpostID: signpostID) }
+
+        lock.withLockUnchecked {
+            performFFT_locked(samples: samples, gainBoost: gainBoost, into: &output)
+        }
+    }
+
     /// Internal FFT body — assumes the unfair lock is held by the caller.
     /// Split out so `performFFT` can wrap the whole critical section in a
     /// single `withLock { ... }` closure (cleaner than scattered `defer`s,
     /// and lets the compiler stack-allocate the closure).
     private func performFFT_locked(samples: [Float], gainBoost: Float) -> [Float] {
+        var output: [Float] = []
+        performFFT_locked(samples: samples, gainBoost: gainBoost, into: &output)
+        return output
+    }
+
+    private func performFFT_locked(samples: [Float], gainBoost: Float, into output: inout [Float]) {
+        let outputCount = fftSize / 2
+        if output.count != outputCount {
+            output = [Float](repeating: 0, count: outputCount)
+        }
+
         guard samples.count >= fftSize else {
-            return [Float](repeating: 0, count: fftSize / 2)
+            vDSP_vclr(&output, 1, vDSP_Length(outputCount))
+            return
         }
 
         // Apply window and gain
@@ -359,7 +384,8 @@ class FFTProcessor {
 
         // Perform FFT
         guard let setup = fftSetup else {
-            return [Float](repeating: 0, count: fftSize / 2)
+            vDSP_vclr(&output, 1, vDSP_Length(outputCount))
+            return
         }
 
         // De-interleave windowed samples into split-complex format using vDSP_ctoz
@@ -387,41 +413,65 @@ class FFTProcessor {
         var scale = 2.0 / Float(fftSize)
         vDSP_vsmul(magnitudesBuffer, 1, &scale, &magnitudesBuffer, 1, vDSP_Length(fftSize / 2))
 
-        return magnitudesBuffer
+        output.withUnsafeMutableBufferPointer { outputBuffer in
+            guard let outputBase = outputBuffer.baseAddress else { return }
+            magnitudesBuffer.withUnsafeBufferPointer { sourceBuffer in
+                guard let sourceBase = sourceBuffer.baseAddress else { return }
+                memcpy(outputBase, sourceBase, outputCount * MemoryLayout<Float>.stride)
+            }
+        }
     }
     
     /// Converts linear magnitudes to dB scale
     /// - Parameter linearMagnitudes: Linear magnitude values
     /// - Returns: dB magnitude values (20 * log10(magnitude))
     func convertToDB(_ linearMagnitudes: [Float]) -> [Float] {
+        var output: [Float] = []
+        convertToDB(linearMagnitudes, into: &output)
+        return output
+    }
+
+    /// Converts linear magnitudes to dB scale into a caller-owned buffer.
+    func convertToDB(_ linearMagnitudes: [Float], into output: inout [Float]) {
         let count = linearMagnitudes.count
+        if output.count != count {
+            output = [Float](repeating: 0, count: count)
+        }
+
         // Clamp to minimum to prevent log10(0)
-        var floored = [Float](repeating: 0, count: count)
         var lo: Float = 1e-10
         var hi: Float = Float.greatestFiniteMagnitude
-        vDSP_vclip(linearMagnitudes, 1, &lo, &hi, &floored, 1, vDSP_Length(count))
+        vDSP_vclip(linearMagnitudes, 1, &lo, &hi, &output, 1, vDSP_Length(count))
         // Vectorized log10 via vForce
         var n = Int32(count)
-        vvlog10f(&floored, floored, &n)
+        vvlog10f(&output, output, &n)
         // Scale by 20
         var scale: Float = 20.0
-        vDSP_vsmul(floored, 1, &scale, &floored, 1, vDSP_Length(count))
-        return floored
+        vDSP_vsmul(output, 1, &scale, &output, 1, vDSP_Length(count))
     }
 
     /// Converts dB magnitudes back to linear scale
     /// - Parameter dbMagnitudes: dB magnitude values
     /// - Returns: Linear magnitude values
     func convertToLinear(_ dbMagnitudes: [Float]) -> [Float] {
+        var output: [Float] = []
+        convertToLinear(dbMagnitudes, into: &output)
+        return output
+    }
+
+    /// Converts dB magnitudes back to linear scale into a caller-owned buffer.
+    func convertToLinear(_ dbMagnitudes: [Float], into output: inout [Float]) {
         let count = dbMagnitudes.count
+        if output.count != count {
+            output = [Float](repeating: 0, count: count)
+        }
+
         // exponents = dbMagnitudes * ln(10) / 20  →  result = exp(exponents) = 10^(dB/20)
         var exponents = [Float](repeating: 0, count: count)
         var scale = Float(log(10.0) / 20.0)
         vDSP_vsmul(dbMagnitudes, 1, &scale, &exponents, 1, vDSP_Length(count))
-        var result = [Float](repeating: 0, count: count)
         var n = Int32(count)
-        vvexpf(&result, exponents, &n)
-        return result
+        vvexpf(&output, exponents, &n)
     }
     
     /// Returns the frequency of a specific FFT bin

@@ -8,6 +8,8 @@ struct ModularDashboardView: View {
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
     @State private var showLayoutsDialog = false
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
     @State private var lastScrollOffset: CGFloat? = nil
     @State private var scrollOffset: CGFloat = 0
     private let barSwipeThreshold: CGFloat = 36
@@ -145,6 +147,10 @@ struct ModularDashboardView: View {
             Button("Neue leere Seite") {
                 viewModel.dashboardManager.addEmptyLayout()
             }
+            Button("Seite umbenennen") {
+                renameText = viewModel.dashboardManager.currentLayoutName
+                showRenameAlert = true
+            }
 
             ForEach(Array(viewModel.dashboardManager.layouts.enumerated()), id: \.element.id) { index, layout in
                 Button("Öffnen: \(layout.name)") {
@@ -157,6 +163,13 @@ struct ModularDashboardView: View {
                     viewModel.dashboardManager.deleteLayout(at: viewModel.dashboardManager.activeLayoutIndex)
                 }
             }
+        }
+        .alert("Seite umbenennen", isPresented: $showRenameAlert) {
+            TextField("Name", text: $renameText)
+            Button("Umbenennen") {
+                viewModel.dashboardManager.renameLayout(at: viewModel.dashboardManager.activeLayoutIndex, name: renameText)
+            }
+            Button("Abbrechen", role: .cancel) {}
         }
         .sheet(isPresented: $viewModel.showSettings) {
             SpectrogramSettingsView(
