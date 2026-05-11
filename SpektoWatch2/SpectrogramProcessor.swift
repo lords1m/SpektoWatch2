@@ -31,6 +31,20 @@ class SpectrogramProcessor {
     private var cachedRangeMagnitudeCount: Int = 0
     private var cachedRangeSampleRate: Double = 0.0
 
+    // Cached bandstop attenuation in dB. Recomputed only when the filter set or
+    // bin count changes — replaces a per-bin `20*log10(...)` call on every frame.
+    // The hot path becomes a single vDSP_vadd (transition zones), plus a small
+    // O(blocked-bin) sweep that clamps fully-blocked bins to -120 dB.
+    private var cachedBandstopFilterSnapshot: [BandstopFilter] = []
+    private var cachedBandstopAttenuationDB: [Float] = []   // 0 for passthrough, <0 in transition zones
+    private var cachedBandstopBlockedIndices: [Int] = []    // bins fully attenuated → set to -120 dB
+    private var cachedBandstopFrequencyCount: Int = 0
+    // Track the FFT bin layout so we invalidate the cache if sample-rate or
+    // FFT size changes the actual Hz mapping (count alone isn't enough — same
+    // count can map to different frequencies under a sample-rate switch).
+    private var cachedBandstopFreqFirst: Float = .nan
+    private var cachedBandstopFreqLast: Float = .nan
+
     struct RangeDiagnostic {
         let label: String
         let lowerHz: Float
@@ -95,59 +109,94 @@ class SpectrogramProcessor {
         guard !enabledFilters.isEmpty else {
             return magnitudes
         }
-        
-        // Compute the attenuation map from the nonisolated snapshot.
-        let attenuationMap = computeAttenuationMap(for: frequencies, enabledFilters: enabledFilters)
+
+        ensureBandstopAttenuationCache(for: frequencies, enabledFilters: enabledFilters)
+
+        // Common path: vector add of cached attenuation in dB (mostly zeros, negative
+        // in narrow transition zones). Constant per-frame work, no log10 calls.
+        let count = min(magnitudes.count, cachedBandstopAttenuationDB.count)
         var filtered = magnitudes
-        
-        // Wende Map an (O(n))
-        for i in 0..<filtered.count {
-            if attenuationMap[i] < 0.01 { // Praktisch 0
-                filtered[i] = -120.0 // blockiert
-            } else if attenuationMap[i] < 1.0 {
-                // Dämpfung in dB-Domain
-                filtered[i] += 20 * log10(attenuationMap[i])
+        cachedBandstopAttenuationDB.withUnsafeBufferPointer { attBuf in
+            filtered.withUnsafeMutableBufferPointer { dst in
+                vDSP_vadd(dst.baseAddress!, 1, attBuf.baseAddress!, 1,
+                          dst.baseAddress!, 1, vDSP_Length(count))
             }
+        }
+        // Force fully-blocked bins to the floor. Index list is empty for the
+        // common case where no filter has a passband (i.e. always non-empty here,
+        // since enabledFilters != []), but kept short by the transition-zone math.
+        for idx in cachedBandstopBlockedIndices where idx < count {
+            filtered[idx] = -120.0
         }
         return filtered
     }
 
-    private func computeAttenuationMap(for frequencies: [Float], enabledFilters: [BandstopFilter]) -> [Float] {
-        var map = [Float](repeating: 1.0, count: frequencies.count)
+    /// Recomputes `cachedBandstopAttenuationDB` and `cachedBandstopBlockedIndices`
+    /// only when the filter set or bin count changes. Stores attenuation in dB so
+    /// the hot path does not call `log10`.
+    private func ensureBandstopAttenuationCache(
+        for frequencies: [Float],
+        enabledFilters: [BandstopFilter]
+    ) {
+        let count = frequencies.count
+        let first = count > 0 ? frequencies[0] : .nan
+        let last  = count > 0 ? frequencies[count - 1] : .nan
+        if count == cachedBandstopFrequencyCount,
+           first == cachedBandstopFreqFirst,
+           last  == cachedBandstopFreqLast,
+           enabledFilters == cachedBandstopFilterSnapshot {
+            return
+        }
 
+        var linearMap = [Float](repeating: 1.0, count: count)
         for filter in enabledFilters {
             let bandwidth = filter.highFrequency - filter.lowFrequency
             let transitionWidth = min(bandwidth * 0.1, 20.0)
-
             let minFreq = filter.lowFrequency - transitionWidth
             let maxFreq = filter.highFrequency + transitionWidth
 
             let startIndex = frequencies.partitionPoint { $0 < minFreq }
             let endIndex = frequencies.partitionPoint { $0 <= maxFreq }
+            guard startIndex < endIndex else { continue }
 
-            if startIndex < endIndex {
-                for i in startIndex..<endIndex {
-                    let freq = frequencies[i]
-                    let attenuation: Float
-
-                    if freq >= filter.lowFrequency && freq <= filter.highFrequency {
-                        attenuation = 0.0
-                    } else if freq >= minFreq && freq < filter.lowFrequency {
-                        let position = (freq - minFreq) / transitionWidth
-                        attenuation = (1.0 + cos(position * .pi)) / 2.0
-                    } else if freq > filter.highFrequency && freq <= maxFreq {
-                        let position = (freq - filter.highFrequency) / transitionWidth
-                        attenuation = (1.0 - cos(position * .pi)) / 2.0
-                    } else {
-                        attenuation = 1.0
-                    }
-
-                    map[i] *= attenuation
+            for i in startIndex..<endIndex {
+                let freq = frequencies[i]
+                let attenuation: Float
+                if freq >= filter.lowFrequency && freq <= filter.highFrequency {
+                    attenuation = 0.0
+                } else if freq >= minFreq && freq < filter.lowFrequency {
+                    let position = (freq - minFreq) / transitionWidth
+                    attenuation = (1.0 + cos(position * .pi)) / 2.0
+                } else if freq > filter.highFrequency && freq <= maxFreq {
+                    let position = (freq - filter.highFrequency) / transitionWidth
+                    attenuation = (1.0 - cos(position * .pi)) / 2.0
+                } else {
+                    attenuation = 1.0
                 }
+                linearMap[i] *= attenuation
             }
         }
 
-        return map
+        var attenDB = [Float](repeating: 0, count: count)
+        var blocked: [Int] = []
+        for i in 0..<count {
+            let a = linearMap[i]
+            if a < 0.01 {
+                blocked.append(i)        // force to -120 in hot path
+                // attenDB[i] stays 0 — vDSP_vadd would be a no-op; the index sweep
+                // overwrites the bin anyway.
+            } else if a < 1.0 {
+                attenDB[i] = 20 * log10(a)
+            }
+            // else: a == 1.0, attenDB[i] = 0, vector add is a no-op
+        }
+
+        cachedBandstopAttenuationDB = attenDB
+        cachedBandstopBlockedIndices = blocked
+        cachedBandstopFrequencyCount = count
+        cachedBandstopFreqFirst = first
+        cachedBandstopFreqLast = last
+        cachedBandstopFilterSnapshot = enabledFilters
     }
     
     private func calculateOctaveBands(frequencies: [Float], magnitudes: [Float], sampleRate: Double) -> [Float] {
@@ -159,29 +208,32 @@ class SpectrogramProcessor {
         var bands = [Float](repeating: -120.0, count: octaveCenterFrequencies.count)
 
         let magCount = magnitudes.count
-        for (i, range) in cachedOctaveRanges.enumerated() {
-            guard range.start <= range.end, range.end < magCount else { continue }
-            var bandMax: Float = -120.0
-            for idx in range.start...range.end {
-                if magnitudes[idx] > bandMax {
-                    bandMax = magnitudes[idx]
-                }
+        magnitudes.withUnsafeBufferPointer { magBuf in
+            for (i, range) in cachedOctaveRanges.enumerated() {
+                guard range.start <= range.end, range.end < magCount else { continue }
+                var bandMax: Float = -120.0
+                vDSP_maxv(magBuf.baseAddress!.advanced(by: range.start), 1,
+                          &bandMax, vDSP_Length(range.end - range.start + 1))
+                bands[i] = bandMax
             }
-            bands[i] = bandMax
         }
         return bands
     }
     
     private func aggregateByBinningFactor(frequencies: [Float], magnitudes: [Float]) -> ([Float], [Float]) {
         guard binningFactor > 1 else { return (frequencies, magnitudes) }
-        
-        var bandFrequencies: [Float] = []
-        var bandMagnitudes: [Float] = []
-        bandFrequencies.reserveCapacity((frequencies.count + binningFactor - 1) / binningFactor)
-        bandMagnitudes.reserveCapacity((magnitudes.count + binningFactor - 1) / binningFactor)
+
+        let inputCount = frequencies.count
+        let outputCount = (inputCount + binningFactor - 1) / binningFactor
+        var bandFrequencies = [Float](repeating: 0, count: outputCount)
+        var bandMagnitudes = [Float](repeating: 0, count: outputCount)
+
+        // Index-based fill into pre-allocated arrays — avoids the per-bucket
+        // `.append()` (which triggers CoW grow) on every FFT frame × 3 tracks.
+        var out = 0
         var i = 0
-        while i < frequencies.count {
-            let endIndex = min(i + binningFactor, frequencies.count)
+        while i < inputCount {
+            let endIndex = min(i + binningFactor, inputCount)
             let binCount = endIndex - i
             var frequencySum: Float = 0.0
             var magnitudeSum: Float = 0.0
@@ -189,8 +241,10 @@ class SpectrogramProcessor {
                 frequencySum += frequencies[idx]
                 magnitudeSum += magnitudes[idx]
             }
-            bandFrequencies.append(frequencySum / Float(binCount))
-            bandMagnitudes.append(magnitudeSum / Float(binCount))
+            let inv = 1.0 / Float(binCount)
+            bandFrequencies[out] = frequencySum * inv
+            bandMagnitudes[out]  = magnitudeSum  * inv
+            out += 1
             i = endIndex
         }
         return (bandFrequencies, bandMagnitudes)

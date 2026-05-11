@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct WatchSpectrogramWidget: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
 
     @State private var frames: [[Float]] = []
@@ -43,12 +42,10 @@ struct WatchSpectrogramWidget: View {
             .drawingGroup()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
-            guard audioEngine.isRecording, let data = data else { return }
-            processData(data)
-        }
-        .onReceive(connectivityManager.$spectrogramData) { data in
-            guard !audioEngine.isRecording, let data = data else { return }
+        // Single source of truth: `liveData` reflects whichever mode is active
+        // (companion → phone-pushed; wearableMic → local FFT). No branching.
+        .onReceive(audioEngine.$liveData) { data in
+            guard let data else { return }
             processData(data)
         }
     }

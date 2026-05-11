@@ -95,49 +95,6 @@ final class WatchConnectivityTests: XCTestCase {
         XCTAssertEqual(restored.magnitudes.count, count, "Large magnitude array should deserialize")
     }
 
-    // MARK: - AudioData Serialisierung Tests
-
-    /// Testet AudioData Serialisierung und Deserialisierung
-    func testAudioDataSerialization() {
-        // Erstelle Test-Samples (1 Sekunde bei 44.1 kHz)
-        let sampleRate: Double = 44100.0
-        let samples: [Float] = (0..<Int(sampleRate)).map { sin(Float($0) * 2 * .pi * 440 / Float(sampleRate)) }
-
-        let original = AudioData(samples: samples, sampleRate: sampleRate)
-
-        // Serialisiere
-        let binaryData = original.toBinaryData()
-        XCTAssertGreaterThan(binaryData.count, 0, "Binary data should not be empty")
-
-        // Deserialisiere
-        guard let restored = AudioData.fromBinaryData(binaryData) else {
-            XCTFail("Failed to deserialize AudioData")
-            return
-        }
-
-        XCTAssertEqual(restored.samples.count, original.samples.count, "Sample count should match")
-        XCTAssertEqual(restored.sampleRate, original.sampleRate, accuracy: 0.1, "Sample rate should match")
-
-        // Vergleiche erste 100 Samples
-        for i in 0..<min(100, samples.count) {
-            XCTAssertEqual(restored.samples[i], original.samples[i], accuracy: 0.001,
-                          "Sample at index \(i) should match")
-        }
-    }
-
-    /// Testet AudioData mit leeren Samples
-    func testAudioDataSerializationEmpty() {
-        let original = AudioData(samples: [], sampleRate: 44100.0)
-
-        let binaryData = original.toBinaryData()
-        guard let restored = AudioData.fromBinaryData(binaryData) else {
-            XCTFail("Failed to deserialize empty AudioData")
-            return
-        }
-
-        XCTAssertEqual(restored.samples.count, 0, "Empty samples should deserialize")
-    }
-
     // MARK: - WatchDashboardConfig Serialisierung Tests
 
     /// Testet WatchDashboardConfig Encoding/Decoding
@@ -227,16 +184,6 @@ final class WatchConnectivityTests: XCTestCase {
         XCTAssertEqual(packet[0], 0x01, "First byte should be spectrogram header")
     }
 
-    /// Testet Audio-Paket Header
-    func testAudioPacketHeader() {
-        let data = AudioData(samples: [0.1, 0.2, 0.3], sampleRate: 44100.0)
-
-        var packet = Data([0x02]) // Header for Audio
-        packet.append(data.toBinaryData())
-
-        XCTAssertEqual(packet[0], 0x02, "First byte should be audio header")
-    }
-
     // MARK: - Edge Cases
 
     /// Testet Deserialisierung mit ungültigen Daten
@@ -246,8 +193,6 @@ final class WatchConnectivityTests: XCTestCase {
         let spectrogramResult = SpectrogramData.fromBinaryData(invalidData)
         XCTAssertNil(spectrogramResult, "Invalid data should return nil for SpectrogramData")
 
-        let audioResult = AudioData.fromBinaryData(invalidData)
-        XCTAssertNil(audioResult, "Invalid data should return nil for AudioData")
     }
 
     /// Testet Deserialisierung mit leeren Daten
@@ -257,8 +202,6 @@ final class WatchConnectivityTests: XCTestCase {
         let spectrogramResult = SpectrogramData.fromBinaryData(emptyData)
         XCTAssertNil(spectrogramResult, "Empty data should return nil for SpectrogramData")
 
-        let audioResult = AudioData.fromBinaryData(emptyData)
-        XCTAssertNil(audioResult, "Empty data should return nil for AudioData")
     }
 
     /// Testet NaN und Inf Handling

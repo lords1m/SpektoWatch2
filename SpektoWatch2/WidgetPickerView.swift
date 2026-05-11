@@ -57,6 +57,7 @@ struct WidgetPickerView: View {
         case .singleValue: return "number"
         case .toneGenerator: return "dot.radiowaves.left.and.right"
         case .spektralanalyseLab: return "waveform.badge.magnifyingglass"
+        case .masking: return "waveform.slash"
         }
     }
 }

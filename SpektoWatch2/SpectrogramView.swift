@@ -92,12 +92,6 @@ struct SpectrogramView: View {
                     audioEngine.currentSpectrogramData = data
                 }
             }
-            .onReceive(connectivityManager.$audioData) { data in
-                // Hauptweg: Watch sendet Audio, iPhone berechnet FFT
-                if let data = data, selectedMicrophoneSource == .appleWatch {
-                    audioEngine.processExternalAudio(data.samples, sampleRate: data.sampleRate)
-                }
-            }
             .onReceive(connectivityManager.$isReachable) { isReachable in
                 // Auto-Fallback: Watch bricht Verbindung während Aufnahme ab
                 if !isReachable && selectedMicrophoneSource == .appleWatch && isRecording {

@@ -7,13 +7,11 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.connectivity")
     private let sendQueue = DispatchQueue(label: "com.spektowatch.watch-send", qos: .utility)
-    private let spectrogramEncoder = JSONEncoder()
     private var pendingSpectrogramData: SpectrogramData?
     private var isSpectrogramSendScheduled = false
     private var lastSpectrogramSendTime: TimeInterval = 0
 
     @Published var spectrogramData: SpectrogramData?
-    @Published var audioData: AudioData?
     @Published var isReachable = false
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published var watchDashboardConfig: WatchDashboardConfig?
@@ -36,27 +34,6 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         sendQueue.async {
             self.pendingSpectrogramData = data
             self.scheduleSpectrogramSendIfNeeded()
-        }
-    }
-
-    func sendAudioData(_ data: AudioData) {
-        guard WCSession.default.isReachable else {
-            print("iPhone not reachable")
-            return
-        }
-
-        do {
-            let encoder = JSONEncoder()
-            let jsonData = try encoder.encode(data)
-
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                let message = ["audioData": jsonString]
-                WCSession.default.sendMessage(message, replyHandler: nil) { error in
-                    print("Error sending audio data: \(error.localizedDescription)")
-                }
-            }
-        } catch {
-            print("Error encoding audio data: \(error)")
         }
     }
 
@@ -182,16 +159,10 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         }
         hasLoggedUnreachability = false
 
-        do {
-            let jsonData = try spectrogramEncoder.encode(dataToSend)
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                let message = ["spectrogramData": jsonString]
-                WCSession.default.sendMessage(message, replyHandler: nil) { error in
-                    print("Error sending message: \(error.localizedDescription)")
-                }
-            }
-        } catch {
-            print("Error encoding spectrogram data: \(error)")
+        var packet = Data([0x01])
+        packet.append(dataToSend.toBinaryData())
+        WCSession.default.sendMessageData(packet, replyHandler: nil) { error in
+            print("Error sending spectrogram data: \(error.localizedDescription)")
         }
 
         if pendingSpectrogramData != nil {
@@ -272,19 +243,15 @@ extension WatchConnectivityManager: WCSessionDelegate {
         }
     }
 
-    /// Handles binary-encoded spectrogram (0x01) and audio (0x02) data from iOS.
+    /// Handles binary-encoded spectrogram (0x01) data from iOS.
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
         let type = messageData[0]
-        let payload = messageData.dropFirst()
+        let payload = Data(messageData.dropFirst())
 
         if type == 0x01 {
             if let specData = SpectrogramData.fromBinaryData(payload) {
                 DispatchQueue.main.async { self.spectrogramData = specData }
-            }
-        } else if type == 0x02 {
-            if let audioData = AudioData.fromBinaryData(payload) {
-                DispatchQueue.main.async { self.audioData = audioData }
             }
         }
     }

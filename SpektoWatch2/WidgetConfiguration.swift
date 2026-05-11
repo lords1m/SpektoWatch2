@@ -11,6 +11,7 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case singleValue = "Einzelwert"
     case toneGenerator = "Tongenerator"
     case spektralanalyseLab = "Spektralanalyse-Labor"
+    case masking = "Sound Masking"
 
     var id: String { rawValue }
 
@@ -24,7 +25,8 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
             .phaseMeter,
             .singleValue,
             .toneGenerator,
-            .spektralanalyseLab
+            .spektralanalyseLab,
+            .masking
         ]
     }
 }
@@ -69,6 +71,7 @@ struct WidgetConfiguration: Identifiable, Codable {
         case .singleValue: return WidgetSize(columns: 1, rows: 1.0)
         case .toneGenerator: return WidgetSize(columns: 2, rows: 2.0)
         case .spektralanalyseLab: return WidgetSize(columns: 2, rows: 2.0)
+        case .masking: return WidgetSize(columns: 1, rows: 1.0)
         }
     }
 }

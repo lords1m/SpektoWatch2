@@ -5,6 +5,7 @@ struct WidgetCardView: View {
     let widget: WidgetConfiguration
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var fftConfig: FFTConfiguration
+    @EnvironmentObject private var maskingEngine: MaskingEngine
     var isEditMode: Bool
     var columnWidth: CGFloat = 160 // Default fallback
     var onDelete: () -> Void
@@ -68,6 +69,8 @@ struct WidgetCardView: View {
             ToneGeneratorWidget(settings: widget.settings)
         case .spektralanalyseLab:
             SpektralanalyseLaborWidget(fftConfig: fftConfig, audioEngine: audioEngine)
+        case .masking:
+            MaskingEntryWidget(engine: maskingEngine)
         }
     }
     

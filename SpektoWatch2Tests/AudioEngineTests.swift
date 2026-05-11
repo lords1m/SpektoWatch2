@@ -9,18 +9,18 @@ final class AudioEngineTests: XCTestCase {
     var filterManager: BandstopFilterManager!
     var connectivityManager: WatchConnectivityManager!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         filterManager = BandstopFilterManager()
         connectivityManager = WatchConnectivityManager()
         audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         audioEngine = nil
         connectivityManager = nil
         filterManager = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Initialisierung Tests
@@ -288,6 +288,7 @@ final class AudioEngineTests: XCTestCase {
 
 // MARK: - FFTConfiguration Tests
 
+@MainActor
 final class FFTConfigurationTests: XCTestCase {
 
     /// Testet Default-Werte

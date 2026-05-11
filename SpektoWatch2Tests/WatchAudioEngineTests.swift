@@ -382,57 +382,11 @@ final class WatchAudioEngineTests: XCTestCase {
         XCTAssertTrue(true, "Should handle rapid start/stop cycles")
     }
     
-    // MARK: - Audio Data Processing Tests
-    
-    func testAudioDataStructure() {
-        let samples: [Float] = [0.1, 0.2, 0.3, 0.4, 0.5]
-        let audioData = AudioData(samples: samples, sampleRate: 44100.0)
-        
-        XCTAssertEqual(audioData.samples.count, 5, "Should have correct sample count")
-        XCTAssertEqual(audioData.sampleRate, 44100.0, "Should have correct sample rate")
-    }
-    
-    func testAudioDataWithLargeSampleSet() {
-        let samples = [Float](repeating: 0.5, count: 10000)
-        let audioData = AudioData(samples: samples, sampleRate: 44100.0)
-        
-        XCTAssertEqual(audioData.samples.count, 10000, "Should handle large sample sets")
-    }
-    
-    func testAudioDataWithEmptySamples() {
-        let audioData = AudioData(samples: [], sampleRate: 44100.0)
-        
-        XCTAssertEqual(audioData.samples.count, 0, "Should handle empty samples")
-    }
-    
-    // MARK: - Sample Rate Tests
-    
-    func testStandardSampleRate() {
-        let audioData = AudioData(samples: [0.1], sampleRate: 44100.0)
-        XCTAssertEqual(audioData.sampleRate, 44100.0, "Should support 44.1kHz")
-    }
-    
-    func testHighSampleRate() {
-        let audioData = AudioData(samples: [0.1], sampleRate: 96000.0)
-        XCTAssertEqual(audioData.sampleRate, 96000.0, "Should support 96kHz")
-    }
-    
     // MARK: - Connectivity Manager Integration Tests
     
     func testConnectivityManagerIntegration() {
         // Verify that the watch audio engine is properly connected to connectivity manager
         XCTAssertNotNil(mockConnectivityManager, "Connectivity manager should exist")
-    }
-    
-    func testAudioDataSendingIntegration() {
-        // Create test audio data
-        let samples = [Float](repeating: 0.5, count: 4096)
-        let audioData = AudioData(samples: samples, sampleRate: 44100.0)
-        
-        // Should be able to send audio data through connectivity manager
-        mockConnectivityManager.sendAudioData(audioData)
-        
-        XCTAssertTrue(true, "Should send audio data through connectivity manager")
     }
     
     // MARK: - WKExtendedRuntimeSession Tests

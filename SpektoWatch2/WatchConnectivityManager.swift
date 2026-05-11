@@ -7,7 +7,6 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     @Published public var isReachable = false
     @Published public var spectrogramData: SpectrogramData?
-    @Published public var audioData: AudioData?
     @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published public var watchDashboardConfig: WatchDashboardConfig?
     @Published public var frequencyWeighting: String = "A"
@@ -72,12 +71,6 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             if let specData = SpectrogramData.fromBinaryData(payload) {
                 DispatchQueue.main.async { self.spectrogramData = specData }
             }
-        } else if type == 0x02 {
-            if let audioData = AudioData.fromBinaryData(payload) {
-                DispatchQueue.main.async {
-                    self.audioData = audioData
-                }
-            }
         }
     }
     
@@ -132,13 +125,6 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         // Echtzeit-Daten senden wir direkt (Fire & Forget), keine Queue
         guard WCSession.default.isReachable else { return }
         var packet = Data([0x01]) // Header 0x01 for Spectrogram
-        packet.append(data.toBinaryData())
-        WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
-    }
-    
-    public func sendAudioData(_ data: AudioData) {
-        guard WCSession.default.isReachable else { return }
-        var packet = Data([0x02]) // Header 0x02 for Audio
         packet.append(data.toBinaryData())
         WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
     }

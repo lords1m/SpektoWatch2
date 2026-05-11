@@ -813,6 +813,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     let axisHeight: CGFloat = 28
     let axisSpacing: CGFloat = 4
     @State private var axisMetrics = SpectrogramAxisMetrics()
+    @State private var axisMetricsReceivedAt: Double = 0
 
     let axisFrequencies: [Double] = [20000, 16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
 
@@ -837,6 +838,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
             frequencySmoothing: frequencySmoothing,
             onAxisMetricsChanged: { metrics in
                 axisMetrics = metrics
+                axisMetricsReceivedAt = CACurrentMediaTime()
             }
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -861,40 +863,48 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     }
     
     private var timeAxisOverlay: some View {
-        GeometryReader { spectroGeo in
-            Canvas { context, size in
-                let duration = max(axisMetrics.recordingTimeSeconds, 0)
-                let span = Double(timeSpan.rawValue)
-                guard span > 0 else { return }
-                
-                let visibleEnd = duration
-                let visibleStart = max(0, visibleEnd - span)
-                let visibleRange = visibleEnd - visibleStart
-                let filledRatio = min(max(Double(axisMetrics.fillRatio), 0), 1)
-                let axisVisibleWidth = size.width * CGFloat(filledRatio)
-                let baselineY = size.height - 12
-                
-                let tickStep = self.xAxisTickStep(for: visibleRange)
-                guard tickStep > 0 else { return }
-                
-                let firstTick = Foundation.ceil(visibleStart / tickStep) * tickStep
-                let lastTick = visibleEnd + (tickStep * 0.5)
-                var lastLabelX: CGFloat = -.greatestFiniteMagnitude
-                
-                for tick in stride(from: firstTick, through: lastTick, by: tickStep) {
-                    let x = CGFloat((visibleEnd - tick) / span) * size.width
-                    guard x >= 0 && x <= axisVisibleWidth else { continue }
-                    
-                    if abs(x - lastLabelX) > 28 {
-                        var shadowContext = context
-                        shadowContext.addFilter(.shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0))
-                        
-                        let text = Text(self.formatAxisTime(tick))
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.9))
-                        
-                        shadowContext.draw(text, at: CGPoint(x: x, y: baselineY), anchor: .center)
-                        lastLabelX = x
+        TimelineView(.animation) { _ in
+            GeometryReader { spectroGeo in
+                Canvas { context, size in
+                    // Extrapolate recording time at display refresh rate to stay in sync
+                    // with the Metal spectrogram, which scrolls at 60 FPS via CACurrentMediaTime().
+                    // Without this, labels update at 10 Hz and visibly lag the scrolling content.
+                    let elapsed = (!isPaused && axisMetricsReceivedAt > 0)
+                        ? min(CACurrentMediaTime() - axisMetricsReceivedAt, Double(timeSpan.rawValue))
+                        : 0
+                    let duration = max(axisMetrics.recordingTimeSeconds + elapsed, 0)
+                    let span = Double(timeSpan.rawValue)
+                    guard span > 0 else { return }
+
+                    let visibleEnd = duration
+                    let visibleStart = max(0, visibleEnd - span)
+                    let visibleRange = visibleEnd - visibleStart
+                    let filledRatio = min(max(Double(axisMetrics.fillRatio), 0), 1)
+                    let axisVisibleWidth = size.width * CGFloat(filledRatio)
+                    let baselineY = size.height - 12
+
+                    let tickStep = self.xAxisTickStep(for: visibleRange)
+                    guard tickStep > 0 else { return }
+
+                    let firstTick = Foundation.ceil(visibleStart / tickStep) * tickStep
+                    let lastTick = visibleEnd + (tickStep * 0.5)
+                    var lastLabelX: CGFloat = -.greatestFiniteMagnitude
+
+                    for tick in stride(from: firstTick, through: lastTick, by: tickStep) {
+                        let x = CGFloat((visibleEnd - tick) / span) * size.width
+                        guard x >= 0 && x <= axisVisibleWidth else { continue }
+
+                        if abs(x - lastLabelX) > 28 {
+                            var shadowContext = context
+                            shadowContext.addFilter(.shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0))
+
+                            let text = Text(self.formatAxisTime(tick))
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.9))
+
+                            shadowContext.draw(text, at: CGPoint(x: x, y: baselineY), anchor: .center)
+                            lastLabelX = x
+                        }
                     }
                 }
             }

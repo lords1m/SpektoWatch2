@@ -83,6 +83,11 @@ class AudioEngine: ObservableObject {
     private var fftInputBuffer: [Float] = []
     private var gainBoost: Float = 10.0
 
+    // Reusable scratch buffer for the mono channel of an incoming audio callback.
+    // Avoids allocating a fresh `[Float]` per buffer (typical iOS audio buffer is
+    // 256–4096 frames; at ~100 callbacks/sec that was ~1 MB/sec of churn).
+    private var monoSampleScratch: [Float] = []
+
     // Lock für Thread-sichere FFT-Rekonfiguration
     private let processingLock = NSLock()
 
@@ -235,7 +240,12 @@ class AudioEngine: ObservableObject {
     @Published var currentOctaveBandsA: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentOctaveBandsC: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentSpectrum: [Float] = []
-    
+
+    // Called on the main thread after each band-update cycle.
+    // MaskingEngine sets this to observe live spectrum data without a second audio tap.
+    // bands = Z-weighted 1/3-octave bands (31 values, dB SPL); rmsDB = broadband level.
+    var onBandsUpdated: (([Float], Float) -> Void)?
+
     @Published var timeWeighting: TimeWeighting = .fast {
         didSet {
             spectrogramProcessor.spectrogramTimeWeighting = timeWeighting
@@ -1011,22 +1021,30 @@ class AudioEngine: ObservableObject {
             try? audioFile.write(from: buffer)
         }
         
-        // Extract samples and calculate stereo phase
+        // Extract samples and calculate stereo phase.
+        // Reuse `monoSampleScratch` instead of `Array(UnsafeBufferPointer(...))` —
+        // the previous form allocated a fresh `[Float]` on every callback.
         let channels = Int(buffer.format.channelCount)
-        let newSamples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
-        
+        if monoSampleScratch.count != frameCount {
+            monoSampleScratch = [Float](repeating: 0, count: frameCount)
+        }
+        monoSampleScratch.withUnsafeMutableBufferPointer { dst in
+            _ = memcpy(dst.baseAddress!, channelData[0],
+                       frameCount * MemoryLayout<Float>.stride)
+        }
+
         var phase: Float = 1.0
         if channels > 1 {
             var dotProd: Float = 0
             var sumSqL: Float = 0
             var sumSqR: Float = 0
-            vDSP_dotpr(newSamples, 1, channelData[1], 1, &dotProd, vDSP_Length(frameCount))
-            vDSP_svesq(newSamples, 1, &sumSqL, vDSP_Length(frameCount))
+            vDSP_dotpr(monoSampleScratch, 1, channelData[1], 1, &dotProd, vDSP_Length(frameCount))
+            vDSP_svesq(monoSampleScratch, 1, &sumSqL, vDSP_Length(frameCount))
             vDSP_svesq(channelData[1], 1, &sumSqR, vDSP_Length(frameCount))
             phase = dotProd / (sqrt(sumSqL * sumSqR) + 1e-9)
         }
-        
-        processSamples(newSamples)
+
+        processSamples(monoSampleScratch)
 
         let isStereo = channels > 1
         DispatchQueue.main.async {
@@ -1041,8 +1059,12 @@ class AudioEngine: ObservableObject {
         vDSP_rmsqv(newSamples, 1, &rms, vDSP_Length(newSamples.count))
         let signalDBFS = 20 * log10(rms + 1e-9)
         let signalDB = signalDBFS + calibrationOffset  // Konvertiere zu dB SPL
-        let peakVal = newSamples.max() ?? 0
-        let peakDBFS = 20 * log10(abs(peakVal) + 1e-9)
+        // vDSP_maxmgv returns max-magnitude (|x|): correct for signed audio peak
+        // (a negative trough like -0.95 vs +0.10 was previously ignored by `max()`)
+        // and faster than scalar `max()` + `abs()`.
+        var peakAbs: Float = 0
+        vDSP_maxmgv(newSamples, 1, &peakAbs, vDSP_Length(newSamples.count))
+        let peakDBFS = 20 * log10(peakAbs + 1e-9)
         let peakDB = peakDBFS + calibrationOffset  // Konvertiere zu dB SPL
         
         // Debug logging
@@ -1152,101 +1174,84 @@ class AudioEngine: ObservableObject {
 
         // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
         var dbMagnitudes = localFFTProcessor.convertToDB(linearMagnitudes)
-        // Wende Kalibrierungs-Offset an, um positive dB SPL Werte zu erhalten
-        for i in 0..<dbMagnitudes.count {
-            dbMagnitudes[i] += calibrationOffset
-        }
+        var calOffset = calibrationOffset
+        vDSP_vsadd(dbMagnitudes, 1, &calOffset, &dbMagnitudes, 1, vDSP_Length(dbMagnitudes.count))
 
-        // Apply all frequency weightings for spectrogram display
-        let dbZ = dbMagnitudes  // Z-weighted (linear/unweighted)
-        let dbA = localWeightingProcessor.applyWeighting(
-            to: dbMagnitudes,
-            frequencies: localFFTProcessor.frequencies,
-            weighting: .a
-        )
-        let dbC = localWeightingProcessor.applyWeighting(
-            to: dbMagnitudes,
-            frequencies: localFFTProcessor.frequencies,
-            weighting: .c
-        )
+        // Gate A/C weighting to tracks that are actually needed:
+        // always compute the selected weighting; only compute others when recording
+        // (measurement file requires all three octave-band sets).
+        let dbZ = dbMagnitudes
+        let needsA = isRecordingToFile || frequencyWeighting == .a
+        let needsC = isRecordingToFile || frequencyWeighting == .c
+
+        let dbA = needsA ? localWeightingProcessor.applyWeighting(
+            to: dbMagnitudes, frequencies: localFFTProcessor.frequencies, weighting: .a) : dbZ
+        let dbC = needsC ? localWeightingProcessor.applyWeighting(
+            to: dbMagnitudes, frequencies: localFFTProcessor.frequencies, weighting: .c) : dbZ
 
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
-        // Process all weightings for spectrogram
         let processedZ = spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbZ,
             sampleRate: processingSampleRate,
             smoothingTrack: .z
         )
-        let processedA = spectrogramProcessor.process(
+        let processedA = needsA ? spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbA,
             sampleRate: processingSampleRate,
             smoothingTrack: .a
-        )
-        let processedC = spectrogramProcessor.process(
+        ) : processedZ
+        let processedC = needsC ? spectrogramProcessor.process(
             frequencies: localFFTProcessor.frequencies,
             dbMagnitudes: dbC,
             sampleRate: processingSampleRate,
             smoothingTrack: .c
-        )
+        ) : processedZ
 
         // Use selected weighting for octave bands and spectrum
         let processed: SpectrogramProcessor.Result
         switch frequencyWeighting {
-        case .a:
-            processed = processedA
-        case .c:
-            processed = processedC
-        case .z:
-            processed = processedZ
+        case .a: processed = processedA
+        case .c: processed = processedC
+        case .z: processed = processedZ
         }
 
         let displayOctaveBandsZ = computeDisplayThirdOctaveBands(
             frequencies: processedZ.bandFrequencies,
             magnitudes: processedZ.bandMagnitudes
         )
-        let displayOctaveBandsA = computeDisplayThirdOctaveBands(
+        let displayOctaveBandsA = needsA ? computeDisplayThirdOctaveBands(
             frequencies: processedA.bandFrequencies,
             magnitudes: processedA.bandMagnitudes
-        )
-        let displayOctaveBandsC = computeDisplayThirdOctaveBands(
+        ) : displayOctaveBandsZ
+        let displayOctaveBandsC = needsC ? computeDisplayThirdOctaveBands(
             frequencies: processedC.bandFrequencies,
             magnitudes: processedC.bandMagnitudes
-        )
+        ) : displayOctaveBandsZ
         let displayOctaveBands: [Float]
         switch frequencyWeighting {
-        case .a:
-            displayOctaveBands = displayOctaveBandsA
-        case .c:
-            displayOctaveBands = displayOctaveBandsC
-        case .z:
-            displayOctaveBands = displayOctaveBandsZ
+        case .a: displayOctaveBands = displayOctaveBandsA
+        case .c: displayOctaveBands = displayOctaveBandsC
+        case .z: displayOctaveBands = displayOctaveBandsZ
         }
-        
-        // Calculate energies for acoustic metrics
-        let rawMagnitudes = linearMagnitudes
-        let aWeights = localWeightingProcessor.getAWeightingGains()
-        let cWeights = localWeightingProcessor.getCWeightingGains()
 
-        // Kalibrierungsfaktor: wandelt dBFS-Energie zu dB SPL-Energie
-        // calibrationOffset ist in dB, also multiplizieren wir Energie mit 10^(offset/10)
+        // Calculate energies for acoustic metrics using vectorized Accelerate ops
         let calibrationFactor = pow(10.0, calibrationOffset / 10.0)
+        let rawMagnitudes = linearMagnitudes
+        let energyCount = min(rawMagnitudes.count,
+                              min(localWeightingProcessor.aWeightingGainsSq.count,
+                                  localWeightingProcessor.cWeightingGainsSq.count))
+        var magSq = [Float](repeating: 0, count: energyCount)
+        vDSP_vsq(rawMagnitudes, 1, &magSq, 1, vDSP_Length(energyCount))
 
         var energyZ: Float = 0.0
         var energyA: Float = 0.0
         var energyC: Float = 0.0
+        vDSP_sve(magSq, 1, &energyZ, vDSP_Length(energyCount))
+        vDSP_dotpr(magSq, 1, localWeightingProcessor.aWeightingGainsSq, 1, &energyA, vDSP_Length(energyCount))
+        vDSP_dotpr(magSq, 1, localWeightingProcessor.cWeightingGainsSq, 1, &energyC, vDSP_Length(energyCount))
 
-        // Sichere Iteration: min() verhindert Index-Out-of-Bounds wenn FFT-Größe geändert wurde
-        let count = min(rawMagnitudes.count, min(aWeights.count, cWeights.count))
-        for i in 0..<count {
-            let magSq = rawMagnitudes[i] * rawMagnitudes[i]
-            energyZ += magSq
-            energyA += magSq * aWeights[i] * aWeights[i]
-            energyC += magSq * cWeights[i] * cWeights[i]
-        }
-
-        // Wende Kalibrierung auf alle Energiewerte an
         energyZ *= calibrationFactor
         energyA *= calibrationFactor
         energyC *= calibrationFactor
@@ -1399,17 +1404,23 @@ class AudioEngine: ObservableObject {
             self.currentSpectrum = spectrum
             self.currentPeakLevel = peakLevel
             self.currentLevel = broadbandLevel
-            
+            self.onBandsUpdated?(octaveBandsZ, broadbandLevel)
+
             // Update min/max
             self.maxLevel = max(self.maxLevel, broadbandLevel)
             if broadbandLevel > -110 {
                 self.minLevel = min(self.minLevel, broadbandLevel)
             }
             
-            // Update history (nur einzelnes Element entfernen wenn nötig - O(n) aber selten)
+            // Update history. The previous form (`append` + `removeFirst()`) ran
+            // ~60×/s with `levelHistory` at 1000 floats — that's ~60 K element
+            // shifts per second. Amortize by letting the array grow to a small
+            // overshoot and trimming a chunk in one O(n) pass, instead of a
+            // per-tick shift.
             self.levelHistory.append(broadbandLevel)
-            if self.levelHistory.count > self.maxHistorySize {
-                self.levelHistory.removeFirst()  // Nur 1 Element statt vieler
+            let overshootBudget = 64
+            if self.levelHistory.count > self.maxHistorySize + overshootBudget {
+                self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
             }
             
             // Send to watch (throttled)
@@ -1418,7 +1429,9 @@ class AudioEngine: ObservableObject {
             let now = Date().timeIntervalSince1970
             if now - self.lastWatchUpdate > 0.1 {
                 let offset = self.calibrationOffset
-                let dbfsMagnitudes = spectrogramData.magnitudes.map { $0 - offset }
+                var negOffset = -offset
+                var dbfsMagnitudes = spectrogramData.magnitudes
+                vDSP_vsadd(dbfsMagnitudes, 1, &negOffset, &dbfsMagnitudes, 1, vDSP_Length(dbfsMagnitudes.count))
                 let watchData = SpectrogramData(
                     frequencies: spectrogramData.frequencies,
                     magnitudes: dbfsMagnitudes,

@@ -27,6 +27,14 @@ struct FrequencyWeightingProcessor: Sendable {
     private let cWeightingGains: [Float]
     private let zWeightingGains: [Float]
 
+    // Pre-computed dB equivalents (20·log10 of linear gains) for vectorized applyWeighting
+    private let aWeightingGainsDB: [Float]
+    private let cWeightingGainsDB: [Float]
+
+    // Pre-computed squared gains for vectorized energy accumulation in AudioEngine
+    let aWeightingGainsSq: [Float]
+    let cWeightingGainsSq: [Float]
+
     // Frequency array - immutable after init
     private let frequencies: [Float]
 
@@ -42,33 +50,45 @@ struct FrequencyWeightingProcessor: Sendable {
         self.frequencies = freqs
 
         // Pre-compute all weighting curves
-        self.aWeightingGains = Self.computeAWeighting(frequencies: freqs)
-        self.cWeightingGains = Self.computeCWeighting(frequencies: freqs)
-        self.zWeightingGains = [Float](repeating: 1.0, count: binCount) // Z = flat
+        let aGains = Self.computeAWeighting(frequencies: freqs)
+        let cGains = Self.computeCWeighting(frequencies: freqs)
+        self.aWeightingGains = aGains
+        self.cWeightingGains = cGains
+        self.zWeightingGains = [Float](repeating: 1.0, count: binCount)
+
+        // Pre-compute dB equivalents so applyWeighting only needs vDSP_vadd
+        self.aWeightingGainsDB = aGains.map { 20.0 * log10(max($0, 1e-10)) }
+        self.cWeightingGainsDB = cGains.map { 20.0 * log10(max($0, 1e-10)) }
+
+        // Pre-compute squared gains for the energy dot-product in AudioEngine
+        var aSq = [Float](repeating: 0, count: binCount)
+        vDSP_vsq(aGains, 1, &aSq, 1, vDSP_Length(binCount))
+        self.aWeightingGainsSq = aSq
+
+        var cSq = [Float](repeating: 0, count: binCount)
+        vDSP_vsq(cGains, 1, &cSq, 1, vDSP_Length(binCount))
+        self.cWeightingGainsSq = cSq
     }
 
     // MARK: - Public Methods
 
-    /// Applies frequency weighting to dB magnitudes
-    /// - Parameters:
-    ///   - dbMagnitudes: Input magnitudes in dB
-    ///   - frequencies: Frequency array (must match dbMagnitudes length)
-    ///   - weighting: Weighting type to apply
-    /// - Returns: Weighted dB magnitudes
+    /// Applies frequency weighting to dB magnitudes using vectorized addition
     func applyWeighting(to dbMagnitudes: [Float], frequencies: [Float], weighting: FrequencyWeighting) -> [Float] {
-        let gains = getWeightingGains(for: weighting)
-        var weighted = [Float](repeating: -120.0, count: dbMagnitudes.count)
-
-        // Sichere Iteration: min() verhindert Index-Out-of-Bounds wenn FFT-Größe geändert wurde
-        let count = min(dbMagnitudes.count, gains.count)
-
-        // Convert gains to dB and add
-        for i in 0..<count {
-            let gainDB = 20.0 * log10(max(gains[i], 1e-10))
-            weighted[i] = dbMagnitudes[i] + gainDB
+        switch weighting {
+        case .z:
+            // Z-weighting is 0 dB everywhere — return input unchanged
+            return dbMagnitudes
+        case .a:
+            let count = min(dbMagnitudes.count, aWeightingGainsDB.count)
+            var weighted = [Float](repeating: -120.0, count: dbMagnitudes.count)
+            vDSP_vadd(dbMagnitudes, 1, aWeightingGainsDB, 1, &weighted, 1, vDSP_Length(count))
+            return weighted
+        case .c:
+            let count = min(dbMagnitudes.count, cWeightingGainsDB.count)
+            var weighted = [Float](repeating: -120.0, count: dbMagnitudes.count)
+            vDSP_vadd(dbMagnitudes, 1, cWeightingGainsDB, 1, &weighted, 1, vDSP_Length(count))
+            return weighted
         }
-
-        return weighted
     }
 
     /// Returns linear gain factors for a specific weighting

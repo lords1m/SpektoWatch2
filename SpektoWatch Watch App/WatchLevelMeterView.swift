@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct WatchLevelMeterView: View {
     @EnvironmentObject private var audioEngine: WatchAudioEngine
@@ -57,12 +58,7 @@ struct WatchLevelMeterView: View {
             }
         }
         .accessibilityIdentifier("watchLevelMeterView")
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
-            guard audioEngine.isRecording, let data = data else { return }
-            appendLevel(from: data)
-        }
-        .onReceive(connectivityManager.$spectrogramData) { data in
-            guard !audioEngine.isRecording, let data = data else { return }
+        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
             appendLevel(from: data)
         }
     }

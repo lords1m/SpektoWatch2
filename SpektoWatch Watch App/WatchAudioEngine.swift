@@ -5,6 +5,11 @@ import Combine
 import Accelerate
 
 class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDelegate {
+    /// Single source of truth for what the watch is doing.
+    /// Widgets observe `$liveData` instead of branching on `isRecording`.
+    @Published private(set) var operatingMode: WatchOperatingMode = .companion
+
+    private var phoneSpectrogramSubscription: AnyCancellable?
     private var audioEngine: AVAudioEngine
     private let bufferSize: AVAudioFrameCount = 4096
     private let sampleRate: Double = 44100.0
@@ -24,8 +29,23 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var debugFrameCount = 0
     private var lafEnergy: Float = 1e-12
 
+    // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate)
+    // and a scratch buffer for converting magnitude-dB to linear power for energy summation.
+    private let binFrequencies: [Float]
+    private var linearPowerScratch: [Float]
+
+    // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
+    // and `Array(samples.prefix(fftSize))` allocations.
+    private var monoSampleScratch: [Float] = []
+    private var fftInputScratch: [Float]
+
     @Published var isRecording = false
     @Published var currentSpectrogramData: SpectrogramData?
+
+    /// Unified data source for widgets. Mirrors either the local FFT result
+    /// (when the watch mic is active) or the phone-pushed spectrogram (companion
+    /// mode). Widgets bind to `$liveData` and don't have to care which is which.
+    @Published var liveData: SpectrogramData?
 
     init(connectivityManager: WatchConnectivityManager) {
         self.connectivityManager = connectivityManager
@@ -43,14 +63,29 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         imagOut = [Float](repeating: 0, count: fftSize)
         window = [Float](repeating: 0, count: fftSize)
         fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
-        // Manual Hann window implementation to avoid vDSP API compatibility issues
+        fftInputScratch = [Float](repeating: 0, count: fftSize)
+        linearPowerScratch = [Float](repeating: 0, count: fftSize / 2)
+
+        // Hann window — manual implementation to avoid vDSP API compatibility issues.
         let n = Float(fftSize)
         for i in 0..<fftSize {
             let x = Float(i) / n
             window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
         }
-        
+
+        // Bin frequencies are constant for a given fftSize/sampleRate — compute once.
+        let binCount = fftSize / 2
+        let binWidth = Float(sampleRate) / Float(fftSize)
+        var freqs = [Float](repeating: 0, count: binCount)
+        for i in 0..<binCount { freqs[i] = Float(i) * binWidth }
+        binFrequencies = freqs
+
         super.init()
+
+        // Companion mode by default: forward phone spectrogram into liveData.
+        // The subscription is replaced when we transition into wearableMic mode
+        // so we don't pay for two streams at once.
+        subscribeToPhoneSpectrogram()
 
         NotificationCenter.default.addObserver(
             self,
@@ -123,7 +158,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                 }
 
                 try self.audioEngine.start()
-                
+
                 // Keep app alive during recording
                 self.session = WKExtendedRuntimeSession()
                 self.session?.delegate = self
@@ -131,6 +166,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
                 DispatchQueue.main.async {
                     self.isRecording = true
+                    // Watch mic is now driving — switch into wearableMic mode and
+                    // detach the phone-spectrogram subscription so liveData reflects
+                    // the local FFT exclusively.
+                    self.transition(to: .wearableMic)
                 }
                 print("[WatchAudioEngine] Started successfully")
             } catch {
@@ -149,76 +188,135 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         print("[WatchAudioEngine] Stopping...")
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
-        
+
         session?.invalidate()
         session = nil
 
         DispatchQueue.main.async {
             self.isRecording = false
+            // Hand the microphone back to the phone — re-enter companion mode
+            // and resubscribe to phone spectrogram updates.
+            self.transition(to: .companion)
         }
         print("[WatchAudioEngine] Stopped")
     }
 
+    // MARK: - Operating Mode transitions
+
+    /// Switches the active operating mode. Manages the `liveData` source so
+    /// widgets always see the right stream without branching themselves.
+    private func transition(to newMode: WatchOperatingMode) {
+        guard newMode != operatingMode else { return }
+        operatingMode = newMode
+
+        switch newMode {
+        case .companion:
+            // Phone is master; clear any stale local FFT and re-subscribe to phone.
+            currentSpectrogramData = nil
+            liveData = nil
+            subscribeToPhoneSpectrogram()
+        case .wearableMic, .standalone:
+            // Watch mic is master — drop the phone subscription so two streams
+            // don't fight for `liveData`.
+            phoneSpectrogramSubscription?.cancel()
+            phoneSpectrogramSubscription = nil
+            // `liveData` will be set from `processAudioBuffer` on the next frame.
+        }
+    }
+
+    /// Wires `connectivityManager.spectrogramData` into the unified `liveData`
+    /// stream when the watch is in companion mode.
+    private func subscribeToPhoneSpectrogram() {
+        phoneSpectrogramSubscription = connectivityManager.$spectrogramData
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] data in
+                guard let self, self.operatingMode == .companion else { return }
+                self.liveData = data
+            }
+    }
+
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0] else { return }
-
         let frameCount = Int(buffer.frameLength)
-        // Copy into a local buffer before applying gain — channelData points into
-        // AVAudioPCMBuffer's internal storage which must not be written in-place.
-        var samples = [Float](repeating: 0, count: frameCount)
-        vDSP_vsmul(channelData, 1, &gain, &samples, 1, vDSP_Length(frameCount))
 
-        // DEBUG: Input Level prüfen
+        // Reuse `monoSampleScratch` instead of allocating `[Float]` per callback.
+        // `channelData` points into AVAudioPCMBuffer's internal storage and must
+        // not be written in place; we apply gain into our owned buffer.
+        if monoSampleScratch.count != frameCount {
+            monoSampleScratch = [Float](repeating: 0, count: frameCount)
+        }
+        var localGain = gain
+        monoSampleScratch.withUnsafeMutableBufferPointer { dst in
+            vDSP_vsmul(channelData, 1, &localGain, dst.baseAddress!, 1, vDSP_Length(frameCount))
+        }
+
+        // RMS / debug log
         var rms: Float = 0
-        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
+        vDSP_rmsqv(monoSampleScratch, 1, &rms, vDSP_Length(frameCount))
         let inputDB = 20 * log10(rms + 1e-9)
-        
-        // Kalibrierung: dBFS zu geschätztem dB SPL (Sound Pressure Level)
-        // Apple Watch Mikrofone haben oft einen Offset von ca. 100 dB (0 dBFS ≈ 100 dB SPL)
+        // Watch mic ≈ 100 dB SPL @ 0 dBFS (rough calibration constant)
         let estimatedSPL = inputDB + 100.0
-        
+
         debugFrameCount += 1
         if debugFrameCount % 60 == 0 {
-            let minSample = samples.min() ?? 0
-            let maxSample = samples.max() ?? 0
+            // Use vDSP for min/max instead of two scalar passes.
+            var minSample: Float = 0
+            var maxSample: Float = 0
+            vDSP_minv(monoSampleScratch, 1, &minSample, vDSP_Length(frameCount))
+            vDSP_maxv(monoSampleScratch, 1, &maxSample, vDSP_Length(frameCount))
             print("[WatchAudioEngine] Input RMS: \(String(format: "%.1f", inputDB)) dBFS (~ \(String(format: "%.1f", estimatedSPL)) dB SPL), Samples: [\(String(format: "%.3f", minSample)) ... \(String(format: "%.3f", maxSample))]")
         }
 
-        // 1. Sende Audio an iPhone (für High-End Verarbeitung/Speicherung)
-        let audioData = AudioData(samples: samples, sampleRate: sampleRate)
-        self.connectivityManager.sendAudioData(audioData)
-        
-        // 2. Berechne lokale FFT für sofortige Anzeige (Latenzfrei)
-        if samples.count >= fftSize {
-            let input = Array(samples.prefix(fftSize))
-            let magnitudes = performFFT(input)
-            
-            // Calculate LAF (approximate)
-            var frameEnergy: Float = 0.0
-            for magDB in magnitudes {
-                frameEnergy += pow(10.0, magDB / 10.0)
+        // Berechne lokale FFT für sofortige Anzeige und für den optionalen
+        // Watch-als-Quelle-Stream. Raw-Audio wird nicht mehr über WCSession
+        // gesendet; der Phone-Pfad bekommt nur verarbeitete Spektrogrammdaten.
+        guard frameCount >= fftSize else { return }
+
+        // Copy first `fftSize` samples into our reusable FFT input buffer instead
+        // of allocating via `Array(samples.prefix(fftSize))` per call.
+        monoSampleScratch.withUnsafeBufferPointer { src in
+            fftInputScratch.withUnsafeMutableBufferPointer { dst in
+                _ = memcpy(dst.baseAddress!, src.baseAddress!,
+                           fftSize * MemoryLayout<Float>.stride)
             }
-            // Watch update rate is ~21Hz (2048 samples @ 44.1k) -> dt = 0.046s
-            let dt: Float = Float(fftSize) / Float(sampleRate)
-            let alpha = 1.0 - exp(-dt / 0.125)
-            lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
-            let level = 10.0 * log10(lafEnergy + 1e-12)
-            
-            let binCount = magnitudes.count
-            let binWidth = Float(sampleRate) / Float(fftSize)
-            var freqs = [Float](repeating: 0, count: binCount)
-            for i in 0..<binCount {
-                freqs[i] = Float(i) * binWidth
-            }
-            let data = SpectrogramData(frequencies: freqs, magnitudes: magnitudes, broadbandLevel: level, sampleRate: sampleRate)
-            
-            DispatchQueue.main.async {
-                self.currentSpectrogramData = data
+        }
+        performFFT(fftInputScratch)
+
+        // LAF energy: convert dB → linear power, then sum with vDSP_sve.
+        // 10^(magDB/10) is equivalent to exp(magDB * ln(10) / 10).
+        var scale = Float(log(10.0) / 10.0)
+        let n = vDSP_Length(fftMagnitudes.count)
+        vDSP_vsmul(fftMagnitudes, 1, &scale, &linearPowerScratch, 1, n)
+        vForce.exp(linearPowerScratch, result: &linearPowerScratch)
+        var frameEnergy: Float = 0
+        vDSP_sve(linearPowerScratch, 1, &frameEnergy, n)
+
+        // EMA: τ = 125 ms (IEC 61672 "F"), dt = fftSize / sampleRate ≈ 46 ms
+        let dt: Float = Float(fftSize) / Float(sampleRate)
+        let alpha = 1.0 - exp(-dt / 0.125)
+        lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
+        let level = 10.0 * log10(lafEnergy + 1e-12)
+
+        // `binFrequencies` is a single immutable property — no per-frame rebuild.
+        let data = SpectrogramData(frequencies: binFrequencies,
+                                   magnitudes: fftMagnitudes,
+                                   broadbandLevel: level,
+                                   sampleRate: sampleRate)
+
+        if connectivityManager.selectedMicrophoneSource == .appleWatch {
+            connectivityManager.sendSpectrogramData(data)
+        }
+
+        DispatchQueue.main.async {
+            self.currentSpectrogramData = data
+            // Surface to the unified stream when the local mic owns the truth.
+            if self.operatingMode.watchMicIsActive {
+                self.liveData = data
             }
         }
     }
     
-    private func performFFT(_ samples: [Float]) -> [Float] {
+    private func performFFT(_ samples: [Float]) {
         // Windowing
         vDSP_vmul(samples, 1, window, 1, &realIn, 1, vDSP_Length(fftSize))
         vDSP_vclr(&imagIn, 1, vDSP_Length(fftSize))
@@ -248,20 +346,23 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         
         // DEBUG: FFT Output Range
         if debugFrameCount % 60 == 0 {
-            if let max = fftMagnitudes.max(), let min = fftMagnitudes.min() {
-                let avg = fftMagnitudes.reduce(0, +) / Float(fftMagnitudes.count)
-                print("[WatchAudioEngine] FFT Output Min: \(String(format: "%.1f", min)) dB, Max: \(String(format: "%.1f", max)) dB, Avg: \(String(format: "%.1f", avg)) dB")
-                
-                if max.isNaN || min.isNaN {
-                    print("[WatchAudioEngine] Error: NaN detected in FFT output!")
-                }
-                
-                // Prüfen ob DC-Offset (0 Hz) das Problem ist
-                print("[WatchAudioEngine] FFT Low Freqs 0Hz: \(String(format: "%.1f", fftMagnitudes[0])) dB, 21Hz: \(String(format: "%.1f", fftMagnitudes[1])) dB")
+            var minMagnitude: Float = 0
+            var maxMagnitude: Float = 0
+            var sumMagnitude: Float = 0
+            let magnitudeCount = vDSP_Length(fftMagnitudes.count)
+            vDSP_minv(fftMagnitudes, 1, &minMagnitude, magnitudeCount)
+            vDSP_maxv(fftMagnitudes, 1, &maxMagnitude, magnitudeCount)
+            vDSP_sve(fftMagnitudes, 1, &sumMagnitude, magnitudeCount)
+            let averageMagnitude = sumMagnitude / Float(fftMagnitudes.count)
+            print("[WatchAudioEngine] FFT Output Min: \(String(format: "%.1f", minMagnitude)) dB, Max: \(String(format: "%.1f", maxMagnitude)) dB, Avg: \(String(format: "%.1f", averageMagnitude)) dB")
+
+            if maxMagnitude.isNaN || minMagnitude.isNaN {
+                print("[WatchAudioEngine] Error: NaN detected in FFT output!")
             }
+
+            // Prüfen ob DC-Offset (0 Hz) das Problem ist
+            print("[WatchAudioEngine] FFT Low Freqs 0Hz: \(String(format: "%.1f", fftMagnitudes[0])) dB, 21Hz: \(String(format: "%.1f", fftMagnitudes[1])) dB")
         }
-        
-        return Array(fftMagnitudes)
     }
     
     // MARK: - WKExtendedRuntimeSessionDelegate

@@ -65,14 +65,6 @@ class DashboardViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Watch-Audiodaten verarbeiten wenn Watch als Quelle ausgewählt ist
-        connectivityManager.$audioData
-            .compactMap { $0 }
-            .sink { [weak self] data in
-                guard let self, self.selectedMicrophoneSource == .appleWatch else { return }
-                self.audioEngine.processExternalAudio(data.samples, sampleRate: data.sampleRate)
-            }
-            .store(in: &cancellables)
     }
     
     func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {

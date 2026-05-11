@@ -1,8 +1,9 @@
 import SwiftUI
+import Combine
 
 struct WatchLevelMeterWidget: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
+    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
 
     @State private var currentLevel: Float = -60.0
     @State private var unitLabel: String = "dB(Z)"
@@ -23,13 +24,7 @@ struct WatchLevelMeterWidget: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
-            guard audioEngine.isRecording, let data = data else { return }
-            currentLevel = data.broadbandLevel
-            unitLabel = unitLabel(for: data)
-        }
-        .onReceive(connectivityManager.$spectrogramData) { data in
-            guard !audioEngine.isRecording, let data = data else { return }
+        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
             currentLevel = data.broadbandLevel
             unitLabel = unitLabel(for: data)
         }

@@ -1,6 +1,6 @@
 # SpektoWatch2 Fullstack-Übersicht
 
-Stand: 2026-03-25  
+Stand: 2026-05-06  
 Repo: `SpektoWatch2` (iOS + watchOS, Swift/SwiftUI, ohne externe Package-Dependencies)
 
 ## 1) Stack auf einen Blick
@@ -151,7 +151,51 @@ Diese Doppelungen sind teilweise per Target-Exceptions entschärft, erhöhen abe
 - Einzelne Komponenten rechnen weiterhin implizit mit 44.1 kHz (z. B. in bestimmten Zeitachsen-/Buffergrößen-Berechnungen).
 - Der zentrale Live-DSP-Pfad in `AudioEngine` arbeitet bereits mit dynamischer `processingSampleRate`.
 
-## 9) End-to-End für Live iOS (Referenzfluss)
+## 9) Bekannte Performance-Schulden (Swift-Seite, Audit Mai 2026)
+
+Der Metal/Shader-Pfad wurde Jan 2026 optimiert (→ `SPECTROGRAM_REFERENCE.md`). Der folgende Audit identifiziert die verbleibenden Bottlenecks auf der **Swift-Seite** des Audio-Hot-Paths. Der Processing-Thread läuft bei ≈ 86 FFTs/s — jede skalare Schleife multipliziert sich entsprechend.
+
+Detaillierte Fixes mit Codebeispielen: `PERFORMANCE_REVIEW.md`
+
+### Priorität 1 — größter Effekt, geringstes Risiko
+
+| # | Datei | Problem | Fix | Erwarteter Effekt |
+|---|-------|---------|-----|-------------------|
+| 1 | `Processing/FrequencyWeightingProcessor.swift:66` | `log10(gain[i])` wird pro Frame neu berechnet, obwohl Gains konstant sind. 3 × 4096 × 86 ≈ 1 M `log10`-Calls/s | `gainsDB` bei `init` vorberechnen, Hot-Path per `vDSP_vadd` | ~3–5 % CPU |
+| 2 | `AudioEngine.swift:1167` | A-, C- und Z-Gewichtung werden **immer** berechnet, auch wenn nur eine angezeigt wird. `spectrogramProcessor.process()` läuft 3×. | Berechnung auf aktive Gewichtung + `isMeasurementRecording`-Gate beschränken | **~30–40 % Reduktion in `processFFTFrame`** (größter Einzelgewinn) |
+| 3 | `Processing/FFTProcessor.swift:381` | Skalare `log10`-Schleife über 4096 Bins in `convertToDB` | `vvlog10f` aus Accelerate + `vDSP_vsmul` | 5–8× schneller auf diesem Helper |
+| 4 | `MeasurementDataWriter.swift:43` | Synchrone Disk-Writes (`fileHandle.write`) direkt auf dem Audio-Thread. Bei 86 Frames/s × ~17 KB = ~1,4 MB/s → Stalls und Frame-Drops auf älteren Geräten | Pre-alloc `Data`, Writes auf serielle Dispatch Queue auslagern | Eliminiert Frame-Drops beim Recording auf iPhone 11 o. ä. |
+| 5 | `Processing/FFTProcessor.swift:330` | `performFFT` gibt `[Float]`-Kopie zurück → ~1,3 MB/s Allokation auf Hot-Path | Buffer-out Variante; `AudioEngine` hält reusable `[Float]`. Skalare Interleave-Schleife (Z. 356) → `vDSP_ctoz`. `NSLock` → `os_unfair_lock` | ~5–10 % CPU |
+
+### Priorität 2 — Accelerate-Sweep durch restliche DSP-Kette
+
+| # | Datei | Problem | Fix |
+|---|-------|---------|-----|
+| 6 | `AudioEngine.swift:1247` | Skalare Energy-Loop (magSq, energyA/C/Z) | `vDSP_vsq` + `vDSP_dotpr`; `aWeightsSq` einmalig vorberechnen |
+| 7 | `AudioEngine.swift:1161` | Skalares `calibrationOffset`-Add über 4096 Bins | `vDSP_vsadd` |
+| 8 | `SpectrogramProcessor.swift:104` | `log10(attenuationMap[i])` per Bin pro Frame, obwohl Map nur bei Filteränderung wechselt | `attenuationDB: [Float]` cachen, Hot-Path → `vDSP_vadd` |
+| 9 | `SpectrogramProcessor.swift:175` | `while + .append()` baut Output-Array; `reserveCapacity` vorhanden, aber Zuweisung per Index fehlt | Exakte Größe prä-allokieren, Index-Zuweisung; oder `vDSP_desamp` für Binning |
+| 10 | `SpectrogramProcessor.swift:162` | Skalares `max`-Loop über Oktavband-Range | `vDSP_maxv` |
+
+### Priorität 3 — Input-Pfad & UI
+
+| # | Datei | Problem | Fix |
+|---|-------|---------|-----|
+| 11 | `AudioEngine.swift:1021` | `Array(UnsafeBufferPointer(...))` auf jedem Audio-Callback → frische Allokation | Pre-alloc reusable `[Float]` mit `maxFrameCount`, dann `memcpy` |
+| 12 | `AudioEngine.swift:1049` | `newSamples.max()` ist falsch (signed max, dann abs) und scalar | `vDSP_maxmgv` — schneller *und* korrekt |
+| 13 | `AudioEngine.swift:1400` | 8 separate `@Published` Writes pro UI-Tick → 8× `objectWillChange` | In einen `AudioSnapshot`-Struct bündeln, einmal publishen |
+| 14 | `AudioEngine.swift:1427` | `magnitudes.map { $0 - offset }` bei Watch-Sends → Allokation @ 10 Hz | `vDSP_vsadd`; oder Offset im Packet-Header mitschicken |
+| 15 | `AudioEngine.swift:1416` | `levelHistory.removeFirst()` ist O(n) | Ring-Buffer-Struct verwenden |
+
+### Empfohlene Reihenfolge
+
+`#1, #5, #3` → `#2` → `#4` → `#6–#10` → `#11–#15`
+
+Fixes 1–3 allein sollen `processFFTFrame` um **40–50 %** reduzieren (iPhone 12-Klasse). Benchmarks vor/nach: `PerformanceProfilingTests.swift` erweitern.
+
+---
+
+## 10) End-to-End für Live iOS (Referenzfluss)
 
 ```mermaid
 flowchart TD
@@ -167,8 +211,10 @@ flowchart TD
     SD --> WC["WatchConnectivity sendSpectrogramData"]
 ```
 
-## 10) Kurzfazit
+## 11) Kurzfazit
 
 - Die Live-Analyse ist zentral in `AudioEngine` gebündelt und wird von den iOS-Widgets gemeinsam genutzt.
 - Watch unterstützt Hybridbetrieb (lokale Sofort-FFT + iPhone-Hauptverarbeitung).
-- Der größte technische Schuldenblock liegt bei Legacy-Duplikaten und einzelnen verbleibenden 44.1-kHz-Annahmen außerhalb des Kernpfads.
+- Metal/Shader-Seite ist optimiert (Jan 2026) — Performance ist im Budget.
+- Der nächste Optimierungsblock liegt auf der **Swift-DSP-Seite**: skalare Schleifen, redundante A/C/Z-Berechnung und synchrone Disk-Writes (→ Abschnitt 9, `PERFORMANCE_REVIEW.md`).
+- Struktureller Schuldenblock: Legacy-Duplikate (`RecordingManager`, `WatchConnectivityManager`) und einzelne verbleibende 44,1-kHz-Hardcodes außerhalb des Kernpfads.

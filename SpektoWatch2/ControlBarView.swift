@@ -48,21 +48,25 @@ private struct RecordStopButton: View {
     let diameter: CGFloat
     let iconSize: CGFloat
     let isEnabled: Bool
+    // When non-nil, overrides the derived isRecording state (used for masking trigger capture).
+    var activeOverride: Bool? = nil
     let action: () -> Void
 
-    private var state: ControlBarState {
+    private var baseState: ControlBarState {
         ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
     }
+
+    private var isActive: Bool { activeOverride ?? baseState.isRecording }
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(state.isRecording ? Color.red.opacity(0.2) : Color.clear)
+                    .fill(isActive ? Color.red.opacity(0.2) : Color.clear)
                     .frame(width: diameter, height: diameter)
 
                 ZStack {
-                    if state.isRecording {
+                    if isActive {
                         Image(systemName: "stop.circle")
                             .font(.system(size: iconSize))
                             .foregroundColor(.red)
@@ -74,21 +78,22 @@ private struct RecordStopButton: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: state.isRecording)
+                .animation(.easeInOut(duration: 0.2), value: isActive)
             }
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1.0 : 0.5)
-        .animation(.easeInOut(duration: 0.2), value: state.isRecording)
-        .accessibilityIdentifier(state.recordStopAccessibilityIdentifier)
-        .accessibilityLabel(state.recordStopAccessibilityLabel)
+        .animation(.easeInOut(duration: 0.2), value: isActive)
+        .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
+        .accessibilityLabel(baseState.recordStopAccessibilityLabel)
     }
 }
 
 struct ControlBarView: View {
     @ObservedObject var audioEngine: AudioEngine
     @EnvironmentObject private var recordingManager: RecordingManager
+    @EnvironmentObject private var maskingEngine: MaskingEngine
 
     @State private var showRecordingsList = false
 
@@ -181,14 +186,26 @@ struct ControlBarView: View {
                 action: toggleLiveMode
             )
 
-            let canStopRecording = !(state.isRecording && recordingManager.currentRecordingDuration < 1.0)
-            RecordStopButton(
-                audioEngine: audioEngine,
-                diameter: diameter,
-                iconSize: iconSize,
-                isEnabled: canStopRecording,
-                action: toggleRecording
-            )
+            if maskingEngine.isCapturingTrigger {
+                // During trigger capture the record button becomes the tap-to-mark button.
+                RecordStopButton(
+                    audioEngine: audioEngine,
+                    diameter: diameter,
+                    iconSize: iconSize,
+                    isEnabled: true,
+                    activeOverride: maskingEngine.state == .marking,
+                    action: toggleMaskingCapture
+                )
+            } else {
+                let canStopRecording = !(state.isRecording && recordingManager.currentRecordingDuration < 1.0)
+                RecordStopButton(
+                    audioEngine: audioEngine,
+                    diameter: diameter,
+                    iconSize: iconSize,
+                    isEnabled: canStopRecording,
+                    action: toggleRecording
+                )
+            }
         }
     }
 
@@ -218,22 +235,37 @@ struct ControlBarView: View {
     }
 
     private var statusText: String {
-        if state.isRecording {
-            return "Aufnahme läuft"
-        } else if state.isLiveMode {
-            return "Live-Modus"
-        } else {
+        switch maskingEngine.state {
+        case .marking:
+            return "Trigger · Aufzeichnung"
+        case .waitingForTrigger:
+            let n = maskingEngine.captureCount
+            let m = maskingEngine.minimumCaptures
+            return n > 0 ? "\(n)/\(m) Captures · Aufnahme drücken" : "Trigger · Aufnahme drücken"
+        default:
+            if state.isRecording { return "Aufnahme läuft" }
+            if state.isLiveMode  { return "Live-Modus" }
             return "Bereit"
         }
     }
 
     private var statusColor: Color {
-        if state.isRecording {
-            return .red
-        } else if state.isLiveMode {
-            return .green
-        } else {
+        switch maskingEngine.state {
+        case .marking:        return .red
+        case .waitingForTrigger: return Color(red: 0.0, green: 0.85, blue: 1.0)
+        default:
+            if state.isRecording { return .red }
+            if state.isLiveMode  { return .green }
             return .gray
+        }
+    }
+
+    private func toggleMaskingCapture() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if maskingEngine.state == .marking {
+            maskingEngine.endMark()
+        } else if case .waitingForTrigger = maskingEngine.state {
+            maskingEngine.beginMark()
         }
     }
 

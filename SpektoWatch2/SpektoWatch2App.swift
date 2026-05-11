@@ -15,6 +15,7 @@ struct SpektoWatch2App: App {
     @StateObject private var recordingManager: RecordingManager
     @StateObject private var fftConfiguration: FFTConfiguration
     @StateObject private var engineContainer: AudioEngineContainer
+    @StateObject private var maskingProfileManager = MaskingProfileManager()
 
     init() {
         let fm = BandstopFilterManager()
@@ -32,13 +33,16 @@ struct SpektoWatch2App: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if let engine = engineContainer.engine {
+                if let engine = engineContainer.engine,
+                   let maskingEngine = engineContainer.maskingEngine {
                     ContentView()
                         .environmentObject(engine)
                         .environmentObject(filterManager)
                         .environmentObject(connectivityManager)
                         .environmentObject(recordingManager)
                         .environmentObject(fftConfiguration)
+                        .environmentObject(maskingEngine)
+                        .environmentObject(maskingProfileManager)
                 } else {
                     GlassBackground()
                         .ignoresSafeArea()
@@ -58,6 +62,7 @@ struct SpektoWatch2App: App {
 @MainActor
 private final class AudioEngineContainer: ObservableObject {
     @Published private(set) var engine: AudioEngine?
+    @Published private(set) var maskingEngine: MaskingEngine?
 
     private let filterManager: BandstopFilterManager
     private let connectivityManager: WatchConnectivityManager
@@ -76,5 +81,6 @@ private final class AudioEngineContainer: ObservableObject {
         engine.applyFFTConfiguration(fftConfiguration)
         engine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
         self.engine = engine
+        self.maskingEngine = MaskingEngine(audioEngine: engine)
     }
 }

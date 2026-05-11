@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct WatchSingleValueWidget: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
 
     let valueType: WatchSingleValueType
@@ -24,14 +23,13 @@ struct WatchSingleValueWidget: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
-            guard audioEngine.isRecording, let data = data else { return }
-            updateValue(from: data)
-            isActive = true
-        }
-        .onReceive(connectivityManager.$spectrogramData) { data in
-            guard !audioEngine.isRecording else { return }
-            guard let data = data else { isActive = false; return }
+        // Bind to the unified data stream — `WatchAudioEngine.liveData` already
+        // reflects whichever mode is active (companion vs. wearableMic).
+        .onReceive(audioEngine.$liveData) { data in
+            guard let data = data else {
+                isActive = false
+                return
+            }
             updateValue(from: data)
             isActive = true
         }

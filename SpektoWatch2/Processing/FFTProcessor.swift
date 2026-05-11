@@ -1,6 +1,7 @@
 import Foundation
 import Accelerate
 import os.signpost
+import os.lock
 
 // MARK: - Window Function Types
 
@@ -190,8 +191,12 @@ class FFTProcessor {
     private let sampleRate: Double
     private var fftSetup: vDSP_DFT_Setup?
 
-    /// Lock for thread-safe access to FFT setup and buffers
-    private let lock = NSLock()
+    /// Lock for thread-safe access to FFT setup and buffers.
+    /// `OSAllocatedUnfairLock` is roughly an order of magnitude cheaper than
+    /// `NSLock` in the contention-free case, which is the steady state here:
+    /// the audio thread acquires & releases per FFT, configuration writers
+    /// (main thread) only land between frames.
+    private let lock = OSAllocatedUnfairLock()
 
     // Pre-allocated buffers for performance
     private var window: [Float]
@@ -245,66 +250,64 @@ class FFTProcessor {
     /// Ändert die Fensterfunktion
     /// Thread-safe: locks access during window change
     func setWindowFunction(_ function: WindowFunction) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard function != windowFunction else { return }
-        windowFunction = function
-        window = function.generate(size: fftSize)
+        lock.withLock {
+            guard function != windowFunction else { return }
+            windowFunction = function
+            window = function.generate(size: fftSize)
+        }
     }
 
     /// Ändert die FFT-Größe (erfordert Neuinitialisierung)
     /// Thread-safe: locks access during reconfiguration
     func reconfigure(fftSize newSize: Int, windowFunction newWindow: WindowFunction? = nil) {
-        lock.lock()
-        defer { lock.unlock() }
+        lock.withLock {
+            guard newSize != fftSize || (newWindow != nil && newWindow != windowFunction) else { return }
 
-        guard newSize != fftSize || (newWindow != nil && newWindow != windowFunction) else { return }
+            // Validiere dass newSize eine Potenz von 2 ist
+            guard newSize > 0 && (newSize & (newSize - 1)) == 0 else {
+                print("[FFTProcessor] Invalid FFT size: \(newSize) - must be power of 2")
+                return
+            }
 
-        // Validiere dass newSize eine Potenz von 2 ist
-        guard newSize > 0 && (newSize & (newSize - 1)) == 0 else {
-            print("[FFTProcessor] Invalid FFT size: \(newSize) - must be power of 2")
-            return
+            // Erstelle neues Setup BEVOR wir das alte zerstören
+            let newSetup = vDSP_DFT_zrop_CreateSetup(
+                nil,
+                vDSP_Length(newSize),
+                vDSP_DFT_Direction.FORWARD
+            )
+
+            // Prüfe ob Setup erfolgreich erstellt wurde
+            guard newSetup != nil else {
+                print("[FFTProcessor] Failed to create FFT setup for size: \(newSize)")
+                return
+            }
+
+            // Jetzt ist es sicher, das alte Setup zu zerstören
+            if let oldSetup = fftSetup {
+                vDSP_DFT_DestroySetup(oldSetup)
+            }
+
+            fftSetup = newSetup
+            fftSize = newSize
+
+            if let newWindow = newWindow {
+                windowFunction = newWindow
+            }
+
+            // Reallocate buffers
+            window = windowFunction.generate(size: fftSize)
+            realIn = [Float](repeating: 0, count: fftSize / 2)
+            imagIn = [Float](repeating: 0, count: fftSize / 2)
+            realPart = [Float](repeating: 0, count: fftSize / 2)
+            imagPart = [Float](repeating: 0, count: fftSize / 2)
+            windowedSamples = [Float](repeating: 0, count: fftSize)
+            magnitudesBuffer = [Float](repeating: 0, count: fftSize / 2)
+
+            // Recompute frequency bins
+            let nyquist = Float(sampleRate / 2.0)
+            let binCount = fftSize / 2
+            frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
         }
-
-        // Erstelle neues Setup BEVOR wir das alte zerstören
-        let newSetup = vDSP_DFT_zrop_CreateSetup(
-            nil,
-            vDSP_Length(newSize),
-            vDSP_DFT_Direction.FORWARD
-        )
-
-        // Prüfe ob Setup erfolgreich erstellt wurde
-        guard newSetup != nil else {
-            print("[FFTProcessor] Failed to create FFT setup for size: \(newSize)")
-            return
-        }
-
-        // Jetzt ist es sicher, das alte Setup zu zerstören
-        if let oldSetup = fftSetup {
-            vDSP_DFT_DestroySetup(oldSetup)
-        }
-
-        fftSetup = newSetup
-        fftSize = newSize
-
-        if let newWindow = newWindow {
-            windowFunction = newWindow
-        }
-
-        // Reallocate buffers
-        window = windowFunction.generate(size: fftSize)
-        realIn = [Float](repeating: 0, count: fftSize / 2)
-        imagIn = [Float](repeating: 0, count: fftSize / 2)
-        realPart = [Float](repeating: 0, count: fftSize / 2)
-        imagPart = [Float](repeating: 0, count: fftSize / 2)
-        windowedSamples = [Float](repeating: 0, count: fftSize)
-        magnitudesBuffer = [Float](repeating: 0, count: fftSize / 2)
-
-        // Recompute frequency bins
-        let nyquist = Float(sampleRate / 2.0)
-        let binCount = fftSize / 2
-        frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
     }
 
     /// Gibt die aktuelle Fensterfunktion als Array zurück (für Visualisierung)
@@ -332,9 +335,16 @@ class FFTProcessor {
         os_signpost(.begin, log: Self.performanceLog, name: "PerformFFT", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "PerformFFT", signpostID: signpostID) }
 
-        lock.lock()
-        defer { lock.unlock() }
+        return lock.withLock {
+            performFFT_locked(samples: samples, gainBoost: gainBoost)
+        }
+    }
 
+    /// Internal FFT body — assumes the unfair lock is held by the caller.
+    /// Split out so `performFFT` can wrap the whole critical section in a
+    /// single `withLock { ... }` closure (cleaner than scattered `defer`s,
+    /// and lets the compiler stack-allocate the closure).
+    private func performFFT_locked(samples: [Float], gainBoost: Float) -> [Float] {
         guard samples.count >= fftSize else {
             return [Float](repeating: 0, count: fftSize / 2)
         }
@@ -352,10 +362,15 @@ class FFTProcessor {
             return [Float](repeating: 0, count: fftSize / 2)
         }
 
-        // zrop expects interleaved input: even indices -> realIn, odd indices -> imagIn
-        for i in 0..<(fftSize / 2) {
-            realIn[i] = windowedSamples[2 * i]
-            imagIn[i] = windowedSamples[2 * i + 1]
+        // De-interleave windowed samples into split-complex format using vDSP_ctoz
+        windowedSamples.withUnsafeBytes { rawBuf in
+            let complexPtr = rawBuf.bindMemory(to: DSPComplex.self).baseAddress!
+            realIn.withUnsafeMutableBufferPointer { realBuf in
+                imagIn.withUnsafeMutableBufferPointer { imagBuf in
+                    var splitDst = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
+                    vDSP_ctoz(complexPtr, 2, &splitDst, 1, vDSP_Length(fftSize / 2))
+                }
+            }
         }
 
         vDSP_DFT_Execute(setup, realIn, imagIn, &realPart, &imagPart)
@@ -379,27 +394,34 @@ class FFTProcessor {
     /// - Parameter linearMagnitudes: Linear magnitude values
     /// - Returns: dB magnitude values (20 * log10(magnitude))
     func convertToDB(_ linearMagnitudes: [Float]) -> [Float] {
-        var dbMagnitudes = [Float](repeating: -120.0, count: linearMagnitudes.count)
-        
-        for i in 0..<linearMagnitudes.count {
-            let mag = max(linearMagnitudes[i], 1e-10) // Prevent log(0)
-            dbMagnitudes[i] = 20.0 * log10(mag)
-        }
-        
-        return dbMagnitudes
+        let count = linearMagnitudes.count
+        // Clamp to minimum to prevent log10(0)
+        var floored = [Float](repeating: 0, count: count)
+        var lo: Float = 1e-10
+        var hi: Float = Float.greatestFiniteMagnitude
+        vDSP_vclip(linearMagnitudes, 1, &lo, &hi, &floored, 1, vDSP_Length(count))
+        // Vectorized log10 via vForce
+        var n = Int32(count)
+        vvlog10f(&floored, floored, &n)
+        // Scale by 20
+        var scale: Float = 20.0
+        vDSP_vsmul(floored, 1, &scale, &floored, 1, vDSP_Length(count))
+        return floored
     }
-    
+
     /// Converts dB magnitudes back to linear scale
     /// - Parameter dbMagnitudes: dB magnitude values
     /// - Returns: Linear magnitude values
     func convertToLinear(_ dbMagnitudes: [Float]) -> [Float] {
-        var linearMagnitudes = [Float](repeating: 0, count: dbMagnitudes.count)
-        
-        for i in 0..<dbMagnitudes.count {
-            linearMagnitudes[i] = pow(10.0, dbMagnitudes[i] / 20.0)
-        }
-        
-        return linearMagnitudes
+        let count = dbMagnitudes.count
+        // exponents = dbMagnitudes * ln(10) / 20  →  result = exp(exponents) = 10^(dB/20)
+        var exponents = [Float](repeating: 0, count: count)
+        var scale = Float(log(10.0) / 20.0)
+        vDSP_vsmul(dbMagnitudes, 1, &scale, &exponents, 1, vDSP_Length(count))
+        var result = [Float](repeating: 0, count: count)
+        var n = Int32(count)
+        vvexpf(&result, exponents, &n)
+        return result
     }
     
     /// Returns the frequency of a specific FFT bin

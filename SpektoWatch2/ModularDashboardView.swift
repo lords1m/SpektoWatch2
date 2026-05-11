@@ -4,8 +4,6 @@ import UniformTypeIdentifiers
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
     @EnvironmentObject private var fftConfig: FFTConfiguration
-    @State private var headerHeight: CGFloat = 0
-    @State private var footerHeight: CGFloat = 0
     @State private var isHeaderVisible: Bool = true
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
@@ -47,8 +45,8 @@ struct ModularDashboardView: View {
                                     widgets: viewModel.dashboardManager.widgets(forLayoutAt: index),
                                     isActiveLayout: index == viewModel.dashboardManager.activeLayoutIndex
                                 )
-                                .padding(.top, max(verticalInset, (isHeaderVisible ? headerHeight : 10) + verticalInset))
-                                .padding(.bottom, max(verticalInset, (isFooterVisible ? footerHeight : 10) + verticalInset))
+                                .padding(.top, verticalInset)
+                                .padding(.bottom, verticalInset)
                             }
                         }
                         .coordinateSpace(name: "scroll")
@@ -69,75 +67,11 @@ struct ModularDashboardView: View {
                                     .frame(width: index == viewModel.dashboardManager.activeLayoutIndex ? 20 : 8, height: 4)
                             }
                         }
-                        .padding(.top, max(8, headerHeight + 2))
+                        .padding(.top, 8)
                         .animation(.easeInOut(duration: 0.2), value: viewModel.dashboardManager.activeLayoutIndex)
                     }
                 }
             }
-
-            VStack {
-                // Header (floating)
-                DashboardHeaderView(
-                    isEditMode: $viewModel.dashboardManager.isEditMode,
-                    currentLayoutName: viewModel.dashboardManager.currentLayoutName,
-                    onAddWidget: viewModel.addWidget,
-                    onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
-                    onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
-                    onShowLayouts: { showLayoutsDialog = true },
-                    onShowSettings: {
-                        viewModel.showSettings = true
-                    }
-                )
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear
-                            .preference(key: DashboardHeaderHeightPreferenceKey.self, value: proxy.size.height)
-                    }
-                )
-                .offset(y: isHeaderVisible ? 0 : -(headerHeight + 24))
-                .opacity(isHeaderVisible ? 1 : 0)
-                .contentShape(Rectangle())
-                .allowsHitTesting(isHeaderVisible)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 10)
-                        .onEnded { value in
-                            guard isHeaderVisible else { return }
-                            if value.translation.height < -barSwipeThreshold {
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    isHeaderVisible = false
-                                }
-                            }
-                        }
-                )
-
-                Spacer()
-
-                // Control Bar (floating)
-                ControlBarView(audioEngine: viewModel.audioEngine)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear
-                                .preference(key: DashboardFooterHeightPreferenceKey.self, value: proxy.size.height)
-                        }
-                    )
-                    .offset(y: isFooterVisible ? 0 : (footerHeight + 24))
-                    .opacity(isFooterVisible ? 1 : 0)
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(isFooterVisible)
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 10)
-                            .onEnded { value in
-                                guard isFooterVisible else { return }
-                                if value.translation.height > barSwipeThreshold {
-                                    withAnimation(.easeInOut(duration: 0.22)) {
-                                        isFooterVisible = false
-                                    }
-                                }
-                            }
-                    )
-            }
-            .animation(.easeInOut(duration: 0.22), value: isHeaderVisible)
-            .animation(.easeInOut(duration: 0.22), value: isFooterVisible)
 
             if !isHeaderVisible {
                 VStack {
@@ -187,6 +121,20 @@ struct ModularDashboardView: View {
                 .transition(.opacity)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if isHeaderVisible {
+                headerBar
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isFooterVisible {
+                footerBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: isHeaderVisible)
+        .animation(.easeInOut(duration: 0.22), value: isFooterVisible)
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
         }
@@ -210,7 +158,6 @@ struct ModularDashboardView: View {
                 }
             }
         }
-        .edgesIgnoringSafeArea(.bottom)
         .sheet(isPresented: $viewModel.showSettings) {
             SpectrogramSettingsView(
                 selectedMicrophoneSource: $viewModel.selectedMicrophoneSource,
@@ -236,8 +183,50 @@ struct ModularDashboardView: View {
         .onChange(of: viewModel.dashboardManager.isEditMode) { oldValue, newValue in
             print("[ModularDashboardView] Edit mode changed: \(oldValue) -> \(newValue)")
         }
-        .onPreferenceChange(DashboardHeaderHeightPreferenceKey.self) { headerHeight = $0 }
-        .onPreferenceChange(DashboardFooterHeightPreferenceKey.self) { footerHeight = $0 }
+    }
+
+    private var headerBar: some View {
+        DashboardHeaderView(
+            isEditMode: $viewModel.dashboardManager.isEditMode,
+            currentLayoutName: viewModel.dashboardManager.currentLayoutName,
+            onAddWidget: viewModel.addWidget,
+            onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
+            onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
+            onShowLayouts: { showLayoutsDialog = true },
+            onShowSettings: {
+                viewModel.showSettings = true
+            }
+        )
+        .contentShape(Rectangle())
+        .allowsHitTesting(isHeaderVisible)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 10)
+                .onEnded { value in
+                    guard isHeaderVisible else { return }
+                    if value.translation.height < -barSwipeThreshold {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            isHeaderVisible = false
+                        }
+                    }
+                }
+        )
+    }
+
+    private var footerBar: some View {
+        ControlBarView(audioEngine: viewModel.audioEngine)
+            .contentShape(Rectangle())
+            .allowsHitTesting(isFooterVisible)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 10)
+                    .onEnded { value in
+                        guard isFooterVisible else { return }
+                        if value.translation.height > barSwipeThreshold {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isFooterVisible = false
+                            }
+                        }
+                    }
+            )
     }
     
     private func handleScrollChange(_ offset: CGFloat) {
@@ -414,20 +403,6 @@ struct ModularDashboardView: View {
 }
 
 private struct ScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct DashboardHeaderHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct DashboardFooterHeightPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()

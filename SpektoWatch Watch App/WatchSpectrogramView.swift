@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct WatchSpectrogramView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
@@ -75,12 +76,9 @@ struct WatchSpectrogramView: View {
             .digitalCrownRotation($zoomLevel, from: 0.1, through: 1.0, by: 0.05, sensitivity: .medium, isContinuous: false)
             .onAppear { isFocused = true }
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
-            guard audioEngine.isRecording, let data = data else { return }
-            processSpectrogramData(data)
-        }
-        .onReceive(connectivityManager.$spectrogramData) { data in
-            guard !audioEngine.isRecording, let data = data else { return }
+        // Single source: WatchAudioEngine.liveData reflects whichever mode is
+        // active (companion vs. wearableMic). No branching.
+        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
             processSpectrogramData(data)
         }
     }

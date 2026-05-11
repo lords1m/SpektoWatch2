@@ -107,32 +107,10 @@ final class WatchDataProtocolTests: XCTestCase {
         XCTAssertEqual(restored.broadbandLevel, original.broadbandLevel, accuracy: 0.01)
     }
 
-    func testAudioDataRoundTripViaPacketWithHeader() throws {
-        let samples: [Float] = (0..<100).map { sin(Float($0) * 0.1) }
-        let original = AudioData(samples: samples, sampleRate: 44100.0)
-
-        var packet = Data([0x02])
-        packet.append(original.toBinaryData())
-
-        let type    = packet[0]
-        let payload = Data(packet.dropFirst())
-
-        XCTAssertEqual(type, 0x02)
-        XCTAssertEqual(payload.startIndex, 0)
-
-        let restored = try XCTUnwrap(AudioData.fromBinaryData(payload))
-        XCTAssertEqual(restored.samples.count, original.samples.count)
-        for i in 0..<min(10, samples.count) {
-            XCTAssertEqual(restored.samples[i], original.samples[i], accuracy: 0.001)
-        }
-    }
-
     // MARK: - Corrupted / short data
 
     func testEmptyPayloadReturnsNil() {
         XCTAssertNil(SpectrogramData.fromBinaryData(Data()),
-            "Empty payload must return nil, not crash")
-        XCTAssertNil(AudioData.fromBinaryData(Data()),
             "Empty payload must return nil, not crash")
     }
 
@@ -140,8 +118,6 @@ final class WatchDataProtocolTests: XCTestCase {
         // A 3-byte payload is too short for any valid spectrogram header.
         let truncated = Data([0x00, 0x01, 0x02])
         XCTAssertNil(SpectrogramData.fromBinaryData(truncated),
-            "Truncated payload must return nil, not crash")
-        XCTAssertNil(AudioData.fromBinaryData(truncated),
             "Truncated payload must return nil, not crash")
     }
 
@@ -165,25 +141,6 @@ final class WatchDataProtocolTests: XCTestCase {
         let restored = try XCTUnwrap(SpectrogramData.fromBinaryData(payload))
         XCTAssertEqual(restored.frequencies.count, count)
         XCTAssertEqual(restored.magnitudes.count,  count)
-    }
-
-    // MARK: - AudioData binary round-trip
-
-    func testAudioDataRoundTrip() throws {
-        let sampleRate: Double = 44100.0
-        let samples: [Float] = (0..<441).map { sin(Float($0) * 2 * .pi * 440 / Float(sampleRate)) }
-        let original = AudioData(samples: samples, sampleRate: sampleRate)
-
-        let binary   = original.toBinaryData()
-        let restored = try XCTUnwrap(AudioData.fromBinaryData(binary))
-
-        XCTAssertEqual(restored.samples.count, original.samples.count)
-        XCTAssertEqual(restored.sampleRate,    original.sampleRate, accuracy: 0.01)
-
-        for i in 0..<min(20, samples.count) {
-            XCTAssertEqual(restored.samples[i], original.samples[i], accuracy: 0.001,
-                "samples[\(i)] mismatch")
-        }
     }
 
     // MARK: - MicrophoneSource serialisation

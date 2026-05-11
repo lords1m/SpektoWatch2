@@ -2,6 +2,7 @@ import XCTest
 import MetalKit
 @testable import SpektoWatch2
 
+@MainActor
 final class PerformanceMetricsTests: XCTestCase {
     private let iterations: Int = {
         if let raw = ProcessInfo.processInfo.environment["SPEKTO_PERF_METRIC_ITERS"],
