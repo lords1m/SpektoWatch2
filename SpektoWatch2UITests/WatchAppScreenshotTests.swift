@@ -53,6 +53,11 @@ final class WatchAppScreenshotTests: XCTestCase {
 
     @MainActor
     func testWatchAppScreenshots() throws {
+        let deviceName = ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] ?? ""
+        guard deviceName.localizedCaseInsensitiveContains("Watch") else {
+            throw XCTSkip("Watch screenshots require a watchOS simulator; current device is \(deviceName)")
+        }
+
         XCTAssertTrue(waitForView("watchDashboardView"), "Dashboard view should be visible")
         takeScreenshot(named: "WatchDashboard")
 

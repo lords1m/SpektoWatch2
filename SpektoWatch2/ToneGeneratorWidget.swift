@@ -137,10 +137,7 @@ class ToneGenerator: ObservableObject {
             engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
 
             try engine.start()
-
-            DispatchQueue.main.async { [weak self] in
-                self?.isPlaying = true
-            }
+            isPlaying = true
 
         } catch {
             print("[ToneGenerator] Error starting: \(error)")
@@ -152,9 +149,7 @@ class ToneGenerator: ObservableObject {
         audioEngine?.stop()
         audioEngine = nil
         phase = 0.0
-        DispatchQueue.main.async { [weak self] in
-            self?.isPlaying = false
-        }
+        isPlaying = false
     }
 
     func toggle() {

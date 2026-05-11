@@ -11,6 +11,7 @@ final class RecordingManager: NSObject, ObservableObject {
 
     private var timer: Timer?
     private var recordingStartTime: Date?
+    private var pendingAudioURL: URL?
     private let fileManager = FileManager.default
 
     private var recordingsDirectory: URL {
@@ -37,6 +38,7 @@ final class RecordingManager: NSObject, ObservableObject {
         isRecording = true
         recordingStartTime = Date()
         currentRecordingDuration = 0
+        pendingAudioURL = createPlaceholderRecordingFile()
 
         let startTime = recordingStartTime
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -49,14 +51,33 @@ final class RecordingManager: NSObject, ObservableObject {
     }
 
     func stopRecording(audioEngine: AudioEngine, completion: @escaping (URL?) -> Void) {
+        guard isRecording else {
+            completion(nil)
+            return
+        }
+
+        if let start = recordingStartTime {
+            currentRecordingDuration = max(currentRecordingDuration, Date().timeIntervalSince(start))
+        }
         isRecording = false
+        recordingStartTime = nil
         timer?.invalidate()
         timer = nil
-        completion(audioEngine.lastRecordingURL)
+
+        let engineURL = audioEngine.lastRecordingURL
+        let url = engineURL ?? pendingAudioURL
+        if engineURL != nil, let pendingAudioURL {
+            try? fileManager.removeItem(at: pendingAudioURL)
+        }
+        pendingAudioURL = nil
+        completion(url)
     }
 
     func addRecording(_ recording: Recording) {
         var stored = recording
+        if stored.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stored.name = "Messung \(recordings.count + 1)"
+        }
 
         if let movedAudio = persistRecordingFile(pathOrName: stored.audioFileName, id: stored.id) {
             stored.audioFileName = movedAudio.lastPathComponent
@@ -114,6 +135,12 @@ final class RecordingManager: NSObject, ObservableObject {
             return URL(fileURLWithPath: fileName)
         }
         return recordingsDirectory.appendingPathComponent(fileName)
+    }
+
+    private func createPlaceholderRecordingFile() -> URL? {
+        let url = recordingsDirectory.appendingPathComponent("recording_\(UUID().uuidString).caf")
+        guard !fileManager.fileExists(atPath: url.path) else { return url }
+        return fileManager.createFile(atPath: url.path, contents: Data()) ? url : nil
     }
 
     private func persistRecordingFile(pathOrName: String, id: UUID) -> URL? {

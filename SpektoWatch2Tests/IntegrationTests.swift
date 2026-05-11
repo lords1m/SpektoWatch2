@@ -198,8 +198,8 @@ final class IntegrationTests: XCTestCase {
         XCTAssertLessThan(avgMs, 8.0, "Spectrogram processing regression: \(avgMs) ms > 8 ms")
     }
 
-    /// FPS-Regression-Guard für den Live-Spektrogramm-Pfad (AudioEngine -> Published SpectrogramData)
-    /// Misst effektiv publizierte Frames pro Sekunde unter Last.
+    /// FPS-Regression-Guard für den Live-Spektrogramm-Pfad (AudioEngine -> spectrogramSubject)
+    /// Misst effektiv publizierte High-rate-Frames pro Sekunde unter Last.
     func testSpectrogramPipelineFPSBudget() {
         let filterManager = BandstopFilterManager()
         let connectivityManager = WatchConnectivityManager()
@@ -219,8 +219,7 @@ final class IntegrationTests: XCTestCase {
 
         var publishedFrames = 0
         let frameCountLock = NSLock()
-        let cancellable = audioEngine.$currentSpectrogramData
-            .compactMap { $0 }
+        let cancellable = audioEngine.spectrogramSubject
             .sink { _ in
                 frameCountLock.lock()
                 publishedFrames += 1

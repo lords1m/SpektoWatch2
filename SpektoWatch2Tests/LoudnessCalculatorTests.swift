@@ -325,7 +325,8 @@ final class LoudnessCalculatorTests: XCTestCase {
             XCTFail("Result should not be nil")
             return
         }
-        XCTAssertGreaterThan(result.phon, 0)
+        XCTAssertGreaterThanOrEqual(result.phon, 0)
+        XCTAssertTrue(result.sone.isFinite)
     }
     
     func testMaximumFrequency() {

@@ -12,7 +12,7 @@ import UIKit
 //      → [2] FFTProcessor.convertToDB
 //      → [3] FrequencyWeightingProcessor.applyWeighting
 //      → [4] SpectrogramProcessor.process  (bandstop, octave, binning, smoothing)
-//      → [AudioEngine publishes SpectrogramData]
+//      → [AudioEngine emits SpectrogramData via spectrogramSubject]
 //      → [5] HighEndSpectrogramAdapter.updateWithFFTMagnitudes (mapping + texture write)
 //      → [Metal draw (async GPU)]
 //
@@ -217,7 +217,7 @@ final class PerformanceProfilingTests: XCTestCase {
 
     // MARK: - FPS Budget: Published Frames
 
-    /// Misst tatsächlich von AudioEngine publizierte FPS bei verschiedenen Scroll-Geschwindigkeiten.
+    /// Misst tatsächlich von AudioEngine emittierte High-rate-FPS bei verschiedenen Scroll-Geschwindigkeiten.
     func testFPSBudget_DifferentScrollSpeeds() {
         struct Cfg {
             let speed: ScrollSpeed; let minFPS: Double; let label: String
@@ -230,7 +230,7 @@ final class PerformanceProfilingTests: XCTestCase {
         ]
 
         report("\n┌────────────────────────────────────────────────────────────────┐")
-        report("│  FPS BUDGET: Published SpectrogramData Frames Per Second       │")
+        report("│  FPS BUDGET: High-rate SpectrogramData Frames Per Second      │")
         report("├──────────────────────────────────────────┬─────────────────────┤")
         report("│  Config                                  │  Measured / Min FPS │")
         report("├──────────────────────────────────────────┼─────────────────────┤")
@@ -247,8 +247,7 @@ final class PerformanceProfilingTests: XCTestCase {
 
             var publishedFrames = 0
             let lock = NSLock()
-            let cancellable = engine.$currentSpectrogramData
-                .compactMap { $0 }
+            let cancellable = engine.spectrogramSubject
                 .sink { _ in
                     lock.lock(); publishedFrames += 1; lock.unlock()
                 }

@@ -326,18 +326,18 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(stopButton.isEnabled, "Stop button should be enabled")
         tapAndHandleAlerts(stopButton)
 
-        // 4. Save-Dialog sollte erscheinen (longWait: Audiodatei muss erst geschrieben werden)
-        let saveDialog = app.sheets.firstMatch
-        XCTAssertTrue(saveDialog.waitForExistence(timeout: longWait), "Save dialog should appear")
+        // 4. Die App speichert automatisch und kehrt zum Aufnahme-Button zurück.
+        XCTAssertTrue(recordButton.waitForExistence(timeout: longWait), "Record button should be available after automatic save")
 
-        // 5. Abbrechen oder Speichern
-        let cancelButton = app.buttons["Abbrechen"]
-        if cancelButton.exists {
-            cancelButton.tap()
+        // 5. Die gespeicherte Aufnahme sollte in der Aufnahmenliste sichtbar sein.
+        let listButton = app.buttons["recordingsListButton"]
+        XCTAssertTrue(listButton.waitForExistence(timeout: mediumWait), "Recordings list button should exist")
+        listButton.tap()
+
+        let recordingVisible = waitForCondition(timeout: mediumWait) {
+            self.app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Messung")).count > 0
         }
-
-        // 6. Play-Button sollte wieder verfügbar sein
-        XCTAssertTrue(recordButton.waitForExistence(timeout: mediumWait), "Record button should be available again")
+        XCTAssertTrue(recordingVisible, "Automatically saved recording should appear in the recordings list")
     }
 
     @MainActor
