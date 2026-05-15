@@ -339,6 +339,54 @@ final class PDFReportGeneratorTests: XCTestCase {
         XCTAssertTrue(filename.contains(recording.id.uuidString), "PDF filename should contain recording ID")
     }
     
+    // MARK: - Required Baseline Content Tests
+
+    func testPDFContainsMicrophoneDisclaimer() throws {
+        let recording = createTestRecording()
+        let pdfURL = try pdfGenerator.generateReport(for: recording, recordingManager: recordingManager)
+
+        guard let pdfDocument = PDFDocument(url: pdfURL),
+              let firstPage = pdfDocument.page(at: 0) else {
+            XCTFail("Should load PDF with first page")
+            return
+        }
+
+        let pageText = firstPage.string ?? ""
+        XCTAssertTrue(pageText.contains("Näherungswerte"), "PDF should state measurements are approximate values")
+        XCTAssertTrue(pageText.contains("iPhone") || pageText.contains("Apple Watch"), "PDF should reference built-in microphone sources")
+        XCTAssertTrue(pageText.contains("compliance") || pageText.contains("Nachweise"), "PDF should state measurements are not compliance-grade")
+    }
+
+    func testPDFCalibrationStateForZeroOffset() throws {
+        let recording = createTestRecording(calibrationOffset: 0.0)
+        let pdfURL = try pdfGenerator.generateReport(for: recording, recordingManager: recordingManager)
+
+        guard let pdfDocument = PDFDocument(url: pdfURL),
+              let secondPage = pdfDocument.page(at: 1) else {
+            XCTFail("Should load PDF with second page")
+            return
+        }
+
+        let pageText = secondPage.string ?? ""
+        XCTAssertTrue(pageText.contains("kein Offset") || pageText.contains("nicht kalibriert"),
+                      "PDF should explain zero calibration offset means no calibration was applied")
+    }
+
+    func testPDFCalibrationStateForNonZeroOffset() throws {
+        let recording = createTestRecording(calibrationOffset: 3.5)
+        let pdfURL = try pdfGenerator.generateReport(for: recording, recordingManager: recordingManager)
+
+        guard let pdfDocument = PDFDocument(url: pdfURL),
+              let secondPage = pdfDocument.page(at: 1) else {
+            XCTFail("Should load PDF with second page")
+            return
+        }
+
+        let pageText = secondPage.string ?? ""
+        XCTAssertTrue(pageText.contains("3.5"), "PDF should show calibration offset value")
+        XCTAssertTrue(pageText.contains("angewendet"), "PDF should indicate offset was applied")
+    }
+
     // MARK: - Performance Tests
     
     func testPDFGenerationPerformance() throws {

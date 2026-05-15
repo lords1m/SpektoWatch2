@@ -1,44 +1,195 @@
-project: SpektoWatch2
-updated_at: 2026-05-12
-current_milestone: milestone-4-export-and-reporting
-current_task: null
-status: milestone_planning
-completed_milestones:
-  - milestone-1-acp-bootstrap
-  - milestone-2-performance-stabilization-watch-architecture
-  - milestone-3-dashboard-and-recording-polish
-completed_tasks:
-  - milestone-1-acp-bootstrap/task-1-install-acp-structure
-  - milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety
-  - milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path
-  - milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure
-  - milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing
-  - milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol
-  - milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls
-  - milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility
-  - milestone-3-dashboard-and-recording-polish/task-1-compile-gate
-  - milestone-3-dashboard-and-recording-polish/task-2-layout-rename
-  - milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit
-  - milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment
-  - milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests
-  - milestone-3-dashboard-and-recording-polish/task-6-acceptance
-planned_milestones:
-  - milestone-4-export-and-reporting
+project:
+  name: SpektoWatch2
+  status: in_progress
+  started: "2026-05-12"
+  current_milestone: M5
+  description: >
+    iOS/watchOS sound level measurement app with spectrogram, recording,
+    export, and field-engineering reporting capabilities.
+
+  M5:
+    name: Watch Complications
+    status: in_progress
+    priority: high
+    progress: 0
+    started: "2026-05-14"
+    estimated_weeks: "1.5"
+    tasks_completed: 0
+    tasks_total: 4
+    notes: WidgetKit complication extension for Apple Watch face with live dBSPL level.
+    file: agent/milestones/milestone-5-watch-complications.md
+
+milestones:
+  M1:
+    name: ACP Bootstrap
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-12"
+    completed: "2026-05-12"
+    estimated_weeks: "0.5"
+    tasks_completed: 1
+    tasks_total: 1
+    notes: Installed ACP documentation structure.
+    file: agent/milestones/milestone-1-acp-bootstrap.md
+
+  M2:
+    name: Performance Stabilization & Watch Architecture
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-12"
+    completed: "2026-05-12"
+    estimated_weeks: "2"
+    tasks_completed: 7
+    tasks_total: 7
+    notes: FFT hot path, recording backpressure, watch compact protocol, wearable source controls.
+    file: agent/milestones/milestone-2-performance-stabilization-watch-architecture.md
+
+  M3:
+    name: Dashboard & Recording Polish
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-12"
+    completed: "2026-05-12"
+    estimated_weeks: "1.5"
+    tasks_completed: 6
+    tasks_total: 6
+    notes: Compile gate, layout rename, recording notes/photos, waterfall tests.
+    file: agent/milestones/milestone-3-dashboard-and-recording-polish.md
+
+  M4:
+    name: Export & Reporting
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-12"
+    completed: "2026-05-13"
+    estimated_weeks: "2"
+    tasks_completed: 6
+    tasks_total: 6
+    notes: All export artifacts and UI complete. All targeted tests pass. Handoff report written.
+    file: agent/milestones/milestone-4-export-and-reporting.md
+
+tasks:
+  M1:
+    - id: task-1-install-acp-structure
+      name: Install ACP Structure
+      status: completed
+      file: agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md
+
+  M2:
+    - id: task-1-baseline-and-test-safety
+      name: Baseline & Test Safety
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md
+    - id: task-2-weighting-and-fft-hot-path
+      name: Weighting & FFT Hot Path
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md
+    - id: task-3-recording-writer-backpressure
+      name: Recording Writer Backpressure
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure.md
+    - id: task-4-gate-redundant-processing
+      name: Gate Redundant Processing
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing.md
+    - id: task-5-watch-compact-protocol
+      name: Watch Compact Protocol
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol.md
+    - id: task-6-watch-wearable-source-controls
+      name: Watch Wearable Source Controls
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls.md
+    - id: task-7-acceptance-and-compatibility
+      name: Acceptance & Compatibility
+      status: completed
+      file: agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility.md
+
+  M3:
+    - id: task-1-compile-gate
+      name: Compile Gate
+      status: completed
+      file: agent/tasks/milestone-3-dashboard-and-recording-polish/task-1-compile-gate.md
+    - id: task-2-layout-rename
+      name: Layout Rename
+      status: completed
+      file: agent/tasks/milestone-3-dashboard-and-recording-polish/task-2-layout-rename.md
+    - id: task-3-recording-notes-edit
+      name: Recording Notes Edit
+      status: completed
+      file: agent/tasks/milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit.md
+    - id: task-4-recording-photo-attachment
+      name: Recording Photo Attachment
+      status: completed
+      file: agent/tasks/milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment.md
+    - id: task-5-waterfall-tests
+      name: Waterfall Tests
+      status: completed
+      file: agent/tasks/milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests.md
+    - id: task-6-acceptance
+      name: Acceptance
+      status: completed
+      file: agent/tasks/milestone-3-dashboard-and-recording-polish/task-6-acceptance.md
+
+  M5:
+    - id: task-1-complication-source-files
+      name: Complication Source Files
+      status: in_progress
+      file: agent/tasks/milestone-5-watch-complications/task-1-complication-source-files.md
+    - id: task-2-xcode-target
+      name: Xcode Widget Extension Target
+      status: not_started
+      file: agent/tasks/milestone-5-watch-complications/task-2-xcode-target.md
+    - id: task-3-live-data-integration
+      name: Live Data Integration
+      status: not_started
+      file: agent/tasks/milestone-5-watch-complications/task-3-live-data-integration.md
+    - id: task-4-acceptance
+      name: Acceptance
+      status: not_started
+      file: agent/tasks/milestone-5-watch-complications/task-4-acceptance.md
+
+  M4:
+    - id: task-1-export-baseline-audit
+      name: Export Baseline Audit
+      status: completed
+      file: agent/tasks/milestone-4-export-and-reporting/task-1-export-baseline-audit.md
+    - id: task-2-pdf-report-baseline
+      name: PDF Report Baseline
+      status: completed
+      file: agent/tasks/milestone-4-export-and-reporting/task-2-pdf-report-baseline.md
+    - id: task-3-csv-export-hardening
+      name: CSV Export Hardening
+      status: completed
+      file: agent/tasks/milestone-4-export-and-reporting/task-3-csv-export-hardening.md
+    - id: task-4-spectrogram-image-export
+      name: Spectrogram Image Export
+      status: completed
+      file: agent/tasks/milestone-4-export-and-reporting/task-4-spectrogram-image-export.md
+    - id: task-5-recording-detail-export-ui
+      name: Recording Detail Export UI
+      status: completed
+      file: agent/tasks/milestone-4-export-and-reporting/task-5-recording-detail-export-ui.md
+    - id: task-6-acceptance
+      name: Acceptance
+      status: completed
+      file: agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md
+
+updated_at: 2026-05-14
+current_milestone: M5
+current_task: task-1-complication-source-files
 active_context:
   summary: >
-    Milestone 2 is complete. All seven tasks are done and the handoff report is
-    written. The performance hot path is optimised, the watch compact-protocol is
-    in place, wearable-source controls are explicit, and legacy .spekto v1
-    compatibility is test-verified. Build-for-testing passes; runtime tests
-    remain blocked by CoreSimulator in the agent environment. Milestone 3
-    (dashboard layouts and recording review polish) has been identified as the
-    next focus. WaterfallView and WaterfallDataBuilder are already partially in
-    place in the repository.
+    Milestones 1–4 complete. M5 started: Watch Complications. ACP files created.
+    Task 1 in progress: creating source files for the SpektoWatch Complications
+    Widget Extension (entry point, data model, provider, views, widgets).
   next_action: >
-    Milestone 3 complete. Handoff report at
-    agent/reports/2026-05-12-milestone-3-acceptance.md. Run acp.plan to
-    create milestone-4-export-and-reporting covering PDF reports, CSV export,
-    and spectrogram image export.
+    Create SpektoWatch Complications/ folder with all Swift source files, then
+    add the Widget Extension target to project.pbxproj (task 2).
 known_constraints:
   - CoreSimulator simulator-runtime discovery fails in the agent environment;
     runtime test execution is not available from this environment.

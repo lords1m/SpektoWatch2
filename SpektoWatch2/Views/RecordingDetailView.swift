@@ -44,6 +44,10 @@ struct RecordingDetailView: View {
     @State private var showShareSheet = false
     @State private var showPhotoPicker = false
     @State private var shareItems: [Any] = []
+    @State private var isExportingSpectrogram = false
+    @State private var spectrogramExportError: String?
+    @State private var showSpectrogramExportError = false
+    @State private var hasMeasurementData = false
 
     init(recording: Recording) {
         _recording = State(initialValue: recording)
@@ -87,6 +91,25 @@ struct RecordingDetailView: View {
                         } label: {
                             Label("PDF erstellen", systemImage: "doc.richtext")
                         }
+
+                        Button {
+                            exportSpectrogramImage()
+                        } label: {
+                            if isExportingSpectrogram {
+                                Label("Spektrogramm wird exportiert…", systemImage: "hourglass")
+                            } else {
+                                Label("Spektrogramm exportieren", systemImage: "photo")
+                            }
+                        }
+                        .disabled(isExportingSpectrogram)
+
+                        if hasMeasurementData {
+                            Button {
+                                shareRawMeasurementData()
+                            } label: {
+                                Label("Messdaten teilen", systemImage: "doc.badge.arrow.up")
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -99,6 +122,11 @@ struct RecordingDetailView: View {
         }
         .sheet(isPresented: $showShareSheet) {
             ActivityView(activityItems: shareItems)
+        }
+        .alert("Export fehlgeschlagen", isPresented: $showSpectrogramExportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(spectrogramExportError ?? "Unbekannter Fehler")
         }
         .onAppear {
             reloadRecordingState()
@@ -157,9 +185,53 @@ struct RecordingDetailView: View {
                 metadataCard
                 notesCard
                 photosCard
+                overviewExportCard
             }
             .padding()
         }
+    }
+
+    private var overviewExportCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Export")
+                .font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
+                ExportActionButton(
+                    title: "PDF",
+                    systemImage: "doc.richtext"
+                ) { createPDFReport() }
+
+                ExportActionButton(
+                    title: "Audio",
+                    systemImage: "square.and.arrow.up"
+                ) {
+                    shareItems = [recordingManager.url(for: recording)]
+                    showShareSheet = true
+                }
+
+                ExportActionButton(
+                    title: "Spektrogramm",
+                    systemImage: isExportingSpectrogram ? "hourglass" : "photo",
+                    isLoading: isExportingSpectrogram
+                ) { exportSpectrogramImage() }
+
+                ExportActionButton(
+                    title: "CSV",
+                    systemImage: "tablecells",
+                    isDisabled: !hasMeasurementData,
+                    disabledHint: "Keine Messdaten"
+                ) { createCSVExport() }
+
+                ExportActionButton(
+                    title: "Messdaten",
+                    systemImage: "doc.badge.arrow.up",
+                    isDisabled: !hasMeasurementData,
+                    disabledHint: "Keine Messdaten"
+                ) { shareRawMeasurementData() }
+            }
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
     }
 
     private var analysisTab: some View {
@@ -668,18 +740,39 @@ struct RecordingDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Export")
                 .font(.headline)
-            HStack {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 Button {
                     createCSVExport()
                 } label: {
-                    Label("CSV exportieren", systemImage: "tablecells")
+                    Label("CSV", systemImage: "tablecells").frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.borderedProminent)
 
                 Button {
                     createPDFReport()
                 } label: {
-                    Label("PDF erstellen", systemImage: "doc.richtext")
+                    Label("PDF", systemImage: "doc.richtext").frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    exportSpectrogramImage()
+                } label: {
+                    Group {
+                        if isExportingSpectrogram {
+                            Label("Spektrogramm…", systemImage: "hourglass").frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Label("Spektrogramm", systemImage: "photo").frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExportingSpectrogram)
+
+                Button {
+                    shareRawMeasurementData()
+                } label: {
+                    Label("Messdaten", systemImage: "doc.badge.arrow.up").frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
             }
@@ -745,6 +838,7 @@ struct RecordingDetailView: View {
         do {
             let provider = try StoredDataProvider(fileURL: measurementURL)
             storedDataProvider = provider
+            hasMeasurementData = true
             rawSpectrogramHistory = provider.spectrogramHistory
             weightedSpectrogramCache.removeAll()
             applyPlaybackWeighting(playbackWeighting)
@@ -800,6 +894,33 @@ struct RecordingDetailView: View {
         } catch {
             print("[RecordingDetailView] PDF generation failed: \(error)")
         }
+    }
+
+    private func exportSpectrogramImage() {
+        let audioURL = recordingManager.url(for: recording)
+        let recordingID = recording.id.uuidString
+        isExportingSpectrogram = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try SpectrogramImageExporter().export(audioURL: audioURL, recordingID: recordingID) }
+            DispatchQueue.main.async {
+                self.isExportingSpectrogram = false
+                switch result {
+                case .success(let url):
+                    self.shareItems = [url]
+                    self.showShareSheet = true
+                case .failure(let error):
+                    self.spectrogramExportError = error.localizedDescription
+                    self.showSpectrogramExportError = true
+                }
+            }
+        }
+    }
+
+    private func shareRawMeasurementData() {
+        guard let measurementURL = recordingManager.measurementURL(for: recording),
+              FileManager.default.fileExists(atPath: measurementURL.path) else { return }
+        shareItems = [measurementURL]
+        showShareSheet = true
     }
 
     private func reloadRecordingState() {
@@ -1301,5 +1422,42 @@ struct PhotoPickerView: UIViewControllerRepresentable {
                 DispatchQueue.main.async { self?.onPick(data) }
             }
         }
+    }
+}
+
+// MARK: - ExportActionButton
+
+private struct ExportActionButton: View {
+    let title: String
+    let systemImage: String
+    var isLoading: Bool = false
+    var isDisabled: Bool = false
+    var disabledHint: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isLoading {
+                    ProgressView().scaleEffect(0.75)
+                } else {
+                    Image(systemName: systemImage)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.subheadline)
+                    if isDisabled, let hint = disabledHint {
+                        Text(hint)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        .disabled(isDisabled || isLoading)
+        .buttonStyle(.bordered)
+        .opacity(isDisabled ? 0.45 : 1)
     }
 }

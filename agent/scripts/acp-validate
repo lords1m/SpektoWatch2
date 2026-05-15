@@ -26,6 +26,8 @@ agent/commands/acp.design-create.md
 agent/commands/acp.plan.md
 agent/milestones/milestone-1-acp-bootstrap.md
 agent/milestones/milestone-2-performance-stabilization-watch-architecture.md
+agent/milestones/milestone-3-dashboard-and-recording-polish.md
+agent/milestones/milestone-4-export-and-reporting.md
 agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md
@@ -34,6 +36,18 @@ agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-4-gate
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol.md
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls.md
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility.md
+agent/tasks/milestone-3-dashboard-and-recording-polish/task-1-compile-gate.md
+agent/tasks/milestone-3-dashboard-and-recording-polish/task-2-layout-rename.md
+agent/tasks/milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit.md
+agent/tasks/milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment.md
+agent/tasks/milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests.md
+agent/tasks/milestone-3-dashboard-and-recording-polish/task-6-acceptance.md
+agent/tasks/milestone-4-export-and-reporting/task-1-export-baseline-audit.md
+agent/tasks/milestone-4-export-and-reporting/task-2-pdf-report-baseline.md
+agent/tasks/milestone-4-export-and-reporting/task-3-csv-export-hardening.md
+agent/tasks/milestone-4-export-and-reporting/task-4-spectrogram-image-export.md
+agent/tasks/milestone-4-export-and-reporting/task-5-recording-detail-export-ui.md
+agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md
 agent/patterns/swiftui-audio-pipeline.md
 '
 

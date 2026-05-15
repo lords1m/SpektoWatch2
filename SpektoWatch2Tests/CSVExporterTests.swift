@@ -269,6 +269,113 @@ final class CSVExporterTests: XCTestCase {
         XCTAssertFalse(header.contains("NonExistentMetric"), "Should filter out invalid metrics")
     }
     
+    // MARK: - Determinism and Ordering Tests
+
+    func testCSVMetricOrderMatchesSelectedOrder() throws {
+        let reader = createTestMeasurementReader()
+        let outputURL = tempDirectory.appendingPathComponent("order_test.csv")
+
+        // Request metrics in reverse alphabetical order
+        try csvExporter.export(
+            reader: reader,
+            to: outputURL,
+            selectedMetrics: ["LAFmax", "LAeq"],
+            includeThirdOctaves: false
+        )
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        let header = content.components(separatedBy: .newlines).first ?? ""
+        let columns = header.components(separatedBy: ";")
+
+        guard let laeqIndex = columns.firstIndex(of: "LAeq"),
+              let lafmaxIndex = columns.firstIndex(of: "LAFmax") else {
+            XCTFail("Header should contain both metrics")
+            return
+        }
+        XCTAssertLessThan(lafmaxIndex, laeqIndex, "LAFmax should appear before LAeq when requested first")
+    }
+
+    func testCSVHeaderIsStable() throws {
+        let reader = createTestMeasurementReader()
+        let urlA = tempDirectory.appendingPathComponent("stable_a.csv")
+        let urlB = tempDirectory.appendingPathComponent("stable_b.csv")
+
+        let metrics = ["LAeq", "LAFmax", "LAFmin"]
+        try csvExporter.export(reader: reader, to: urlA, selectedMetrics: metrics, includeThirdOctaves: false)
+        try csvExporter.export(reader: reader, to: urlB, selectedMetrics: metrics, includeThirdOctaves: false)
+
+        let headerA = (try String(contentsOf: urlA, encoding: .utf8)).components(separatedBy: .newlines).first
+        let headerB = (try String(contentsOf: urlB, encoding: .utf8)).components(separatedBy: .newlines).first
+        XCTAssertEqual(headerA, headerB, "Headers must be identical across exports with same inputs")
+    }
+
+    func testCSVNumericFormatThreeDecimalPlaces() throws {
+        let reader = createTestMeasurementReader(frameCount: 1)
+        let outputURL = tempDirectory.appendingPathComponent("decimal_test.csv")
+
+        try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: ["LAeq"], includeThirdOctaves: false)
+
+        let lines = (try String(contentsOf: outputURL, encoding: .utf8))
+            .components(separatedBy: .newlines)
+            .filter { !$0.isEmpty }
+        guard lines.count > 1 else { XCTFail("CSV should have a data row"); return }
+
+        let dataValues = lines[1].components(separatedBy: ";")
+        for value in dataValues {
+            guard !value.isEmpty else { continue }
+            let parts = value.components(separatedBy: ".")
+            XCTAssertEqual(parts.count, 2, "Value '\(value)' should have exactly one decimal point")
+            XCTAssertEqual(parts.last?.count, 3, "Value '\(value)' should have exactly 3 decimal places")
+        }
+    }
+
+    func testCSVThirdOctaveColumnCount() throws {
+        let reader = createTestMeasurementReader()
+        let outputURL = tempDirectory.appendingPathComponent("band_count_test.csv")
+
+        try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: [], includeThirdOctaves: true)
+
+        let header = (try String(contentsOf: outputURL, encoding: .utf8))
+            .components(separatedBy: .newlines).first ?? ""
+        let columns = header.components(separatedBy: ";")
+
+        let zCount = columns.filter { $0.hasPrefix("Z_") }.count
+        let aCount = columns.filter { $0.hasPrefix("A_") }.count
+        let cCount = columns.filter { $0.hasPrefix("C_") }.count
+
+        XCTAssertEqual(zCount, 31, "Should have 31 Z-weighted third-octave columns")
+        XCTAssertEqual(aCount, 31, "Should have 31 A-weighted third-octave columns")
+        XCTAssertEqual(cCount, 31, "Should have 31 C-weighted third-octave columns")
+    }
+
+    func testCSVThirdOctaveDecimalBandLabel() throws {
+        let reader = createTestMeasurementReader()
+        let outputURL = tempDirectory.appendingPathComponent("band_label_test.csv")
+
+        try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: [], includeThirdOctaves: true)
+
+        let header = (try String(contentsOf: outputURL, encoding: .utf8))
+            .components(separatedBy: .newlines).first ?? ""
+
+        XCTAssertTrue(header.contains("Z_31.5"), "31.5 Hz band should be labelled 'Z_31.5'")
+        XCTAssertTrue(header.contains("A_31.5"), "31.5 Hz band should be labelled 'A_31.5'")
+        XCTAssertTrue(header.contains("C_31.5"), "31.5 Hz band should be labelled 'C_31.5'")
+    }
+
+    func testCSVZeroFrameProducesHeaderOnly() throws {
+        let reader = createTestMeasurementReader(frameCount: 0)
+        let outputURL = tempDirectory.appendingPathComponent("zero_frame_test.csv")
+
+        try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: ["LAeq"], includeThirdOctaves: false)
+
+        let lines = (try String(contentsOf: outputURL, encoding: .utf8))
+            .components(separatedBy: .newlines)
+            .filter { !$0.isEmpty }
+
+        XCTAssertEqual(lines.count, 1, "Zero-frame export should produce only the header row")
+        XCTAssertTrue(lines.first?.contains("Zeit[s]") ?? false, "Header should still be present")
+    }
+
     // MARK: - JSON Export Tests
     
     func testJSONExportBasic() throws {

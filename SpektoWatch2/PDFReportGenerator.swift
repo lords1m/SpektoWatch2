@@ -38,6 +38,7 @@ final class PDFReportGenerator {
             ChartRenderer.drawLineChart(in: cg, rect: lineRect.insetBy(dx: 8, dy: 10), values: lineValues)
             cg.restoreGState()
 
+            drawMicrophoneDisclaimer(in: cg, rect: CGRect(x: 40, y: 410, width: pageRect.width - 80, height: 90))
             drawFooter(in: cg, rect: pageRect, page: 1)
 
             context.beginPage()
@@ -149,12 +150,36 @@ final class PDFReportGenerator {
         drawSectionTitle("Konfiguration", at: CGPoint(x: rect.minX, y: rect.minY - 18), in: context)
         let lines = [
             "FFT-Blockgröße: \(recording.fftBlockSize)",
-            "Kalibrierung: \(String(format: "%.1f", recording.calibrationOffset)) dB",
+            calibrationStateText(recording.calibrationOffset),
             "Zeitbewertung: \(recording.timeWeighting)",
             "Frequenzbewertung: \(recording.frequencyWeighting)",
             "Beschreibung: \(recording.description.isEmpty ? "-" : recording.description)"
         ].joined(separator: "\n")
         drawText(lines, rect: rect, font: .systemFont(ofSize: 10))
+    }
+
+    private func calibrationStateText(_ offset: Float) -> String {
+        if offset == 0.0 {
+            return "Kalibrierung: 0.0 dB – kein Offset angewendet (nicht kalibriert)"
+        }
+        return String(format: "Kalibrierung: %.1f dB – manueller Offset angewendet", offset)
+    }
+
+    private func drawMicrophoneDisclaimer(in context: CGContext, rect: CGRect) {
+        context.saveGState()
+        context.setFillColor(UIColor.systemYellow.withAlphaComponent(0.08).cgColor)
+        context.fill(rect)
+        context.setStrokeColor(UIColor.systemOrange.withAlphaComponent(0.5).cgColor)
+        context.setLineWidth(0.75)
+        context.stroke(rect)
+        context.restoreGState()
+
+        let title = "Hinweis zur Messgenauigkeit"
+        drawText(title, rect: CGRect(x: rect.minX + 8, y: rect.minY + 6, width: rect.width - 16, height: 14), font: .boldSystemFont(ofSize: 9))
+
+        let body = "Messungen mit integrierten iPhone- oder Apple Watch-Mikrofonen sind Näherungswerte. " +
+            "Sie sind nicht für behördliche Lärmschutzgutachten oder compliance-relevante Nachweise geeignet."
+        drawText(body, rect: CGRect(x: rect.minX + 8, y: rect.minY + 22, width: rect.width - 16, height: rect.height - 30), font: .systemFont(ofSize: 9))
     }
 
     private func drawBandChart(label: String, values: [Float], rect: CGRect, color: UIColor, in context: CGContext) {

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		37DC2D8D2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		37DC2D8E2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		9B6A1D2F9F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
@@ -57,6 +58,17 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC11CC11CC11CC11CC11000D /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +79,7 @@
 		37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = TestPlan.xctestplan; sourceTree = "<group>"; };
 		9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SpektoWatch2_FullRun.xctestplan; sourceTree = "<group>"; };
 		AA11AA11AA11AA11AA110001 /* SpektoWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "SpektoWatch Complications.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
