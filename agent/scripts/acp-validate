@@ -28,6 +28,7 @@ agent/milestones/milestone-1-acp-bootstrap.md
 agent/milestones/milestone-2-performance-stabilization-watch-architecture.md
 agent/milestones/milestone-3-dashboard-and-recording-polish.md
 agent/milestones/milestone-4-export-and-reporting.md
+agent/milestones/milestone-5-watch-complications.md
 agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md
 agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md
@@ -48,6 +49,10 @@ agent/tasks/milestone-4-export-and-reporting/task-3-csv-export-hardening.md
 agent/tasks/milestone-4-export-and-reporting/task-4-spectrogram-image-export.md
 agent/tasks/milestone-4-export-and-reporting/task-5-recording-detail-export-ui.md
 agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md
+agent/tasks/milestone-5-watch-complications/task-1-complication-source-files.md
+agent/tasks/milestone-5-watch-complications/task-2-xcode-target.md
+agent/tasks/milestone-5-watch-complications/task-3-live-data-integration.md
+agent/tasks/milestone-5-watch-complications/task-4-acceptance.md
 agent/patterns/swiftui-audio-pipeline.md
 '
 
@@ -73,7 +78,16 @@ if [ -z "$current_task" ]; then
   exit 1
 fi
 
-task_path="$root/agent/tasks/$current_milestone/$current_task.md"
+case "$current_milestone" in
+  M1) task_dir="agent/tasks/milestone-1-acp-bootstrap" ;;
+  M2) task_dir="agent/tasks/milestone-2-performance-stabilization-watch-architecture" ;;
+  M3) task_dir="agent/tasks/milestone-3-dashboard-and-recording-polish" ;;
+  M4) task_dir="agent/tasks/milestone-4-export-and-reporting" ;;
+  M5) task_dir="agent/tasks/milestone-5-watch-complications" ;;
+  *) task_dir="agent/tasks/$current_milestone" ;;
+esac
+
+task_path="$root/$task_dir/$current_task.md"
 if [ ! -f "$task_path" ]; then
   echo "current_task does not resolve: $current_task"
   exit 1

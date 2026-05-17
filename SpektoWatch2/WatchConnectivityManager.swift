@@ -2,14 +2,29 @@ import Foundation
 import WatchConnectivity
 import Combine
 import OSLog
+#if os(watchOS)
+import WidgetKit
+#endif
 
 public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
+    #if os(watchOS)
+    private static let complicationLevelKey = "spw.complication.level"
+    private static let complicationWeightingKey = "spw.complication.weighting"
+    private static let complicationWidgetKinds = [
+        "SpektoWatchLevelCircular",
+        "SpektoWatchLevelRectangular",
+        "SpektoWatchLevelInline"
+    ]
+    #endif
     
     @Published public var isReachable = false
     @Published public var spectrogramData: SpectrogramData?
     @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published public var watchDashboardConfig: WatchDashboardConfig?
     @Published public var frequencyWeighting: String = "A"
+    #if os(watchOS)
+    private var lastComplicationReload = Date.distantPast
+    #endif
     
     // MARK: - Queue Definitionen
     private struct QueuedMessage {
@@ -62,9 +77,29 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     public func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
         if case .spectrogram(let specData) = WatchConnectivityProtocol.decodeBinaryPayload(messageData) {
-            DispatchQueue.main.async { self.spectrogramData = specData }
+            DispatchQueue.main.async {
+                self.spectrogramData = specData
+                #if os(watchOS)
+                self.updateComplicationState(from: specData)
+                #endif
+            }
         }
     }
+
+    #if os(watchOS)
+    private func updateComplicationState(from data: SpectrogramData) {
+        let now = Date()
+        guard now.timeIntervalSince(lastComplicationReload) >= 1 else { return }
+
+        UserDefaults.standard.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: Self.complicationLevelKey)
+        UserDefaults.standard.set(frequencyWeighting, forKey: Self.complicationWeightingKey)
+
+        lastComplicationReload = now
+        Self.complicationWidgetKinds.forEach {
+            WidgetCenter.shared.reloadTimelines(ofKind: $0)
+        }
+    }
+    #endif
     
     public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         DispatchQueue.main.async {

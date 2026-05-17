@@ -1,6 +1,6 @@
 # Milestone 5: Watch Complications
 
-Status: in_progress  
+Status: completed  
 Created: 2026-05-14  
 Source design: `agent/design/spektowatch-field-engineering-design.md`
 

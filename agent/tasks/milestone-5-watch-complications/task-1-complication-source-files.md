@@ -1,6 +1,6 @@
 # Task 1: Complication Source Files
 
-Status: in_progress  
+Status: completed  
 Created: 2026-05-14  
 Milestone: `milestone-5-watch-complications`
 

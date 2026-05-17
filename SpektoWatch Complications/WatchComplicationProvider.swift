@@ -1,9 +1,6 @@
 import WidgetKit
 import Foundation
 
-/// Shared UserDefaults suite written by WatchConnectivityManager and read here.
-private let sharedDefaults = UserDefaults(suiteName: "group.BrandtAcoustics.SpektoWatch2")
-
 enum ComplicationDefaultsKey {
     static let level = "spw.complication.level"
     static let weighting = "spw.complication.weighting"
@@ -27,11 +24,12 @@ struct WatchComplicationProvider: TimelineProvider {
     }
 
     private func currentEntry() -> WatchComplicationEntry {
-        let level: Float? = sharedDefaults.flatMap {
-            let raw = $0.double(forKey: ComplicationDefaultsKey.level)
-            return raw == 0 ? nil : Float(raw)
-        }
-        let weighting = sharedDefaults?.string(forKey: ComplicationDefaultsKey.weighting) ?? "A"
+        let defaults = UserDefaults.standard
+        let level: Float? = {
+            guard defaults.object(forKey: ComplicationDefaultsKey.level) != nil else { return nil }
+            return defaults.float(forKey: ComplicationDefaultsKey.level)
+        }()
+        let weighting = defaults.string(forKey: ComplicationDefaultsKey.weighting) ?? "A"
         return WatchComplicationEntry(date: .now, level: level, weighting: weighting)
     }
 }

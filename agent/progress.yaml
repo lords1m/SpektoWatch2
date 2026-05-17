@@ -1,6 +1,6 @@
 project:
   name: SpektoWatch2
-  status: in_progress
+  status: completed
   started: "2026-05-12"
   current_milestone: M5
   description: >
@@ -9,14 +9,15 @@ project:
 
   M5:
     name: Watch Complications
-    status: in_progress
+    status: completed
     priority: high
-    progress: 0
+    progress: 100
     started: "2026-05-14"
+    completed: "2026-05-16"
     estimated_weeks: "1.5"
-    tasks_completed: 0
+    tasks_completed: 4
     tasks_total: 4
-    notes: WidgetKit complication extension for Apple Watch face with live dBSPL level.
+    notes: WidgetKit complication extension embedded in the watch app with live level timeline reloads.
     file: agent/milestones/milestone-5-watch-complications.md
 
 milestones:
@@ -138,19 +139,19 @@ tasks:
   M5:
     - id: task-1-complication-source-files
       name: Complication Source Files
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-5-watch-complications/task-1-complication-source-files.md
     - id: task-2-xcode-target
       name: Xcode Widget Extension Target
-      status: not_started
+      status: completed
       file: agent/tasks/milestone-5-watch-complications/task-2-xcode-target.md
     - id: task-3-live-data-integration
       name: Live Data Integration
-      status: not_started
+      status: completed
       file: agent/tasks/milestone-5-watch-complications/task-3-live-data-integration.md
     - id: task-4-acceptance
       name: Acceptance
-      status: not_started
+      status: completed
       file: agent/tasks/milestone-5-watch-complications/task-4-acceptance.md
 
   M4:
@@ -179,20 +180,19 @@ tasks:
       status: completed
       file: agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md
 
-updated_at: 2026-05-14
+updated_at: 2026-05-16
 current_milestone: M5
-current_task: task-1-complication-source-files
+current_task: task-4-acceptance
 active_context:
   summary: >
-    Milestones 1–4 complete. M5 started: Watch Complications. ACP files created.
-    Task 1 in progress: creating source files for the SpektoWatch Complications
-    Widget Extension (entry point, data model, provider, views, widgets).
+    Milestones 1–5 complete. The watch app embeds the SpektoWatch Complications
+    WidgetKit extension, and incoming compact watch live data reloads the three
+    complication timelines at most once per second.
   next_action: >
-    Create SpektoWatch Complications/ folder with all Swift source files, then
-    add the Widget Extension target to project.pbxproj (task 2).
+    Await the next milestone or task request.
 known_constraints:
-  - CoreSimulator simulator-runtime discovery fails in the agent environment;
-    runtime test execution is not available from this environment.
+  - Watch complication manual acceptance still requires Apple Watch hardware or
+    an interactive paired simulator session.
   - Repository contains uncommitted user changes; do not overwrite them.
   - WatchConnectivity must remain bandwidth-conscious; no raw audio over the link.
   - Masking is a future core feature, out of scope until a dedicated milestone.

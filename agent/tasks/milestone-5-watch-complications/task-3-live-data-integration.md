@@ -1,6 +1,6 @@
 # Task 3: Live Data Integration
 
-Status: not_started  
+Status: completed  
 Created: 2026-05-14  
 Milestone: `milestone-5-watch-complications`
 

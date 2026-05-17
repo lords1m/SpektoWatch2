@@ -2,14 +2,29 @@ import Foundation
 import WatchConnectivity
 import Combine
 import os.signpost
+#if os(watchOS)
+import WidgetKit
+#endif
 
 class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.connectivity")
+    #if os(watchOS)
+    private static let complicationLevelKey = "spw.complication.level"
+    private static let complicationWeightingKey = "spw.complication.weighting"
+    private static let complicationWidgetKinds = [
+        "SpektoWatchLevelCircular",
+        "SpektoWatchLevelRectangular",
+        "SpektoWatchLevelInline"
+    ]
+    #endif
     private let sendQueue = DispatchQueue(label: "com.spektowatch.watch-send", qos: .utility)
     private var pendingSpectrogramData: SpectrogramData?
     private var isSpectrogramSendScheduled = false
     private var lastSpectrogramSendTime: TimeInterval = 0
+    #if os(watchOS)
+    private var lastComplicationReload = Date.distantPast
+    #endif
 
     @Published var spectrogramData: SpectrogramData?
     @Published var isReachable = false
@@ -259,9 +274,29 @@ extension WatchConnectivityManager: WCSessionDelegate {
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
         guard !messageData.isEmpty else { return }
         if case .spectrogram(let specData) = WatchConnectivityProtocol.decodeBinaryPayload(messageData) {
-            DispatchQueue.main.async { self.spectrogramData = specData }
+            DispatchQueue.main.async {
+                self.spectrogramData = specData
+                #if os(watchOS)
+                self.updateComplicationState(from: specData)
+                #endif
+            }
         }
     }
+
+    #if os(watchOS)
+    private func updateComplicationState(from data: SpectrogramData) {
+        let now = Date()
+        guard now.timeIntervalSince(lastComplicationReload) >= 1 else { return }
+
+        UserDefaults.standard.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: Self.complicationLevelKey)
+        UserDefaults.standard.set(frequencyWeighting, forKey: Self.complicationWeightingKey)
+
+        lastComplicationReload = now
+        Self.complicationWidgetKinds.forEach {
+            WidgetCenter.shared.reloadTimelines(ofKind: $0)
+        }
+    }
+    #endif
 
     // Handle application context for background config delivery
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
