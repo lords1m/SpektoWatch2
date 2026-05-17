@@ -1058,12 +1058,22 @@ class AudioEngine: ObservableObject {
         }
     }
 
+    private func emitSpectrogramData(_ data: SpectrogramData) {
+        if Thread.isMainThread {
+            spectrogramSubject.send(data)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.spectrogramSubject.send(data)
+            }
+        }
+    }
+
     /// Applies processed Apple Watch spectrogram data to the phone dashboard.
     /// The watch sends compact derived data only; no raw audio is accepted here.
     func ingestWearableSpectrogramData(_ data: SpectrogramData) {
         guard activeMicrophoneSource == .appleWatch else { return }
 
-        spectrogramSubject.send(data)
+        emitSpectrogramData(data)
         let octaveBandsZ = computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: data.magnitudes)
         let octaveBandsA = data.magnitudesA.map { computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0) } ?? octaveBandsZ
         let octaveBandsC = data.magnitudesC.map { computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0) } ?? octaveBandsZ
@@ -1429,7 +1439,7 @@ class AudioEngine: ObservableObject {
         )
         
         // Feed spectrogram renderers directly — bypasses objectWillChange, no SwiftUI re-render.
-        spectrogramSubject.send(spectrogramData)
+        emitSpectrogramData(spectrogramData)
 
         // Update UI on main thread
         updateUI(

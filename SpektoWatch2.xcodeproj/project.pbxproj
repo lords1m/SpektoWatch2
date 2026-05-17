@@ -8,11 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		37DC2D8D2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		37DC2D8E2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		9B6A1D2F9F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
 		9B6A1D309F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
+		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -142,14 +142,6 @@
 			path = "SpektoWatch Watch App";
 			sourceTree = "<group>";
 		};
-		CC11CC11CC11CC11CC110001 /* SpektoWatch Complications */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				CC11CC11CC11CC11CC11000E /* Exceptions for "SpektoWatch Complications" folder in "SpektoWatch Complications" target */,
-			);
-			path = "SpektoWatch Complications";
-			sourceTree = "<group>";
-		};
 		379523902F22373C0079C93F /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -172,6 +164,14 @@
 		AA11AA11AA11AA11AA110002 /* SpektoWatchTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SpektoWatchTests;
+			sourceTree = "<group>";
+		};
+		CC11CC11CC11CC11CC110001 /* SpektoWatch Complications */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CC11CC11CC11CC11CC11000E /* Exceptions for "SpektoWatch Complications" folder in "SpektoWatch Complications" target */,
+			);
+			path = "SpektoWatch Complications";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -304,28 +304,6 @@
 			productReference = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
-		CC11CC11CC11CC11CC110003 /* SpektoWatch Complications */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = CC11CC11CC11CC11CC11000B /* Build configuration list for PBXNativeTarget "SpektoWatch Complications" */;
-			buildPhases = (
-				CC11CC11CC11CC11CC110004 /* Sources */,
-				CC11CC11CC11CC11CC110005 /* Frameworks */,
-				CC11CC11CC11CC11CC110006 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				CC11CC11CC11CC11CC110001 /* SpektoWatch Complications */,
-			);
-			name = "SpektoWatch Complications";
-			packageProductDependencies = (
-			);
-			productName = "SpektoWatch Complications";
-			productReference = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 		37969D312F2E096A009D1923 /* SpektoWatch2Tests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 37969D3A2F2E096B009D1923 /* Build configuration list for PBXNativeTarget "SpektoWatch2Tests" */;
@@ -394,6 +372,28 @@
 			productName = SpektoWatchTests;
 			productReference = AA11AA11AA11AA11AA110001 /* SpektoWatchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		CC11CC11CC11CC11CC110003 /* SpektoWatch Complications */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC11CC11CC11CC11CC11000B /* Build configuration list for PBXNativeTarget "SpektoWatch Complications" */;
+			buildPhases = (
+				CC11CC11CC11CC11CC110004 /* Sources */,
+				CC11CC11CC11CC11CC110005 /* Frameworks */,
+				CC11CC11CC11CC11CC110006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CC11CC11CC11CC11CC110001 /* SpektoWatch Complications */,
+			);
+			name = "SpektoWatch Complications";
+			packageProductDependencies = (
+			);
+			productName = "SpektoWatch Complications";
+			productReference = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -1040,8 +1040,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = L22A8M5245;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_FILE = "SpektoWatch Complications/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1071,8 +1071,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = L22A8M5245;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_FILE = "SpektoWatch Complications/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
