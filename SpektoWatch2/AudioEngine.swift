@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Accelerate
 import Combine
+import os
 import os.signpost
 #if canImport(UIKit)
 import UIKit
@@ -92,8 +93,17 @@ class AudioEngine: ObservableObject {
     // 256–4096 frames; at ~100 callbacks/sec that was ~1 MB/sec of churn).
     private var monoSampleScratch: [Float] = []
 
-    // Lock für Thread-sichere FFT-Rekonfiguration
-    private let processingLock = NSLock()
+    // Lock for thread-safe FFT reconfiguration.
+    //
+    // Read by the audio render callback (`processSamples`, `processFFTFrame`)
+    // every audio buffer and written by main-thread setters when the user
+    // picks a different FFT size or window function. `OSAllocatedUnfairLock`
+    // is roughly an order of magnitude cheaper than `NSLock` in the
+    // contention-free steady state and — critically — does not call into
+    // `pthread_mutex_lock`, so an acquisition on the audio render thread
+    // cannot trigger a kernel mutex wait or priority inversion under thermal
+    // pressure. Matches the pattern already used by `FFTProcessor`.
+    private let processingLock = OSAllocatedUnfairLock()
 
     // MARK: - State Management
 
@@ -380,29 +390,27 @@ class AudioEngine: ObservableObject {
         Logger.audioEngine.info("Applying FFT config: \(newWindow.rawValue), \(newSize) samples")
 
         // Thread-sichere Rekonfiguration
-        processingLock.lock()
+        processingLock.withLockUnchecked {
+            // Buffer leeren um Race-Conditions zu vermeiden
+            sampleBuffer.removeAll()
+            sampleBufferOffset = 0
+            fftInputBuffer.removeAll()
+            fftLinearMagnitudesScratch.removeAll()
+            fftDBMagnitudesScratch.removeAll()
+            fftEnergyScratch.removeAll()
 
-        // Buffer leeren um Race-Conditions zu vermeiden
-        sampleBuffer.removeAll()
-        sampleBufferOffset = 0
-        fftInputBuffer.removeAll()
-        fftLinearMagnitudesScratch.removeAll()
-        fftDBMagnitudesScratch.removeAll()
-        fftEnergyScratch.removeAll()
+            // Aktualisiere interne Werte
+            fftSize = newSize
+            currentWindowFunction = newWindow
+            currentBlockSize = config.blockSize
 
-        // Aktualisiere interne Werte
-        fftSize = newSize
-        currentWindowFunction = newWindow
-        currentBlockSize = config.blockSize
+            // Rekonfiguriere den FFT Processor
+            fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
 
-        // Rekonfiguriere den FFT Processor
-        fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
-
-        // Erstelle neuen Weighting Processor (alter wird nach unlock freigegeben)
-        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
-        weightingProcessor = newWeightingProcessor
-
-        processingLock.unlock()
+            // Erstelle neuen Weighting Processor (alter wird nach unlock freigegeben)
+            let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
+            weightingProcessor = newWeightingProcessor
+        }
 
         // Veröffentliche Änderungen
         DispatchQueue.main.async {
@@ -414,11 +422,10 @@ class AudioEngine: ObservableObject {
     func setWindowFunction(_ function: WindowFunction) {
         guard function != currentWindowFunction else { return }
 
-        processingLock.lock()
-        defer { processingLock.unlock() }
-
-        currentWindowFunction = function
-        fftProcessor.setWindowFunction(function)
+        processingLock.withLockUnchecked {
+            currentWindowFunction = function
+            fftProcessor.setWindowFunction(function)
+        }
         Logger.audioEngine.info("Window function changed to: \(function.rawValue)")
     }
 
@@ -426,25 +433,23 @@ class AudioEngine: ObservableObject {
     func setBlockSize(_ size: FFTBlockSize) {
         guard size.rawValue != fftSize else { return }
 
-        processingLock.lock()
+        processingLock.withLockUnchecked {
+            // Buffer leeren um Race-Conditions zu vermeiden
+            sampleBuffer.removeAll()
+            sampleBufferOffset = 0
+            fftInputBuffer.removeAll()
+            fftLinearMagnitudesScratch.removeAll()
+            fftDBMagnitudesScratch.removeAll()
+            fftEnergyScratch.removeAll()
 
-        // Buffer leeren um Race-Conditions zu vermeiden
-        sampleBuffer.removeAll()
-        sampleBufferOffset = 0
-        fftInputBuffer.removeAll()
-        fftLinearMagnitudesScratch.removeAll()
-        fftDBMagnitudesScratch.removeAll()
-        fftEnergyScratch.removeAll()
+            fftSize = size.rawValue
+            currentBlockSize = size
+            fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
 
-        fftSize = size.rawValue
-        currentBlockSize = size
-        fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
-
-        // Erstelle neuen Weighting Processor
-        let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: processingSampleRate)
-        weightingProcessor = newWeightingProcessor
-
-        processingLock.unlock()
+            // Erstelle neuen Weighting Processor
+            let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: processingSampleRate)
+            weightingProcessor = newWeightingProcessor
+        }
 
         Logger.audioEngine.info("FFT size changed to: \(size.rawValue)")
     }
@@ -1201,10 +1206,11 @@ class AudioEngine: ObservableObject {
         // Add to sample buffer
         sampleBuffer.append(contentsOf: newSamples)
 
-        // Lese aktuelle FFT-Größe thread-sicher
-        processingLock.lock()
-        let currentFFTSize = fftSize
-        processingLock.unlock()
+        // Lese aktuelle FFT-Größe thread-sicher.
+        // `withLockUnchecked` skips Sendable enforcement (irrelevant for a
+        // plain `Int` read) and is the cheapest API surface for this call
+        // shape on the audio render thread.
+        let currentFFTSize = processingLock.withLockUnchecked { fftSize }
 
         // Backlog (wie viel Audio noch in der Queue steckt)
         let bufferedSamples = max(0, sampleBuffer.count - sampleBufferOffset)
@@ -1225,6 +1231,17 @@ class AudioEngine: ObservableObject {
                 samplesToDrop = (samplesToDrop / hop) * hop
                 sampleBufferOffset += samplesToDrop
             }
+        }
+
+        // Absolute compaction ceiling: the per-iteration compaction inside the
+        // while loop only fires when the loop body runs. If the backlog trimmer
+        // jumped the offset far ahead without the loop executing, drop the
+        // dead head of the array now so the underlying storage cannot grow
+        // unbounded under sustained pressure.
+        let absoluteCompactionThreshold = currentFFTSize * 4
+        if sampleBufferOffset > absoluteCompactionThreshold {
+            sampleBuffer.removeFirst(sampleBufferOffset)
+            sampleBufferOffset = 0
         }
 
         // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
@@ -1262,12 +1279,11 @@ class AudioEngine: ObservableObject {
         os_signpost(.begin, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID) }
 
-        // Thread-sichere FFT-Verarbeitung
-        processingLock.lock()
-        let currentFFTSize = fftSize
-        let localFFTProcessor = fftProcessor
-        let localWeightingProcessor = weightingProcessor
-        processingLock.unlock()
+        // Thread-sichere FFT-Verarbeitung — snapshot all three lock-protected
+        // fields in one critical section to keep them mutually consistent.
+        let (currentFFTSize, localFFTProcessor, localWeightingProcessor) = processingLock.withLockUnchecked {
+            (fftSize, fftProcessor, weightingProcessor)
+        }
 
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
         guard samples.count >= currentFFTSize else { return }
@@ -1378,13 +1394,23 @@ class AudioEngine: ObservableObject {
         // Update acoustic metrics
         let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
         spectrogramProcessor.hopDuration = dt
+        // Derive recording duration on the audio thread from recordingStartTime
+        // rather than reading the `@Published` `recordingDuration` (main-only
+        // writer). The same pattern is used a few lines below for the writer
+        // timestamp.
+        let audioThreadRecordingDuration: TimeInterval
+        if let startTime = recordingStartTime {
+            audioThreadRecordingDuration = Date().timeIntervalSince(startTime)
+        } else {
+            audioThreadRecordingDuration = 0
+        }
         let levels = metricsCalculator.updateMetrics(
             energyZ: energyZ,
             energyA: energyA,
             energyC: energyC,
             peakLevel: peakLevel,
             dt: dt,
-            recordingDuration: recordingDuration
+            recordingDuration: audioThreadRecordingDuration
         )
         
         let broadbandLevel = levels["LAF"] ?? -120.0
@@ -1708,24 +1734,22 @@ class AudioEngine: ObservableObject {
         let normalized = (newSampleRate * 10).rounded() / 10
         guard abs(normalized - processingSampleRate) > 1.0 else { return }
 
-        processingLock.lock()
+        processingLock.withLockUnchecked {
+            processingSampleRate = normalized
+            sampleBuffer.removeAll()
+            sampleBufferOffset = 0
+            fftInputBuffer.removeAll()
 
-        processingSampleRate = normalized
-        sampleBuffer.removeAll()
-        sampleBufferOffset = 0
-        fftInputBuffer.removeAll()
-
-        fftProcessor = FFTProcessor(
-            fftSize: fftSize,
-            sampleRate: normalized,
-            windowFunction: currentWindowFunction
-        )
-        weightingProcessor = FrequencyWeightingProcessor(
-            fftSize: fftSize,
-            sampleRate: normalized
-        )
-
-        processingLock.unlock()
+            fftProcessor = FFTProcessor(
+                fftSize: fftSize,
+                sampleRate: normalized,
+                windowFunction: currentWindowFunction
+            )
+            weightingProcessor = FrequencyWeightingProcessor(
+                fftSize: fftSize,
+                sampleRate: normalized
+            )
+        }
 
         Logger.audioEngine.info(
             "Reconfigured DSP sample rate (\(source)): \(normalized, format: .fixed(precision: 1)) Hz"

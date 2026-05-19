@@ -16,8 +16,14 @@ final class MeasurementDataReader {
         self.fileURL = fileURL
         self.fileHandle = try FileHandle(forReadingFrom: fileURL)
 
-        let fullData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        var cursor = MeasurementDataCursor(data: fullData)
+        // Parse the header directly from the open file handle. Previously the
+        // initialiser also memory-mapped the full file via
+        // `Data(contentsOf: ..., options: .mappedIfSafe)` purely to read the
+        // header, holding two OS-level resources against the same inode for the
+        // reader's entire lifetime.
+        let fixedHeader = try MeasurementDataReader.readExactly(
+            MeasurementDataFormat.fixedHeaderSize, from: fileHandle)
+        var cursor = MeasurementDataCursor(data: fixedHeader)
 
         let magic = try cursor.readUInt32()
         guard magic == MeasurementDataFormat.magic else {
@@ -40,10 +46,16 @@ final class MeasurementDataReader {
 
         var metricKeys: [String] = []
         metricKeys.reserveCapacity(metricCount)
+        var bytesConsumed = MeasurementDataFormat.fixedHeaderSize
         for _ in 0..<metricCount {
-            let length = Int(try cursor.readUInt16())
-            let key = try cursor.readUTF8String(length: length)
+            let lengthData = try MeasurementDataReader.readExactly(2, from: fileHandle)
+            var lengthCursor = MeasurementDataCursor(data: lengthData)
+            let length = Int(try lengthCursor.readUInt16())
+            let keyData = try MeasurementDataReader.readExactly(length, from: fileHandle)
+            var keyCursor = MeasurementDataCursor(data: keyData)
+            let key = try keyCursor.readUTF8String(length: length)
             metricKeys.append(key)
+            bytesConsumed += 2 + length
         }
 
         self.header = MeasurementDataHeader(
@@ -55,9 +67,9 @@ final class MeasurementDataReader {
             fftBlockSize: fftBlockSize,
             fftBinCount: fftBinCount,
             flags: resolvedFlags,
-            headerSize: cursor.offset
+            headerSize: bytesConsumed
         )
-        self.frameStartOffset = UInt64(cursor.offset)
+        self.frameStartOffset = UInt64(bytesConsumed)
         let fullFftCount = header.hasFullFFT ? header.fftBinCount : 0
         self.frameSize = MemoryLayout<Float>.size
             * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
@@ -94,6 +106,16 @@ final class MeasurementDataReader {
             let frame = try readFrame(at: index)
             try body(index, frame)
         }
+    }
+
+    /// Reads exactly `count` bytes from the file handle at its current offset.
+    /// Throws `ioFailure` if the file ends before `count` bytes are available.
+    private static func readExactly(_ count: Int, from handle: FileHandle) throws -> Data {
+        guard count >= 0 else { return Data() }
+        guard let data = try handle.read(upToCount: count), data.count == count else {
+            throw MeasurementDataError.ioFailure("Header konnte nicht vollständig gelesen werden.")
+        }
+        return data
     }
 
     private func decodeFrame(from data: Data) throws -> MeasurementFrame {

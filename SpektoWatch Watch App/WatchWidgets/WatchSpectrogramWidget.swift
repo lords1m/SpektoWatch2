@@ -3,8 +3,11 @@ import SwiftUI
 struct WatchSpectrogramWidget: View {
     @EnvironmentObject var audioEngine: WatchAudioEngine
 
-    @State private var frames: [[Float]] = []
-    private let maxFrames = 40
+    private static let maxFrames = 40
+    // Fixed-capacity ring buffer — O(1) append-and-drop-oldest, replacing the
+    // previous `[[Float]]` + `removeFirst()` (O(n) per audio frame).
+    @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: WatchSpectrogramWidget.maxFrames)
+    private let maxFrames = WatchSpectrogramWidget.maxFrames
     private let displayBins = 32
 
     private let minDB: Float = -180.0
@@ -18,7 +21,8 @@ struct WatchSpectrogramWidget: View {
                 let colWidth = width / CGFloat(maxFrames)
                 let rowHeight = height / CGFloat(displayBins)
 
-                for (i, magnitudes) in frames.enumerated() {
+                let orderedFrames = frames.inOrder()
+                for (i, magnitudes) in orderedFrames.enumerated() {
                     let x = CGFloat(i) * colWidth
                     let chunkSize = max(1, magnitudes.count / displayBins)
 
@@ -52,9 +56,6 @@ struct WatchSpectrogramWidget: View {
 
     private func processData(_ data: SpectrogramData) {
         frames.append(data.magnitudes)
-        if frames.count > maxFrames {
-            frames.removeFirst()
-        }
     }
 
     private func spectrogramColor(_ value: Double) -> Color {

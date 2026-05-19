@@ -90,6 +90,24 @@ class DashboardViewModel: ObservableObject {
     }
     
     func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {
+        // Re-entrancy guard for the watch-unreachable fallback path:
+        //
+        // 1. User picks `.appleWatch` → `selectedMicrophoneSource = .appleWatch`
+        //    → `onChange` fires.
+        // 2. `applyMicrophoneSourceSelection(.appleWatch)` detects the watch is
+        //    unreachable, rolls back: `selectedMicrophoneSource = .iPhone`.
+        // 3. That rollback re-triggers `onChange` with `newSource = .iPhone`.
+        // 4. `apply(.iPhone)` succeeds; without this guard,
+        //    `restartActiveMeasurementForSelectedSource(.iPhone)` would tear
+        //    down and restart the (already-running-on-iPhone) engine.
+        //
+        // The audit's suggested guard `newSource != selectedMicrophoneSource`
+        // is unusable here: SwiftUI `onChange` fires AFTER the property has
+        // been updated, so the two are always equal inside this closure.
+        // Instead, skip when the audio engine is already serving the
+        // requested source — that's the actual condition we want to avoid
+        // re-applying.
+        guard audioEngine.activeMicrophoneSource != newSource else { return }
         guard applyMicrophoneSourceSelection(newSource, notifyWatch: true) else { return }
         restartActiveMeasurementForSelectedSource(newSource)
     }

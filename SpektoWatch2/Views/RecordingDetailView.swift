@@ -29,6 +29,11 @@ struct RecordingDetailView: View {
     @State private var rawSpectrogramHistory: [[Float]] = []
     @State private var isLoadingSpectrogram = false
     @State private var storedDataProvider: StoredDataProvider?
+    /// Tracks the background load (StoredDataProvider bootstrap or FFT fallback)
+    /// so it can be cancelled when the view disappears. Without this, a long
+    /// recording would keep CPU pegged after the user navigates away, and the
+    /// completion handler would mutate state on a view that's no longer visible.
+    @State private var spectrogramLoadTask: Task<Void, Never>?
     @State private var selectedMetrics: Set<String> = []
     @State private var analysisStartTime: TimeInterval = 0
     @State private var analysisEndTime: TimeInterval = 0
@@ -154,6 +159,8 @@ struct RecordingDetailView: View {
         .onDisappear {
             audioPlayer.stop()
             storedDataProvider?.pause()
+            spectrogramLoadTask?.cancel()
+            spectrogramLoadTask = nil
         }
         .onChange(of: playbackWeighting) { _, newValue in
             applyPlaybackWeighting(newValue)
@@ -829,45 +836,71 @@ struct RecordingDetailView: View {
     }
 
     private func loadStoredMeasurementDataIfAvailable() {
+        // Cancel any in-flight load before kicking off a new one (e.g. when the
+        // view reappears after a fast push/pop).
+        spectrogramLoadTask?.cancel()
+
         guard let measurementURL = recordingManager.measurementURL(for: recording),
               FileManager.default.fileExists(atPath: measurementURL.path) else {
             loadSpectrogramHistoryFallback()
             return
         }
 
-        do {
-            let provider = try StoredDataProvider(fileURL: measurementURL)
-            storedDataProvider = provider
-            hasMeasurementData = true
-            rawSpectrogramHistory = provider.spectrogramHistory
-            weightedSpectrogramCache.removeAll()
-            applyPlaybackWeighting(playbackWeighting)
-            if selectedMetrics.isEmpty {
-                selectedMetrics = Set(provider.metricKeys.prefix(6))
+        isLoadingSpectrogram = true
+        spectrogramLoadTask = Task.detached(priority: .userInitiated) {
+            // StoredDataProvider.init runs the full-file bootstrap synchronously.
+            // For a long recording this can be hundreds of MB / many seconds, so
+            // it must not happen on the main actor.
+            let result = Result { try StoredDataProvider(fileURL: measurementURL) }
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard !Task.isCancelled else {
+                    isLoadingSpectrogram = false
+                    return
+                }
+                switch result {
+                case .success(let provider):
+                    storedDataProvider = provider
+                    hasMeasurementData = true
+                    rawSpectrogramHistory = provider.spectrogramHistory
+                    weightedSpectrogramCache.removeAll()
+                    applyPlaybackWeighting(playbackWeighting)
+                    if selectedMetrics.isEmpty {
+                        selectedMetrics = Set(provider.metricKeys.prefix(6))
+                    }
+                    analysisEndTime = max(analysisEndTime, provider.duration)
+                    isLoadingSpectrogram = false
+                case .failure(let error):
+                    print("[RecordingDetailView] Failed to load stored measurement data: \(error)")
+                    isLoadingSpectrogram = false
+                    loadSpectrogramHistoryFallback()
+                }
             }
-            analysisEndTime = max(analysisEndTime, provider.duration)
-        } catch {
-            print("[RecordingDetailView] Failed to load stored measurement data: \(error)")
-            loadSpectrogramHistoryFallback()
         }
     }
 
     private func loadSpectrogramHistoryFallback() {
+        spectrogramLoadTask?.cancel()
         let url = recordingManager.url(for: recording)
+        let calibrationOffset = recording.calibrationOffset
         isLoadingSpectrogram = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let history = try computeSpectrogramHistoryStreaming(url: url, calibrationOffset: recording.calibrationOffset)
-                DispatchQueue.main.async {
-                    self.rawSpectrogramHistory = history
-                    self.weightedSpectrogramCache.removeAll()
-                    self.applyPlaybackWeighting(self.playbackWeighting)
-                    self.isLoadingSpectrogram = false
+        spectrogramLoadTask = Task.detached(priority: .userInitiated) {
+            let result = Result { try computeSpectrogramHistoryStreaming(url: url, calibrationOffset: calibrationOffset) }
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard !Task.isCancelled else {
+                    isLoadingSpectrogram = false
+                    return
                 }
-            } catch {
-                DispatchQueue.main.async {
-                    self.isLoadingSpectrogram = false
+                switch result {
+                case .success(let history):
+                    rawSpectrogramHistory = history
+                    weightedSpectrogramCache.removeAll()
+                    applyPlaybackWeighting(playbackWeighting)
+                case .failure:
+                    break
                 }
+                isLoadingSpectrogram = false
             }
         }
     }

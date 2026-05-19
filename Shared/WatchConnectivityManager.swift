@@ -10,8 +10,8 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.connectivity")
     #if os(watchOS)
-    private static let complicationLevelKey = "spw.complication.level"
-    private static let complicationWeightingKey = "spw.complication.weighting"
+    // Complication keys are defined once in `Shared/AppGroup.swift` so the
+    // widget-extension reader and this writer cannot drift.
     private static let complicationWidgetKinds = [
         "SpektoWatchLevelCircular",
         "SpektoWatchLevelRectangular",
@@ -176,9 +176,11 @@ class WatchConnectivityManager: NSObject, ObservableObject {
                 print("Watch not reachable")
                 hasLoggedUnreachability = true
             }
-            if pendingSpectrogramData != nil {
-                scheduleSpectrogramSendIfNeeded()
-            }
+            // Note: the "if pendingSpectrogramData != nil { reschedule }"
+            // branches that previously lived here and after `sendMessageData`
+            // were dead code. `pendingSpectrogramData` was set to nil three
+            // lines above and `sendQueue` is serial, so no other writer can
+            // mutate it between then and here.
             return
         }
         hasLoggedUnreachability = false
@@ -186,10 +188,6 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         let packet = WatchConnectivityProtocol.makeSpectrogramPacket(dataToSend)
         WCSession.default.sendMessageData(packet, replyHandler: nil) { error in
             print("Error sending spectrogram data: \(error.localizedDescription)")
-        }
-
-        if pendingSpectrogramData != nil {
-            scheduleSpectrogramSendIfNeeded()
         }
     }
 
@@ -224,47 +222,62 @@ extension WatchConnectivityManager: WCSessionDelegate {
         os_signpost(.begin, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID) }
 
-        if let type = WatchConnectivityProtocol.messageType(from: message) {
-            switch type {
-            case .startRecording:
-                let source = WatchConnectivityProtocol.recordingSource(from: message)
+        guard let type = WatchConnectivityProtocol.messageType(from: message) else {
+            // Unknown message type — log so a missing decoder doesn't go
+            // unnoticed during cross-version skew.
+            if let typeRaw = message[WatchConnectivityProtocol.Key.type] as? String {
+                print("[WCM] Ignored unknown message type: \(typeRaw)")
+            }
+            return
+        }
+
+        switch type {
+        case .startRecording:
+            let source = WatchConnectivityProtocol.recordingSource(from: message)
+            // WCSession delivers `didReceiveMessage` on a background queue.
+            // All state mutation AND the NotificationCenter post must hop to
+            // main so observers (e.g. WatchAudioEngine.handleStartRecording)
+            // touch AVAudioEngine and `@Published` state on the main thread.
+            DispatchQueue.main.async {
                 if let source {
-                    DispatchQueue.main.async {
-                        self.selectedMicrophoneSource = source
-                        self.onMicrophoneSourceChanged?(source)
-                    }
+                    self.selectedMicrophoneSource = source
+                    self.onMicrophoneSourceChanged?(source)
                 }
                 NotificationCenter.default.post(name: .startRecordingCommand, object: source)
-            case .stopRecording:
-                let source = WatchConnectivityProtocol.recordingSource(from: message)
+            }
+        case .stopRecording:
+            let source = WatchConnectivityProtocol.recordingSource(from: message)
+            DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
-            case .gain:
-                if let gain = WatchConnectivityProtocol.gain(from: message) {
+            }
+        case .gain:
+            if let gain = WatchConnectivityProtocol.gain(from: message) {
+                DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
                 }
-            case .microphoneSource:
-                if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
-                    DispatchQueue.main.async {
-                        self.selectedMicrophoneSource = source
-                        self.onMicrophoneSourceChanged?(source)
-                    }
+            }
+        case .microphoneSource:
+            if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
+                DispatchQueue.main.async {
+                    self.selectedMicrophoneSource = source
+                    self.onMicrophoneSourceChanged?(source)
                 }
-            case .watchDashboardConfig:
-                if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
-                   let configData = configString.data(using: .utf8),
-                   let config = WatchDashboardConfig.decode(from: configData) {
-                    DispatchQueue.main.async {
-                        self.watchDashboardConfig = config
-                        config.save()
-                        NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
-                        print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
-                    }
+            }
+        case .watchDashboardConfig:
+            if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
+               let configData = configString.data(using: .utf8),
+               let config = WatchDashboardConfig.decode(from: configData) {
+                DispatchQueue.main.async {
+                    self.watchDashboardConfig = config
+                    config.save()
+                    NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
+                    print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
                 }
-            case .frequencyWeighting:
-                if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
-                    DispatchQueue.main.async {
-                        self.frequencyWeighting = weighting
-                    }
+            }
+        case .frequencyWeighting:
+            if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
+                DispatchQueue.main.async {
+                    self.frequencyWeighting = weighting
                 }
             }
         }
@@ -284,14 +297,36 @@ extension WatchConnectivityManager: WCSessionDelegate {
     }
 
     #if os(watchOS)
+    /// Minimum interval between WidgetKit timeline reloads.
+    ///
+    /// watchOS enforces a hard daily budget on complication refreshes
+    /// (~50 reloads/day, per WidgetKit docs). The previous 1-second cadence
+    /// could exhaust the budget in under a minute of continuous measurement,
+    /// after which the system silently stops updating the complication.
+    /// 60 s keeps live values fresh enough for an at-a-glance level indicator
+    /// while staying comfortably inside the system budget for an all-day
+    /// session (60 reloads/hour vs ~50 reloads/day allowed without
+    /// throttling — Apple coalesces beyond a soft hourly limit too).
+    private static let complicationReloadMinimumInterval: TimeInterval = 60
+
     private func updateComplicationState(from data: SpectrogramData) {
         let now = Date()
-        guard now.timeIntervalSince(lastComplicationReload) >= 1 else { return }
+        guard now.timeIntervalSince(lastComplicationReload) >= Self.complicationReloadMinimumInterval else { return }
 
-        UserDefaults.standard.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: Self.complicationLevelKey)
-        UserDefaults.standard.set(frequencyWeighting, forKey: Self.complicationWeightingKey)
-
+        // Update `lastComplicationReload` BEFORE issuing the reload so a second
+        // call arriving within the same tick cannot race past the throttle
+        // check. Previously this was assigned after the WidgetCenter call,
+        // making the guard a TOCTOU window.
         lastComplicationReload = now
+
+        // Route through the App Group suite so the widget extension's process
+        // can read these. Previously this wrote to `UserDefaults.standard`,
+        // which the extension never sees — meaning live data never reached
+        // the complication.
+        let shared = AppGroup.defaults
+        shared.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: ComplicationSharedKeys.level)
+        shared.set(frequencyWeighting, forKey: ComplicationSharedKeys.weighting)
+
         Self.complicationWidgetKinds.forEach {
             WidgetCenter.shared.reloadTimelines(ofKind: $0)
         }
