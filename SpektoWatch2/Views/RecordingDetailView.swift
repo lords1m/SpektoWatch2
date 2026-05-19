@@ -995,7 +995,7 @@ struct RecordingDetailView: View {
         )
     }
 
-    private func computeSpectrogramHistoryStreaming(url: URL, calibrationOffset: Float) throws -> [[Float]] {
+    nonisolated private func computeSpectrogramHistoryStreaming(url: URL, calibrationOffset: Float) throws -> [[Float]] {
         let fftSize = 4096
         let hopSize = 512
         let frequencyBins = 1024

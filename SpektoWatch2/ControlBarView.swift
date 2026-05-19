@@ -34,6 +34,9 @@ private struct PlayPauseButton: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
+            .accessibilityLabel(state.playPauseAccessibilityLabel)
         }
         .buttonStyle(PlainButtonStyle())
         .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
@@ -80,6 +83,9 @@ private struct RecordStopButton: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: isActive)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
+            .accessibilityLabel(baseState.recordStopAccessibilityLabel)
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!isEnabled)
@@ -157,6 +163,7 @@ struct ControlBarView: View {
         .onAppear {
             audioEngine.prewarmAudioSession()
         }
+        .accessibilityIdentifier("controlBarView")
     }
 
     @ViewBuilder
@@ -229,6 +236,9 @@ struct ControlBarView: View {
                         .offset(x: badgeOffsetX, y: badgeOffsetY)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("recordingsListButton")
+            .accessibilityLabel("Aufnahmen")
         }
         .accessibilityIdentifier("recordingsListButton")
         .accessibilityLabel("Aufnahmen")

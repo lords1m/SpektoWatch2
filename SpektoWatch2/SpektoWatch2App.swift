@@ -18,6 +18,10 @@ struct SpektoWatch2App: App {
     @StateObject private var maskingProfileManager = MaskingProfileManager()
 
     init() {
+#if DEBUG
+        UITestLaunchConfiguration.applyIfNeeded()
+#endif
+
         let fm = BandstopFilterManager()
         let cm = WatchConnectivityManager()
         let rm = RecordingManager()
@@ -84,3 +88,28 @@ private final class AudioEngineContainer: ObservableObject {
         self.maskingEngine = MaskingEngine(audioEngine: engine)
     }
 }
+
+#if DEBUG
+private enum UITestLaunchConfiguration {
+    static func applyIfNeeded() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-ResetState") else { return }
+
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+        }
+
+        removeRecordingsDirectory()
+    }
+
+    private static func removeRecordingsDirectory() {
+        let fileManager = FileManager.default
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return
+        }
+
+        let recordingsURL = documentsURL.appendingPathComponent("Recordings", isDirectory: true)
+        try? fileManager.removeItem(at: recordingsURL)
+    }
+}
+#endif

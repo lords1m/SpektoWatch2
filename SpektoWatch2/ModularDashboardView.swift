@@ -196,6 +196,7 @@ struct ModularDashboardView: View {
         .onChange(of: viewModel.dashboardManager.isEditMode) { oldValue, newValue in
             print("[ModularDashboardView] Edit mode changed: \(oldValue) -> \(newValue)")
         }
+        .accessibilityIdentifier("dashboardView")
     }
 
     private var headerBar: some View {

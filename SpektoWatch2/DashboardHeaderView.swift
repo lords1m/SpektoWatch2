@@ -32,6 +32,7 @@ struct DashboardHeaderView: View {
                             .font(.title2)
                             .foregroundColor(.primary)
                     }
+                    .accessibilityIdentifier("settingsButton")
                     .padding(.trailing, 10)
 
                     Menu {
@@ -49,6 +50,7 @@ struct DashboardHeaderView: View {
                             .font(.title3)
                             .foregroundColor(.primary)
                     }
+                    .accessibilityIdentifier("layoutsButton")
                     .padding(.trailing, 8)
                 }
                 
@@ -61,6 +63,7 @@ struct DashboardHeaderView: View {
                                 .foregroundColor(.blue)
                         }
                     }
+                    .accessibilityIdentifier("addWidgetButton")
                     .padding(.trailing, 6)
                 }
                 
@@ -78,6 +81,7 @@ struct DashboardHeaderView: View {
                         .fontWeight(isEditMode ? .bold : .regular)
                         .foregroundColor(.blue)
                 }
+                .accessibilityIdentifier("editDashboardButton")
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 14)
@@ -88,5 +92,6 @@ struct DashboardHeaderView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .background(Color.clear)
+        .accessibilityIdentifier("dashboardHeaderView")
     }
 }

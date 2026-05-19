@@ -13,10 +13,9 @@
   },
   "testTargets" : [
     {
-      "parallelizable" : false,
       "target" : {
         "containerPath" : "container:SpektoWatch2.xcodeproj",
-        "identifier" : "SpektoWatch2UITests",
+        "identifier" : "37969D4C2F2E0982009D1923",
         "name" : "SpektoWatch2UITests"
       }
     }

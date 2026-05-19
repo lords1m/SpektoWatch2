@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,15 +61,15 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		CC11CC11CC11CC11CC11000D /* Embed App Extensions */ = {
+		CC11CC11CC11CC11CC11000D /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */,
+				CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -282,7 +282,7 @@
 				379523692F22353C0079C93F /* Sources */,
 				3795236A2F22353C0079C93F /* Frameworks */,
 				3795236B2F22353C0079C93F /* Resources */,
-				CC11CC11CC11CC11CC11000D /* Embed App Extensions */,
+				CC11CC11CC11CC11CC11000D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -402,7 +402,7 @@
 					New,
 				);
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					3795235A2F2234F90079C93F = {
 						CreatedOnToolsVersion = 26.2;
@@ -716,7 +716,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren, um das Spektrogramm durch Kippen des Geräts zu verschieben.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren für UX-Effekte und zur bestimmung von Körnperschall ";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -774,7 +774,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren, um das Spektrogramm durch Kippen des Geräts zu verschieben.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren für UX-Effekte und zur bestimmung von Körnperschall ";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
