@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: completed
   started: "2026-05-12"
-  current_milestone: M5
+  current_milestone: M6
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
@@ -72,6 +72,26 @@ milestones:
     tasks_total: 6
     notes: All export artifacts and UI complete. All targeted tests pass. Handoff report written.
     file: agent/milestones/milestone-4-export-and-reporting.md
+
+  M6:
+    name: Code Audit Remediation
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-18"
+    completed: "2026-05-19"
+    estimated_weeks: "2"
+    tasks_completed: 10
+    tasks_total: 10
+    notes: >
+      All 10 task cycles complete. 44 audit findings covered: 32 landed in
+      code, 3 partial (code-side done, remainder structural or Xcode-UI),
+      4 deferred with explicit rationale, 5 verification reversals (audit
+      claims that did not survive math/test verification). Handoff report:
+      agent/reports/2026-05-19-milestone-6-acceptance.md. Outstanding work
+      that cannot be done in code: App Group entitlement wiring in Xcode +
+      Developer Portal, manual hardware acceptance on a paired Apple Watch.
+    file: agent/milestones/milestone-6-code-audit-remediation.md
 
 tasks:
   M1:
@@ -180,16 +200,160 @@ tasks:
       status: completed
       file: agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md
 
-updated_at: 2026-05-16
-current_milestone: M5
-current_task: task-4-acceptance
+  M6:
+    - id: task-1-dsp-correctness
+      name: DSP Correctness
+      status: partial
+      file: agent/tasks/milestone-6-code-audit-remediation/task-1-dsp-correctness.md
+      notes: >
+        3 of 7 sub-items landed (octave-band edges, recordingDuration race,
+        sampleBuffer ceiling). 3 audit findings did not survive verification
+        against existing tests and Parseval (#1 zop/zrop, #2 LAF exponent,
+        #5 C-weight sign) and are deferred. 1 finding (#11 ENBW) deferred
+        as calibration-shifting; needs hardware re-validation paired with a
+        calibration migration. See task file for full rationale.
+    - id: task-2-recording-persistence-integrity
+      name: Recording & Persistence Integrity
+      status: partial
+      file: agent/tasks/milestone-6-code-audit-remediation/task-2-recording-persistence-integrity.md
+      notes: >
+        8 of 9 sub-items landed: deleted stale RecordingManager, writer
+        frameCount-after-write fix, StoredDataProvider off-main via
+        Task.detached + cancellation, lastPathComponent in SaveRecordingView
+        (dead view, flagged for Task 9), CGImage bitmap-info fix,
+        PDFReportGenerator routed through RecordingManager, MeasurementDataReader
+        no longer doubles file descriptors. CSV locale (#14) deferred —
+        M4 explicitly listed locale redesign as a non-goal; needs a
+        product decision rather than a silent change.
+    - id: task-3-watchconnectivity-consolidation
+      name: WatchConnectivity Consolidation
+      status: partial
+      file: agent/tasks/milestone-6-code-audit-remediation/task-3-watchconnectivity-consolidation.md
+      notes: >
+        6 of 10 sub-items landed: iOS spectrogram throttling/coalescing
+        ported from Shared; complication reload raised to 60s minimum with
+        TOCTOU fix in both files; NotificationCenter posts moved onto main;
+        dead reschedule branches deleted; unknown-message-type logging added;
+        watch debug counter gated under #if DEBUG. Deferred (with rationale):
+        binary A/C encoding (#4 — needs format-version byte, pair with #5),
+        applicationContext version handshake (#5 — coordinated change),
+        processQueue races (#6 — consolidation decision first), and watch
+        UI items #8/#9 (fold into Task 7 — Watch Lifecycle & Battery).
+    - id: task-4-complication-app-group
+      name: Complication App Group + Watch Info.plist
+      status: partial
+      file: agent/tasks/milestone-6-code-audit-remediation/task-4-complication-app-group.md
+      notes: >
+        All code-side changes landed: Shared/AppGroup.swift created;
+        WatchConnectivityManager (both files) writes via AppGroup.defaults;
+        WatchComplicationProvider reads via AppGroup.defaults (with inlined
+        constants to avoid pbxproj target-membership surgery); timeline
+        policy switched to .never; UIBackgroundModes removed from watch
+        Info.plist. Skeleton .entitlements files created for both targets.
+        REMAINING (manual Xcode + Developer Portal work): register the App
+        Group in the portal, regen provisioning profiles, wire
+        CODE_SIGN_ENTITLEMENTS for both targets via Xcode Signing &
+        Capabilities. Until then, AppGroup.defaults falls back to
+        UserDefaults.standard — no regression vs. M5 behavior.
+    - id: task-5-spectrogram-metal-threading
+      name: Spectrogram & Metal Threading
+      status: partial
+      file: agent/tasks/milestone-6-code-audit-remediation/task-5-spectrogram-metal-threading.md
+      notes: >
+        4 of 5 sub-items landed: OSAllocatedUnfairLock added to
+        HighEndSpectrogramAdapter (snapshots in draw, lock-wrapped state
+        mutations and writeColumn); PlaybackSpectrogramView fatalErrors
+        replaced with isMetalReady flag + graceful degradation;
+        buildColormapTexture moved eager into setColormap (removed from
+        draw). #4 deferred: computeFromAudioSamples turns out to be dead
+        code (no callers) — flag for Task 9 deletion. #1 partial: scalar
+        race fixed; the GPU/CPU texture-replace race needs a structural
+        double-buffer or semaphore gate (out of scope for this cycle).
+    - id: task-6-audio-thread-realtime-safety
+      name: Audio Thread Real-Time Safety
+      status: completed
+      file: agent/tasks/milestone-6-code-audit-remediation/task-6-audio-thread-realtime-safety.md
+      notes: >
+        Both sub-items landed. processingLock in AudioEngine converted from
+        NSLock to OSAllocatedUnfairLock across all six call sites (no more
+        pthread_mutex_lock on the audio render thread); audio-thread reads
+        now snapshot the lock-protected trio (fftSize, fftProcessor,
+        weightingProcessor) in one critical section. Watch debug print
+        blocks (input RMS probe + FFT output probe + debugFrameCount
+        storage) gated behind #if DEBUG so heap allocations and stdout
+        locks compile out in release. Flagged: widgetSpectralWeightingsLock
+        has the same NSLock-on-audio-thread shape but wasn't in the audit;
+        candidate for follow-up.
+    - id: task-7-watch-lifecycle-and-battery
+      name: Watch Lifecycle & Battery
+      status: completed
+      file: agent/tasks/milestone-6-code-audit-remediation/task-7-watch-lifecycle-and-battery.md
+      notes: >
+        All three sub-items landed (including #8/#9 folded from Task 3).
+        Watch audio engine now stops on WKExtendedRuntimeSession expire/
+        invalidate AND on scenePhase .background (unless an extended runtime
+        session is .running). Live-data delivery to main coalesced to 5 Hz
+        via OSAllocatedUnfairLock + pendingLiveData (was per-callback async
+        with 1024-float copies). Shared/RingBuffer.swift added; both
+        WatchSpectrogramView and WatchSpectrogramWidget switched from
+        [[Float]] + O(n) removeFirst() to O(1) ring-buffer append.
+    - id: task-8-ios-ui-state-hygiene
+      name: iOS UI State Hygiene
+      status: partial
+      file: agent/tasks/milestone-6-code-audit-remediation/task-8-ios-ui-state-hygiene.md
+      notes: >
+        2 of 4 sub-items landed: WidgetSize zero-clamp + Codable decode
+        migration + resize-site clamp; onChange re-entrancy guard via
+        activeMicrophoneSource check (audit's suggested guard wouldn't
+        actually work given SwiftUI onChange semantics). Two audit claims
+        falsified during verification: #30 (the forwarder DOES catch
+        drop-delegate mutations via dashboardManager.objectWillChange
+        propagation; perf concern is real but a structural refactor
+        deferred) and #41 (cached @ObservedObject preview is the correct
+        pattern; SwiftUI re-runs init on parent re-render; audit's
+        proposed direct-access fix would actually break observation).
+    - id: task-9-dead-code-purge
+      name: Dead Code Purge
+      status: completed
+      file: agent/tasks/milestone-6-code-audit-remediation/task-9-dead-code-purge.md
+      notes: >
+        Deleted: DashboardView.swift (0 bytes), WidgetSystem.swift (0 bytes),
+        Views/SaveRecordingView.swift, AudioWidget.swift (all 3 protocols);
+        struct SpectrogramView removed (kept SpectrogramTimeSpan enum —
+        still used by 4 files); PlaybackSpectrogramRenderer.computeFromAudioSamples
+        removed. Bonus: stripped MetalWidgetManager of the dead renderers
+        cache, getRenderer/releaseRenderer methods (depended on deleted
+        MetalWidgetRenderer protocol), and unused sharedCommandQueue. Verified
+        no live code references any deleted symbol. Managers/RecordingManager.swift
+        was already deleted in Task 2.
+    - id: task-10-acceptance
+      name: Acceptance
+      status: completed
+      file: agent/tasks/milestone-6-code-audit-remediation/task-10-acceptance.md
+      notes: >
+        Handoff report at agent/reports/2026-05-19-milestone-6-acceptance.md.
+        44-finding coverage table: 32 landed, 3 partial, 4 deferred, 5
+        verification reversals. Negative checks clean (no new fatalError/
+        try!/as!, no UserDefaults.standard in Complications, no NSLock on
+        audio render thread). Manual hardware acceptance + App Group Xcode
+        wiring documented as outstanding follow-ups.
+
+updated_at: 2026-05-19
+current_milestone: M6
+current_task: task-10-acceptance
 active_context:
   summary: >
-    Milestones 1–5 complete. The watch app embeds the SpektoWatch Complications
-    WidgetKit extension, and incoming compact watch live data reloads the three
-    complication timelines at most once per second.
+    Milestones 1–6 complete. M6 (Code Audit Remediation) covered all 44
+    findings from the 2026-05-18 full-codebase audit: 32 landed in code,
+    3 partial (code-side complete, remainder structural or Xcode-UI),
+    4 deferred with explicit rationale, 5 verification reversals.
+    Handoff at agent/reports/2026-05-19-milestone-6-acceptance.md.
+    Outstanding (cannot be done in code): App Group entitlement wiring
+    via Xcode Signing & Capabilities + Apple Developer Portal; manual
+    hardware acceptance on a paired Apple Watch.
   next_action: >
-    Await the next milestone or task request.
+    Await next milestone or feature request. Follow-up backlog (M7
+    candidates) listed in the M6 handoff report under "Follow-up tasklist".
 known_constraints:
   - Watch complication manual acceptance still requires Apple Watch hardware or
     an interactive paired simulator session.
@@ -198,3 +362,11 @@ known_constraints:
   - Masking is a future core feature, out of scope until a dedicated milestone.
   - External calibrated microphone compliance workflow is out of scope until a
     dedicated milestone.
+  - Local simulator is broken; do not run xcodebuild test commands locally.
+    Capture verification steps in handoff reports for Xcode Cloud or developer
+    machines.
+  - M5 task-3-live-data-integration accepted UserDefaults.standard for the
+    complication shared state; M6 task-4 superseded this with an App Group
+    (code-side complete; Xcode entitlement wiring still required).
+  - M6 task-4 .entitlements files exist but are not yet wired to their target
+    CODE_SIGN_ENTITLEMENTS in project.pbxproj.

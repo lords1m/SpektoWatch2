@@ -34,12 +34,57 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
 }
 
 struct WidgetSize: Codable, Equatable {
+    /// Minimum permitted `rows`. A widget rendered with `rows == 0` produces
+    /// `height == 0`, which makes the Metal-backed widgets ask MetalKit for a
+    /// zero-sized drawable and crashes the draw loop. Clamping at the model
+    /// layer means any corrupt/legacy persisted value still yields a usable
+    /// widget instead of a broken UI.
+    static let minimumRows: Double = 0.5
+
     var columns: Int
-    var rows: Double
+
+    /// Persisted backing for `rows`. Always read/written via `rows` so the
+    /// minimum is enforced for every code path (mutation, decode, defaults).
+    private var _rows: Double
+
+    var rows: Double {
+        get { _rows }
+        set { _rows = max(WidgetSize.minimumRows, newValue) }
+    }
+
+    init(columns: Int, rows: Double) {
+        self.columns = columns
+        self._rows = max(WidgetSize.minimumRows, rows)
+    }
 
     var height: CGFloat {
         let baseHeight: CGFloat = 200 // Basis-Höhe pro Zeile
         return CGFloat(rows) * baseHeight + CGFloat(max(0, rows - 1.0)) * 12 // + spacing
+    }
+
+    // MARK: - Codable migration
+    //
+    // Keep the JSON key as `rows` (matches legacy persisted dashboards). The
+    // custom decoder coerces any value below `minimumRows` — including a
+    // zero left by a buggy/older writer — to the minimum, preventing the
+    // Metal zero-size crash on load.
+    private enum CodingKeys: String, CodingKey {
+        case columns
+        case rows
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let columns = try container.decode(Int.self, forKey: .columns)
+        let rawRows = try container.decode(Double.self, forKey: .rows)
+        self.columns = columns
+        self._rows = max(WidgetSize.minimumRows, rawRows)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(columns, forKey: .columns)
+        try container.encode(rows, forKey: .rows)
     }
 }
 

@@ -134,9 +134,14 @@ class DashboardManager: ObservableObject {
     }
     
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
-        Logger.ui.debug("Resizing widget \(id) to \(newSize.columns)x\(newSize.rows)")
+        // `WidgetSize.init` and the `rows` setter already clamp to
+        // `WidgetSize.minimumRows`, but constructing the size via the
+        // memberwise-style init below makes the clamp explicit at the
+        // mutation site too.
+        let safeSize = WidgetSize(columns: newSize.columns, rows: newSize.rows)
+        Logger.ui.debug("Resizing widget \(id) to \(safeSize.columns)x\(safeSize.rows)")
         if let index = widgets.firstIndex(where: { $0.id == id }) {
-            widgets[index].size = newSize
+            widgets[index].size = safeSize
             Logger.ui.debug("Widget resized successfully")
             saveConfiguration()
         } else {

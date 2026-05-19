@@ -3,6 +3,7 @@ import Accelerate
 import SwiftUI
 import Combine
 import OSLog
+import os
 
 // ============================================================================
 // MARK: - Axis Metrics (unchanged public API)
@@ -48,6 +49,16 @@ class HighEndSpectrogramAdapter: MTKView {
     private var colormapTextures: [Int: MTLTexture] = [:]  // cached per colormap type
 
     // MARK: - Ring Buffer State
+    //
+    // These fields are mutated by `updateWithFFTMagnitudes` on a private
+    // background `updateQueue` (subscribed to `audioEngine.spectrogramSubject`
+    // in the Coordinator below) AND read by `draw(_:)` on the main thread.
+    // `stateLock` serialises the scalar reads/writes; without it, even aligned
+    // `Int` access can produce torn reads under contention, and `Bool`/`Double`
+    // values are unsafe across threads. The Metal texture write itself
+    // (`writeColumn` → `spectrogramTexture.replace(...)`) still races with
+    // GPU reads — see comment in `writeColumn` for the trade-off.
+    private let stateLock = OSAllocatedUnfairLock()
     private var currentColumn: Int = 0
     private var totalColumnsWritten: Int = 0
     private var firstDataTimestamp: TimeInterval?
@@ -278,9 +289,12 @@ class HighEndSpectrogramAdapter: MTKView {
         updateSampleRateIfNeeded(sampleRate)
 
         let currentTimestamp = timestamp.timeIntervalSinceReferenceDate
-        let previousTimestamp = (lastDataTimestamp > 0) ? lastDataTimestamp : nil
-        lastDataTimestamp = currentTimestamp
-        if firstDataTimestamp == nil { firstDataTimestamp = currentTimestamp }
+        let previousTimestamp = stateLock.withLockUnchecked { () -> TimeInterval? in
+            let prev = (lastDataTimestamp > 0) ? lastDataTimestamp : nil
+            lastDataTimestamp = currentTimestamp
+            if firstDataTimestamp == nil { firstDataTimestamp = currentTimestamp }
+            return prev
+        }
 
         // Rebuild mapping cache if input size changed
         if mappingCache == nil || cachedInputSize != magnitudes.count {
@@ -368,40 +382,46 @@ class HighEndSpectrogramAdapter: MTKView {
 
         applyFrequencySmoothingIfNeeded(values: &reusableColumnData)
 
-        // Determine how many columns to write based on elapsed time.
-        // Uses effectiveSecondsPerColumn (timeSpan / timeColumns) so the
-        // accumulator stays in sync with the actual texture resolution.
-        let columnsToWrite: Int = {
-            guard let prev = previousTimestamp else { return 1 }
-            let dt = max(0, currentTimestamp - prev)
-            let spc = effectiveSecondsPerColumn
-            guard spc > 0 else { return 1 }
-            columnAdvanceAccumulator += dt / spc
-            let advanced = Int(columnAdvanceAccumulator.rounded(.down))
-            if advanced > 0 {
-                let clamped = min(advanced, max(1, timeColumns))
-                columnAdvanceAccumulator -= Double(clamped)
-                return clamped
-            }
-            return 1
-        }()
-
-        // Bei UI-/Scheduler-Drops nicht identische Spalten kopieren, sondern
-        // Zwischenwerte schreiben. Das verhindert breite vertikale Blöcke.
-        if columnsToWrite > 1, previousColumnData.count == reusableColumnData.count {
-            for step in 1...columnsToWrite {
-                let mixFactor = Float(step) / Float(columnsToWrite)
-                for i in 0..<reusableColumnData.count {
-                    reusableInterpolatedColumnData[i] =
-                        previousColumnData[i] * (1.0 - mixFactor) + reusableColumnData[i] * mixFactor
+        // Serialise scalar-state mutation and the ring-buffer texture writes
+        // under `stateLock` so `draw(_:)` on the main thread sees consistent
+        // values for `currentColumn`/`totalColumnsWritten`/etc. and the
+        // texture-replace ordering is well-defined.
+        stateLock.withLockUnchecked {
+            // Determine how many columns to write based on elapsed time.
+            // Uses effectiveSecondsPerColumn (timeSpan / timeColumns) so the
+            // accumulator stays in sync with the actual texture resolution.
+            let columnsToWrite: Int = {
+                guard let prev = previousTimestamp else { return 1 }
+                let dt = max(0, currentTimestamp - prev)
+                let spc = effectiveSecondsPerColumn
+                guard spc > 0 else { return 1 }
+                columnAdvanceAccumulator += dt / spc
+                let advanced = Int(columnAdvanceAccumulator.rounded(.down))
+                if advanced > 0 {
+                    let clamped = min(advanced, max(1, timeColumns))
+                    columnAdvanceAccumulator -= Double(clamped)
+                    return clamped
                 }
-                writeColumn(reusableInterpolatedColumnData)
+                return 1
+            }()
+
+            // Bei UI-/Scheduler-Drops nicht identische Spalten kopieren, sondern
+            // Zwischenwerte schreiben. Das verhindert breite vertikale Blöcke.
+            if columnsToWrite > 1, previousColumnData.count == reusableColumnData.count {
+                for step in 1...columnsToWrite {
+                    let mixFactor = Float(step) / Float(columnsToWrite)
+                    for i in 0..<reusableColumnData.count {
+                        reusableInterpolatedColumnData[i] =
+                            previousColumnData[i] * (1.0 - mixFactor) + reusableColumnData[i] * mixFactor
+                    }
+                    writeColumnLocked(reusableInterpolatedColumnData)
+                }
+            } else {
+                writeColumnLocked(reusableColumnData)
             }
-        } else {
-            writeColumn(reusableColumnData)
+            previousColumnData = reusableColumnData
+            totalColumnsWritten += columnsToWrite
         }
-        previousColumnData = reusableColumnData
-        totalColumnsWritten += columnsToWrite
     }
 
     private func applyFrequencySmoothingIfNeeded(values: inout [Float]) {
@@ -426,7 +446,16 @@ class HighEndSpectrogramAdapter: MTKView {
         }
     }
 
-    private func writeColumn(_ columnData: [Float]) {
+    /// Must be called with `stateLock` held. Renamed from `writeColumn` to
+    /// make the precondition explicit.
+    ///
+    /// Note on the GPU-side race: `spectrogramTexture` is `.storageModeShared`
+    /// and may be read by an in-flight GPU encoder while this CPU write lands
+    /// for the next column. This is undefined per Metal validation but
+    /// visually tolerated by the existing pipeline. A future structural fix
+    /// would either double-buffer the texture or gate the write on
+    /// `inFlightSemaphore`. Tracked as a follow-up on Task 5.
+    private func writeColumnLocked(_ columnData: [Float]) {
         let region = MTLRegion(
             origin: MTLOrigin(x: currentColumn, y: 0, z: 0),
             size: MTLSize(width: 1, height: frequencyBins, depth: 1)
@@ -468,18 +497,26 @@ class HighEndSpectrogramAdapter: MTKView {
         let semaphore = inFlightSemaphore
         commandBuffer.addCompletedHandler { _ in semaphore.signal() }
 
+        // Snapshot the ring-buffer scalars in one locked block so we cannot
+        // observe a torn write from the background updateQueue. Everything
+        // below this point uses the local snapshots.
+        let (snapCurrentColumn, snapTotalColumnsWritten, snapFirstDataTimestamp, snapLastDataTimestamp) =
+            stateLock.withLockUnchecked {
+                (currentColumn, totalColumnsWritten, firstDataTimestamp, lastDataTimestamp)
+            }
+
         // Smooth display scroll: advance at a constant rate tied to CACurrentMediaTime()
         // rather than data timestamps. This eliminates the micro-jumps that occur when
         // the integer columnsToWrite doesn't match the expected fractional advance.
-        let lastWrittenColumn = (currentColumn - 1 + timeColumns) % timeColumns
+        let lastWrittenColumn = (snapCurrentColumn - 1 + timeColumns) % timeColumns
         let now = CACurrentMediaTime()
         let frameDt = lastCADrawTime > 0 ? min(now - lastCADrawTime, 0.05) : 0
         lastCADrawTime = now
 
-        if !displayScrollSynced && totalColumnsWritten > 0 {
+        if !displayScrollSynced && snapTotalColumnsWritten > 0 {
             displayScrollPosition = Double(lastWrittenColumn)
             displayScrollSynced = true
-        } else if frameDt > 0 && currentTimeSpanValue > 0 && totalColumnsWritten > 0 && !isUpdatesPaused {
+        } else if frameDt > 0 && currentTimeSpanValue > 0 && snapTotalColumnsWritten > 0 && !isUpdatesPaused {
             let columnsPerSec = Double(timeColumns) / Double(currentTimeSpanValue)
             displayScrollPosition += frameDt * columnsPerSec
 
@@ -494,15 +531,15 @@ class HighEndSpectrogramAdapter: MTKView {
         }
 
         var totalOffset = Float(displayScrollPosition.truncatingRemainder(dividingBy: Double(timeColumns))) / Float(timeColumns) + manualScrollOffset
-        let fillRatio = min(1.0, Float(totalColumnsWritten) / Float(max(timeColumns, 1)))
+        let fillRatio = min(1.0, Float(snapTotalColumnsWritten) / Float(max(timeColumns, 1)))
 
         // Push axis metrics at ~30 Hz
         let nowUptime = ProcessInfo.processInfo.systemUptime
         if nowUptime - lastAxisMetricsPushUptime >= (1.0 / 10.0) {
             lastAxisMetricsPushUptime = nowUptime
             let recordingTime: Double
-            if let first = firstDataTimestamp {
-                recordingTime = max(0, lastDataTimestamp - first)
+            if let first = snapFirstDataTimestamp {
+                recordingTime = max(0, snapLastDataTimestamp - first)
             } else {
                 recordingTime = 0
             }
@@ -520,8 +557,8 @@ class HighEndSpectrogramAdapter: MTKView {
         let scrollBuffer = scrollBuffers[currentBufferIndex]
         memcpy(scrollBuffer.contents(), &totalOffset, MemoryLayout<Float>.stride)
 
-        // Ensure colormap texture exists
-        buildColormapTexture(type: colormapType)
+        // Colormap texture is built eagerly in `setColormap`; no need to
+        // build (or even gate-check) per frame inside the draw loop.
         let cmTexture = colormapTextures[colormapType]
 
         // Encode render
@@ -541,12 +578,18 @@ class HighEndSpectrogramAdapter: MTKView {
     // MARK: - Public API
 
     func reset() {
-        currentColumn = 0
-        totalColumnsWritten = 0
-        columnAdvanceAccumulator = 0
-        firstDataTimestamp = nil
-        lastDataTimestamp = 0
-        previousColumnData = [Float](repeating: 0, count: frequencyBins)
+        stateLock.withLockUnchecked {
+            currentColumn = 0
+            totalColumnsWritten = 0
+            columnAdvanceAccumulator = 0
+            firstDataTimestamp = nil
+            lastDataTimestamp = 0
+            previousColumnData = [Float](repeating: 0, count: frequencyBins)
+        }
+        // `displayScrollSynced` is read/written only on the main thread inside
+        // `draw(_:)`. `reset()` is conventionally called from main; keep it
+        // outside the lock to avoid pretending we synchronize a value that
+        // doesn't actually share a thread with the lock's other consumers.
         displayScrollSynced = false
         if isMetalReady {
             clearTexture()
@@ -560,6 +603,11 @@ class HighEndSpectrogramAdapter: MTKView {
         let clamped = max(0, min(ColormapType.allCases.count - 1, type))
         guard colormapType != clamped else { return }
         colormapType = clamped
+        // Build the colormap texture eagerly so the draw loop never has to
+        // (the previous per-frame call from inside `draw(_:)` was a cheap
+        // dict lookup most of the time but still ran on every CADisplayLink
+        // tick — there is no need for it there at all).
+        buildColormapTexture(type: clamped)
         if Thread.isMainThread {
             setNeedsDisplay()
         } else {

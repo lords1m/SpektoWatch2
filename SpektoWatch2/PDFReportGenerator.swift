@@ -8,17 +8,19 @@ final class PDFReportGenerator {
 
     func generateReport(
         for recording: Recording,
-        recordingManager _: RecordingManager
+        recordingManager: RecordingManager
     ) throws -> URL {
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("report_\(recording.id.uuidString).pdf")
         let pageRect = CGRect(x: 0, y: 0, width: 595, height: 842) // A4 @72dpi
-        let recordingsDirectory = resolveRecordingsDirectory()
-        let audioURL = resolveRecordingURL(fileName: recording.audioFileName, recordingsDirectory: recordingsDirectory)
+        // Use RecordingManager as the single source of truth for recording file
+        // URLs. Previously this class re-derived `~/Documents/Recordings` itself;
+        // if that path ever changed (sandbox container, migration, etc.) the PDF
+        // would silently render blank spectrogram/photo pages with no error.
+        let audioURL = recordingManager.url(for: recording)
 
         let measurementReader: MeasurementDataReader? = {
-            guard let fileName = recording.measurementDataFileName else { return nil }
-            let url = resolveRecordingURL(fileName: fileName, recordingsDirectory: recordingsDirectory)
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            guard let url = recordingManager.measurementURL(for: recording),
+                  FileManager.default.fileExists(atPath: url.path) else { return nil }
             return try? MeasurementDataReader(fileURL: url)
         }()
         let lineValues = try loadBroadbandValues(reader: measurementReader)
@@ -69,10 +71,9 @@ final class PDFReportGenerator {
             drawFooter(in: page2, rect: pageRect, page: 2)
 
             if !recording.photoFileNames.isEmpty {
-                let baseDir = audioURL.deletingLastPathComponent()
                 var pageIndex = 3
                 for photoName in recording.photoFileNames {
-                    let photoURL = baseDir.appendingPathComponent(photoName)
+                    let photoURL = recordingManager.getPhotoURL(fileName: photoName)
                     guard let image = UIImage(contentsOfFile: photoURL.path) else { continue }
                     context.beginPage()
                     let cg = context.cgContext
@@ -268,22 +269,5 @@ final class PDFReportGenerator {
         return (z, a, c)
     }
 
-    private func resolveRecordingsDirectory() -> URL {
-        let fileManager = FileManager.default
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? fileManager.temporaryDirectory
-        let directory = documents.appendingPathComponent("Recordings", isDirectory: true)
-        if !fileManager.fileExists(atPath: directory.path) {
-            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        return directory
-    }
-
-    private func resolveRecordingURL(fileName: String, recordingsDirectory: URL) -> URL {
-        if fileName.contains("/") {
-            return URL(fileURLWithPath: fileName)
-        }
-        return recordingsDirectory.appendingPathComponent(fileName)
-    }
 }
 #endif
