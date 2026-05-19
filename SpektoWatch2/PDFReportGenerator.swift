@@ -6,6 +6,7 @@ import CoreLocation
 final class PDFReportGenerator {
     private let spectrogramRenderer = SpectrogramImageRenderer()
 
+    @MainActor
     func generateReport(
         for recording: Recording,
         recordingManager: RecordingManager
