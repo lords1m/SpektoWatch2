@@ -8,10 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		37DC2D8D2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
-		37DC2D8E2F35596900DEE817 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
-		9B6A1D2F9F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
-		9B6A1D309F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */; };
 		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -460,8 +456,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				37DC2D8D2F35596900DEE817 /* TestPlan.xctestplan in Resources */,
-				9B6A1D2F9F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -469,8 +463,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				37DC2D8E2F35596900DEE817 /* TestPlan.xctestplan in Resources */,
-				9B6A1D309F00111100111111 /* SpektoWatch2_FullRun.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
