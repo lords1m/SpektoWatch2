@@ -84,6 +84,7 @@ case "$current_milestone" in
   M3) task_dir="agent/tasks/milestone-3-dashboard-and-recording-polish" ;;
   M4) task_dir="agent/tasks/milestone-4-export-and-reporting" ;;
   M5) task_dir="agent/tasks/milestone-5-watch-complications" ;;
+  M6) task_dir="agent/tasks/milestone-6-code-audit-remediation" ;;
   *) task_dir="agent/tasks/$current_milestone" ;;
 esac
 
