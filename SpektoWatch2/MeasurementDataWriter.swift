@@ -118,9 +118,15 @@ final class MeasurementDataWriter {
             frameBuffer.values.withUnsafeBytes { ptr in
                 handle.write(Data(ptr))
             }
+            // Increment the persisted frame count only AFTER the bytes have
+            // been handed to the file handle. Crashing between increment and
+            // write would leave the header claiming more frames than the file
+            // actually holds; the reader would then seek past EOF and throw.
+            // `frameCount` is otherwise touched only from `updateFrameCount`
+            // (called from `close`, which drains this queue first).
+            self.frameCount += 1
             self.releaseFrameBufferIndex(bufferIndex)
         }
-        frameCount += 1
     }
 
     func close() throws {

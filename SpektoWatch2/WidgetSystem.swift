@@ -1,1 +1,0 @@
-// This file is deprecated. Use WidgetConfiguration.swift and DashboardManager.swift instead.

@@ -8,8 +8,8 @@ import WidgetKit
 
 public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     #if os(watchOS)
-    private static let complicationLevelKey = "spw.complication.level"
-    private static let complicationWeightingKey = "spw.complication.weighting"
+    // Keys live in `Shared/AppGroup.swift` to avoid drift with the widget
+    // extension reader.
     private static let complicationWidgetKinds = [
         "SpektoWatchLevelCircular",
         "SpektoWatchLevelRectangular",
@@ -37,7 +37,23 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     private var messageQueue: [QueuedMessage] = []
     private let maxRetries = 3
     private var isProcessingQueue = false
-    
+
+    // MARK: - Spectrogram Send Throttling
+    //
+    // FFT frames arrive at ~21 Hz (44100 / 2048). Sending each one via
+    // `sendMessageData` immediately would saturate the WCSession outbound
+    // queue, drop frames silently (no errorHandler was wired), and waste
+    // radio/battery. Coalesce into a single most-recent frame per adaptive
+    // interval (thermal-aware) and flush on a dedicated queue.
+    //
+    // The watch-side `Shared/WatchConnectivityManager` has the symmetric
+    // logic for sends originating from the watch.
+    private let spectrogramSendQueue = DispatchQueue(label: "com.spektowatch.ios-spectrogram-send", qos: .utility)
+    private var pendingSpectrogramData: SpectrogramData?
+    private var isSpectrogramSendScheduled = false
+    private var lastSpectrogramSendTime: TimeInterval = 0
+    private var hasLoggedSpectrogramUnreachability = false
+
     public override init() {
         super.init()
         // Ensure public access for Watch App
@@ -87,14 +103,19 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     }
 
     #if os(watchOS)
+    private static let complicationReloadMinimumInterval: TimeInterval = 60
+
     private func updateComplicationState(from data: SpectrogramData) {
         let now = Date()
-        guard now.timeIntervalSince(lastComplicationReload) >= 1 else { return }
-
-        UserDefaults.standard.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: Self.complicationLevelKey)
-        UserDefaults.standard.set(frequencyWeighting, forKey: Self.complicationWeightingKey)
-
+        guard now.timeIntervalSince(lastComplicationReload) >= Self.complicationReloadMinimumInterval else { return }
+        // Assign before the reload so a near-simultaneous second call cannot
+        // race past the throttle check.
         lastComplicationReload = now
+
+        let shared = AppGroup.defaults
+        shared.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: ComplicationSharedKeys.level)
+        shared.set(frequencyWeighting, forKey: ComplicationSharedKeys.weighting)
+
         Self.complicationWidgetKinds.forEach {
             WidgetCenter.shared.reloadTimelines(ofKind: $0)
         }
@@ -103,36 +124,40 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         DispatchQueue.main.async {
-            if let type = WatchConnectivityProtocol.messageType(from: message) {
-                switch type {
-                case .microphoneSource:
-                    if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
-                        self.selectedMicrophoneSource = source
-                    }
-                case .startRecording:
-                    let source = WatchConnectivityProtocol.recordingSource(from: message)
-                    if let source {
-                        self.selectedMicrophoneSource = source
-                    }
-                    NotificationCenter.default.post(name: .startRecordingCommand, object: source)
-                case .stopRecording:
-                    let source = WatchConnectivityProtocol.recordingSource(from: message)
-                    NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
-                case .frequencyWeighting:
-                    if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
-                        self.frequencyWeighting = weighting
-                    }
-                case .watchDashboardConfig:
-                    if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
-                       let configData = configString.data(using: .utf8),
-                       let config = WatchDashboardConfig.decode(from: configData) {
-                        self.watchDashboardConfig = config
-                        config.save()
-                    }
-                case .gain:
-                    if let gain = WatchConnectivityProtocol.gain(from: message) {
-                        NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
-                    }
+            guard let type = WatchConnectivityProtocol.messageType(from: message) else {
+                if let typeRaw = message[WatchConnectivityProtocol.Key.type] as? String {
+                    Logger.connectivity.info("Ignored unknown message type: \(typeRaw)")
+                }
+                return
+            }
+            switch type {
+            case .microphoneSource:
+                if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
+                    self.selectedMicrophoneSource = source
+                }
+            case .startRecording:
+                let source = WatchConnectivityProtocol.recordingSource(from: message)
+                if let source {
+                    self.selectedMicrophoneSource = source
+                }
+                NotificationCenter.default.post(name: .startRecordingCommand, object: source)
+            case .stopRecording:
+                let source = WatchConnectivityProtocol.recordingSource(from: message)
+                NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
+            case .frequencyWeighting:
+                if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
+                    self.frequencyWeighting = weighting
+                }
+            case .watchDashboardConfig:
+                if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
+                   let configData = configString.data(using: .utf8),
+                   let config = WatchDashboardConfig.decode(from: configData) {
+                    self.watchDashboardConfig = config
+                    config.save()
+                }
+            case .gain:
+                if let gain = WatchConnectivityProtocol.gain(from: message) {
+                    NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
                 }
             }
         }
@@ -155,10 +180,63 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     // MARK: - Senden (Public API)
     
     public func sendSpectrogramData(_ data: SpectrogramData) {
-        // Echtzeit-Daten senden wir direkt (Fire & Forget), keine Queue
-        guard WCSession.default.isReachable else { return }
-        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(data)
-        WCSession.default.sendMessageData(packet, replyHandler: nil, errorHandler: nil)
+        // Coalesce: keep only the most recent frame. The audio thread can call
+        // this at FFT framerate without saturating WCSession.
+        spectrogramSendQueue.async {
+            self.pendingSpectrogramData = data
+            self.scheduleSpectrogramSendIfNeeded()
+        }
+    }
+
+    private func scheduleSpectrogramSendIfNeeded() {
+        guard !isSpectrogramSendScheduled else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let sendInterval = adaptiveSpectrogramSendInterval()
+        let earliestSend = lastSpectrogramSendTime + sendInterval
+        let delay = max(0, earliestSend - now)
+
+        isSpectrogramSendScheduled = true
+        spectrogramSendQueue.asyncAfter(deadline: .now() + delay) {
+            self.flushPendingSpectrogramData()
+        }
+    }
+
+    private func flushPendingSpectrogramData() {
+        guard let dataToSend = pendingSpectrogramData else {
+            isSpectrogramSendScheduled = false
+            return
+        }
+
+        pendingSpectrogramData = nil
+        isSpectrogramSendScheduled = false
+        lastSpectrogramSendTime = ProcessInfo.processInfo.systemUptime
+
+        guard WCSession.default.isReachable else {
+            if !hasLoggedSpectrogramUnreachability {
+                Logger.connectivity.info("Watch not reachable; dropping spectrogram frame.")
+                hasLoggedSpectrogramUnreachability = true
+            }
+            return
+        }
+        hasLoggedSpectrogramUnreachability = false
+
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(dataToSend)
+        WCSession.default.sendMessageData(packet, replyHandler: nil) { error in
+            Logger.connectivity.error("Error sending spectrogram data: \(error.localizedDescription)")
+        }
+    }
+
+    private func adaptiveSpectrogramSendInterval() -> TimeInterval {
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.isLowPowerModeEnabled {
+            return WatchConnectivityProtocol.lowPowerSpectrogramSendInterval
+        }
+        switch processInfo.thermalState {
+        case .serious: return WatchConnectivityProtocol.seriousThermalSpectrogramSendInterval
+        case .critical: return WatchConnectivityProtocol.criticalThermalSpectrogramSendInterval
+        case .fair: return WatchConnectivityProtocol.fairThermalSpectrogramSendInterval
+        default: return WatchConnectivityProtocol.normalSpectrogramSendInterval
+        }
     }
     
     public func sendGainValue(_ gain: Float) {

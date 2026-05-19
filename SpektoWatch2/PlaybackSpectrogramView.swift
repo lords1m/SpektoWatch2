@@ -64,6 +64,13 @@ class PlaybackSpectrogramRenderer: MTKView {
     private var magnitudeHistory: [[Float]] = []
     private var isTextureReady = false
 
+    /// True once Metal setup completed successfully. If false, the renderer
+    /// silently no-ops in `draw()` and `loadSpectrogramData()` so the
+    /// surrounding SwiftUI hierarchy can fall back to a plain view instead of
+    /// the app crashing on devices/simulators where Metal pipeline creation
+    /// fails (shader ABI mismatch, no Metal device, etc.).
+    private(set) var isMetalReady = false
+
     // MARK: - Display Parameters
     var colormapType: Int = 0 {
         didSet { rebuildColormapTexture() }
@@ -95,7 +102,11 @@ class PlaybackSpectrogramRenderer: MTKView {
     }
 
     private func setupMetal() {
-        guard let device = device else { fatalError("Metal is not supported") }
+        guard let device = device else {
+            print("[PlaybackSpectrogramRenderer] Metal device unavailable — falling back to disabled renderer.")
+            isMetalReady = false
+            return
+        }
 
         self.framebufferOnly = true
         self.enableSetNeedsDisplay = true
@@ -103,20 +114,42 @@ class PlaybackSpectrogramRenderer: MTKView {
         self.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         self.colorPixelFormat = .bgra8Unorm
 
-        commandQueue = device.makeCommandQueue()
-        setupPipeline()
+        guard let queue = device.makeCommandQueue() else {
+            print("[PlaybackSpectrogramRenderer] Failed to create Metal command queue.")
+            isMetalReady = false
+            return
+        }
+        commandQueue = queue
 
-        viewportBuffer = device.makeBuffer(
+        guard setupPipeline() else {
+            isMetalReady = false
+            return
+        }
+
+        guard let buffer = device.makeBuffer(
             length: MemoryLayout<SIMD2<Float>>.stride,
             options: .storageModeShared
-        )
+        ) else {
+            print("[PlaybackSpectrogramRenderer] Failed to create viewport buffer.")
+            isMetalReady = false
+            return
+        }
+        viewportBuffer = buffer
 
         rebuildColormapTexture()
+        isMetalReady = true
     }
 
-    private func setupPipeline() {
+    /// Returns true on success. Previously called `fatalError` on pipeline
+    /// creation failure, which crashes the app on Metal-incompatible
+    /// simulators or after a shader ABI mismatch.
+    @discardableResult
+    private func setupPipeline() -> Bool {
         guard let device = device,
-              let library = device.makeDefaultLibrary() else { return }
+              let library = device.makeDefaultLibrary() else {
+            print("[PlaybackSpectrogramRenderer] Default Metal library unavailable.")
+            return false
+        }
 
         let desc = MTLRenderPipelineDescriptor()
         desc.vertexFunction = library.makeFunction(name: "spectrogramVertex")
@@ -125,8 +158,10 @@ class PlaybackSpectrogramRenderer: MTKView {
 
         do {
             pipelineState = try device.makeRenderPipelineState(descriptor: desc)
+            return true
         } catch {
-            fatalError("Failed to create pipeline: \(error)")
+            print("[PlaybackSpectrogramRenderer] Failed to create pipeline: \(error)")
+            return false
         }
     }
 
@@ -151,72 +186,12 @@ class PlaybackSpectrogramRenderer: MTKView {
         setNeedsDisplay()
     }
 
-    func computeFromAudioSamples(_ samples: [Float], sampleRate: Double, fftSize: Int = 4096, hopSize: Int = 512) {
-        guard samples.count > fftSize else { return }
-
-        var history: [[Float]] = []
-
-        guard let fftSetup = vDSP_DFT_zrop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD) else { return }
-        defer { vDSP_DFT_DestroySetup(fftSetup) }
-
-        var window = [Float](repeating: 0, count: fftSize)
-        // Manual Hann window implementation to avoid vDSP API compatibility issues
-        let n = Float(fftSize)
-        for i in 0..<fftSize {
-            let x = Float(i) / n
-            window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
-        }
-
-        var offset = 0
-        while offset + fftSize <= samples.count {
-            let windowSamples = Array(samples[offset..<(offset + fftSize)])
-            var windowed = [Float](repeating: 0, count: fftSize)
-            vDSP_vmul(windowSamples, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
-
-            var realIn = [Float](repeating: 0, count: fftSize / 2)
-            var imagIn = [Float](repeating: 0, count: fftSize / 2)
-            for i in 0..<(fftSize / 2) {
-                realIn[i] = windowed[2 * i]
-                imagIn[i] = windowed[2 * i + 1]
-            }
-
-            var realOut = [Float](repeating: 0, count: fftSize / 2)
-            var imagOut = [Float](repeating: 0, count: fftSize / 2)
-            vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
-
-            var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-            realOut.withUnsafeMutableBufferPointer { realPtr in
-                imagOut.withUnsafeMutableBufferPointer { imagPtr in
-                    var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                    vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-                }
-            }
-
-            var dbMagnitudes = [Float](repeating: -120.0, count: magnitudes.count)
-            for i in 0..<magnitudes.count {
-                let db = 20.0 * log10(magnitudes[i] + 1e-10)
-                dbMagnitudes[i] = db + calibrationOffset
-            }
-
-            let minFreq: Float = 20.0
-            let nyquist = Float(sampleRate) / 2.0
-            let maxFreq: Float = min(nyquist, 20_000.0)
-            let denomBins = Float(max(textureHeight - 1, 1))
-            let denomSrc = Float(max(dbMagnitudes.count - 1, 1))
-            var column = [Float](repeating: -120.0, count: textureHeight)
-            for i in 0..<textureHeight {
-                let t = Float(i) / denomBins
-                let frequency = minFreq * powf(maxFreq / minFreq, t)
-                let srcIndex = min(dbMagnitudes.count - 1, max(0, Int((frequency / nyquist) * denomSrc)))
-                column[i] = dbMagnitudes[srcIndex]
-            }
-
-            history.append(column)
-            offset += hopSize
-        }
-
-        loadSpectrogramData(history)
-    }
+    // `computeFromAudioSamples` was removed in M6 task-9. It was an alternate
+    // entry point that computed the spectrogram from raw audio samples on the
+    // calling thread (synchronously on main, blocking for long recordings).
+    // It had no callers; `updateUIView` always feeds `loadSpectrogramData`
+    // with a pre-computed history from `StoredDataProvider` or
+    // `computeSpectrogramHistoryStreaming` on `RecordingDetailView`.
 
     private func createTexture() {
         guard let device = device else { return }
@@ -282,7 +257,11 @@ class PlaybackSpectrogramRenderer: MTKView {
     // MARK: - Rendering
 
     override func draw(_ rect: CGRect) {
-        guard isTextureReady,
+        guard isMetalReady,
+              isTextureReady,
+              commandQueue != nil,
+              pipelineState != nil,
+              viewportBuffer != nil,
               let drawable = currentDrawable,
               let rpd = currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),

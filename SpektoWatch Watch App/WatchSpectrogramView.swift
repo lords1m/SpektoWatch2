@@ -4,15 +4,18 @@ import Combine
 struct WatchSpectrogramView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
-    @State private var frames: [[Float]] = []
+    private static let maxFrames = 60
+    @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: WatchSpectrogramView.maxFrames)
     @State private var zoomLevel: Double = 1.0
+    #if DEBUG
     @State private var debugCounter: Int = 0
+    #endif
     @State private var latestFrequencies: [Float] = []
     @State private var latestSampleRate: Double = 44100.0
     @State private var latestMagnitudesCount: Int = 1024
     @FocusState private var isFocused: Bool
 
-    private let maxFrames = 60
+    private let maxFrames = WatchSpectrogramView.maxFrames
     private let displayBins = 40
     private let minDB: Float = -180.0
     private let maxDB: Float = -40.0
@@ -28,7 +31,8 @@ struct WatchSpectrogramView: View {
                     let colWidth = width / CGFloat(maxFrames)
                     let rowHeight = height / CGFloat(displayBins)
 
-                    for (i, magnitudes) in frames.enumerated() {
+                    let orderedFrames = frames.inOrder()
+                    for (i, magnitudes) in orderedFrames.enumerated() {
                         let x = CGFloat(i) * colWidth
                         let effectiveCount = Int(Double(magnitudes.count) * zoomLevel)
                         let chunkSize = max(1, effectiveCount / displayBins)
@@ -110,6 +114,11 @@ struct WatchSpectrogramView: View {
     }
 
     private func processSpectrogramData(_ data: SpectrogramData) {
+        #if DEBUG
+        // Periodic range probe — kept under DEBUG so neither the counter nor
+        // the `reduce(0, +)` over a 1024-element array runs on every frame in
+        // release builds. The watch's main thread is already constrained;
+        // gratuitous per-frame work shows up as battery drain.
         debugCounter += 1
         if debugCounter % 60 == 0 {
             let minVal = data.magnitudes.min() ?? 0
@@ -117,11 +126,14 @@ struct WatchSpectrogramView: View {
             let avgVal = data.magnitudes.reduce(0, +) / Float(data.magnitudes.count)
             print("[WatchView] Input Range: [\(String(format: "%.1f", minVal)), \(String(format: "%.1f", maxVal))] dB, Avg: \(String(format: "%.1f", avgVal)) dB")
         }
+        #endif
+        // `frames` is a fixed-capacity ring buffer (capacity = maxFrames) —
+        // `append` is O(1) and drops the oldest slot in place when full,
+        // replacing the previous O(n) `removeFirst()` per frame.
         frames.append(data.magnitudes)
         latestFrequencies = data.frequencies
         latestSampleRate = data.sampleRate
         latestMagnitudesCount = data.magnitudes.count
-        if frames.count > maxFrames { frames.removeFirst() }
     }
 
     /// Tatsächlich angezeigte Max-Frequenz unter Berücksichtigung des Zoom-Levels

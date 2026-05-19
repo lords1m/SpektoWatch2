@@ -128,7 +128,11 @@ final class SpectrogramImageRenderer {
             bitsPerPixel: 32,
             bytesPerRow: width * 4,
             space: colorSpace,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            // Alpha byte is always 255 (opaque); `.noneSkipLast` is the
+            // supported pixel format for 32-bit RGB. `.last` (non-premultiplied
+            // RGBA) is not in CGImage's supported-pixel-formats table for the
+            // device RGB color space and can produce undefined rendering.
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
             provider: provider,
             decode: nil,
             shouldInterpolate: true,

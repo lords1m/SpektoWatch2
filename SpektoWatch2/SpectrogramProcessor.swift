@@ -260,9 +260,15 @@ class SpectrogramProcessor {
         var ranges: [(start: Int, end: Int)] = []
         ranges.reserveCapacity(octaveCenterFrequencies.count)
 
+        // One-third-octave band edges: center × 2^(±1/6). The diagnostic path
+        // already uses these exact factors; the previous 0.89/1.12 constants
+        // diverged by ~0.2% at the band edge and caused near-edge tones to be
+        // attributed to different bands between the two code paths.
+        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
+        let upperFactor = pow(2.0 as Float,  1.0 / 6.0)
         for center in octaveCenterFrequencies {
-            let lower = center * 0.89
-            let upper = center * 1.12
+            let lower = center * lowerFactor
+            let upper = center * upperFactor
             let rawStart = Int(lower / resolution)
             let rawEnd = Int(upper / resolution)
             let start = max(0, min(rawStart, magnitudeCount - 1))
