@@ -630,8 +630,14 @@ tasks:
         LAeq → broadbandLevel fallback chain; peak from LCpeak →
         LAFmax. Phosphor accent hardcoded; sharing iOS AccentChoice
         across App Group deferred. Watch build green via xcodebuild
-        watchOS Simulator generic. Subtasks 4b-4e + hardware
-        acceptance still pending.
+        watchOS Simulator generic.
+        Subtask 4b landed 2026-05-21: WatchSpectrogramView gained
+        top status pill (pulsing phosphor LED + HH:mm time + STFT
+        cap on translucent capsule) and bottom STFT info pill
+        (phosphor dot + "STFT · N" block-size label). New private
+        PulsingDot helper. Kernel/axis labels/crown zoom/record
+        control untouched. Subtasks 4c-4e + hardware acceptance
+        still pending.
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
       status: in_progress

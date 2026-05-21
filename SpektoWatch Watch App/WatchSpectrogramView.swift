@@ -58,9 +58,10 @@ struct WatchSpectrogramView: View {
 
                 axisLabels
 
-                VStack {
+                VStack(spacing: 0) {
+                    topStatusStrip
                     Spacer()
-
+                    bottomStftPill
                     HStack {
                         Circle()
                             .fill(audioEngine.isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
@@ -85,6 +86,56 @@ struct WatchSpectrogramView: View {
         .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
             processSpectrogramData(data)
         }
+    }
+
+    // MARK: - Redesign chrome strips
+
+    private var topStatusStrip: some View {
+        HStack(spacing: 6) {
+            PulsingDot(active: audioEngine.isRecording || connectivityManager.isReachable)
+            Text(currentTimeString)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.85))
+            Spacer(minLength: 4)
+            Text("STFT")
+                .font(.system(size: 9, weight: .regular, design: .monospaced))
+                .tracking(1.6)
+                .foregroundStyle(.white.opacity(0.55))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule().fill(Color.black.opacity(0.55))
+        )
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+    }
+
+    private var bottomStftPill: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(Color(red: 0.45, green: 0.93, blue: 0.55))
+                .frame(width: 4, height: 4)
+            Text("STFT · \(stftBlockSize)")
+                .font(.system(size: 8, weight: .regular, design: .monospaced))
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(Color.black.opacity(0.45)))
+        .padding(.bottom, 2)
+    }
+
+    private var stftBlockSize: Int {
+        max(64, latestMagnitudesCount * 2)
+    }
+
+    private var currentTimeString: String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: Date())
     }
 
     private var recordButton: some View {
@@ -240,6 +291,33 @@ struct WatchSpectrogramView: View {
         if seconds >= 10 { return String(format: "%.0fs", seconds) }
         if seconds >= 1 { return String(format: "%.1fs", seconds) }
         return String(format: "%.2fs", seconds)
+    }
+
+    private struct PulsingDot: View {
+        let active: Bool
+        @State private var on = false
+
+        var body: some View {
+            Circle()
+                .fill(Color(red: 0.45, green: 0.93, blue: 0.55))
+                .frame(width: 5, height: 5)
+                .opacity(active ? (on ? 1.0 : 0.45) : 0.35)
+                .shadow(color: Color(red: 0.45, green: 0.93, blue: 0.55).opacity(active ? 0.7 : 0), radius: on ? 4 : 1)
+                .onAppear {
+                    guard active else { return }
+                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                        on = true
+                    }
+                }
+                .onChange(of: active) { _, newValue in
+                    on = false
+                    if newValue {
+                        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                            on = true
+                        }
+                    }
+                }
+        }
     }
 
     private func spectrogramColor(_ value: Double) -> Color {

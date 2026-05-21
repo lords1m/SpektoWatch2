@@ -16,10 +16,7 @@ This task is broken into incremental slices so each `/acp.proceed`
 turn ships a coherent deliverable.
 
 - **4a. Pegelmesser face** — landed 2026-05-21.
-- **4b. Spektrogramm face** — pending. Reskin the existing
-  `WatchSpectrogramView` to the redesign spec (top status strip
-  with pulsing LED + time + "STFT"; bottom "● STFT · 1024" strip).
-  Kernel stays.
+- **4b. Spektrogramm face** — landed 2026-05-21.
 - **4c. Tongenerator face** — pending. New file; mini sine wave
   with glow filter + PAUSE button + λ readout. Requires a watch-side
   tone source or a "static demo" mode.
@@ -50,10 +47,23 @@ turn ships a coherent deliverable.
 - Local simulator broken; visual acceptance gated on hardware
   (task-6).
 
+## Landed (2026-05-21) — Subtask 4b
+
+- `WatchSpectrogramView` gained two redesign chrome strips:
+  - **Top status pill**: pulsing phosphor LED + current `HH:mm`
+    time (monospaced) + "STFT" cap on a translucent black capsule.
+  - **Bottom STFT info pill**: small phosphor dot + "STFT · N"
+    block-size label (derives N from `latestMagnitudesCount * 2`).
+- Kernel rendering, axis labels, digital-crown zoom, and the
+  existing bottom record control are untouched.
+- New private `PulsingDot` view drives the LED animation; phosphor
+  green hardcoded to match face 4a until App Group accent sharing
+  lands.
+
 ## Acceptance status
 
 - [x] Pegelmesser face implemented (subtask 4a).
-- [ ] Spektrogramm face (subtask 4b).
+- [x] Spektrogramm face implemented (subtask 4b).
 - [ ] Tongenerator face (subtask 4c).
 - [ ] Complication chrome refresh (subtask 4d).
 - [ ] Modular 4-slot face (subtask 4e).
