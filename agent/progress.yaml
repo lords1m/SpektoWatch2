@@ -615,8 +615,23 @@ tasks:
         proxy (architecture is single-channel).
     - id: task-4-watch-faces-and-complications
       name: Watch Faces & Complications
-      status: pending
+      status: in_progress
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-4-watch-faces-and-complications.md
+      notes: >
+        Broken into 5 subtasks (4a Pegelmesser, 4b Spektrogramm, 4c
+        Tongenerator, 4d Complication chrome, 4e Modular 4-slot)
+        because the parent scope is multi-session. Subtask 4a landed
+        2026-05-21 on branch redesign/liquid-glass:
+        WatchPegelmesserFace.swift — 56pt ultralight phosphor-green
+        LAF number with monospacedDigit, dB(A) label, peak bar
+        (green→yellow→red, 30-110 dB), MIN/MAX line. Surfaced as
+        first TabView page in WatchContentView so it lands on app
+        open. Reads existing WatchAudioEngine.liveData with LAF →
+        LAeq → broadbandLevel fallback chain; peak from LCpeak →
+        LAFmax. Phosphor accent hardcoded; sharing iOS AccentChoice
+        across App Group deferred. Watch build green via xcodebuild
+        watchOS Simulator generic. Subtasks 4b-4e + hardware
+        acceptance still pending.
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
       status: in_progress
@@ -639,7 +654,7 @@ tasks:
 
 updated_at: 2026-05-21
 current_milestone: M12
-current_task: task-5-density-numerals-application
+current_task: task-4-watch-faces-and-complications
 last_proceed: 2026-05-21
 parked:
   - milestone: M8

@@ -6,6 +6,7 @@ struct WatchContentView: View {
 
     var body: some View {
         TabView {
+            WatchPegelmesserFace()
             WatchDashboardView()
             WatchSpectrogramView()
             WatchLevelMeterView()

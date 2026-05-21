@@ -1,6 +1,6 @@
 # Task 4: Watch Faces & Complications
 
-Status: pending
+Status: in_progress
 Created: 2026-05-21
 Milestone: `milestone-12-liquid-glass-redesign`
 Depends on: task-1
@@ -10,32 +10,51 @@ Depends on: task-1
 Implement the three watch faces and the five complication slot
 layouts from `design_handoff_spektowatch_redesign/README.md § 6–7`.
 
-## Scope
+## Subtasks
 
-### Faces
+This task is broken into incremental slices so each `/acp.proceed`
+turn ships a coherent deliverable.
 
-- **Pegelmesser** — 64pt accent LAF number + dB(A) + bottom peak
-  bar (green→yellow→red) + MIN/MAX line.
-- **Spektrogramm** — full-screen STFT canvas (viridis) + top status
-  bar (pulsing LED + time + "STFT") + bottom "● STFT · 1024" strip.
-- **Tongenerator** — `FREQUENZ` label + big "1.00 kHz" + mini sine
-  with glow + PAUSE button + λ readout.
+- **4a. Pegelmesser face** — landed 2026-05-21.
+- **4b. Spektrogramm face** — pending. Reskin the existing
+  `WatchSpectrogramView` to the redesign spec (top status strip
+  with pulsing LED + time + "STFT"; bottom "● STFT · 1024" strip).
+  Kernel stays.
+- **4c. Tongenerator face** — pending. New file; mini sine wave
+  with glow filter + PAUSE button + λ readout. Requires a watch-side
+  tone source or a "static demo" mode.
+- **4d. Complication chrome refresh** — pending. Update
+  `WatchComplicationViews` for the 5 slot layouts.
+- **4e. Modular 4-slot face** — pending. New face combining hero
+  LAF + mini spectrogram strip + PEAK + Leq tiles.
 
-### Complications
+## Landed (2026-05-21) — Subtask 4a
 
-- Circular Small — arc progress around centered "50 dB(A)".
-- Corner / Modular — "LAF · slow" label + big "50.2" + peak bar.
-- Rectangular / Smart Stack — live LAF + sparkline + Leq/Lmax/Δ.
-- Inline (Modular Face) — single horizontal pill.
-- Graphic Bezel — arc + center number + sidebar A-bewertet / Leq /
-  Lmax.
+- New `SpektoWatch Watch App/WatchPegelmesserFace.swift`. Big LAF
+  number (56pt SF Pro Display ultralight, phosphor green
+  `oklch(0.84 0.18 145)` ≈ `Color(red: 0.45, green: 0.93, blue:
+  0.55)`), dB(A) unit, peak bar (green→yellow→red gradient with
+  30–110 dB range), MIN/MAX labels. Reads from
+  `WatchAudioEngine.liveData`; ingest pulls LAF preferentially with
+  LAeq → broadbandLevel fallbacks, peak from LCpeak → LAFmax → LAF.
+- Added as first `TabView` page in `WatchContentView` so it surfaces
+  on first launch.
+- Phosphor color hardcoded for now — wiring watch-side to the iOS
+  `AccentChoice` token requires shared design tokens across the
+  App Group; deferred to a later sweep.
 
-## Non-Goals
+## Validation
 
-- Wiring `WatchConnectivity` differently (M5/M6 protocol stays).
-- Adding new complication kinds beyond the five listed.
+- `xcodebuild -scheme "SpektoWatch Watch App" -destination 'generic/
+  platform=watchOS Simulator' build` → `** BUILD SUCCEEDED **`.
+- Local simulator broken; visual acceptance gated on hardware
+  (task-6).
 
-## Acceptance
+## Acceptance status
 
-- All three faces selectable from the watch app.
-- At least three complication slots use the new chrome on hardware.
+- [x] Pegelmesser face implemented (subtask 4a).
+- [ ] Spektrogramm face (subtask 4b).
+- [ ] Tongenerator face (subtask 4c).
+- [ ] Complication chrome refresh (subtask 4d).
+- [ ] Modular 4-slot face (subtask 4e).
+- [ ] Hardware visual pass (task-6).
