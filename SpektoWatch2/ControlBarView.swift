@@ -100,6 +100,7 @@ struct ControlBarView: View {
     @ObservedObject var audioEngine: AudioEngine
     @EnvironmentObject private var recordingManager: RecordingManager
     @EnvironmentObject private var maskingEngine: MaskingEngine
+    @Environment(\.designNumerals) private var numerals
 
     @State private var showRecordingsList = false
 
@@ -178,7 +179,7 @@ struct ControlBarView: View {
                     .minimumScaleFactor(0.8)
                 if state.isRecording {
                     Text(timeString(from: recordingManager.currentRecordingDuration))
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .font(.numerals(numerals, size: 11))
                         .monospacedDigit()
                         .foregroundColor(.secondary)
                 }

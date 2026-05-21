@@ -101,9 +101,18 @@ extension Font {
     static func eyebrow(size: CGFloat = 10) -> Font {
         .system(size: size, weight: .regular, design: .monospaced)
     }
-    /// Tabular numeric readout.
+    /// Tabular numeric readout. Always mono — used for axis ticks and
+    /// any readout that must not reflow when digits change.
     static func readout(size: CGFloat = 11, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
+    }
+    /// Numeric readout that respects the user's `NumeralStyle` token.
+    /// Pass `.mono` for tabular monospace, `.sans` for proportional SF Pro.
+    static func numerals(_ style: NumeralStyle, size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch style {
+        case .mono: return .system(size: size, weight: weight, design: .monospaced)
+        case .sans: return .system(size: size, weight: weight, design: .default)
+        }
     }
     /// Header title — SF Pro semibold.
     static func headerTitle(size: CGFloat = 17) -> Font {

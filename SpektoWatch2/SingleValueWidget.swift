@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SingleValueWidget: View {
     @ObservedObject var audioEngine: AudioEngine
+    @Environment(\.designNumerals) private var numerals
     var settings: [String: String]
     @StateObject private var loudnessCalculator = LoudnessCalculator()
     
@@ -91,7 +92,8 @@ struct SingleValueWidget: View {
             Spacer()
 
             Text(displayValue)
-                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .font(.numerals(numerals, size: 42, weight: .bold))
+                .monospacedDigit()
                 .foregroundColor(audioEngine.engineStatus == .running ? .primary : .gray)
                 .minimumScaleFactor(0.5)
 

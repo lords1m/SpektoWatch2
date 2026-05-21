@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
     @EnvironmentObject private var fftConfig: FFTConfiguration
+    @Environment(\.designDensity) private var density
     @State private var isHeaderVisible: Bool = true
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
@@ -297,11 +298,15 @@ struct ModularDashboardView: View {
     @ViewBuilder
     private func dashboardGrid(geo: GeometryProxy, widgets: [WidgetConfiguration], isActiveLayout: Bool) -> some View {
         let isCompactWidth = geo.size.width <= 390
-        let horizontalPadding: CGFloat = isCompactWidth ? 12 : 16
-        let topPadding: CGFloat = isCompactWidth ? 12 : 16
-        let bottomPadding: CGFloat = isCompactWidth ? 18 : 24
-        let stackSpacing: CGFloat = isCompactWidth ? 12 : 14
-        let gridSpacing: CGFloat = isCompactWidth ? 10 : 12
+        // Density token maps to redesign spec (compact 10/8, standard 14/12,
+        // airy 18/16). Tighten by 2pt on iPhone-compact widths to keep
+        // pre-token visual density on small screens.
+        let compactAdjust: CGFloat = isCompactWidth ? -2 : 0
+        let horizontalPadding: CGFloat = max(8, density.cardPadding + compactAdjust)
+        let topPadding: CGFloat = horizontalPadding
+        let bottomPadding: CGFloat = horizontalPadding + 8
+        let gridSpacing: CGFloat = max(6, density.cardGap + compactAdjust)
+        let stackSpacing: CGFloat = gridSpacing + 2
         let minColumnWidth: CGFloat = isCompactWidth ? 150 : 160
         let availableWidth = max(minColumnWidth, geo.size.width - (horizontalPadding * 2))
 

@@ -14,6 +14,7 @@ struct WidgetCardView: View {
 
     @State private var showSettings = false
     @Environment(\.designAccent) private var accent
+    @Environment(\.designNumerals) private var numerals
     private let cornerRadius: CGFloat = 22
     private let overlayTopInset: CGFloat = 46
 
@@ -74,12 +75,12 @@ struct WidgetCardView: View {
             if let meta = metaText {
                 HStack(spacing: 3) {
                     Text(meta.value)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.numerals(numerals, size: 11, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(.primary)
                     if let unit = meta.unit {
                         Text(unit)
-                            .font(.system(size: 9, weight: .regular, design: .monospaced))
+                            .font(.numerals(numerals, size: 9))
                             .foregroundStyle(.tertiary)
                     }
                 }

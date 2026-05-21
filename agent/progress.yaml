@@ -619,8 +619,19 @@ tasks:
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-4-watch-faces-and-complications.md
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
-      status: pending
+      status: in_progress
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-5-density-numerals-application.md
+      notes: >
+        Code-side landed 2026-05-21 on branch redesign/liquid-glass.
+        Density: ModularDashboardView.dashboardGrid derives padding/gap
+        from Environment(\.designDensity) — compact 10/8, standard
+        14/12, airy 18/16 — with -2pt compact-width adjust to keep
+        small-screen feel. Numerals: new Font.numerals(_:size:weight:)
+        helper in DesignTokens.swift; wired into WidgetCardView card
+        meta pill, ControlBarView duration readout, and
+        SingleValueWidget hero (was .rounded; now respects the token
+        with monospacedDigit()). Build green. Hardware acceptance
+        gated on task-6.
     - id: task-6-acceptance
       name: Acceptance
       status: pending
@@ -628,7 +639,7 @@ tasks:
 
 updated_at: 2026-05-21
 current_milestone: M12
-current_task: task-3-preset-rail-wiring
+current_task: task-5-density-numerals-application
 last_proceed: 2026-05-21
 parked:
   - milestone: M8
