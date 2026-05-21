@@ -4,12 +4,13 @@
 # Xcode
 *.xcuserstate
 xcuserdata/
-DerivedData/
+.DerivedData/
 *.hmap
 *.ipa
 *.dSYM.zip
 *.dSYM
 build/
+TestResults/
 
 # macOS
 .DS_Store
