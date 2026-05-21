@@ -198,11 +198,11 @@ milestones:
     name: Liquid Glass Redesign
     status: in_progress
     priority: medium
-    progress: 17
+    progress: 14
     started: "2026-05-21"
     estimated_weeks: "2"
     tasks_completed: 1
-    tasks_total: 6
+    tasks_total: 7
     notes: >
       Phase 1 chrome + tweaks landed on branch redesign/liquid-glass
       (commit 21453dd): DesignTokens (Theme/Accent/Density/Numerals/
@@ -668,6 +668,24 @@ tasks:
       name: Acceptance
       status: pending
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-6-acceptance.md
+    - id: task-7-review-followups
+      name: Review Follow-ups
+      status: in_progress
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-7-review-followups.md
+      notes: >
+        Created from the M12 code-review punch-list. Landed 2026-05-21:
+        #2 metaText floor tightened (>-119.5 + broadbandLevel >-119
+        precondition); #3 pencil/Fertig button gained accessibilityLabel
+        + accessibilityHint; #4 jigglePhase switched from per-launch
+        hashValue to stable UUID-byte sum; #5 Pegelmesser minDB/maxDB
+        reset on audioEngine.isRecording rising edge and on long-press
+        with WKInterfaceDevice click haptic; #6 peak-bar dB range
+        consolidated into a single ClosedRange constant. Deferred /
+        won't-fix: #10 single-preset 2x2 cluster (needs gridPosition-
+        aware composer); #11 standalone Tweaks affordance (consolidated
+        into accent Menu intentionally); #7 enumPicker generic and
+        #8 OKLCH→sRGB drift (low-impact). iOS + watch builds green.
+        Hardware visual pass gated on task-6.
 
 updated_at: 2026-05-21
 current_milestone: M12

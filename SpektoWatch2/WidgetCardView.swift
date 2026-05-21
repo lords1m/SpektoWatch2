@@ -39,10 +39,16 @@ struct WidgetCardView: View {
         max(60, widget.size.height - chromeOverhead)
     }
 
-    // Stable per-widget jiggle phase so cards rotate out of sync.
+    // Stable per-widget jiggle phase so cards rotate out of sync. Uses
+    // the UUID byte sum rather than `hashValue` (which is salted per
+    // launch) so the rotation phase survives cold restarts.
     private var jigglePhase: Double {
-        let hash = abs(widget.id.uuidString.hashValue)
-        return Double(hash % 100) / 100.0
+        let bytes = widget.id.uuid
+        let sum = Int(bytes.0) &+ Int(bytes.1) &+ Int(bytes.2) &+ Int(bytes.3)
+            &+ Int(bytes.4) &+ Int(bytes.5) &+ Int(bytes.6) &+ Int(bytes.7)
+            &+ Int(bytes.8) &+ Int(bytes.9) &+ Int(bytes.10) &+ Int(bytes.11)
+            &+ Int(bytes.12) &+ Int(bytes.13) &+ Int(bytes.14) &+ Int(bytes.15)
+        return Double(sum % 100) / 100.0
     }
 
     var body: some View {
@@ -132,15 +138,17 @@ struct WidgetCardView: View {
     /// scalar (visualizations, control surfaces). Pure-read from
     /// AudioEngine — no kernel changes required.
     private var metaText: (value: String, unit: String?)? {
-        let levels = audioEngine.currentSpectrogramData?.levels ?? [:]
+        guard let data = audioEngine.currentSpectrogramData,
+              data.broadbandLevel > -119 else { return nil }
+        let levels = data.levels
         switch widget.type {
         case .levelHistory, .levelMeter, .singleValue:
-            if let v = levels["LAF"], v > -120 {
+            if let v = levels["LAF"], v.isFinite, v > -119.5 {
                 return (String(format: "%.1f", v), "dB(A)")
             }
             return nil
         case .spectrogram, .waterfall, .frequencyDisplay, .octaveBands, .spektralanalyseLab:
-            if let v = levels["LAeq"], v > -120 {
+            if let v = levels["LAeq"], v.isFinite, v > -119.5 {
                 return (String(format: "%.1f", v), "dB Leq")
             }
             return nil

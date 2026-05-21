@@ -65,6 +65,10 @@ struct DashboardHeaderView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("editDashboardButton")
+                .accessibilityLabel(isEditMode ? "Bearbeiten beenden" : "Layout bearbeiten")
+                .accessibilityHint(isEditMode
+                    ? "Beendet den Layout-Bearbeitungsmodus."
+                    : "Aktiviert den Layout-Bearbeitungsmodus zum Verschieben und Löschen von Widgets.")
             }
         }
         .padding(.horizontal, 14)

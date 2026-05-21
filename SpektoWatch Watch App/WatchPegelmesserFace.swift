@@ -19,9 +19,10 @@ struct WatchPegelmesserFace: View {
 
     /// Phosphor green from the iOS redesign accent palette.
     private let phosphor = Color(red: 0.45, green: 0.93, blue: 0.55)
-    /// Peak-bar range in dB.
-    private let barMinDB: Float = 30
-    private let barMaxDB: Float = 110
+    /// Peak-bar dB range. Shared constant — the iOS level-meter audit
+    /// (M9 task-5) flagged the same hardcoding; revisit when that fix
+    /// lands.
+    private let peakBarRange: ClosedRange<Float> = 30...110
 
     var body: some View {
         ZStack {
@@ -59,9 +60,23 @@ struct WatchPegelmesserFace: View {
             .padding(.vertical, 4)
         }
         .accessibilityIdentifier("watchPegelmesserFace")
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 0.5) {
+            resetExtremes()
+            WKInterfaceDevice.current().play(.click)
+        }
         .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
             ingest(data)
         }
+        .onChange(of: audioEngine.isRecording) { _, newValue in
+            // New recording session = fresh min/max window.
+            if newValue { resetExtremes() }
+        }
+    }
+
+    private func resetExtremes() {
+        minDB = .infinity
+        maxDB = -.infinity
     }
 
     private var isLive: Bool { laf > -120 }
@@ -112,8 +127,9 @@ struct WatchPegelmesserFace: View {
     }
 
     private func barFraction(for db: Float) -> Float {
-        let clamped = min(max(db, barMinDB), barMaxDB)
-        return (clamped - barMinDB) / (barMaxDB - barMinDB)
+        let clamped = min(max(db, peakBarRange.lowerBound), peakBarRange.upperBound)
+        return (clamped - peakBarRange.lowerBound) /
+            (peakBarRange.upperBound - peakBarRange.lowerBound)
     }
 
     private func ingest(_ data: SpectrogramData) {
