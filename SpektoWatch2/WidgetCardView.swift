@@ -74,6 +74,10 @@ struct WidgetCardView: View {
         .padding(.top, cardTopInset)
         .frame(height: widget.size.height)
         .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
+        // Resize handles go BEFORE the button overlays so the tap-eating
+        // edge strips can't intercept touches meant for the gear/X buttons
+        // in the top corners.
+        .overlay(resizeHandles)
         .overlay(alignment: .topLeading) {
             if isEditMode {
                 dragHandle
@@ -89,7 +93,6 @@ struct WidgetCardView: View {
                 .padding(8)
             }
         }
-        .overlay(resizeHandles)
         .editJiggle(active: isEditMode, phase: jigglePhase)
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
@@ -167,31 +170,51 @@ struct WidgetCardView: View {
     }
 
     private var settingsButton: some View {
-        Button(action: { showSettings = true }) {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showSettings = true
+        } label: {
             Image(systemName: "gearshape.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
-                .frame(width: 28, height: 28)
+                .frame(width: 32, height: 32)
                 .background(Circle().fill(.thinMaterial))
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        // High priority so the parent .onDrag in ModularDashboardView
+        // can't swallow the tap.
+        .highPriorityGesture(
+            TapGesture().onEnded {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showSettings = true
+            }
+        )
         .accessibilityIdentifier("widgetSettingsButton")
+        .accessibilityLabel("Widget-Einstellungen")
     }
 
     private var deleteButton: some View {
-        Button(action: {
+        Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
-        }) {
+        } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
+                .frame(width: 32, height: 32)
                 .background(Circle().fill(Color.red))
                 .shadow(color: Color.red.opacity(0.4), radius: 6)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .highPriorityGesture(
+            TapGesture().onEnded {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
+            }
+        )
         .accessibilityIdentifier("widgetDeleteButton")
+        .accessibilityLabel("Widget entfernen")
     }
     
     @ViewBuilder
