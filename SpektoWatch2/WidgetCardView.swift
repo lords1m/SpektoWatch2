@@ -3,7 +3,10 @@ import SwiftUI
 
 struct WidgetCardView: View {
     let widget: WidgetConfiguration
-    @ObservedObject var audioEngine: AudioEngine
+    /// Non-observed: kernels (`SpectrogramWidget`, etc.) observe audioEngine
+    /// themselves. Holding @ObservedObject here would re-render the card
+    /// chrome (material, shadows, header) on every 15 Hz audio publish.
+    let audioEngine: AudioEngine
     @ObservedObject var fftConfig: FFTConfiguration
     @EnvironmentObject private var maskingEngine: MaskingEngine
     var isEditMode: Bool
@@ -110,54 +113,15 @@ struct WidgetCardView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 6)
-            if let meta = metaText {
-                HStack(spacing: 3) {
-                    Text(meta.value)
-                        .font(.numerals(numerals, size: 11, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.primary)
-                    if let unit = meta.unit {
-                        Text(unit)
-                            .font(.numerals(numerals, size: 9))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule().fill(Color.black.opacity(0.35))
-                )
-            }
+            // Meta readout is isolated in its own view so only it (not the
+            // whole card chrome) re-renders on the 15 Hz audio publish.
+            CardMetaReader(widgetType: widget.type, audioEngine: audioEngine, numerals: numerals)
         }
         .padding(.horizontal, 4)
     }
 
     private var headerTitle: String {
         widget.type.rawValue.uppercased()
-    }
-
-    /// Live numeric readout shown on the right side of the eyebrow.
-    /// Returns nil for widget types where there is no obvious single
-    /// scalar (visualizations, control surfaces). Pure-read from
-    /// AudioEngine — no kernel changes required.
-    private var metaText: (value: String, unit: String?)? {
-        guard let data = audioEngine.currentSpectrogramData,
-              data.broadbandLevel > -119 else { return nil }
-        let levels = data.levels
-        switch widget.type {
-        case .levelHistory, .levelMeter, .singleValue:
-            if let v = levels["LAF"], v.isFinite, v > -119.5 {
-                return (String(format: "%.1f", v), "dB(A)")
-            }
-            return nil
-        case .spectrogram, .waterfall, .frequencyDisplay, .octaveBands, .spektralanalyseLab:
-            if let v = levels["LAeq"], v.isFinite, v > -119.5 {
-                return (String(format: "%.1f", v), "dB Leq")
-            }
-            return nil
-        case .phaseMeter, .toneGenerator, .masking:
-            return nil
-        }
     }
 
     private var dragHandle: some View {
@@ -343,6 +307,55 @@ struct WidgetCardView: View {
             withAnimation(.spring()) {
                 onResize(clamped)
             }
+        }
+    }
+}
+
+/// Isolated meta-value reader so the parent `WidgetCardView` does NOT
+/// have to observe `audioEngine`. Re-rendering this tiny view at 15 Hz
+/// is cheap; re-rendering the full `WidgetCardView` chrome
+/// (`.regularMaterial` + shadows + edit overlays) at 15 Hz is not.
+private struct CardMetaReader: View {
+    let widgetType: AudioWidgetType
+    @ObservedObject var audioEngine: AudioEngine
+    let numerals: NumeralStyle
+
+    var body: some View {
+        if let meta = metaText {
+            HStack(spacing: 3) {
+                Text(meta.value)
+                    .font(.numerals(numerals, size: 11, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+                if let unit = meta.unit {
+                    Text(unit)
+                        .font(.numerals(numerals, size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.black.opacity(0.35)))
+        }
+    }
+
+    private var metaText: (value: String, unit: String?)? {
+        guard let data = audioEngine.currentSpectrogramData,
+              data.broadbandLevel > -119 else { return nil }
+        let levels = data.levels
+        switch widgetType {
+        case .levelHistory, .levelMeter, .singleValue:
+            if let v = levels["LAF"], v.isFinite, v > -119.5 {
+                return (String(format: "%.1f", v), "dB(A)")
+            }
+            return nil
+        case .spectrogram, .waterfall, .frequencyDisplay, .octaveBands, .spektralanalyseLab:
+            if let v = levels["LAeq"], v.isFinite, v > -119.5 {
+                return (String(format: "%.1f", v), "dB Leq")
+            }
+            return nil
+        case .phaseMeter, .toneGenerator, .masking:
+            return nil
         }
     }
 }

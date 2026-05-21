@@ -127,24 +127,11 @@ extension Font {
 // MARK: - Surfaces & modifiers
 
 /// Inner scientific-instrument canvas: always dark, regardless of theme.
+/// Flat fill — the kernel paints over most of this region anyway, and
+/// stacked gradients per card were noticeable on A14 (iPhone 12 mini).
 struct DarkCanvasBackground: View {
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.07, green: 0.08, blue: 0.10),
-                    Color(red: 0.04, green: 0.05, blue: 0.07)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            RadialGradient(
-                colors: [Color(red: 0.10, green: 0.14, blue: 0.20).opacity(0.40), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 280
-            )
-        }
+        Color(red: 0.05, green: 0.06, blue: 0.08)
     }
 }
 
@@ -161,7 +148,10 @@ struct InnerCanvas: ViewModifier {
     }
 }
 
-/// New widget card chrome — `.regularMaterial` + hairline inner highlight + shadow.
+/// New widget card chrome — `.thinMaterial` + hairline inner highlight + a
+/// single soft shadow. Material and shadow costs add up fast on the
+/// iPhone 12 mini (A14), so we picked the cheaper material tier and
+/// collapsed the two prior shadows into one conditional shadow.
 struct LiquidGlassCard: ViewModifier {
     var cornerRadius: CGFloat = 22
     var isEditing: Bool = false
@@ -169,7 +159,7 @@ struct LiquidGlassCard: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
@@ -177,10 +167,10 @@ struct LiquidGlassCard: ViewModifier {
                         lineWidth: isEditing ? 1.2 : 0.5
                     )
             )
-            .shadow(color: .black.opacity(0.6), radius: 20, y: 10)
             .shadow(
-                color: isEditing ? accent.opacity(0.25) : .clear,
-                radius: isEditing ? 10 : 0
+                color: isEditing ? accent.opacity(0.25) : .black.opacity(0.35),
+                radius: isEditing ? 8 : 6,
+                y: 4
             )
     }
 }
