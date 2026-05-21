@@ -33,41 +33,53 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Discrete grid cell occupancy for a widget. Always integer rows + columns —
+/// half-rows are gone in M8 (see `agent/milestones/milestone-8-widget-sizing-refactor.md`).
+///
+/// Construction does **not** enforce per-type bounds: a bare `WidgetSize` is
+/// the unit, and clamping against the widget type's range happens at the
+/// container layer (`WidgetConfiguration.init(from:)`, `DashboardManager.resizeWidget`,
+/// `WidgetCardView.handleResize`). Keeping the model dumb avoids
+/// `WidgetSize` needing to know about `AudioWidgetType`.
+///
+/// The only invariant enforced here is the absolute floor: a widget cannot
+/// have `< 1` columns or rows because that produces a zero-sized drawable and
+/// crashes the Metal-backed widgets' draw loop (originally the M3
+/// `minimumRows = 0.5` clamp; now hard `1`).
 struct WidgetSize: Codable, Equatable {
-    /// Minimum permitted `rows`. A widget rendered with `rows == 0` produces
-    /// `height == 0`, which makes the Metal-backed widgets ask MetalKit for a
-    /// zero-sized drawable and crashes the draw loop. Clamping at the model
-    /// layer means any corrupt/legacy persisted value still yields a usable
-    /// widget instead of a broken UI.
-    static let minimumRows: Double = 0.5
+    /// Hard floor enforced by the model. Per-type minimums are higher and
+    /// applied at the container layer via `WidgetConfiguration.sizeRange(for:)`.
+    static let absoluteMinimum: Int = 1
 
     var columns: Int
 
-    /// Persisted backing for `rows`. Always read/written via `rows` so the
-    /// minimum is enforced for every code path (mutation, decode, defaults).
-    private var _rows: Double
+    private var _rows: Int
 
-    var rows: Double {
+    var rows: Int {
         get { _rows }
-        set { _rows = max(WidgetSize.minimumRows, newValue) }
+        set { _rows = max(WidgetSize.absoluteMinimum, newValue) }
     }
 
-    init(columns: Int, rows: Double) {
-        self.columns = columns
-        self._rows = max(WidgetSize.minimumRows, rows)
+    init(columns: Int, rows: Int) {
+        self.columns = max(WidgetSize.absoluteMinimum, columns)
+        self._rows = max(WidgetSize.absoluteMinimum, rows)
     }
 
+    /// Base height per row (pt). The 200-pt baseline is a UX choice carried
+    /// over from the pre-M8 implementation — kept stable to avoid shifting
+    /// every dashboard's vertical footprint on the migration.
     var height: CGFloat {
-        let baseHeight: CGFloat = 200 // Basis-Höhe pro Zeile
-        return CGFloat(rows) * baseHeight + CGFloat(max(0, rows - 1.0)) * 12 // + spacing
+        let baseHeight: CGFloat = 200
+        let spacing: CGFloat = 12
+        return CGFloat(rows) * baseHeight + CGFloat(max(0, rows - 1)) * spacing
     }
 
     // MARK: - Codable migration
     //
-    // Keep the JSON key as `rows` (matches legacy persisted dashboards). The
-    // custom decoder coerces any value below `minimumRows` — including a
-    // zero left by a buggy/older writer — to the minimum, preventing the
-    // Metal zero-size crash on load.
+    // The JSON key is still `rows`, but the legacy value type was `Double`
+    // (with 0.5-step support). The decoder accepts either — `Double` is
+    // rounded to the nearest `Int`. Per-type clamping happens at the
+    // `WidgetConfiguration` layer, not here.
     private enum CodingKeys: String, CodingKey {
         case columns
         case rows
@@ -76,15 +88,30 @@ struct WidgetSize: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let columns = try container.decode(Int.self, forKey: .columns)
-        let rawRows = try container.decode(Double.self, forKey: .rows)
-        self.columns = columns
-        self._rows = max(WidgetSize.minimumRows, rawRows)
+        let rows: Int
+        if let intRows = try? container.decode(Int.self, forKey: .rows) {
+            rows = intRows
+        } else {
+            let doubleRows = try container.decode(Double.self, forKey: .rows)
+            rows = Int(doubleRows.rounded())
+        }
+        self.columns = max(WidgetSize.absoluteMinimum, columns)
+        self._rows = max(WidgetSize.absoluteMinimum, rows)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(columns, forKey: .columns)
         try container.encode(rows, forKey: .rows)
+    }
+
+    /// Returns a new size clamped element-wise into the inclusive range
+    /// `[min, max]`. Used by `WidgetConfiguration.init(from:)` and the
+    /// resize handlers.
+    func clamped(min minSize: WidgetSize, max maxSize: WidgetSize) -> WidgetSize {
+        let cols = Swift.max(minSize.columns, Swift.min(maxSize.columns, columns))
+        let rs   = Swift.max(minSize.rows,    Swift.min(maxSize.rows,    rows))
+        return WidgetSize(columns: cols, rows: rs)
     }
 }
 
@@ -102,24 +129,79 @@ struct WidgetConfiguration: Identifiable, Codable {
     init(type: AudioWidgetType, size: WidgetSize, gridPosition: GridPosition = GridPosition(index: 0), settings: [String: String] = [:]) {
         self.id = UUID()
         self.type = type
-        self.size = size
+        self.size = size.clamped(
+            min: WidgetConfiguration.sizeRange(for: type).min,
+            max: WidgetConfiguration.sizeRange(for: type).max
+        )
         self.gridPosition = gridPosition
         self.settings = settings
     }
 
+    // MARK: - Codable migration
+    //
+    // `type` must be decoded before `size` so that a legacy `WidgetSize`
+    // with a half-row value (or a value outside the new per-type range)
+    // gets clamped against the right range. The default synthesized
+    // initializer would not guarantee ordering, hence the explicit form.
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case gridPosition
+        case size
+        case settings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.type = try container.decode(AudioWidgetType.self, forKey: .type)
+        self.gridPosition = try container.decode(GridPosition.self, forKey: .gridPosition)
+        self.settings = try container.decode([String: String].self, forKey: .settings)
+        let rawSize = try container.decode(WidgetSize.self, forKey: .size)
+        let range = WidgetConfiguration.sizeRange(for: self.type)
+        self.size = rawSize.clamped(min: range.min, max: range.max)
+    }
+
+    // MARK: - Per-type sizing rules
+    //
+    // Single source of truth for what each widget type is allowed to occupy
+    // in the 3-column dashboard grid. Read by:
+    //   - `defaultSize(for:)` below (initial placement),
+    //   - `init(from:)` above (legacy clamp on decode),
+    //   - `DashboardManager.resizeWidget(...)` (programmatic resize),
+    //   - `WidgetCardView.handleResize(...)` (drag resize).
+    //
+    // If you adjust the matrix here, no other call site needs updating.
+    static func sizeRange(for type: AudioWidgetType) -> (min: WidgetSize, max: WidgetSize) {
+        switch type {
+        case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:
+            return (min: WidgetSize(columns: 2, rows: 2), max: WidgetSize(columns: 3, rows: 4))
+        case .levelHistory, .frequencyDisplay, .octaveBands:
+            return (min: WidgetSize(columns: 2, rows: 1), max: WidgetSize(columns: 3, rows: 3))
+        case .levelMeter:
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 3))
+        case .phaseMeter:
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 2))
+        case .singleValue:
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 2))
+        case .masking:
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 3, rows: 3))
+        }
+    }
+
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
-        case .spectrogram: return WidgetSize(columns: 2, rows: 2.0)
-        case .waterfall: return WidgetSize(columns: 2, rows: 2.0)
-        case .levelHistory: return WidgetSize(columns: 2, rows: 1.0)
-        case .frequencyDisplay: return WidgetSize(columns: 2, rows: 1.0)
-        case .levelMeter: return WidgetSize(columns: 1, rows: 1.0)
-        case .octaveBands: return WidgetSize(columns: 2, rows: 1.0)
-        case .phaseMeter: return WidgetSize(columns: 1, rows: 1.0)
-        case .singleValue: return WidgetSize(columns: 1, rows: 1.0)
-        case .toneGenerator: return WidgetSize(columns: 2, rows: 2.0)
-        case .spektralanalyseLab: return WidgetSize(columns: 2, rows: 2.0)
-        case .masking: return WidgetSize(columns: 1, rows: 1.0)
+        case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:
+            return WidgetSize(columns: 3, rows: 3)
+        case .levelHistory, .frequencyDisplay, .octaveBands:
+            return WidgetSize(columns: 3, rows: 2)
+        case .levelMeter, .phaseMeter:
+            return WidgetSize(columns: 1, rows: 2)
+        case .singleValue:
+            return WidgetSize(columns: 1, rows: 1)
+        case .masking:
+            return WidgetSize(columns: 2, rows: 2)
         }
     }
 }
@@ -131,8 +213,11 @@ enum WidgetSettings {
     static let defaultSpectrogramSensitivity: Float = 90.0
     static let defaultSpectrumBandMode = "terz"
     static let defaultWaterfallSliceCount = 96
-    static let defaultWaterfallMinDB: Float = -110
-    static let defaultWaterfallMaxDB: Float = 20
+    // Magnitudes from AudioEngine are already calibrated dB SPL
+    // (dBFS + calibrationOffset, see AudioEngine.swift line ~1303),
+    // so the waterfall range lives in positive SPL space, not dBFS.
+    static let defaultWaterfallMinDB: Float = 30
+    static let defaultWaterfallMaxDB: Float = 110
     static let defaultSingleValueMetric = "LAF"
     static let defaultLevelHistoryMetric = "AUTO"
 

@@ -208,11 +208,18 @@ struct WaterfallWidget: View {
     }
     private var minDB: Float {
         guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallMinDB }
-        return Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB
+        let raw = Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB
+        // Migration: pre-fix settings stored dBFS-style negative values
+        // (e.g. -110). Magnitudes are calibrated dB SPL now, so any
+        // saved negative value is from the old scheme — fall back to
+        // the SPL default.
+        return raw < 0 ? WidgetSettings.defaultWaterfallMinDB : raw
     }
     private var maxDB: Float {
         guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallMaxDB }
-        return Float(settings["waterfallMaxDB"] ?? String(Int(WidgetSettings.defaultWaterfallMaxDB))) ?? WidgetSettings.defaultWaterfallMaxDB
+        let raw = Float(settings["waterfallMaxDB"] ?? String(Int(WidgetSettings.defaultWaterfallMaxDB))) ?? WidgetSettings.defaultWaterfallMaxDB
+        // Migration: a saved max ≤ 0 is also from the old dBFS scheme.
+        return raw <= 0 ? WidgetSettings.defaultWaterfallMaxDB : raw
     }
     private var maxHistoryFrames: Int {
         max(24, min(240, sliceCount * 2))

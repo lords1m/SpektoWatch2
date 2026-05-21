@@ -55,13 +55,10 @@ struct WidgetSettingsView: View {
                             }
                         }
 
-                        Picker("Zeitbewertung", selection: Binding(
-                            get: { settings["timeWeighting"] ?? "Fast" },
-                            set: { settings["timeWeighting"] = $0 }
-                        )) {
-                            Text("Fast (125ms)").tag("Fast")
-                            Text("Slow (1s)").tag("Slow")
-                        }
+                        // `timeWeighting` (Fast/Slow) was removed 2026-05-21
+                        // — the spectrogram render path never read the
+                        // setting; only the level-history widgets do. M9
+                        // task-1 audit pre-pass.
 
                         Picker("Frequenzbewertung", selection: Binding(
                             get: { settings["freqWeighting"] ?? "Z" },
@@ -97,6 +94,30 @@ struct WidgetSettingsView: View {
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    Section(header: Text("Frequenz-Glättung")) {
+                        let smoothingValue = Float(settings["frequencySmoothing"] ?? "0.0") ?? 0.0
+
+                        VStack(alignment: .leading) {
+                            Text("Stärke: \(String(format: "%.2f", smoothingValue))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Slider(
+                                value: Binding(
+                                    get: { Double(settings["frequencySmoothing"] ?? "0.0") ?? 0.0 },
+                                    set: { settings["frequencySmoothing"] = String(format: "%.2f", $0) }
+                                ),
+                                in: 0.0...1.0,
+                                step: 0.05
+                            )
+
+                            Text("Versteckt FFT-Bin-Grenzen bei niedrigen Frequenzen. Eine leichte Grundglättung ist immer aktiv.")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .waterfall {
                     Section(header: Text("Wasserfall Einstellungen")) {
                         Picker("Frequenzbewertung", selection: Binding(
@@ -119,14 +140,14 @@ struct WidgetSettingsView: View {
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
 
-                    Section(header: Text("Dynamikbereich")) {
+                    Section(header: Text("Dynamikbereich (dB SPL)")) {
                         Stepper(
                             "Minimum: \(Int(Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB)) dB",
                             value: Binding(
                                 get: { Int(Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB) },
                                 set: { settings["waterfallMinDB"] = String($0) }
                             ),
-                            in: -140 ... -40,
+                            in: 0 ... 90,
                             step: 5
                         )
                         Stepper(
@@ -135,7 +156,7 @@ struct WidgetSettingsView: View {
                                 get: { Int(Float(settings["waterfallMaxDB"] ?? String(Int(WidgetSettings.defaultWaterfallMaxDB))) ?? WidgetSettings.defaultWaterfallMaxDB) },
                                 set: { settings["waterfallMaxDB"] = String($0) }
                             ),
-                            in: -20 ... 120,
+                            in: 60 ... 140,
                             step: 5
                         )
                     }
