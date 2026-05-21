@@ -31,15 +31,23 @@ the redesign spec (`design_handoff_spektowatch_redesign/README.md §
   - phaseMeter / toneGenerator / masking → nil (no meaningful scalar
     without touching the kernel; defer to a later sub-pass)
 
-## Deferred / not landed
+## Follow-up landed (2026-05-21, second pass — review issue 1+9)
 
-- **Inner-canvas wrapper.** Task scope said to apply `.innerCanvas()`
-  to each kernel's body. Skipped this pass because most kernels
-  (Spectrogram, Waterfall, FrequencySpectrum, etc.) already paint
-  their own dark background; wrapping would double-up, and the
-  task's own non-goal forbids changing kernel rendering. Revisit
-  per-kernel when the audit (M9) flags which ones actually render on
-  a transparent canvas.
+- Card body restructured from overlay to a proper `VStack { header;
+  kernel.innerCanvas() }`. The header now sits *above* the kernel
+  instead of obscuring its top edge (no more eyebrow over the 20k Hz
+  axis on spectrogram/waterfall). The kernel renders inside a 14pt-
+  radius dark inner canvas, inset 6pt horizontally and 6pt at the
+  bottom so the liquidGlassCard surface is visible as a frame.
+- Header space is **reserved unconditionally** — hidden via opacity
+  in edit mode rather than removed — so toggling edit doesn't
+  reflow the kernel and break Metal redraw assumptions.
+- Card total height stays equal to `widget.size.height`; kernel
+  height = `max(60, size.height - chromeOverhead)` where overhead
+  is cardTopInset(8) + headerHeight(22) + headerGap(6) +
+  cardBottomInset(6) = 42pt.
+
+## Deferred / not landed
 - **Per-widget meta sources for non-level types.** Phase/tone/masking
   meta would need to read from each widget's local state — out of
   scope for "no kernel changes". Will pick up in a follow-up pass

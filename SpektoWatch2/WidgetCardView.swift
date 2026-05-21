@@ -18,6 +18,27 @@ struct WidgetCardView: View {
     private let cornerRadius: CGFloat = 22
     private let overlayTopInset: CGFloat = 46
 
+    // Card-internal geometry. Reserved unconditionally (header is hidden
+    // in edit mode but its space stays, so toggling edit doesn't reflow
+    // the kernel and break Metal redraw assumptions).
+    private let cardTopInset: CGFloat = 8
+    private let headerHeight: CGFloat = 22
+    private let headerGap: CGFloat = 6
+    private let kernelHorizontalInset: CGFloat = 6
+    private let cardBottomInset: CGFloat = 6
+    private let innerCornerRadius: CGFloat = 14
+
+    private var chromeOverhead: CGFloat {
+        cardTopInset + headerHeight + headerGap + cardBottomInset
+    }
+
+    /// Kernel render height — preserved across edit-mode toggle. Floor at
+    /// 60pt so the smallest widget (1×1 = 200pt total) still leaves a
+    /// visible kernel area after chrome overhead.
+    private var kernelHeight: CGFloat {
+        max(60, widget.size.height - chromeOverhead)
+    }
+
     // Stable per-widget jiggle phase so cards rotate out of sync.
     private var jigglePhase: Double {
         let hash = abs(widget.id.uuidString.hashValue)
@@ -25,20 +46,28 @@ struct WidgetCardView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        VStack(spacing: headerGap) {
+            // Header strip — always reserved; hidden visually in edit mode
+            // so the kernel area doesn't reflow when toggling.
+            cardHeader
+                .frame(height: headerHeight)
+                .padding(.horizontal, 14)
+                .opacity(isEditMode ? 0 : 1)
+
+            // Inner canvas — clipped to a rounded rect so kernels that
+            // paint to their bounds get a smooth corner. Dark gradient
+            // sits behind any transparent kernel area.
             renderWidgetContent()
-                .frame(height: widget.size.height)
+                .frame(maxWidth: .infinity)
+                .frame(height: kernelHeight)
                 .clipped()
+                .innerCanvas(cornerRadius: innerCornerRadius)
+                .padding(.horizontal, kernelHorizontalInset)
+                .padding(.bottom, cardBottomInset)
         }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .padding(.top, cardTopInset)
+        .frame(height: widget.size.height)
         .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
-        .overlay(alignment: .top) {
-            if !isEditMode {
-                cardHeader
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-            }
-        }
         .overlay(alignment: .topLeading) {
             if isEditMode {
                 dragHandle
