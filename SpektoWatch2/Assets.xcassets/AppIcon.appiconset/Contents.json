@@ -66,6 +66,20 @@
     {
       "idiom": "universal",
       "platform": "ios",
+      "size": "76x76",
+      "scale": "2x",
+      "filename": "AppIcon-Light-152x152.png"
+    },
+    {
+      "idiom": "universal",
+      "platform": "ios",
+      "size": "83.5x83.5",
+      "scale": "2x",
+      "filename": "AppIcon-Light-167x167.png"
+    },
+    {
+      "idiom": "universal",
+      "platform": "ios",
       "size": "1024x1024",
       "scale": "1x",
       "filename": "AppIcon-Light-1024x1024.png"
@@ -180,6 +194,32 @@
       "size": "60x60",
       "scale": "3x",
       "filename": "AppIcon-Dark-180x180.png",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ]
+    },
+    {
+      "idiom": "universal",
+      "platform": "ios",
+      "size": "76x76",
+      "scale": "2x",
+      "filename": "AppIcon-Dark-152x152.png",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ]
+    },
+    {
+      "idiom": "universal",
+      "platform": "ios",
+      "size": "83.5x83.5",
+      "scale": "2x",
+      "filename": "AppIcon-Dark-167x167.png",
       "appearances": [
         {
           "appearance": "luminosity",

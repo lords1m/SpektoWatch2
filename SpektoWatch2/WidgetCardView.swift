@@ -13,39 +13,81 @@ struct WidgetCardView: View {
     var onUpdateSettings: ([String: String]) -> Void
 
     @State private var showSettings = false
-    private let cornerRadius: CGFloat = 20
+    @Environment(\.designAccent) private var accent
+    private let cornerRadius: CGFloat = 22
     private let overlayTopInset: CGFloat = 46
-    
+
+    // Stable per-widget jiggle phase so cards rotate out of sync.
+    private var jigglePhase: Double {
+        let hash = abs(widget.id.uuidString.hashValue)
+        return Double(hash % 100) / 100.0
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             renderWidgetContent()
                 .frame(height: widget.size.height)
                 .clipped()
-
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
+        .overlay(alignment: .topLeading) {
             if isEditMode {
-                HStack(spacing: 8) {
-                    Spacer(minLength: 0)
-                    editActionPair
-                }
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
+                dragHandle
+                    .padding(8)
             }
         }
-        .glassCardLite(cornerRadius: cornerRadius)
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(
-                    isEditMode ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.28),
-                    lineWidth: isEditMode ? 1.6 : 1
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(
-            resizeHandles
-        )
+        .overlay(alignment: .topTrailing) {
+            if isEditMode {
+                HStack(spacing: 6) {
+                    settingsButton
+                    deleteButton
+                }
+                .padding(8)
+            }
+        }
+        .overlay(resizeHandles)
+        .editJiggle(active: isEditMode, phase: jigglePhase)
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
         }
+    }
+
+    private var dragHandle: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(Color.black)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(accent))
+            .shadow(color: accent.opacity(0.4), radius: 6)
+    }
+
+    private var settingsButton: some View {
+        Button(action: { showSettings = true }) {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(.thinMaterial))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("widgetSettingsButton")
+    }
+
+    private var deleteButton: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
+        }) {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.red))
+                .shadow(color: Color.red.opacity(0.4), radius: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("widgetDeleteButton")
     }
     
     @ViewBuilder
@@ -138,76 +180,41 @@ struct WidgetCardView: View {
     
     private enum ResizeEdge { case right, left, bottom, top }
 
-    private var editActionPair: some View {
-        HStack(spacing: 0) {
-            Button(action: { showSettings = true }) {
-                Image(systemName: "gearshape")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 30)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("widgetSettingsButton")
-
-            Rectangle()
-                .fill(Color.primary.opacity(0.18))
-                .frame(width: 1, height: 18)
-
-            Button(action: {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    onDelete()
-                }
-            }) {
-                Image(systemName: "trash")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.red)
-                    .frame(width: 34, height: 30)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("widgetDeleteButton")
-        }
-        .background(.thinMaterial, in: Capsule(style: .continuous))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(Color.white.opacity(0.24), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.10), radius: 5, x: 0, y: 2)
-    }
-    
     private func handleResize(translation: CGSize, edge: ResizeEdge) {
+        // Per-type bounds (M8) — drag snaps in whole grid cells and is
+        // clamped against the widget type's allowed range.
+        let range = WidgetConfiguration.sizeRange(for: widget.type)
+        let columnStride = columnWidth + 12 // grid spacing
+        let rowStride: CGFloat = 200 + 12   // baseHeight + spacing (see WidgetSize.height)
+
         var newCols = widget.size.columns
         var newRows = widget.size.rows
-        
+
         switch edge {
         case .right:
-            // Threshold for resizing: half a column width
-            let deltaCols = Int(round(translation.width / (columnWidth + 12))) // 12 is spacing
-            newCols = max(1, min(4, newCols + deltaCols))
+            let deltaCols = Int((translation.width / columnStride).rounded())
+            newCols = newCols + deltaCols
         case .left:
-            // Dragging left (negative) increases width
-            let deltaCols = Int(round(-translation.width / (columnWidth + 12)))
-            newCols = max(1, min(4, newCols + deltaCols))
+            // Dragging left (negative width) increases width
+            let deltaCols = Int((-translation.width / columnStride).rounded())
+            newCols = newCols + deltaCols
         case .bottom:
-            let rowHeight: CGFloat = 200 + 12
-            let deltaRows = Double(translation.height / rowHeight)
-            // Snap to 0.5 increments
-            let targetRows = round((newRows + deltaRows) * 2) / 2.0
-            newRows = max(0.5, targetRows)
+            let deltaRows = Int((translation.height / rowStride).rounded())
+            newRows = newRows + deltaRows
         case .top:
-            // Dragging up (negative) increases height
-            let rowHeight: CGFloat = 200 + 12
-            let deltaRows = Double(-translation.height / rowHeight)
-            let targetRows = round((newRows + deltaRows) * 2) / 2.0
-            newRows = max(0.5, targetRows)
+            // Dragging up (negative height) increases height
+            let deltaRows = Int((-translation.height / rowStride).rounded())
+            newRows = newRows + deltaRows
         }
-        
-        if newCols != widget.size.columns || newRows != widget.size.rows {
+
+        let proposed = WidgetSize(columns: newCols, rows: newRows)
+        let clamped = proposed.clamped(min: range.min, max: range.max)
+
+        if clamped.columns != widget.size.columns || clamped.rows != widget.size.rows {
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             withAnimation(.spring()) {
-                onResize(WidgetSize(columns: newCols, rows: newRows))
+                onResize(clamped)
             }
         }
     }

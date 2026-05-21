@@ -12,6 +12,8 @@ struct ModularDashboardView: View {
     @State private var renameText = ""
     @State private var lastScrollOffset: CGFloat? = nil
     @State private var scrollOffset: CGFloat = 0
+    @State private var showTweaks = false
+    @State private var activePresetID: String = "overview"
     private let barSwipeThreshold: CGFloat = 36
     private let handleDragThreshold: CGFloat = 12
     private let scrollThreshold: CGFloat = 20
@@ -21,6 +23,12 @@ struct ModularDashboardView: View {
     }
     
     var body: some View {
+        DesignTokensReader { _ in
+            mainBody
+        }
+    }
+
+    private var mainBody: some View {
         ZStack {
             GeometryReader { geo in
                 let selection = Binding<Int>(
@@ -60,19 +68,6 @@ struct ModularDashboardView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .overlay(alignment: .top) {
-                    if viewModel.dashboardManager.layouts.count > 1 {
-                        HStack(spacing: 6) {
-                            ForEach(Array(viewModel.dashboardManager.layouts.indices), id: \.self) { index in
-                                Capsule()
-                                    .fill(index == viewModel.dashboardManager.activeLayoutIndex ? Color.primary.opacity(0.8) : Color.primary.opacity(0.25))
-                                    .frame(width: index == viewModel.dashboardManager.activeLayoutIndex ? 20 : 8, height: 4)
-                            }
-                        }
-                        .padding(.top, 8)
-                        .animation(.easeInOut(duration: 0.2), value: viewModel.dashboardManager.activeLayoutIndex)
-                    }
-                }
             }
 
             if !isHeaderVisible {
@@ -140,12 +135,18 @@ struct ModularDashboardView: View {
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
         }
+        .sheet(isPresented: $showTweaks) {
+            TweaksPanelView()
+        }
         .confirmationDialog("Layouts", isPresented: $showLayoutsDialog, titleVisibility: .visible) {
             Button("Aktuelle Seite speichern") {
                 viewModel.dashboardManager.saveCurrentAsNewLayout()
             }
             Button("Neue leere Seite") {
                 viewModel.dashboardManager.addEmptyLayout()
+            }
+            Button("Screenshot-Preset: Widgetgrößen") {
+                viewModel.dashboardManager.installWidgetSizeScreenshotPreset()
             }
             Button("Seite umbenennen") {
                 renameText = viewModel.dashboardManager.currentLayoutName
@@ -200,17 +201,23 @@ struct ModularDashboardView: View {
     }
 
     private var headerBar: some View {
-        DashboardHeaderView(
-            isEditMode: $viewModel.dashboardManager.isEditMode,
-            currentLayoutName: viewModel.dashboardManager.currentLayoutName,
-            onAddWidget: viewModel.addWidget,
-            onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
-            onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
-            onShowLayouts: { showLayoutsDialog = true },
-            onShowSettings: {
-                viewModel.showSettings = true
-            }
-        )
+        VStack(spacing: 6) {
+            DashboardHeaderView(
+                isEditMode: $viewModel.dashboardManager.isEditMode,
+                currentLayoutName: viewModel.dashboardManager.currentLayoutName,
+                onAddWidget: viewModel.addWidget,
+                onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
+                onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
+                onShowLayouts: { showLayoutsDialog = true },
+                onShowSettings: { viewModel.showSettings = true },
+                onShowTweaks: { showTweaks = true }
+            )
+            PresetRailView(
+                presets: PresetCatalogue.all,
+                activeID: $activePresetID,
+                dimmed: viewModel.dashboardManager.isEditMode
+            )
+        }
         .contentShape(Rectangle())
         .allowsHitTesting(isHeaderVisible)
         .simultaneousGesture(

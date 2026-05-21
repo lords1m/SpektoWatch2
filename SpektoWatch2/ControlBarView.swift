@@ -154,9 +154,9 @@ struct ControlBarView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .backgroundExtensionEffect(cornerRadius: 24)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+        .floatingPill(cornerRadius: 24)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
         .sheet(isPresented: $showRecordingsList) {
             RecordingsListView().environmentObject(recordingManager)
         }
@@ -168,18 +168,20 @@ struct ControlBarView: View {
 
     @ViewBuilder
     private func statusInfo(alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 2) {
-            Text(statusText)
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(statusColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            if state.isRecording {
-                Text(timeString(from: recordingManager.currentRecordingDuration))
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundColor(.secondary)
+        HStack(spacing: 8) {
+            StatusLED(color: statusColor, pulsing: state.isLiveMode || state.isRecording)
+            VStack(alignment: alignment, spacing: 1) {
+                Text(statusText)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(statusColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if state.isRecording {
+                    Text(timeString(from: recordingManager.currentRecordingDuration))
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }
@@ -400,5 +402,34 @@ struct ControlBarView: View {
         let minutes = Int(timeInterval) / 60
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+/// Small status indicator dot — 6pt circle that pulses when `pulsing` is true.
+private struct StatusLED: View {
+    let color: Color
+    let pulsing: Bool
+    @State private var on: Bool = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+            .shadow(color: color.opacity(0.7), radius: pulsing ? (on ? 6 : 2) : 0)
+            .opacity(pulsing ? (on ? 1.0 : 0.55) : 1.0)
+            .onAppear {
+                guard pulsing else { return }
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                    on.toggle()
+                }
+            }
+            .onChange(of: pulsing) { _, newValue in
+                on = false
+                if newValue {
+                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                        on = true
+                    }
+                }
+            }
     }
 }

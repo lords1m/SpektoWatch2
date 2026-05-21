@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Floating header pill — eyebrow + title on the left, three glass icon buttons on the right.
+/// Edit-mode variant collapses to eyebrow "LAYOUT BEARBEITEN" + a single green "Done" button.
 struct DashboardHeaderView: View {
     @Binding var isEditMode: Bool
     var currentLayoutName: String
@@ -8,90 +10,87 @@ struct DashboardHeaderView: View {
     var onSaveLayout: () -> Void
     var onShowLayouts: () -> Void
     var onShowSettings: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Dashboard")
-                        .font(.title2)
-                        .bold()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                    Text(currentLayoutName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                if !isEditMode {
-                    Button(action: onShowSettings) {
-                        Image(systemName: "gear")
-                            .font(.title2)
-                            .foregroundColor(.primary)
-                    }
-                    .accessibilityIdentifier("settingsButton")
-                    .padding(.trailing, 10)
+    var onShowTweaks: () -> Void = {}
 
-                    Menu {
-                        Button(action: onAddLayout) {
-                            Label("Neue Seite", systemImage: "rectangle.stack.badge.plus")
-                        }
-                        Button(action: onSaveLayout) {
-                            Label("Aktuelle Seite speichern", systemImage: "square.on.square")
-                        }
-                        Button(action: onShowLayouts) {
-                            Label("Layouts abrufen", systemImage: "list.bullet.rectangle.portrait")
-                        }
-                    } label: {
-                        Image(systemName: "rectangle.stack")
-                            .font(.title3)
-                            .foregroundColor(.primary)
-                    }
-                    .accessibilityIdentifier("layoutsButton")
-                    .padding(.trailing, 8)
+    @Environment(\.designAccent) private var accent
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isEditMode ? "LAYOUT BEARBEITEN" : "DASHBOARD · LIVE")
+                    .font(.eyebrow(size: 9))
+                    .tracking(1.6)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(currentLayoutName)
+                    .font(.headerTitle())
+                    .kerning(-0.34)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                if !isEditMode {
+                    glassIconButton("gearshape.fill", id: "settingsButton", action: onShowSettings)
+                    glassIconButton("square.stack.3d.up", id: "layoutsButton", action: onShowLayouts)
+                        .accessibilityIdentifier("layoutsButton")
+                    glassIconButton("sparkles", id: "tweaksButton", action: onShowTweaks)
                 }
-                
-                if isEditMode {
-                    Button(action: onAddWidget) {
-                        ViewThatFits {
-                            Label("Add", systemImage: "plus")
-                                .foregroundColor(.blue)
-                            Image(systemName: "plus")
-                                .foregroundColor(.blue)
+
+                Button(action: toggleEdit) {
+                    if isEditMode {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Fertig")
+                                .font(.system(size: 13, weight: .semibold))
                         }
+                        .foregroundStyle(Color.black)
+                        .padding(.horizontal, 14)
+                        .frame(height: 34)
+                        .background(Capsule().fill(accent))
+                        .shadow(color: accent.opacity(0.5), radius: 10)
+                    } else {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 34, height: 34)
+                            .background(Circle().fill(.thinMaterial))
+                            .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
                     }
-                    .accessibilityIdentifier("addWidgetButton")
-                    .padding(.trailing, 6)
                 }
-                
-                Button(action: {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        isEditMode.toggle()
-                    }
-                    print("[DashboardHeaderView] Edit mode: \(isEditMode)")
-                }) {
-                    Text(isEditMode ? "Fertig" : "Bearbeiten")
-                        .lineLimit(1)
-                        .fontWeight(isEditMode ? .bold : .regular)
-                        .foregroundColor(.blue)
-                }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("editDashboardButton")
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .backgroundExtensionEffect(cornerRadius: 22)
-            
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .background(Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .floatingPill(cornerRadius: 28)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
         .accessibilityIdentifier("dashboardHeaderView")
+    }
+
+    private func glassIconButton(_ symbol: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(.thinMaterial))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
+
+    private func toggleEdit() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+            isEditMode.toggle()
+        }
     }
 }
