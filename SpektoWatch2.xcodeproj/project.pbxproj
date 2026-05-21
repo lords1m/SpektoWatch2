@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+<<<<<<< HEAD
 		37B51E202FBDF9E60006E8C1 /* InlineSnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E1F2FBDF9E60006E8C1 /* InlineSnapshotTesting */; };
 		37B51E222FBDF9E60006E8C1 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E212FBDF9E60006E8C1 /* SnapshotTesting */; };
 		37B51E242FBDF9E60006E8C1 /* SnapshotTestingCustomDump in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E232FBDF9E60006E8C1 /* SnapshotTestingCustomDump */; };
@@ -23,6 +24,8 @@
 		37B51E362FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; };
 		37B51E372FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		37B51E462FBE01E50006E8C1 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
+=======
+>>>>>>> c2e1e8023068ad8314f710c558609f0afe925c5c
 		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -76,6 +79,7 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+<<<<<<< HEAD
 		37B51E292FBDFAD80006E8C1 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -100,6 +104,8 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+=======
+>>>>>>> c2e1e8023068ad8314f710c558609f0afe925c5c
 		CC11CC11CC11CC11CC11000D /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;

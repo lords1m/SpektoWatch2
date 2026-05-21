@@ -6,21 +6,40 @@ import CoreLocation
 final class PDFReportGenerator {
     private let spectrogramRenderer = SpectrogramImageRenderer()
 
+    /// Convenience wrapper that resolves all URLs from `recordingManager` on the
+    /// main actor, then hands them off to the non-isolated core renderer. This
+    /// keeps existing call sites (production + tests) working unchanged while
+    /// satisfying Swift 6 strict-concurrency: `RecordingManager` is
+    /// `@MainActor`, but `PDFReportGenerator` itself doesn't need to be.
     @MainActor
     func generateReport(
         for recording: Recording,
         recordingManager: RecordingManager
     ) throws -> URL {
+        let audioURL = recordingManager.url(for: recording)
+        let measurementURL = recordingManager.measurementURL(for: recording)
+        let photoURLs = recording.photoFileNames.map { recordingManager.getPhotoURL(fileName: $0) }
+        return try generateReport(
+            for: recording,
+            audioURL: audioURL,
+            measurementURL: measurementURL,
+            photoURLs: photoURLs
+        )
+    }
+
+    /// Core renderer. Takes pre-resolved file URLs so it has no dependency on
+    /// any actor-isolated type and can be invoked from background contexts.
+    func generateReport(
+        for recording: Recording,
+        audioURL: URL,
+        measurementURL: URL?,
+        photoURLs: [URL]
+    ) throws -> URL {
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("report_\(recording.id.uuidString).pdf")
         let pageRect = CGRect(x: 0, y: 0, width: 595, height: 842) // A4 @72dpi
-        // Use RecordingManager as the single source of truth for recording file
-        // URLs. Previously this class re-derived `~/Documents/Recordings` itself;
-        // if that path ever changed (sandbox container, migration, etc.) the PDF
-        // would silently render blank spectrogram/photo pages with no error.
-        let audioURL = recordingManager.url(for: recording)
 
         let measurementReader: MeasurementDataReader? = {
-            guard let url = recordingManager.measurementURL(for: recording),
+            guard let url = measurementURL,
                   FileManager.default.fileExists(atPath: url.path) else { return nil }
             return try? MeasurementDataReader(fileURL: url)
         }()
@@ -71,10 +90,9 @@ final class PDFReportGenerator {
             )
             drawFooter(in: page2, rect: pageRect, page: 2)
 
-            if !recording.photoFileNames.isEmpty {
+            if !photoURLs.isEmpty {
                 var pageIndex = 3
-                for photoName in recording.photoFileNames {
-                    let photoURL = recordingManager.getPhotoURL(fileName: photoName)
+                for photoURL in photoURLs {
                     guard let image = UIImage(contentsOfFile: photoURL.path) else { continue }
                     context.beginPage()
                     let cg = context.cgContext
