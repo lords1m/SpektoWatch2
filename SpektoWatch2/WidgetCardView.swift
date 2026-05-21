@@ -31,6 +31,13 @@ struct WidgetCardView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
+        .overlay(alignment: .top) {
+            if !isEditMode {
+                cardHeader
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+            }
+        }
         .overlay(alignment: .topLeading) {
             if isEditMode {
                 dragHandle
@@ -50,6 +57,65 @@ struct WidgetCardView: View {
         .editJiggle(active: isEditMode, phase: jigglePhase)
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
+        }
+    }
+
+    private var cardHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: widget.type.sfSymbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(headerTitle)
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .tracking(1.8)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if let meta = metaText {
+                HStack(spacing: 3) {
+                    Text(meta.value)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
+                    if let unit = meta.unit {
+                        Text(unit)
+                            .font(.system(size: 9, weight: .regular, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule().fill(Color.black.opacity(0.35))
+                )
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var headerTitle: String {
+        widget.type.rawValue.uppercased()
+    }
+
+    /// Live numeric readout shown on the right side of the eyebrow.
+    /// Returns nil for widget types where there is no obvious single
+    /// scalar (visualizations, control surfaces). Pure-read from
+    /// AudioEngine — no kernel changes required.
+    private var metaText: (value: String, unit: String?)? {
+        let levels = audioEngine.currentSpectrogramData?.levels ?? [:]
+        switch widget.type {
+        case .levelHistory, .levelMeter, .singleValue:
+            if let v = levels["LAF"], v > -120 {
+                return (String(format: "%.1f", v), "dB(A)")
+            }
+            return nil
+        case .spectrogram, .waterfall, .frequencyDisplay, .octaveBands, .spektralanalyseLab:
+            if let v = levels["LAeq"], v > -120 {
+                return (String(format: "%.1f", v), "dB Leq")
+            }
+            return nil
+        case .phaseMeter, .toneGenerator, .masking:
+            return nil
         }
     }
 

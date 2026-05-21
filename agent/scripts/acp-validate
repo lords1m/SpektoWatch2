@@ -86,6 +86,11 @@ case "$current_milestone" in
   M5) task_dir="agent/tasks/milestone-5-watch-complications" ;;
   M6) task_dir="agent/tasks/milestone-6-code-audit-remediation" ;;
   M7) task_dir="agent/tasks/milestone-7-xcode-cloud-snapshot-testing" ;;
+  M8) task_dir="agent/tasks/milestone-8-widget-sizing-refactor" ;;
+  M9) task_dir="agent/tasks/milestone-9-widget-audit" ;;
+  M10) task_dir="agent/tasks/milestone-10-ios-standalone-widgets" ;;
+  M11) task_dir="agent/tasks/milestone-11-tone-generator-piano-input" ;;
+  M12) task_dir="agent/tasks/milestone-12-liquid-glass-redesign" ;;
   *) task_dir="agent/tasks/$current_milestone" ;;
 esac
 

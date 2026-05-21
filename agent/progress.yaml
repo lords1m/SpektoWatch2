@@ -579,8 +579,23 @@ tasks:
         tracked under task-6.
     - id: task-2-widget-card-headers
       name: Widget Card Headers
-      status: pending
+      status: in_progress
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-2-widget-card-headers.md
+      notes: >
+        Code-side landed 2026-05-21 on branch redesign/liquid-glass.
+        WidgetCardView.cardHeader (SF Symbol + uppercase mono title +
+        right-aligned mono meta pill) overlaid on top edge so total
+        card height stays = widget.size.height (no dashboard layout
+        regression). Header hidden in edit mode to keep drag/delete
+        circles unobstructed. metaText derives live readout from
+        audioEngine.currentSpectrogramData?.levels for level-style
+        widgets (LAF dB(A) for levelHistory/levelMeter/singleValue,
+        LAeq dB Leq for spectrogram/waterfall/frequencyDisplay/
+        octaveBands/spektralanalyseLab). Phase/tone/masking meta
+        deferred — would require touching each kernel. innerCanvas
+        wrapping deferred — most kernels already paint dark and
+        task non-goal forbids kernel changes. Build green. Visual
+        acceptance gated on hardware (task-6).
     - id: task-3-preset-rail-wiring
       name: Preset Rail Wiring & Compositions
       status: pending
@@ -599,9 +614,16 @@ tasks:
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-6-acceptance.md
 
 updated_at: 2026-05-21
-current_milestone: M8
-current_task: task-2-acceptance
+current_milestone: M12
+current_task: task-2-widget-card-headers
 last_proceed: 2026-05-21
+parked:
+  - milestone: M8
+    task: task-2-acceptance
+    reason: gated on hardware acceptance; local simulator broken
+  - milestone: M7
+    task: task-2-pdf-report-fixture
+    reason: gated on Xcode Cloud RECORD_SNAPSHOTS=YES run
 recent_reports:
   - agent/reports/2026-05-21-spectrogram-quickwins.md
   - agent/reports/2026-05-21-widget-screenshot-review.md
