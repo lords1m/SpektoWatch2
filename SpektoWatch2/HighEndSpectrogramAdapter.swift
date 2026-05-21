@@ -94,7 +94,9 @@ class HighEndSpectrogramAdapter: MTKView {
     var gamma: Float = 1.15
     private var frequencySmoothing: Float = 0.0
     var isUpdatesPaused: Bool = false
-    var manualScrollOffset: Float = 0.0
+    // `manualScrollOffset` removed 2026-05-21 (M9 task-1 audit): zero callers
+    // ever set a non-zero value, so the storage + accessor + draw-time add
+    // were all unreachable.
     var onAxisMetricsChanged: ((SpectrogramAxisMetrics) -> Void)?
 
     // MARK: - Frequency Mapping Cache
@@ -425,8 +427,15 @@ class HighEndSpectrogramAdapter: MTKView {
     }
 
     private func applyFrequencySmoothingIfNeeded(values: inout [Float]) {
-        let strength = max(0.0, min(1.0, frequencySmoothing))
-        guard strength > 0.001, values.count > 2 else { return }
+        // Always-on baseline smoothing hides FFT-bin boundaries that become
+        // visible on the log-frequency axis at low frequencies, where multiple
+        // display pixels map to the same FFT bin and `precomputeMapping`'s
+        // linear interpolation produces visible plateaus. The user slider
+        // (`frequencySmoothing`) adds further smoothing on top.
+        let userStrength = max(0.0, min(1.0, frequencySmoothing))
+        let baselineStrength: Float = 0.25
+        let strength = max(baselineStrength, userStrength)
+        guard values.count > 2 else { return }
 
         // Slider 0...1 bleibt erhalten, Effekt ist bewusst gedämpft,
         // damit feine Harmonische nicht verschmiert werden.
@@ -485,10 +494,10 @@ class HighEndSpectrogramAdapter: MTKView {
         else { return }
         guard inFlightSemaphore.wait(timeout: .now()) == .success else { return }
 
-        guard let drawable = currentDrawable,
-              let rpd = currentRenderPassDescriptor,
+        guard let renderPassDescriptor = currentRenderPassDescriptor,
+              let drawable = currentDrawable,
               let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: rpd)
+              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
         else {
             inFlightSemaphore.signal()
             return
@@ -530,7 +539,7 @@ class HighEndSpectrogramAdapter: MTKView {
             if abs(diff) > 5.0 { displayScrollPosition -= diff }
         }
 
-        var totalOffset = Float(displayScrollPosition.truncatingRemainder(dividingBy: Double(timeColumns))) / Float(timeColumns) + manualScrollOffset
+        var totalOffset = Float(displayScrollPosition.truncatingRemainder(dividingBy: Double(timeColumns))) / Float(timeColumns)
         let fillRatio = min(1.0, Float(snapTotalColumnsWritten) / Float(max(timeColumns, 1)))
 
         // Push axis metrics at ~30 Hz
@@ -647,7 +656,6 @@ class HighEndSpectrogramAdapter: MTKView {
         isUpdatesPaused = paused
         if wasPaused && !paused { lastCADrawTime = 0 }  // prevent frameDt spike on resume
     }
-    func setManualScrollOffset(_ offset: Float) { manualScrollOffset = offset }
 
     private func updateSampleRateIfNeeded(_ sampleRate: Double) {
         guard sampleRate > 1000 else { return }
@@ -712,7 +720,6 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
     var timeSpan: SpectrogramTimeSpan
     var scrollSpeed: ScrollSpeed
     var isPaused: Bool
-    var scrollOffset: Float
     var freqWeighting: String = "Z"
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
@@ -727,7 +734,6 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         view.setTimeSpan(timeSpan.rawValue)
         view.setHopSize(scrollSpeed.rawValue)
         view.setPaused(isPaused)
-        view.setManualScrollOffset(scrollOffset)
         view.setSensitivity(sensitivity)
         view.setFrequencySmoothing(frequencySmoothing)
         view.setCalibrationOffset(audioEngine.calibrationOffset)
@@ -745,7 +751,6 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         uiView.setHopSize(scrollSpeed.rawValue)
         uiView.setTimeSpan(timeSpan.rawValue)
         uiView.setPaused(isPaused)
-        uiView.setManualScrollOffset(scrollOffset)
         uiView.setSensitivity(sensitivity)
         uiView.setFrequencySmoothing(frequencySmoothing)
         uiView.setCalibrationOffset(audioEngine.calibrationOffset)
@@ -800,7 +805,6 @@ struct SpectrogramWidgetView: View {
     var timeSpan: SpectrogramTimeSpan
     var scrollSpeed: ScrollSpeed
     var isPaused: Bool
-    var scrollOffset: Float
     var freqWeighting: String = "Z"
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
@@ -824,7 +828,7 @@ struct SpectrogramWidgetView: View {
                 .frame(width: axisWidth, height: geometry.size.height)
                 .clipped()
 
-                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, scrollOffset: scrollOffset, freqWeighting: freqWeighting, sensitivity: sensitivity, frequencySmoothing: frequencySmoothing)
+                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, freqWeighting: freqWeighting, sensitivity: sensitivity, frequencySmoothing: frequencySmoothing)
                     .cornerRadius(10)
             }
         }
@@ -853,7 +857,6 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     var timeSpan: SpectrogramTimeSpan = .seconds5
     var scrollSpeed: ScrollSpeed = .fast
     var isPaused: Bool = false
-    var scrollOffset: Float = 0.0
     var freqWeighting: String = "Z"
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
@@ -880,7 +883,6 @@ struct HighEndSpectrogramAdapterWithAxes: View {
             timeSpan: timeSpan,
             scrollSpeed: scrollSpeed,
             isPaused: isPaused,
-            scrollOffset: scrollOffset,
             freqWeighting: freqWeighting,
             sensitivity: sensitivity,
             frequencySmoothing: frequencySmoothing,

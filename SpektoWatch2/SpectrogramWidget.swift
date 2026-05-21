@@ -34,6 +34,18 @@ struct SpectrogramWidget: View {
         return Float(settings["sensitivity"] ?? String(Int(WidgetSettings.defaultSpectrogramSensitivity))) ?? WidgetSettings.defaultSpectrogramSensitivity
     }
 
+    /// Per-widget frequency smoothing on top of the always-on baseline in
+    /// `HighEndSpectrogramAdapter.applyFrequencySmoothingIfNeeded`. When the
+    /// override toggle is off the widget reads the app-global value so the
+    /// existing global slider keeps working as before.
+    var frequencySmoothing: Float {
+        guard useWidgetOverrides else {
+            return audioEngine.spectrogramFrequencySmoothing
+        }
+        let raw = settings["frequencySmoothing"] ?? "0.0"
+        return Float(raw) ?? 0.0
+    }
+
     var body: some View {
         HighEndSpectrogramAdapterWithAxes(
             audioEngine: audioEngine,
@@ -41,10 +53,9 @@ struct SpectrogramWidget: View {
             timeSpan: timeSpan,
             scrollSpeed: scrollSpeed,
             isPaused: audioEngine.engineStatus != .running,
-            scrollOffset: 0.0,
             freqWeighting: freqWeighting,
             sensitivity: sensitivity,
-            frequencySmoothing: audioEngine.spectrogramFrequencySmoothing
+            frequencySmoothing: frequencySmoothing
         )
         .onAppear {
             print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan), sensitivity: \(sensitivity), override=\(useWidgetOverrides)")

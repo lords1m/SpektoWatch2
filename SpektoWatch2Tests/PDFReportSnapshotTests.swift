@@ -36,6 +36,10 @@ final class PDFReportSnapshotTests: XCTestCase {
         #if !canImport(SnapshotTesting)
         throw XCTSkip("SnapshotTesting package not yet added to SpektoWatch2Tests. " +
                       "See SnapshotTestSupport.swift for setup instructions.")
+        #elseif !targetEnvironment(simulator)
+        guard ciSnapshotBaselinesAvailable(for: PDFReportSnapshotTests.self) else {
+            throw XCTSkip("PDF snapshot baselines are not bundled yet. Skipping on physical devices because the test runner cannot write back to the source __Snapshots__ directory.")
+        }
         #endif
     }
 
@@ -64,7 +68,7 @@ final class PDFReportSnapshotTests: XCTestCase {
         let pdfData = try renderPDF(from: fixture)
         let outline = try extractTextOutline(from: pdfData)
 
-        ciAssertSnapshot(of: outline, as: .lines)
+        ciAssertSnapshot(of: outline.joined(separator: "\n"), as: .lines)
         #endif
     }
 

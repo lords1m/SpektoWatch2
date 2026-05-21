@@ -33,7 +33,8 @@ final class MaskingProfileManager: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
+        guard FileManager.default.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL),
               let decoded = try? JSONDecoder().decode([MaskingProfile].self, from: data) else { return }
         profiles = decoded
     }

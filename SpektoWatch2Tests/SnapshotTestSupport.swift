@@ -71,8 +71,8 @@ public func ciAssertSnapshot<Value, Format>(
     testName: String = #function,
     line: UInt = #line
 ) {
-    let directory = bundledSnapshotDirectory(for: testClass, sourceFile: file)
     let recordMode = recording ?? isRecordModeEnabled()
+    let directory = snapshotDirectory(for: testClass, sourceFile: file, recordMode: recordMode)
 
     let failure = verifySnapshot(
         of: try value(),
@@ -102,8 +102,8 @@ public extension XCTestCase {
         testName: String = #function,
         line: UInt = #line
     ) {
-        let directory = bundledSnapshotDirectory(for: type(of: self), sourceFile: file)
         let recordMode = recording ?? isRecordModeEnabled()
+        let directory = snapshotDirectory(for: type(of: self), sourceFile: file, recordMode: recordMode)
 
         let failure = verifySnapshot(
             of: try value(),
@@ -122,6 +122,10 @@ public extension XCTestCase {
     }
 }
 
+public func ciSnapshotBaselinesAvailable(for testClass: AnyClass) -> Bool {
+    bundledSnapshotDirectoryWithBaselines(for: testClass) != nil
+}
+
 // MARK: - Path resolution
 
 /// Resolves the snapshot directory:
@@ -129,30 +133,67 @@ public extension XCTestCase {
 ///      `__Snapshots__/`, use that (Xcode Cloud path).
 ///   2. Otherwise fall back to `<source file dir>/__Snapshots__/<TestClassName>`
 ///      so local record / review continues to work normally.
-private func bundledSnapshotDirectory(
+private func snapshotDirectory(
     for testClass: AnyClass,
-    sourceFile: StaticString
+    sourceFile: StaticString,
+    recordMode: Bool
 ) -> String {
     let className = String(describing: testClass)
         .components(separatedBy: ".")
         .last ?? String(describing: testClass)
 
-    let bundle = Bundle(for: testClass)
-    if let resourceURL = bundle.resourceURL {
-        let bundled = resourceURL
-            .appendingPathComponent("__Snapshots__", isDirectory: true)
-            .appendingPathComponent(className, isDirectory: true)
-        if FileManager.default.fileExists(atPath: bundled.path) {
-            return bundled.path
-        }
+    let sourceDirectory = sourceSnapshotDirectory(for: className, sourceFile: sourceFile)
+    if recordMode {
+        return sourceDirectory
     }
 
+    if let bundled = bundledSnapshotDirectoryWithBaselines(for: testClass) {
+        return bundled.path
+    }
+
+    return sourceDirectory
+}
+
+private func bundledSnapshotDirectoryWithBaselines(for testClass: AnyClass) -> URL? {
+    let className = String(describing: testClass)
+        .components(separatedBy: ".")
+        .last ?? String(describing: testClass)
+
+    guard let resourceURL = Bundle(for: testClass).resourceURL else {
+        return nil
+    }
+
+    let bundled = resourceURL
+        .appendingPathComponent("__Snapshots__", isDirectory: true)
+        .appendingPathComponent(className, isDirectory: true)
+
+    return directoryContainsSnapshotBaselines(bundled) ? bundled : nil
+}
+
+private func sourceSnapshotDirectory(for className: String, sourceFile: StaticString) -> String {
     let sourceURL = URL(fileURLWithPath: "\(sourceFile)", isDirectory: false)
     return sourceURL
         .deletingLastPathComponent()
         .appendingPathComponent("__Snapshots__", isDirectory: true)
         .appendingPathComponent(className, isDirectory: true)
         .path
+}
+
+private func directoryContainsSnapshotBaselines(_ url: URL) -> Bool {
+    guard let contents = try? FileManager.default.contentsOfDirectory(
+        at: url,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return false
+    }
+
+    return contents.contains { item in
+        guard (try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+            return false
+        }
+        return item.lastPathComponent != "README.txt"
+    }
 }
 
 private func isRecordModeEnabled() -> Bool {

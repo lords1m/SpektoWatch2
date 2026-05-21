@@ -262,10 +262,10 @@ class PlaybackSpectrogramRenderer: MTKView {
               commandQueue != nil,
               pipelineState != nil,
               viewportBuffer != nil,
+              let renderPassDescriptor = currentRenderPassDescriptor,
               let drawable = currentDrawable,
-              let rpd = currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: rpd),
+              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor),
               colormapTexture != nil
         else { return }
 
