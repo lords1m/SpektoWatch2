@@ -18,6 +18,7 @@ turn ships a coherent deliverable.
 - **4a. Pegelmesser face** — landed 2026-05-21.
 - **4b. Spektrogramm face** — landed 2026-05-21.
 - **4d. Complication chrome refresh** — landed 2026-05-21.
+- **4e. Modular 4-slot face** — landed 2026-05-21.
 - **4c. Tongenerator face** — pending. New file; mini sine wave
   with glow filter + PAUSE button + λ readout. Requires a watch-side
   tone source or a "static demo" mode.
@@ -82,6 +83,25 @@ turn ships a coherent deliverable.
   the user choosing a Bezel face and assigning the existing
   Rectangular complication to it.
 
+## Landed (2026-05-21) — Subtask 4e
+
+- New `SpektoWatch Watch App/WatchModularFace.swift`. Four-slot
+  composition per redesign README § 8:
+  1. **Hero LAF** — 36pt SF Pro Display ultralight phosphor number
+     + `dB(A)` mono cap. Greys to 40% when no live data.
+  2. **Mini spectrogram strip** — 32pt-tall in-line Canvas renderer
+     pulling the same `RingBuffer<[Float]>` pattern as
+     `WatchSpectrogramView` but at 16 display bins. Custom blue→
+     phosphor color ramp (avoids dragging the full kernel).
+  3. **PEAK tile** — amber readout from `LCpeak` / `LAFmax` / max
+     of incoming levels.
+  4. **LEQ tile** — phosphor readout from `LAeq` / `LAFeq` / current
+     level fallback.
+- Added as second `TabView` page in `WatchContentView` (right after
+  Pegelmesser); existing pages preserved.
+- All data sourced from existing `WatchAudioEngine.liveData` — no
+  protocol or App Group changes.
+
 ## Acceptance status
 
 - [x] Pegelmesser face implemented (subtask 4a).
@@ -89,5 +109,6 @@ turn ships a coherent deliverable.
 - [ ] Tongenerator face (subtask 4c).
 - [x] Complication chrome refresh (subtask 4d, partial — sparkline
   and peak suffix deferred behind entry extension).
+- [x] Modular 4-slot face implemented (subtask 4e).
 - [ ] Modular 4-slot face (subtask 4e).
 - [ ] Hardware visual pass (task-6).

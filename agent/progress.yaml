@@ -647,8 +647,15 @@ tasks:
         peak suffix for Inline deferred (need WatchComplicationEntry
         extension that ripples into provider + iOS write side).
         Graphic Bezel out of scope (face layout, not a WidgetKit
-        family). Subtask 4c (Tongenerator face), 4e (Modular 4-slot)
-        and hardware acceptance still pending.
+        family).
+        Subtask 4e landed 2026-05-21: WatchModularFace.swift — 4-slot
+        composition (hero LAF + 32pt mini spectrogram strip + PEAK +
+        LEQ tiles) reading existing WatchAudioEngine.liveData via the
+        same RingBuffer pattern as WatchSpectrogramView at 16 display
+        bins. Added as second TabView page in WatchContentView.
+        Phosphor + amber accents hardcoded.
+        Subtask 4c (Tongenerator face) and hardware acceptance still
+        pending.
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
       status: in_progress
