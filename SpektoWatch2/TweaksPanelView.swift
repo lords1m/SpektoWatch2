@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Live UI customization panel ("Tweaks") backed by @AppStorage.
-/// Toggles theme, canvas behavior in light theme, accent, density, numerals, colormap.
-struct TweaksPanelView: View {
+/// Reusable Form sections for the design tokens (theme / canvas /
+/// accent / density / numerals / colormap), all backed by @AppStorage.
+/// Embed in any Form — used by both `TweaksPanelView` (sheet) and
+/// `SpectrogramSettingsView` (main settings).
+struct DesignTweaksSections: View {
     @AppStorage("design.theme")        private var themeRaw: String = ThemeMode.dark.rawValue
     @AppStorage("design.canvasInLight") private var canvasInLightRaw: String = CanvasMode.light.rawValue
     @AppStorage("design.accent")       private var accentRaw: String = AccentChoice.phosphor.rawValue
@@ -10,36 +12,23 @@ struct TweaksPanelView: View {
     @AppStorage("design.numerals")     private var numeralsRaw: String = NumeralStyle.mono.rawValue
     @AppStorage("design.colormap")     private var colormapRaw: String = Colormap.viridis.rawValue
 
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Theme") {
-                    enumPicker("Mode", selection: $themeRaw, options: ThemeMode.allCases.map { $0 }, label: { $0.label })
-                    enumPicker("Canvas (Light Theme)", selection: $canvasInLightRaw, options: CanvasMode.allCases.map { $0 }, label: { $0.label })
-                }
-                Section("Akzent") {
-                    accentGrid
-                }
-                Section("Layout") {
-                    enumPicker("Dichte", selection: $densityRaw, options: Density.allCases.map { $0 }, label: { $0.label })
-                    enumPicker("Ziffern", selection: $numeralsRaw, options: NumeralStyle.allCases.map { $0 }, label: { $0.label })
-                }
-                Section("Wissenschaft") {
-                    enumPicker("Colormap", selection: $colormapRaw, options: Colormap.allCases.map { $0 }, label: { $0.label })
-                }
+        Group {
+            Section(header: Text("Darstellung")) {
+                enumPicker("Theme", selection: $themeRaw, options: ThemeMode.allCases.map { $0 }, label: { $0.label })
+                enumPicker("Canvas (Light Theme)", selection: $canvasInLightRaw, options: CanvasMode.allCases.map { $0 }, label: { $0.label })
             }
-            .navigationTitle("Tweaks")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { dismiss() }
-                }
+            Section(header: Text("Akzentfarbe")) {
+                accentGrid
+            }
+            Section(header: Text("Layout")) {
+                enumPicker("Dichte", selection: $densityRaw, options: Density.allCases.map { $0 }, label: { $0.label })
+                enumPicker("Ziffern", selection: $numeralsRaw, options: NumeralStyle.allCases.map { $0 }, label: { $0.label })
+            }
+            Section(header: Text("Wissenschaft")) {
+                enumPicker("Colormap", selection: $colormapRaw, options: Colormap.allCases.map { $0 }, label: { $0.label })
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 
     private var accentGrid: some View {
@@ -85,6 +74,29 @@ struct TweaksPanelView: View {
             }
         }
         .pickerStyle(.segmented)
+    }
+}
+
+/// Standalone sheet that wraps `DesignTweaksSections` — kept so the
+/// accent-menu's "Mehr Optionen…" shortcut still has a target.
+struct TweaksPanelView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                DesignTweaksSections()
+            }
+            .navigationTitle("Design")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 

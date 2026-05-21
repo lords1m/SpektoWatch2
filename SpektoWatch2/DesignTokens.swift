@@ -141,10 +141,6 @@ struct InnerCanvas: ViewModifier {
         content
             .background(DarkCanvasBackground())
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
-            )
     }
 }
 
@@ -160,13 +156,15 @@ struct LiquidGlassCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(
-                        isEditing ? accent.opacity(0.55) : Color.white.opacity(0.06),
-                        lineWidth: isEditing ? 1.2 : 0.5
-                    )
-            )
+            // Border only in edit mode — keeps live mode clean per redesign
+            // request. Non-edit cards rely on the material + shadow for
+            // separation from the background.
+            .overlay {
+                if isEditing {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(accent.opacity(0.55), lineWidth: 1.2)
+                }
+            }
             .shadow(
                 color: isEditing ? accent.opacity(0.25) : .black.opacity(0.35),
                 radius: isEditing ? 8 : 6,

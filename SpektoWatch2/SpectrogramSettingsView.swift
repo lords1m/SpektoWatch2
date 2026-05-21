@@ -162,6 +162,11 @@ struct SpectrogramSettingsView: View {
                     }
                 }
 
+                // Design / Anpassen — theme, accent, density, numerals,
+                // colormap. Lives directly in the main settings so users
+                // don't have to hunt through the accent menu.
+                DesignTweaksSections()
+
                 Section(header: Text("Apple Watch")) {
                     NavigationLink(destination: WatchDashboardSettingsView()) {
                         HStack {
