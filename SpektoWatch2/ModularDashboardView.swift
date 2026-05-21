@@ -13,7 +13,7 @@ struct ModularDashboardView: View {
     @State private var lastScrollOffset: CGFloat? = nil
     @State private var scrollOffset: CGFloat = 0
     @State private var showTweaks = false
-    @State private var activePresetID: String = "overview"
+    @AppStorage("dashboard.activePreset") private var activePresetID: String = "overview"
     private let barSwipeThreshold: CGFloat = 36
     private let handleDragThreshold: CGFloat = 12
     private let scrollThreshold: CGFloat = 20
@@ -215,7 +215,12 @@ struct ModularDashboardView: View {
             PresetRailView(
                 presets: PresetCatalogue.all,
                 activeID: $activePresetID,
-                dimmed: viewModel.dashboardManager.isEditMode
+                dimmed: viewModel.dashboardManager.isEditMode,
+                onSelect: { preset in
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        viewModel.dashboardManager.applyPreset(id: preset.id)
+                    }
+                }
             )
         }
         .contentShape(Rectangle())

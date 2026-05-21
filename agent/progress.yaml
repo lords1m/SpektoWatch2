@@ -598,8 +598,21 @@ tasks:
         acceptance gated on hardware (task-6).
     - id: task-3-preset-rail-wiring
       name: Preset Rail Wiring & Compositions
-      status: pending
+      status: in_progress
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-3-preset-rail-wiring.md
+      notes: >
+        Code-side landed 2026-05-21 on branch redesign/liquid-glass.
+        New PresetCompositions.swift maps all 11 preset ids to
+        concrete WidgetConfiguration arrays using only existing widget
+        types and staying inside WidgetConfiguration.sizeRange(for:).
+        DashboardManager.applyPreset(id:) replaces the active layout's
+        widgets non-destructively to other layouts.
+        ModularDashboardView.activePresetID promoted from @State to
+        @AppStorage("dashboard.activePreset"); rail onSelect wired
+        with .easeInOut(0.25) cross-fade. Build green. Hardware
+        acceptance gated on task-6. Deferred: single-preset 2×2
+        clustering (needs gridPosition plumbing) and stereo L/R
+        proxy (architecture is single-channel).
     - id: task-4-watch-faces-and-complications
       name: Watch Faces & Complications
       status: pending
@@ -615,7 +628,7 @@ tasks:
 
 updated_at: 2026-05-21
 current_milestone: M12
-current_task: task-2-widget-card-headers
+current_task: task-3-preset-rail-wiring
 last_proceed: 2026-05-21
 parked:
   - milestone: M8

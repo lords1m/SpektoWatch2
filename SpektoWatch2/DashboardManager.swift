@@ -134,19 +134,17 @@ class DashboardManager: ObservableObject {
     }
     
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
-        // `WidgetSize.init` and the `rows` setter already clamp to
-        // `WidgetSize.minimumRows`, but constructing the size via the
-        // memberwise-style init below makes the clamp explicit at the
-        // mutation site too.
-        let safeSize = WidgetSize(columns: newSize.columns, rows: newSize.rows)
-        Logger.ui.debug("Resizing widget \(id) to \(safeSize.columns)x\(safeSize.rows)")
-        if let index = widgets.firstIndex(where: { $0.id == id }) {
-            widgets[index].size = safeSize
-            Logger.ui.debug("Widget resized successfully")
-            saveConfiguration()
-        } else {
+        guard let index = widgets.firstIndex(where: { $0.id == id }) else {
             Logger.ui.error("Widget with ID \(id) not found for resizing")
+            return
         }
+        // Clamp to the type's allowed size range (M8 — single source of
+        // truth lives in `WidgetConfiguration.sizeRange(for:)`).
+        let range = WidgetConfiguration.sizeRange(for: widgets[index].type)
+        let safeSize = newSize.clamped(min: range.min, max: range.max)
+        Logger.ui.debug("Resizing widget \(id) to \(safeSize.columns)x\(safeSize.rows)")
+        widgets[index].size = safeSize
+        saveConfiguration()
     }
     
     func updateWidgetSettings(id: UUID, settings: [String: String]) {
@@ -240,6 +238,36 @@ class DashboardManager: ObservableObject {
         generator.notificationOccurred(.success)
     }
 
+    /// Replaces the active layout's widgets with the composition for the
+    /// given preset id (from `PresetCatalogue`). Non-destructive to other
+    /// layouts; preserves the layout name. Persists immediately.
+    func applyPreset(id: String) {
+        guard !layouts.isEmpty else { return }
+        let composition = PresetCompositions.widgets(forPresetID: id)
+        guard !composition.isEmpty else { return }
+        Logger.ui.info("Applying preset '\(id)' (\(composition.count) widgets)")
+        widgets = composition
+        storeWidgetsToActiveLayout()
+        saveConfiguration()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    func installWidgetSizeScreenshotPreset() {
+        Logger.ui.info("Installing widget size screenshot preset...")
+        layouts = AudioWidgetType.allCases.map { type in
+            DashboardLayout(
+                name: "Preset: \(type.rawValue)",
+                widgets: Self.sizeCatalogWidgets(for: type)
+            )
+        }
+        activeLayoutIndex = 0
+        widgets = layouts.first?.widgets ?? []
+        saveConfiguration()
+
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+    }
+
     private func storeWidgetsToActiveLayout() {
         guard activeLayoutIndex >= 0, activeLayoutIndex < layouts.count else { return }
         layouts[activeLayoutIndex].widgets = widgets
@@ -270,8 +298,30 @@ class DashboardManager: ObservableObject {
 
     private static func defaultWidgets() -> [WidgetConfiguration] {
         [
-            WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 4, rows: 2.0), gridPosition: GridPosition(index: 0)),
-            WidgetConfiguration(type: .levelHistory, size: WidgetSize(columns: 4, rows: 1.0), gridPosition: GridPosition(index: 1))
+            WidgetConfiguration(type: .spectrogram, size: WidgetConfiguration.defaultSize(for: .spectrogram), gridPosition: GridPosition(index: 0)),
+            WidgetConfiguration(type: .levelHistory, size: WidgetConfiguration.defaultSize(for: .levelHistory), gridPosition: GridPosition(index: 1))
         ]
+    }
+
+    private static func sizeCatalogWidgets(for type: AudioWidgetType) -> [WidgetConfiguration] {
+        let range = WidgetConfiguration.sizeRange(for: type)
+        var widgets: [WidgetConfiguration] = []
+        var index = 0
+
+        for rows in range.min.rows...range.max.rows {
+            for columns in range.min.columns...range.max.columns {
+                let size = WidgetSize(columns: columns, rows: rows)
+                widgets.append(
+                    WidgetConfiguration(
+                        type: type,
+                        size: size,
+                        gridPosition: GridPosition(index: index)
+                    )
+                )
+                index += 1
+            }
+        }
+
+        return widgets
     }
 }
