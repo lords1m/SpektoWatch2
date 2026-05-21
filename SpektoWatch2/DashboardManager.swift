@@ -238,16 +238,27 @@ class DashboardManager: ObservableObject {
         generator.notificationOccurred(.success)
     }
 
-    /// Replaces the active layout's widgets with the composition for the
-    /// given preset id (from `PresetCatalogue`). Non-destructive to other
-    /// layouts; preserves the layout name. Persists immediately.
+    /// Applies a redesign preset by routing into a dedicated "Preset"
+    /// layout (created on first use) — does NOT overwrite the user's
+    /// existing custom layouts. If the Preset slot already exists, its
+    /// widgets are replaced; otherwise a new slot is appended.
+    /// Persists immediately.
     func applyPreset(id: String) {
-        guard !layouts.isEmpty else { return }
         let composition = PresetCompositions.widgets(forPresetID: id)
         guard !composition.isEmpty else { return }
         Logger.ui.info("Applying preset '\(id)' (\(composition.count) widgets)")
-        widgets = composition
+
         storeWidgetsToActiveLayout()
+
+        let presetName = "Preset: \(id)"
+        if let existing = layouts.firstIndex(where: { $0.name == presetName }) {
+            layouts[existing].widgets = composition
+            activeLayoutIndex = existing
+        } else {
+            layouts.append(DashboardLayout(name: presetName, widgets: composition))
+            activeLayoutIndex = layouts.count - 1
+        }
+        widgets = composition
         saveConfiguration()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }

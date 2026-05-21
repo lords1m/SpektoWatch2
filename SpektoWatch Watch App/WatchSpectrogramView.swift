@@ -93,10 +93,12 @@ struct WatchSpectrogramView: View {
     private var topStatusStrip: some View {
         HStack(spacing: 6) {
             PulsingDot(active: audioEngine.isRecording || connectivityManager.isReachable)
-            Text(currentTimeString)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.85))
+            TimelineView(.everyMinute) { context in
+                Text(timeString(from: context.date))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.85))
+            }
             Spacer(minLength: 4)
             Text("STFT")
                 .font(.system(size: 9, weight: .regular, design: .monospaced))
@@ -132,10 +134,10 @@ struct WatchSpectrogramView: View {
         max(64, latestMagnitudesCount * 2)
     }
 
-    private var currentTimeString: String {
+    private func timeString(from date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
-        return f.string(from: Date())
+        return f.string(from: date)
     }
 
     private var recordButton: some View {
@@ -295,28 +297,19 @@ struct WatchSpectrogramView: View {
 
     private struct PulsingDot: View {
         let active: Bool
-        @State private var on = false
+        private let phosphor = Color(red: 0.45, green: 0.93, blue: 0.55)
 
         var body: some View {
-            Circle()
-                .fill(Color(red: 0.45, green: 0.93, blue: 0.55))
-                .frame(width: 5, height: 5)
-                .opacity(active ? (on ? 1.0 : 0.45) : 0.35)
-                .shadow(color: Color(red: 0.45, green: 0.93, blue: 0.55).opacity(active ? 0.7 : 0), radius: on ? 4 : 1)
-                .onAppear {
-                    guard active else { return }
-                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                        on = true
-                    }
-                }
-                .onChange(of: active) { _, newValue in
-                    on = false
-                    if newValue {
-                        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                            on = true
-                        }
-                    }
-                }
+            TimelineView(.animation(minimumInterval: 0.08, paused: !active)) { context in
+                let phase = active
+                    ? 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * .pi * 1.2)
+                    : 0.0
+                Circle()
+                    .fill(phosphor)
+                    .frame(width: 5, height: 5)
+                    .opacity(active ? (0.40 + 0.60 * phase) : 0.35)
+                    .shadow(color: phosphor.opacity(active ? 0.7 : 0), radius: active ? (1 + 3 * phase) : 0)
+            }
         }
     }
 

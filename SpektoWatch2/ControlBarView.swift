@@ -407,30 +407,22 @@ struct ControlBarView: View {
 }
 
 /// Small status indicator dot — 6pt circle that pulses when `pulsing` is true.
+/// Uses TimelineView so the animation belongs to the system clock, not a
+/// repeatForever transaction that can't be cleanly cancelled.
 private struct StatusLED: View {
     let color: Color
     let pulsing: Bool
-    @State private var on: Bool = false
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 6, height: 6)
-            .shadow(color: color.opacity(0.7), radius: pulsing ? (on ? 6 : 2) : 0)
-            .opacity(pulsing ? (on ? 1.0 : 0.55) : 1.0)
-            .onAppear {
-                guard pulsing else { return }
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                    on.toggle()
-                }
-            }
-            .onChange(of: pulsing) { _, newValue in
-                on = false
-                if newValue {
-                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                        on = true
-                    }
-                }
-            }
+        TimelineView(.animation(minimumInterval: 0.05, paused: !pulsing)) { context in
+            let phase = pulsing
+                ? 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * .pi * 1.1)
+                : 1.0
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+                .opacity(pulsing ? (0.45 + 0.55 * phase) : 1.0)
+                .shadow(color: color.opacity(0.7), radius: pulsing ? (2 + 4 * phase) : 0)
+        }
     }
 }

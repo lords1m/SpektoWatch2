@@ -28,6 +28,13 @@ struct PresetRailView: View {
                     proxy.scrollTo(newID, anchor: .center)
                 }
             }
+            .onAppear {
+                // onChange does not fire for the initial value — center the
+                // restored chip explicitly so it isn't off-screen on launch.
+                DispatchQueue.main.async {
+                    proxy.scrollTo(activeID, anchor: .center)
+                }
+            }
         }
         .opacity(dimmed ? 0.35 : 1.0)
         .allowsHitTesting(!dimmed)
