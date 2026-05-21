@@ -250,6 +250,7 @@ struct WidgetSettingsView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("widgetSettingsView")
         }
     }
 }

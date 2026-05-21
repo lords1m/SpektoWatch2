@@ -148,6 +148,7 @@ struct WidgetCardView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("widgetSettingsButton")
 
             Rectangle()
                 .fill(Color.primary.opacity(0.18))
@@ -165,6 +166,7 @@ struct WidgetCardView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("widgetDeleteButton")
         }
         .background(.thinMaterial, in: Capsule(style: .continuous))
         .overlay(

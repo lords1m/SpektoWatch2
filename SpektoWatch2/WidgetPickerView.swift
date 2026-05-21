@@ -43,6 +43,7 @@ struct WidgetPickerView: View {
                     Button("Abbrechen") { dismiss() }
                 }
             }
+            .accessibilityIdentifier("widgetPickerView")
         }
     }
 

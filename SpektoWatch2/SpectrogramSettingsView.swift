@@ -182,6 +182,7 @@ struct SpectrogramSettingsView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("settingsView")
         }
         .onAppear {
             audioEngine.checkAvailableInputs()

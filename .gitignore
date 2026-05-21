@@ -19,3 +19,12 @@ build/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# Test artifacts (snapshot baselines under __Snapshots__/ stay tracked, everything else is noise)
+*.xcresult
+*.xcresult/
+TestResults/
+TestResults.xcresult/
+# swift-snapshot-testing writes diff PNGs next to baselines on failure — ignore those.
+**/__Snapshots__/**/*.failure.png
+**/__Snapshots__/**/*.diff.png

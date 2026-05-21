@@ -1,24 +1,11 @@
 project:
   name: SpektoWatch2
-  status: completed
+  status: in_progress
   started: "2026-05-12"
-  current_milestone: M6
+  current_milestone: M7
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
-
-  M5:
-    name: Watch Complications
-    status: completed
-    priority: high
-    progress: 100
-    started: "2026-05-14"
-    completed: "2026-05-16"
-    estimated_weeks: "1.5"
-    tasks_completed: 4
-    tasks_total: 4
-    notes: WidgetKit complication extension embedded in the watch app with live level timeline reloads.
-    file: agent/milestones/milestone-5-watch-complications.md
 
 milestones:
   M1:
@@ -73,6 +60,19 @@ milestones:
     notes: All export artifacts and UI complete. All targeted tests pass. Handoff report written.
     file: agent/milestones/milestone-4-export-and-reporting.md
 
+  M5:
+    name: Watch Complications
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-14"
+    completed: "2026-05-16"
+    estimated_weeks: "1.5"
+    tasks_completed: 4
+    tasks_total: 4
+    notes: WidgetKit complication extension embedded in the watch app with live level timeline reloads.
+    file: agent/milestones/milestone-5-watch-complications.md
+
   M6:
     name: Code Audit Remediation
     status: completed
@@ -92,6 +92,32 @@ milestones:
       that cannot be done in code: App Group entitlement wiring in Xcode +
       Developer Portal, manual hardware acceptance on a paired Apple Watch.
     file: agent/milestones/milestone-6-code-audit-remediation.md
+
+  M7:
+    name: Xcode Cloud Snapshot Testing
+    status: in_progress
+    priority: medium
+    progress: 50
+    started: "2026-05-20"
+    estimated_weeks: "1"
+    tasks_completed: 1
+    tasks_total: 4
+    notes: >
+      Bundled-resources snapshot-testing pattern (Jaanus) with pointfreeco/swift-snapshot-testing
+      >= 1.17.4. Task-1 complete (2026-05-20): package added to
+      SpektoWatch2Tests, __Snapshots__ blue folder reference wired with
+      README.txt placeholder, SpektoWatch2.xctestplan pinned (language=en,
+      region=US, UI=light, TZ=UTC env var, parallelization off on both test
+      targets), .gitignore extended for xcresult/TestResults/failure-diff PNGs,
+      ~130 MB tracked TestResults/ untracked via git rm --cached. Task-2 code
+      landed: all four PDFReportSnapshotTests stubs implemented with a frozen
+      2026-01-01 Recording fixture routed through
+      PDFReportGenerator().generateReport(for:recordingManager:). Remaining
+      task-1: Dynamic Type UI tick + Xcode Cloud workflow with RECORD_SNAPSHOTS
+      and TZ=UTC env vars. Remaining task-2: determinism verification gated
+      on first Cloud run. Spectrogram, watch complications, diff-HTML
+      reporting deferred to M8 / backlog.
+    file: agent/milestones/milestone-7-xcode-cloud-snapshot-testing.md
 
 tasks:
   M1:
@@ -338,22 +364,66 @@ tasks:
         audio render thread). Manual hardware acceptance + App Group Xcode
         wiring documented as outstanding follow-ups.
 
-updated_at: 2026-05-19
-current_milestone: M6
-current_task: task-10-acceptance
+  M7:
+    - id: task-1-package-and-test-target-wiring
+      name: Package & Test Target Wiring
+      status: completed
+      file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-1-package-and-test-target-wiring.md
+      notes: >
+        Completed 2026-05-20. Package added, blue folder reference wired,
+        test plan pinned (language/region/UI/TZ), gitignore + TestResults
+        untracking landed, Xcode Cloud workflow configured with
+        RECORD_SNAPSHOTS=NO and TZ=UTC. Dynamic Type relies on simulator
+        default (no test-plan key exists for it).
+    - id: task-2-pdf-report-fixture
+      name: PDF Report Fixture
+      status: in_progress
+      file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-2-pdf-report-fixture.md
+      notes: >
+        Code-side complete: all four fatalError stubs replaced with frozen
+        Recording fixture + PDFReportGenerator route + PDFDocument
+        rasterize/text-outline helpers. Determinism verification deferred
+        to first Cloud run (simulator broken locally per AGENT.md).
+    - id: task-3-record-and-commit-baselines
+      name: Record & Commit Baselines
+      status: pending
+      file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-3-record-and-commit-baselines.md
+    - id: task-4-acceptance
+      name: Acceptance
+      status: pending
+      file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-4-acceptance.md
+
+updated_at: 2026-05-20
+current_milestone: M7
+current_task: task-3-record-and-commit-baselines
+last_proceed: 2026-05-20
 active_context:
   summary: >
-    Milestones 1–6 complete. M6 (Code Audit Remediation) covered all 44
-    findings from the 2026-05-18 full-codebase audit: 32 landed in code,
-    3 partial (code-side complete, remainder structural or Xcode-UI),
-    4 deferred with explicit rationale, 5 verification reversals.
-    Handoff at agent/reports/2026-05-19-milestone-6-acceptance.md.
-    Outstanding (cannot be done in code): App Group entitlement wiring
-    via Xcode Signing & Capabilities + Apple Developer Portal; manual
-    hardware acceptance on a paired Apple Watch.
+    M1–M6 complete. M7 (Xcode Cloud Snapshot Testing) opened 2026-05-20.
+    Session 2026-05-20 landed: swift-snapshot-testing package added to
+    SpektoWatch2Tests (user-confirmed via Xcode UI); __Snapshots__ added
+    as a blue folder reference with target membership = SpektoWatch2Tests;
+    a placeholder README.txt inside PDFReportSnapshotTests/ so Xcode treats
+    the folder reference as a non-empty resource; SpektoWatch2.xctestplan
+    pinned with language=en, region=US, userInterfaceStyle=light, TZ=UTC
+    env var (parallelization already off); .gitignore extended for
+    *.xcresult, TestResults/, and snapshot-testing failure-diff PNGs;
+    ~130 MB of historically tracked TestResults/ staged for untracking via
+    git rm -r --cached (93 files). Task-2 fixture code landed: all four
+    PDFReportSnapshotTests helpers implemented with a frozen 2026-01-01
+    Recording routed through PDFReportGenerator's production entry point.
   next_action: >
-    Await next milestone or feature request. Follow-up backlog (M7
-    candidates) listed in the M6 handoff report under "Follow-up tasklist".
+    Task-3 (record & commit baselines): (1) edit the Xcode Cloud workflow,
+    flip RECORD_SNAPSHOTS from NO to YES, start a build. (2) Tests will
+    pass with snapshot files written into the test runner's bundle.
+    (3) Download the .xcresult from the build's Artifacts tab. Either
+    extract via xcresulttool, or use Xcode > Window > Organizer to open
+    the result bundle and grab the attached PNG/TXT files. (4) Drop them
+    into SpektoWatch2Tests/__Snapshots__/PDFReportSnapshotTests/ locally
+    and commit. (5) Flip RECORD_SNAPSHOTS back to NO. (6) Trigger another
+    Cloud run; tests should pass without recording. If they fail with
+    "no reference snapshot found", target membership on __Snapshots__
+    didn't bundle the resource — back to task-1 verification.
 known_constraints:
   - Watch complication manual acceptance still requires Apple Watch hardware or
     an interactive paired simulator session.

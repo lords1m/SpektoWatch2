@@ -8,7 +8,22 @@
 
 /* Begin PBXBuildFile section */
 		379523772F22353E0079C93F /* SpektoWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		37B51E202FBDF9E60006E8C1 /* InlineSnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E1F2FBDF9E60006E8C1 /* InlineSnapshotTesting */; };
+		37B51E222FBDF9E60006E8C1 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E212FBDF9E60006E8C1 /* SnapshotTesting */; };
+		37B51E242FBDF9E60006E8C1 /* SnapshotTestingCustomDump in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E232FBDF9E60006E8C1 /* SnapshotTestingCustomDump */; };
+		37B51E272FBDFAD80006E8C1 /* _Testing_UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; };
+		37B51E282FBDFAD80006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		37B51E2B2FBDFAE40006E8C1 /* XCUIAutomation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */; };
+		37B51E2C2FBDFAE40006E8C1 /* XCUIAutomation.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		37B51E2D2FBDFAEF0006E8C1 /* XCUIAutomation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */; };
+		37B51E2E2FBDFAEF0006E8C1 /* XCUIAutomation.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		37B51E312FBDFAFC0006E8C1 /* InlineSnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E302FBDFAFC0006E8C1 /* InlineSnapshotTesting */; };
+		37B51E332FBDFAFC0006E8C1 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E322FBDFAFC0006E8C1 /* SnapshotTesting */; };
+		37B51E352FBDFAFC0006E8C1 /* SnapshotTestingCustomDump in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E342FBDFAFC0006E8C1 /* SnapshotTestingCustomDump */; };
+		37B51E362FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; };
+		37B51E372FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		37B51E462FBE01E50006E8C1 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
+		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,15 +76,39 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		CC11CC11CC11CC11CC11000D /* Embed App Extensions */ = {
+		37B51E292FBDFAD80006E8C1 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				37B51E2C2FBDFAE40006E8C1 /* XCUIAutomation.framework in Embed Frameworks */,
+				37B51E282FBDFAD80006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		37B51E2F2FBDFAEF0006E8C1 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				37B51E372FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */,
+				37B51E2E2FBDFAEF0006E8C1 /* XCUIAutomation.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC11CC11CC11CC11CC11000D /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed App Extensions */,
+				CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -79,6 +118,8 @@
 		3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SpektoWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		37969D322F2E096B009D1923 /* SpektoWatch2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatch2Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		37969D4D2F2E0982009D1923 /* SpektoWatch2UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatch2UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = _Testing_UIKit.framework; path = Platforms/iPhoneOS.platform/Developer/Library/Frameworks/_Testing_UIKit.framework; sourceTree = DEVELOPER_DIR; };
+		37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCUIAutomation.framework; path = Platforms/iPhoneOS.platform/Developer/Library/Frameworks/XCUIAutomation.framework; sourceTree = DEVELOPER_DIR; };
 		37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = TestPlan.xctestplan; sourceTree = "<group>"; };
 		9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SpektoWatch2_FullRun.xctestplan; sourceTree = "<group>"; };
 		AA11AA11AA11AA11AA110001 /* SpektoWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +127,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		37B51E472FBEF6F80006E8C1 /* Exceptions for "SpektoWatch2Tests" folder in "SpektoWatch2Tests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				__Snapshots__/PDFReportSnapshotTests/README.txt,
+			);
+			target = 37969D312F2E096A009D1923 /* SpektoWatch2Tests */;
+		};
 		37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -149,6 +197,9 @@
 		};
 		37969D332F2E096B009D1923 /* SpektoWatch2Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				37B51E472FBEF6F80006E8C1 /* Exceptions for "SpektoWatch2Tests" folder in "SpektoWatch2Tests" target */,
+			);
 			path = SpektoWatch2Tests;
 			sourceTree = "<group>";
 		};
@@ -191,6 +242,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				37B51E2B2FBDFAE40006E8C1 /* XCUIAutomation.framework in Frameworks */,
+				37B51E242FBDF9E60006E8C1 /* SnapshotTestingCustomDump in Frameworks */,
+				37B51E202FBDF9E60006E8C1 /* InlineSnapshotTesting in Frameworks */,
+				37B51E272FBDFAD80006E8C1 /* _Testing_UIKit.framework in Frameworks */,
+				37B51E222FBDF9E60006E8C1 /* SnapshotTesting in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -198,6 +254,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				37B51E362FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Frameworks */,
+				37B51E352FBDFAFC0006E8C1 /* SnapshotTestingCustomDump in Frameworks */,
+				37B51E332FBDFAFC0006E8C1 /* SnapshotTesting in Frameworks */,
+				37B51E312FBDFAFC0006E8C1 /* InlineSnapshotTesting in Frameworks */,
+				37B51E2D2FBDFAEF0006E8C1 /* XCUIAutomation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -230,6 +291,7 @@
 				37969D332F2E096B009D1923 /* SpektoWatch2Tests */,
 				37969D4E2F2E0982009D1923 /* SpektoWatch2UITests */,
 				AA11AA11AA11AA11AA110002 /* SpektoWatchTests */,
+				37B51E252FBDFAD70006E8C1 /* Frameworks */,
 				3795235C2F2234F90079C93F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -245,6 +307,15 @@
 				CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		37B51E252FBDFAD70006E8C1 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */,
+				37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -282,7 +353,7 @@
 				379523692F22353C0079C93F /* Sources */,
 				3795236A2F22353C0079C93F /* Frameworks */,
 				3795236B2F22353C0079C93F /* Resources */,
-				CC11CC11CC11CC11CC11000D /* Embed App Extensions */,
+				CC11CC11CC11CC11CC11000D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -307,6 +378,7 @@
 				37969D2E2F2E096A009D1923 /* Sources */,
 				37969D2F2F2E096A009D1923 /* Frameworks */,
 				37969D302F2E096A009D1923 /* Resources */,
+				37B51E292FBDFAD80006E8C1 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -318,6 +390,9 @@
 			);
 			name = SpektoWatch2Tests;
 			packageProductDependencies = (
+				37B51E1F2FBDF9E60006E8C1 /* InlineSnapshotTesting */,
+				37B51E212FBDF9E60006E8C1 /* SnapshotTesting */,
+				37B51E232FBDF9E60006E8C1 /* SnapshotTestingCustomDump */,
 			);
 			productName = SpektoWatch2Tests;
 			productReference = 37969D322F2E096B009D1923 /* SpektoWatch2Tests.xctest */;
@@ -330,6 +405,7 @@
 				37969D492F2E0982009D1923 /* Sources */,
 				37969D4A2F2E0982009D1923 /* Frameworks */,
 				37969D4B2F2E0982009D1923 /* Resources */,
+				37B51E2F2FBDFAEF0006E8C1 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -341,6 +417,9 @@
 			);
 			name = SpektoWatch2UITests;
 			packageProductDependencies = (
+				37B51E302FBDFAFC0006E8C1 /* InlineSnapshotTesting */,
+				37B51E322FBDFAFC0006E8C1 /* SnapshotTesting */,
+				37B51E342FBDFAFC0006E8C1 /* SnapshotTestingCustomDump */,
 			);
 			productName = SpektoWatch2UITests;
 			productReference = 37969D4D2F2E0982009D1923 /* SpektoWatch2UITests.xctest */;
@@ -402,7 +481,7 @@
 					New,
 				);
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					3795235A2F2234F90079C93F = {
 						CreatedOnToolsVersion = 26.2;
@@ -436,6 +515,9 @@
 			);
 			mainGroup = 379523522F2234F90079C93F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3795235C2F2234F90079C93F /* Products */;
 			projectDirPath = "";
@@ -456,6 +538,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				37B51E462FBE01E50006E8C1 /* TestPlan.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -716,7 +799,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren, um das Spektrogramm durch Kippen des Geräts zu verschieben.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren für UX-Effekte und zur bestimmung von Körnperschall ";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -774,7 +857,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren, um das Spektrogramm durch Kippen des Geräts zu verschieben.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren für UX-Effekte und zur bestimmung von Körnperschall ";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -1152,6 +1235,50 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-snapshot-testing";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.17.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		37B51E1F2FBDF9E60006E8C1 /* InlineSnapshotTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = InlineSnapshotTesting;
+		};
+		37B51E212FBDF9E60006E8C1 /* SnapshotTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTesting;
+		};
+		37B51E232FBDF9E60006E8C1 /* SnapshotTestingCustomDump */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTestingCustomDump;
+		};
+		37B51E302FBDFAFC0006E8C1 /* InlineSnapshotTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = InlineSnapshotTesting;
+		};
+		37B51E322FBDFAFC0006E8C1 /* SnapshotTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTesting;
+		};
+		37B51E342FBDFAFC0006E8C1 /* SnapshotTestingCustomDump */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTestingCustomDump;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 379523532F2234F90079C93F /* Project object */;
 }

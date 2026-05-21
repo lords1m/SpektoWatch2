@@ -9,6 +9,10 @@
     }
   ],
   "defaultOptions" : {
+    "checkedAllocations" : {
+      "enabled" : true,
+      "requiresHardwareAcceleration" : true
+    },
     "codeCoverage" : {
       "targets" : [
         {
@@ -18,23 +22,31 @@
         }
       ]
     },
+    "environmentVariableEntries" : [
+      {
+        "key" : "TZ",
+        "value" : "UTC"
+      }
+    ],
+    "language" : "en",
+    "region" : "US",
     "testExecutionOrdering" : "random",
-    "testTimeoutsEnabled" : true
+    "testTimeoutsEnabled" : true,
+    "userInterfaceStyle" : "light"
   },
   "testTargets" : [
     {
       "parallelizable" : false,
       "target" : {
         "containerPath" : "container:SpektoWatch2.xcodeproj",
-        "identifier" : "SpektoWatch2Tests",
+        "identifier" : "37969D312F2E096A009D1923",
         "name" : "SpektoWatch2Tests"
       }
     },
     {
-      "parallelizable" : false,
       "target" : {
         "containerPath" : "container:SpektoWatch2.xcodeproj",
-        "identifier" : "SpektoWatch2UITests",
+        "identifier" : "37969D4C2F2E0982009D1923",
         "name" : "SpektoWatch2UITests"
       }
     }

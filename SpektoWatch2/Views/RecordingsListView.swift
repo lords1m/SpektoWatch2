@@ -51,6 +51,7 @@ struct RecordingsListView: View {
             } message: {
                 Text("Diese Aktion kann nicht rückgängig gemacht werden.")
             }
+            .accessibilityIdentifier("recordingsListView")
         }
     }
     
