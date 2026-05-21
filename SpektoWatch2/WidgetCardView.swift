@@ -193,7 +193,7 @@ struct WidgetCardView: View {
         case .frequencyDisplay:
             FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
         case .levelMeter:
-            LevelMeterWidget(audioEngine: audioEngine)
+            LevelMeterWidget(audioEngine: audioEngine, settings: widget.settings)
         case .octaveBands:
             FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
         case .phaseMeter:

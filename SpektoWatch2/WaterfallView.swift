@@ -25,11 +25,16 @@ struct WaterfallView: View {
     private func draw(in bounds: CGRect, context: inout GraphicsContext) {
         guard !dataSet.isEmpty else { return }
 
+        // Margins reserve space for axis labels OUTSIDE the plot area:
+        //  top 22pt: max-dB label + duration
+        //  left 42pt: keeps room for the implicit Y scale
+        //  bottom 36pt: 20 Hz / 20 kHz tick row + min-dB label
+        //  right 12pt: trailing breathing room
         let plot = CGRect(
             x: bounds.minX + 42,
-            y: bounds.minY + 16,
-            width: max(1, bounds.width - 72),
-            height: max(1, bounds.height - 54)
+            y: bounds.minY + 22,
+            width: max(1, bounds.width - 54),
+            height: max(1, bounds.height - 58)
         )
         let sliceCount = dataSet.slices.count
         let depthX = min(54, plot.width * 0.14)
@@ -148,11 +153,19 @@ struct WaterfallView: View {
     }
 
     private func drawLabels(plot: CGRect, bounds: CGRect, context: inout GraphicsContext) {
-        drawText("20 Hz", at: CGPoint(x: plot.minX, y: bounds.maxY - 24), anchor: .leading, context: &context)
-        drawText("20 kHz", at: CGPoint(x: plot.maxX, y: bounds.maxY - 24), anchor: .trailing, context: &context)
-        drawText("\(Int(dataSet.maxDB)) dB", at: CGPoint(x: bounds.minX + 8, y: plot.minY + 8), anchor: .leading, context: &context)
-        drawText("\(Int(dataSet.minDB)) dB", at: CGPoint(x: bounds.minX + 8, y: plot.maxY - 42), anchor: .leading, context: &context)
-        drawText(formatDuration(dataSet.duration), at: CGPoint(x: bounds.maxX - 8, y: plot.minY + 8), anchor: .trailing, context: &context)
+        // All labels live in the margin area OUTSIDE `plot` — never on top
+        // of the spectrogram trace.
+        let topLabelY = bounds.minY + 10
+        let bottomLabelY = bounds.maxY - 10
+
+        // Top margin: max dB on the left, duration on the right.
+        drawText("\(Int(dataSet.maxDB)) dB", at: CGPoint(x: bounds.minX + 4, y: topLabelY), anchor: .leading, context: &context)
+        drawText(formatDuration(dataSet.duration), at: CGPoint(x: bounds.maxX - 4, y: topLabelY), anchor: .trailing, context: &context)
+
+        // Bottom margin: 20 Hz, min dB (center), 20 kHz.
+        drawText("20 Hz", at: CGPoint(x: plot.minX, y: bottomLabelY), anchor: .leading, context: &context)
+        drawText("\(Int(dataSet.minDB)) dB", at: CGPoint(x: bounds.midX, y: bottomLabelY), anchor: .center, context: &context)
+        drawText("20 kHz", at: CGPoint(x: plot.maxX, y: bottomLabelY), anchor: .trailing, context: &context)
     }
 
     private func drawText(_ value: String, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {

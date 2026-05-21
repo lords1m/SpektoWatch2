@@ -15,9 +15,43 @@ struct WidgetSettingsView: View {
         _useWidgetOverrides = State(initialValue: WidgetSettings.usesWidgetOverrides(widget.settings))
     }
 
+    /// Shared Y-axis bound editor (dB SPL). Reuses the `chartYMinDB` /
+    /// `chartYMaxDB` setting keys defined in `WidgetSettings`.
+    @ViewBuilder
+    private var yAxisBoundsSection: some View {
+        Section(header: Text("Y-Achse (dB SPL)")) {
+            Stepper(
+                "Minimum: \(Int(currentYMin)) dB",
+                value: Binding(
+                    get: { Int(currentYMin) },
+                    set: { settings["chartYMinDB"] = String($0) }
+                ),
+                in: 0 ... 90,
+                step: 5
+            )
+            Stepper(
+                "Maximum: \(Int(currentYMax)) dB",
+                value: Binding(
+                    get: { Int(currentYMax) },
+                    set: { settings["chartYMaxDB"] = String($0) }
+                ),
+                in: 40 ... 140,
+                step: 5
+            )
+        }
+    }
+
+    private var currentYMin: Float {
+        Float(settings["chartYMinDB"] ?? "") ?? WidgetSettings.defaultChartYMinDB
+    }
+    private var currentYMax: Float {
+        Float(settings["chartYMaxDB"] ?? "") ?? WidgetSettings.defaultChartYMaxDB
+    }
+
     private var supportsOverrideToggle: Bool {
         switch widget.type {
-        case .spectrogram, .waterfall, .levelHistory, .frequencyDisplay, .octaveBands, .singleValue:
+        case .spectrogram, .waterfall, .levelHistory, .frequencyDisplay,
+             .octaveBands, .singleValue, .levelMeter:
             return true
         default:
             return false
@@ -210,6 +244,9 @@ struct WidgetSettingsView: View {
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    yAxisBoundsSection
+                        .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .frequencyDisplay || widget.type == .octaveBands {
                     Section(header: Text("Spektrum Einstellungen")) {
                         Picker("Frequenzbewertung", selection: Binding(
@@ -231,6 +268,12 @@ struct WidgetSettingsView: View {
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    yAxisBoundsSection
+                        .disabled(supportsOverrideToggle && !useWidgetOverrides)
+                } else if widget.type == .levelMeter {
+                    yAxisBoundsSection
+                        .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .singleValue {
                     Section(header: Text("Anzeige")) {
                         Picker("Messwert", selection: Binding(

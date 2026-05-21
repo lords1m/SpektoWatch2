@@ -222,6 +222,26 @@ enum WidgetSettings {
     static let defaultWaterfallMaxDB: Float = 110
     static let defaultSingleValueMetric = "LAF"
     static let defaultLevelHistoryMetric = "AUTO"
+    // Shared Y-axis range defaults (dB SPL). Used by chart widgets
+    // (LevelHistory, FrequencySpectrum) when no per-widget override
+    // is configured. Waterfall uses its own range keys (waterfallMinDB
+    // / waterfallMaxDB) — kept separate to preserve legacy decoding.
+    static let defaultChartYMinDB: Float = 20
+    static let defaultChartYMaxDB: Float = 110
+
+    static func chartYMinDB(_ settings: [String: String]) -> Float {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["chartYMinDB"],
+              let v = Float(raw) else { return defaultChartYMinDB }
+        return v
+    }
+
+    static func chartYMaxDB(_ settings: [String: String]) -> Float {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["chartYMaxDB"],
+              let v = Float(raw) else { return defaultChartYMaxDB }
+        return v
+    }
 
     static func usesWidgetOverrides(_ settings: [String: String]) -> Bool {
         guard let rawValue = settings[useWidgetOverridesKey]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {

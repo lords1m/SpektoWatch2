@@ -47,6 +47,10 @@ struct LevelHistoryView: View {
     @State private var levelBuffer: [Float] = []
     @State private var writeIndex: Int = 0
     @State private var observedSampleRate: Double = 44100.0
+
+    // Wall-clock advance state — see updateLevelBuffer() for the rationale.
+    @State private var lastUpdateTimestamp: TimeInterval = 0
+    @State private var lastBufferedLevel: Float = -120.0
     
     var body: some View {
         GeometryReader { geometry in
@@ -69,8 +73,8 @@ struct LevelHistoryView: View {
                         height: max(1, height - topPadding - bottomPadding)
                     )
 
-                    let minDB: Double = 20
-                    let maxDB: Double = 110
+                    let minDB = Double(WidgetSettings.chartYMinDB(settings))
+                    let maxDB = Double(WidgetSettings.chartYMaxDB(settings))
                     let majorTicks = ScientificAxis.majorTicks(min: minDB, max: maxDB, targetTicks: 9)
                     let minorTicks = ScientificAxis.minorTicks(major: majorTicks, subdivisions: 2)
 
@@ -161,12 +165,47 @@ struct LevelHistoryView: View {
         let safeColumns = max(10, columns)
         levelBuffer = [Float](repeating: -120.0, count: safeColumns)
         writeIndex = 0
+        lastUpdateTimestamp = 0
+        lastBufferedLevel = -120.0
     }
-    
+
+    /// Advances the ring buffer in wall-clock time so the time axis stays in
+    /// sync with the spectrogram (which uses the same approach in
+    /// `HighEndSpectrogramAdapter.updateWithFFTMagnitudes`). Without this, the
+    /// buffer advanced one slot per FFT callback regardless of how much real
+    /// time elapsed — under load the chart visibly compressed relative to the
+    /// spectrogram alongside it.
     private func updateLevelBuffer(level: Float) {
         guard !levelBuffer.isEmpty else { return }
-        writeIndex = (writeIndex + 1) % levelBuffer.count
         let safeLevel = level.isNaN || level.isInfinite ? -120.0 : level
-        levelBuffer[writeIndex] = safeLevel
+        let now = Date().timeIntervalSinceReferenceDate
+
+        let expectedUpdateRate = observedSampleRate / Double(max(scrollSpeed.rawValue, 1))
+        let secondsPerSlot = 1.0 / max(expectedUpdateRate, 1.0)
+
+        let slotsToWrite: Int = {
+            guard lastUpdateTimestamp > 0 else { return 1 }
+            let dt = max(0, now - lastUpdateTimestamp)
+            let raw = Int((dt / secondsPerSlot).rounded())
+            return min(max(1, raw), levelBuffer.count)
+        }()
+
+        let previous = lastBufferedLevel
+        if slotsToWrite > 1 {
+            // Interpolate intermediate slots so the buffer fills wall-clock
+            // time rather than once per callback. Mirrors the
+            // `reusableInterpolatedColumnData` path in the spectrogram adapter.
+            for step in 1...slotsToWrite {
+                let mix = Float(step) / Float(slotsToWrite)
+                writeIndex = (writeIndex + 1) % levelBuffer.count
+                levelBuffer[writeIndex] = previous * (1.0 - mix) + safeLevel * mix
+            }
+        } else {
+            writeIndex = (writeIndex + 1) % levelBuffer.count
+            levelBuffer[writeIndex] = safeLevel
+        }
+
+        lastUpdateTimestamp = now
+        lastBufferedLevel = safeLevel
     }
 }

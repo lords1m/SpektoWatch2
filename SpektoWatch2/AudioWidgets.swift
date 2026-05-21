@@ -55,7 +55,9 @@ struct FrequencySpectrumWidget: View {
             frequencies: frequencies,
             spectrum: weightedSpectrum,
             precomputedThirdOctave: weightedThirdOctaveBands,
-            weightingLabel: weighting
+            weightingLabel: weighting,
+            yMinDB: Double(WidgetSettings.chartYMinDB(settings)),
+            yMaxDB: Double(WidgetSettings.chartYMaxDB(settings))
         )
         .onAppear {
             print("[FrequencySpectrumWidget] View appeared (\(weighting), \(bandMode.rawValue), override=\(useWidgetOverrides))")
@@ -76,6 +78,8 @@ private struct SpectrumBandChartView: View {
     let spectrum: [Float]
     let precomputedThirdOctave: [Float]
     let weightingLabel: String
+    var yMinDB: Double = 20
+    var yMaxDB: Double = 110
 
     @State private var leqValues: [Float] = []
     @State private var sampleCount: Int = 0
@@ -107,8 +111,8 @@ private struct SpectrumBandChartView: View {
                 height: max(1, height - topPadding - bottomPadding)
             )
 
-            let minDB: Double = 20
-            let maxDB: Double = 110
+            let minDB: Double = min(yMinDB, yMaxDB - 5)
+            let maxDB: Double = max(yMaxDB, yMinDB + 5)
             let majorTicks = ScientificAxis.majorTicks(min: minDB, max: maxDB, targetTicks: 9)
             let minorTicks = ScientificAxis.minorTicks(major: majorTicks, subdivisions: 2)
 
@@ -387,7 +391,11 @@ private struct SpectrumBandChartView: View {
 // MARK: - Level Meter Widget
 struct LevelMeterWidget: View {
     @ObservedObject var audioEngine: AudioEngine
-    
+    var settings: [String: String] = [:]
+
+    private var yMinDB: Float { WidgetSettings.chartYMinDB(settings) }
+    private var yMaxDB: Float { WidgetSettings.chartYMaxDB(settings) }
+
     var body: some View {
         VStack(spacing: 5) {
             HStack {
@@ -406,8 +414,8 @@ struct LevelMeterWidget: View {
                     
                     // Level Bar
                     let level = audioEngine.currentLevel // dB SPL (kalibriert)
-                    let minDB: Float = 30.0   // 30 dB SPL
-                    let maxDB: Float = 100.0  // 100 dB SPL
+                    let minDB: Float = yMinDB
+                    let maxDB: Float = max(yMaxDB, yMinDB + 5)
                     let norm = CGFloat((level - minDB) / (maxDB - minDB))
                     let clamped = max(0, min(1, norm))
                     
