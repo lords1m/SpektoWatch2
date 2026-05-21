@@ -269,7 +269,6 @@ enum PresetCatalogue {
         .init(id: "waterfall",   label: "Wasserfall",           symbol: "square.stack.3d.up"),
         .init(id: "level-time",  label: "Pegelverlauf",         symbol: "chart.xyaxis.line"),
         .init(id: "spectrum",    label: "Frequenz-Spektrum",    symbol: "chart.bar"),
-        .init(id: "phase",       label: "Phasen-Meter",         symbol: "circle.lefthalf.filled"),
         .init(id: "level-meter", label: "Pegel-Meter",          symbol: "speedometer"),
         .init(id: "single",      label: "Einzelwert",           symbol: "123.rectangle"),
         .init(id: "tone",        label: "Tongenerator",         symbol: "waveform"),

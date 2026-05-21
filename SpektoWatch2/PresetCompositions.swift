@@ -15,7 +15,6 @@ enum PresetCompositions {
         case "waterfall":   return [.init(type: .waterfall,   size: WidgetSize(columns: 3, rows: 4))]
         case "level-time":  return [.init(type: .levelHistory, size: WidgetSize(columns: 3, rows: 3))]
         case "spectrum":    return [.init(type: .frequencyDisplay, size: WidgetSize(columns: 3, rows: 3))]
-        case "phase":       return [.init(type: .phaseMeter,  size: WidgetSize(columns: 2, rows: 2))]
         case "level-meter": return [.init(type: .levelMeter,  size: WidgetSize(columns: 2, rows: 3))]
         case "single":      return singleValueGrid()
         case "tone":        return [.init(type: .toneGenerator, size: WidgetSize(columns: 3, rows: 4))]

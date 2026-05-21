@@ -295,7 +295,12 @@ class DashboardManager: ObservableObject {
     }
 
     private static func normalizeWidgets(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
-        widgets.map { widget in
+        widgets.compactMap { widget in
+            // phaseMeter is deactivated (kept in the enum for legacy decode
+            // only). Silently drop any persisted instances so dashboards
+            // from older builds load cleanly without the unsupported widget.
+            if widget.type == .phaseMeter { return nil }
+
             var normalized = widget
             if normalized.type == .octaveBands {
                 normalized.type = .frequencyDisplay

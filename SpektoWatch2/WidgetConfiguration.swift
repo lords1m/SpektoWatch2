@@ -16,7 +16,10 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    // Keep `octaveBands` for backward-compatible decoding, but hide it from picker options.
+    // Keep `octaveBands` and `phaseMeter` for backward-compatible
+    // decoding, but hide them from picker options. phaseMeter is
+    // deactivated as a product decision; existing instances are
+    // filtered out by DashboardManager.normalizeWidgets on load.
     static var allCases: [AudioWidgetType] {
         [
             .spectrogram,
@@ -24,7 +27,6 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
             .levelHistory,
             .frequencyDisplay,
             .levelMeter,
-            .phaseMeter,
             .singleValue,
             .toneGenerator,
             .spektralanalyseLab,
