@@ -1675,10 +1675,13 @@ class AudioEngine: ObservableObject {
             }
 
             if hasDirectBin, bandBinCount > 0 {
-                // Robuste Bandenergie statt Peak-Hold:
-                // verhindert künstlich stabile Spitzen im obersten Band (z.B. 20 kHz).
-                let meanLinear = bandLinearSum / Float(bandBinCount)
-                bands[i] = 10.0 * log10(max(meanLinear, 1e-12))
+                // Bandenergie = Summe der linearen Bin-Leistungen, dann zurück
+                // in dB. Das ist die konventionelle 1/3-Oktav-SPL (entspricht
+                // dem, was ein klassischer Schallpegelmesser anzeigt).
+                // Vorherige Mean-Variante unter-darstellte um 10·log10(bins)
+                // ≈ 5–20 dB je nach Band und führte zum "negativen Offset"
+                // gegenüber dem broadband LAeq.
+                bands[i] = 10.0 * log10(max(bandLinearSum, 1e-12))
             } else {
                 // Nur im unteren Bereich interpolieren (coarse FFT kann dort Bänder verfehlen).
                 // Für hohe Bänder keine künstlichen Werte erzeugen.

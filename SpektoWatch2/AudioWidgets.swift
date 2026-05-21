@@ -310,8 +310,11 @@ private struct SpectrumBandChartView: View {
                 }
             }
             if hasBinInBand, bandBinCount > 0 {
-                let meanLinear = bandLinearSum / Float(bandBinCount)
-                bands[i] = 10.0 * log10(max(meanLinear, 1e-12))
+                // Band SPL = sum of linear bin powers, then back to dB.
+                // Mirrors the fix in AudioEngine.computeDisplayThirdOctaveBands —
+                // mean-of-bin-power under-reports by 10·log10(bins per band)
+                // and produces the apparent "negative offset" vs broadband LAeq.
+                bands[i] = 10.0 * log10(max(bandLinearSum, 1e-12))
                 continue
             }
 
