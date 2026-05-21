@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: in_progress
   started: "2026-05-12"
-  current_milestone: M7
+  current_milestone: M8
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
@@ -118,6 +118,104 @@ milestones:
       on first Cloud run. Spectrogram, watch complications, diff-HTML
       reporting deferred to M8 / backlog.
     file: agent/milestones/milestone-7-xcode-cloud-snapshot-testing.md
+
+  M8:
+    name: Widget Sizing Refactor
+    status: in_progress
+    priority: medium
+    progress: 75
+    started: "2026-05-21"
+    estimated_weeks: "0.5"
+    tasks_completed: 1
+    tasks_total: 2
+    notes: >
+      Replace continuous-row (Double, 0.5-step) widget sizing with
+      per-widget-type min/max constraints and integer-only rows.
+      3-column grid stays. New API WidgetConfiguration.sizeRange(for:)
+      becomes the single source of truth for type-specific constraints.
+      Bonus: fix firstLaunchWidgets columns:4 (clamped to 3 at runtime).
+      2026-05-21 validation maintenance: fixed stale snapshot and
+      HighEndSpectrogramAdapter test expectations found in latest Xcode
+      diagnostics; project builds successfully and ACP validation passes.
+      M7 (Snapshot Testing) parked at gating on Xcode Cloud user action;
+      M8 opened in parallel.
+    file: agent/milestones/milestone-8-widget-sizing-refactor.md
+
+  M9:
+    name: Widget Audit
+    status: pending
+    priority: medium
+    progress: 0
+    started: null
+    estimated_weeks: "1"
+    tasks_completed: 0
+    tasks_total: 11
+    notes: >
+      One task per widget type (10 widgets) + 1 acceptance task. Each
+      per-widget task: function check, settings inventory, UI/UX
+      verification at every allowed size from M8 sizeRange, screenshots,
+      findings list. Acceptance task collates per-widget verdicts and
+      flags cross-widget inconsistencies.
+    file: agent/milestones/milestone-9-widget-audit.md
+
+  M10:
+    name: iOS Standalone Widgets
+    status: pending
+    priority: medium
+    progress: 0
+    started: null
+    estimated_weeks: "2"
+    tasks_completed: 0
+    tasks_total: 7
+    notes: >
+      Native iOS WidgetKit widgets backed by the AppGroup state that
+      M5/M6 already write. Subset only — live-audio widgets
+      (spectrogram, waterfall, level meter, frequency display, phase
+      meter, masking, spektralanalyseLab) are out of scope; widgets
+      cannot run live mic input. Initial scope: Letzte Messung,
+      Recent Recordings, Level Snapshot, optional iOS-17 Tonegenerator
+      Quick. Hard prerequisite: App Group entitlement wiring from M6
+      task-4 needs to land in Developer Portal + pbxproj first.
+    file: agent/milestones/milestone-10-ios-standalone-widgets.md
+
+  M11:
+    name: Tone Generator Piano Input
+    status: pending
+    priority: low
+    progress: 0
+    started: null
+    estimated_weeks: "0.5"
+    tasks_completed: 0
+    tasks_total: 4
+    notes: >
+      Optional easter egg / alternate frequency input for the tone generator:
+      compact piano-style note selector with A4=440 Hz mapping. Must first
+      address the M9 tone-generator audit blocker around render-thread locking.
+      Existing Hz slider and acoustic preset buttons stay primary.
+    file: agent/milestones/milestone-11-tone-generator-piano-input.md
+
+  M12:
+    name: Liquid Glass Redesign
+    status: in_progress
+    priority: medium
+    progress: 17
+    started: "2026-05-21"
+    estimated_weeks: "2"
+    tasks_completed: 1
+    tasks_total: 6
+    notes: >
+      Phase 1 chrome + tweaks landed on branch redesign/liquid-glass
+      (commit 21453dd): DesignTokens (Theme/Accent/Density/Numerals/
+      Colormap as @AppStorage), floating header pill, preset chip rail
+      (decorative — wiring deferred to task-3), compact transport with
+      pulsing LED, liquidGlassCard widget chrome with accent edit
+      border + jiggle + circular drag/delete handles, TweaksPanelView
+      sheet, DesignTokensReader root. Build green. Deferred: widget
+      card eyebrow headers (task-2), preset rail → layout wiring
+      (task-3), watch faces + complications (task-4), density/numerals
+      application (task-5), hardware acceptance (task-6). Rendering
+      kernels untouched throughout.
+    file: agent/milestones/milestone-12-liquid-glass-redesign.md
 
 tasks:
   M1:
@@ -364,6 +462,79 @@ tasks:
         audio render thread). Manual hardware acceptance + App Group Xcode
         wiring documented as outstanding follow-ups.
 
+  M9:
+    - { id: task-1-spectrogram,         name: "Audit: Spectrogram",         status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-1-spectrogram.md, notes: "Code-side pre-pass + 3 code-fixes landed 2026-05-21: timeWeighting picker removed; scrollOffset knob removed end-to-end (manualScrollOffset storage + accessor + draw-time add all gone); per-widget frequencySmoothing slider added. Hardware screenshot/cycling pass still pending." }
+    - { id: task-2-waterfall,           name: "Audit: Waterfall",           status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-2-waterfall.md, notes: "Code-side pre-pass 2026-05-21: all 4 settings consumed (no dead settings), 4 caveats flagged for hardware verification (minDB > maxDB cross-validation, 0.12s throttle cadence vs spectrogram 60fps, O(n) removeFirst on history, arbitrary maxHistoryFrames cap)." }
+    - { id: task-3-level-history,       name: "Audit: Level History",       status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-3-level-history.md, notes: "Code-side pre-pass 2026-05-21: all 4 settings consumed; 4 findings flagged (conditional freq/time weighting only effective in AUTO mode, phon/sone overlay always LAF regardless of metric, dead scrollOffset knob mirroring spectrogram, AUTO-vs-explicit label ambiguity). Wall-clock sync already done in quickwins." }
+    - { id: task-4-frequency-display,   name: "Audit: Frequency Display",   status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-4-frequency-display.md, notes: "Code-side pre-pass 2026-05-21: both settings consumed; 5 findings (bandMode locked to default without override toggle + no app-global fallback, dead octaveBands arm in settings sheet after normalize-on-load, Y-axis hardcoded 20-110dB unlike waterfall, hardcoded leqAlpha=0.02, debug env var not #if DEBUG-gated)." }
+    - { id: task-5-level-meter,         name: "Audit: Level Meter",         status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-5-level-meter.md, notes: "Code-side pre-pass 2026-05-21: zero settings exposed (no widget.type==.levelMeter arm in WidgetSettingsView); 7 findings (empty settings sheet, inconsistent peak-hold semantics between watch-source vs local-mic paths in AudioEngine, no peak-hold decay, hardcoded green/yellow/red gradient with no thresholds, no weighting indicator on widget, hardcoded 30-100dB range, no way to have multiple meters with different weightings on one dashboard)." }
+    - { id: task-6-phase-meter,         name: "Audit: Phase Meter",         status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-6-phase-meter.md, notes: "Code-side pre-pass 2026-05-21: zero settings exposed (same as level meter); 6 findings (empty cog sheet, asymmetric indicator-color thresholds, needle/background color mismatch, axis-aligned ellipse vs 45° goniometer reference lines, mono-fallback hint link freshness, 110pt ellipse squishes correlation bar at 1x1)." }
+    - { id: task-7-single-value,        name: "Audit: Single Value",        status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-7-single-value.md, notes: "Code-side pre-pass 2026-05-21: 1 setting (metric) consumed; 7 findings (metric locked to default without override, picker metric set inconsistent with LevelHistory's 15 options, AttributedString title hardcoded per metric, '0.0' placeholder ambiguous with real reading, loudness uses LAF regardless of weighting same as LevelHistory, unit suffix by string-prefix is fragile, no AUTO mode unlike LevelHistory)." }
+    - { id: task-8-tone-generator,      name: "Audit: Tone Generator",      status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-8-tone-generator.md, notes: "Code-side pre-pass 2026-05-21: zero settings exposed; 10 findings, 1 BLOCKER: NSLock on audio render thread (ToneGenerator.phaseLock, lines 95/100) — exactly the M6 task-6 anti-pattern missed because tone generator has its own AVAudioEngine. Other findings: dead settings parameter, no persistence of frequency/amplitude/waveform across launches, no settings sheet (falls to placeholder), exact-match preset highlight, linear amplitude slider, undiscoverable pinch-to-fullscreen, onDisappear-stop semantics, audio session category mutation while recording, 2x2 minimum layout barely fits 6 UI groups." }
+    - { id: task-9-spektralanalyse-lab, name: "Audit: Spektralanalyse Lab", status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-9-spektralanalyse-lab.md, notes: "Code-side pre-pass 2026-05-21: control-panel widget (no settings parameter, manipulates app-global fftConfig); 10 findings (shared state across instances, no settings sheet, app-global mutation without warning, no undo/reset, mid-recording mutation behaviour unverified, overlap slider step-25 looks continuous, duplicated window selector UI Parameter+Fenster tabs, German strings hardcoded, tab labels tight at 2x2, nested ScrollView inside dashboard grid)." }
+    - { id: task-10-masking,            name: "Audit: Masking",             status: pending, file: agent/tasks/milestone-9-widget-audit/task-10-masking.md }
+    - { id: task-11-acceptance,         name: "Acceptance",                 status: pending, file: agent/tasks/milestone-9-widget-audit/task-11-acceptance.md }
+
+  M10:
+    - { id: task-1-design,                       name: "Design Pass",                              status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-1-design.md }
+    - { id: task-2-widget-extension-target,      name: "Widget Extension Target",                  status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-2-widget-extension-target.md }
+    - { id: task-3-letzte-messung-widget,        name: "Letzte Messung Widget",                    status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-3-letzte-messung-widget.md }
+    - { id: task-4-recent-recordings-widget,     name: "Recent Recordings Widget",                 status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-4-recent-recordings-widget.md }
+    - { id: task-5-level-snapshot-widget,        name: "Level Snapshot Widget",                    status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-5-level-snapshot-widget.md }
+    - { id: task-6-tonegenerator-quick,          name: "Tonegenerator Quick (optional, iOS 17+)",  status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-6-tonegenerator-quick.md }
+    - { id: task-7-acceptance,                   name: "Acceptance",                               status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-7-acceptance.md }
+
+  M11:
+    - id: task-1-render-thread-safety-precheck
+      name: Render Thread Safety Precheck
+      status: pending
+      file: agent/tasks/milestone-11-tone-generator-piano-input/task-1-render-thread-safety-precheck.md
+    - id: task-2-note-frequency-model
+      name: Note Frequency Model
+      status: pending
+      file: agent/tasks/milestone-11-tone-generator-piano-input/task-2-note-frequency-model.md
+    - id: task-3-piano-input-ui
+      name: Piano Input UI
+      status: pending
+      file: agent/tasks/milestone-11-tone-generator-piano-input/task-3-piano-input-ui.md
+    - id: task-4-persistence-and-acceptance
+      name: Persistence And Acceptance
+      status: pending
+      file: agent/tasks/milestone-11-tone-generator-piano-input/task-4-persistence-and-acceptance.md
+
+  M8:
+    - id: task-1-widget-sizing-refactor
+      name: Widget Sizing Refactor
+      status: completed
+      file: agent/tasks/milestone-8-widget-sizing-refactor/task-1-widget-sizing-refactor.md
+      notes: >
+        Completed 2026-05-21. Int-rows migration, sizeRange(for:) as single
+        source of truth, resize clamping in DashboardManager + WidgetCardView,
+        firstLaunchWidgets bug fixed. Legacy decode path validated by code
+        inspection; runtime acceptance gated on task-2.
+    - id: task-2-acceptance
+      name: Acceptance
+      status: in_progress
+      file: agent/tasks/milestone-8-widget-sizing-refactor/task-2-acceptance.md
+      notes: >
+        Code-side checks done 2026-05-21: clamp paths verified for
+        spectrogram min 2x2 and singleValue max 2x2 (DashboardManager
+        + WidgetCardView); PDF / Recording decode-compat verified via
+        loadPlaybackWidgets + DashboardManager.loadConfiguration paths
+        routing through the new init(from:) chain; reorder untouched.
+        SpektoWatch2Tests/WidgetSizingMigrationTests.swift added —
+        9 XCTest cases covering legacy Double-row decode, per-type
+        clamp on decode, range invariants, JSON round-trip; runs in
+        Xcode Cloud once M7 wiring lands. Hardware checks 1 and 5
+        remain. Flagged normalizeWidgets post-decode type-rewrite
+        as a future migration concern (no impact today since
+        octaveBands and frequencyDisplay share a range). 2026-05-21
+        validation maintenance fixed PDFReportSnapshotTests .lines input,
+        snapshot record path fallback, stale 120 FPS expectation, and
+        draw-loop-dependent axis metrics test trigger; BuildProject
+        succeeded and ACP validation passed. Hardware checks 1 and 5
+        remain.
+
   M7:
     - id: task-1-package-and-test-target-wiring
       name: Package & Test Target Wiring
@@ -393,10 +564,48 @@ tasks:
       status: pending
       file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-4-acceptance.md
 
-updated_at: 2026-05-20
-current_milestone: M7
-current_task: task-3-record-and-commit-baselines
-last_proceed: 2026-05-20
+  M12:
+    - id: task-1-chrome-and-tokens
+      name: Chrome & Tokens (Phase 1)
+      status: completed
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-1-chrome-and-tokens.md
+      notes: >
+        Completed 2026-05-21 on branch redesign/liquid-glass (commit
+        21453dd). New files: DesignTokens.swift, PresetRailView.swift,
+        TweaksPanelView.swift. Modified: DashboardHeaderView,
+        ControlBarView, WidgetCardView, ModularDashboardView. Build
+        green via xcodebuild iOS Simulator generic. Visual acceptance
+        gated on hardware (local simulator broken per AGENT.md);
+        tracked under task-6.
+    - id: task-2-widget-card-headers
+      name: Widget Card Headers
+      status: pending
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-2-widget-card-headers.md
+    - id: task-3-preset-rail-wiring
+      name: Preset Rail Wiring & Compositions
+      status: pending
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-3-preset-rail-wiring.md
+    - id: task-4-watch-faces-and-complications
+      name: Watch Faces & Complications
+      status: pending
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-4-watch-faces-and-complications.md
+    - id: task-5-density-numerals-application
+      name: Density & Numerals Application
+      status: pending
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-5-density-numerals-application.md
+    - id: task-6-acceptance
+      name: Acceptance
+      status: pending
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-6-acceptance.md
+
+updated_at: 2026-05-21
+current_milestone: M8
+current_task: task-2-acceptance
+last_proceed: 2026-05-21
+recent_reports:
+  - agent/reports/2026-05-21-spectrogram-quickwins.md
+  - agent/reports/2026-05-21-widget-screenshot-review.md
+  - agent/reports/2026-05-21-milestone-12-phase-1.md
 active_context:
   summary: >
     M1–M6 complete. M7 (Xcode Cloud Snapshot Testing) opened 2026-05-20.
@@ -413,17 +622,25 @@ active_context:
     PDFReportSnapshotTests helpers implemented with a frozen 2026-01-01
     Recording routed through PDFReportGenerator's production entry point.
   next_action: >
-    Task-3 (record & commit baselines): (1) edit the Xcode Cloud workflow,
-    flip RECORD_SNAPSHOTS from NO to YES, start a build. (2) Tests will
-    pass with snapshot files written into the test runner's bundle.
-    (3) Download the .xcresult from the build's Artifacts tab. Either
-    extract via xcresulttool, or use Xcode > Window > Organizer to open
-    the result bundle and grab the attached PNG/TXT files. (4) Drop them
-    into SpektoWatch2Tests/__Snapshots__/PDFReportSnapshotTests/ locally
-    and commit. (5) Flip RECORD_SNAPSHOTS back to NO. (6) Trigger another
-    Cloud run; tests should pass without recording. If they fail with
-    "no reference snapshot found", target membership on __Snapshots__
-    didn't bundle the resource — back to task-1 verification.
+    M8 task-2 acceptance remains gated on runtime validation on hardware
+    or Xcode Cloud because the local simulator is broken. Verify fresh
+    dashboard defaults, legacy dashboard visual clamp behaviour, and
+    drag-and-drop reorder after the widget sizing migration. If checks
+    pass, write agent/reports/2026-05-21-milestone-8-acceptance.md and
+    mark M8 complete. Separately, M7 snapshot baseline recording still
+    requires an Xcode Cloud RECORD_SNAPSHOTS=YES run and committed
+    baselines. M11 Tone Generator Piano Input is planned as low-priority
+    backlog and should start only after the M9 tone-generator render-thread
+    safety blocker is addressed. Runtime screenshots are available in
+    `Spectowatch Widget Screenshots /`; review report says to keep M8 open
+    until fresh-dashboard defaults, legacy-dashboard clamp behaviour, and
+    drag-and-drop reorder are explicitly verified.
+    M12 (Liquid Glass Redesign) opened 2026-05-21 as a parallel track on
+    branch `redesign/liquid-glass`. Phase 1 chrome + Tweaks landed
+    (task-1 completed, commit 21453dd). Five follow-up tasks pending:
+    widget card eyebrow headers (task-2), preset rail → layout wiring
+    (task-3), watch faces + complications (task-4), density/numerals
+    application (task-5), hardware acceptance (task-6).
 known_constraints:
   - Watch complication manual acceptance still requires Apple Watch hardware or
     an interactive paired simulator session.
