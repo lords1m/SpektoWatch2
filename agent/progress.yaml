@@ -636,8 +636,19 @@ tasks:
         cap on translucent capsule) and bottom STFT info pill
         (phosphor dot + "STFT · N" block-size label). New private
         PulsingDot helper. Kernel/axis labels/crown zoom/record
-        control untouched. Subtasks 4c-4e + hardware acceptance
-        still pending.
+        control untouched.
+        Subtask 4d landed 2026-05-21: WatchComplicationViews
+        reskinned — all 3 existing views use SF Mono numerals +
+        tracking 1.6 eyebrow caps + phosphor gauge tint; rectangular
+        eyebrow → "LAF · LIVE"; inline → "SPEKTO  X dB(A)" prefix.
+        New CornerComplicationView for accessoryCorner family with
+        widgetLabel Gauge; new LevelCornerWidget registered in
+        WidgetBundle. Sparkline/Leq/Lmax/Δ for Rectangular and
+        peak suffix for Inline deferred (need WatchComplicationEntry
+        extension that ripples into provider + iOS write side).
+        Graphic Bezel out of scope (face layout, not a WidgetKit
+        family). Subtask 4c (Tongenerator face), 4e (Modular 4-slot)
+        and hardware acceptance still pending.
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
       status: in_progress

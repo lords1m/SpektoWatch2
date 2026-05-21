@@ -17,6 +17,7 @@ turn ships a coherent deliverable.
 
 - **4a. Pegelmesser face** — landed 2026-05-21.
 - **4b. Spektrogramm face** — landed 2026-05-21.
+- **4d. Complication chrome refresh** — landed 2026-05-21.
 - **4c. Tongenerator face** — pending. New file; mini sine wave
   with glow filter + PAUSE button + λ readout. Requires a watch-side
   tone source or a "static demo" mode.
@@ -60,11 +61,33 @@ turn ships a coherent deliverable.
   green hardcoded to match face 4a until App Group accent sharing
   lands.
 
+## Landed (2026-05-21) — Subtask 4d
+
+- `WatchComplicationViews.swift` reskinned:
+  - All three existing views (Circular / Rectangular / Inline) now
+    use SF Mono numerals + `tracking 1.6` eyebrow caps and the
+    phosphor green accent on the gauge tints.
+  - Rectangular eyebrow renamed `LAF · LIVE` per redesign.
+  - Inline format changed to "SPEKTO  X dB(A)" prefix.
+- New `CornerComplicationView` for `accessoryCorner` family using
+  `widgetLabel { Gauge ... }` for the curved meter; registered via
+  new `LevelCornerWidget` in the WidgetBundle.
+- Sparkline + Leq/Lmax/Δ stats (Rectangular spec) and `peak 78`
+  suffix (Inline spec) require extending `WatchComplicationEntry`
+  with peak/Leq/sparkline fields — deferred. Touching the entry
+  ripples into provider + iOS write side and is too big for this
+  slice.
+- Graphic Bezel face from the spec is a *face layout*, not a
+  WidgetKit family on watchOS — out of scope; handled implicitly by
+  the user choosing a Bezel face and assigning the existing
+  Rectangular complication to it.
+
 ## Acceptance status
 
 - [x] Pegelmesser face implemented (subtask 4a).
 - [x] Spektrogramm face implemented (subtask 4b).
 - [ ] Tongenerator face (subtask 4c).
-- [ ] Complication chrome refresh (subtask 4d).
+- [x] Complication chrome refresh (subtask 4d, partial — sparkline
+  and peak suffix deferred behind entry extension).
 - [ ] Modular 4-slot face (subtask 4e).
 - [ ] Hardware visual pass (task-6).

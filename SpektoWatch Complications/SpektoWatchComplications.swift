@@ -5,6 +5,7 @@ import SwiftUI
 struct SpektoWatchComplicationsBundle: WidgetBundle {
     var body: some Widget {
         LevelCircularWidget()
+        LevelCornerWidget()
         LevelRectangularWidget()
         LevelInlineWidget()
     }
