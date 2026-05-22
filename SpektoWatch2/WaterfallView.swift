@@ -124,6 +124,18 @@ struct WaterfallView: View {
     private func clampDB(_ v: Float) -> Float { max(-40, min(40, v)) }
     private func clampPan(_ v: Float) -> Float { max(-1, min(1, v)) }
 
+    /// Frequency at the left edge of the currently-visible X window.
+    /// Accounts for the live 2F-horizontal pan so the axis label
+    /// reflects what the user is actually seeing.
+    private var visibleLeftEdgeFreq: Float {
+        frequencyAt(binFrac: CGFloat(effectiveXPanFrac))
+    }
+
+    /// Frequency at the right edge of the currently-visible X window.
+    private var visibleRightEdgeFreq: Float {
+        frequencyAt(binFrac: CGFloat(effectiveXPanFrac) + 1)
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in
@@ -161,8 +173,25 @@ struct WaterfallView: View {
                         if inPickerMode {
                             crosshair = value.location
                         } else {
-                            pitch = max(0, min(1, pitch + value.translation.height / 200))
-                            yaw = max(-1, min(1, yaw + value.translation.width / 250))
+                            let newPitch = max(0, min(1, pitch + value.translation.height / 200))
+                            let newYaw = max(-1, min(1, yaw + value.translation.width / 250))
+                            // Snap-to-2D on commit: if the user dragged
+                            // past a mode threshold, animate the camera
+                            // the rest of the way so the new 2D mode
+                            // "sticks" instead of sitting half-tilted.
+                            // Returning to 3D happens via double-tap.
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                if newPitch >= 0.85 {
+                                    pitch = 1.0
+                                    yaw = 0
+                                } else if abs(newYaw) >= 0.85 {
+                                    yaw = newYaw >= 0 ? 1.0 : -1.0
+                                    pitch = 0.5 // mid-pitch for the side view
+                                } else {
+                                    pitch = newPitch
+                                    yaw = newYaw
+                                }
+                            }
                         }
                     }
             )
@@ -318,9 +347,21 @@ struct WaterfallView: View {
         let dotRect = CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
         context.fill(Path(ellipseIn: dotRect), with: .color(.white))
 
-        // Compose readout based on mode.
+        // Compose readout based on mode. Render on a dark capsule
+        // so it stays legible over the Top mode's bright heatmap
+        // cells.
         let readout = crosshairReadout(at: CGPoint(x: x, y: y), plot: plot)
         let textPoint = readoutAnchor(near: CGPoint(x: x, y: y), plot: plot)
+        let pillRect = CGRect(
+            x: textPoint.x - 4,
+            y: textPoint.y - 2,
+            width: estimatedReadoutWidth(for: readout) + 8,
+            height: 16
+        )
+        context.fill(
+            Path(roundedRect: pillRect, cornerRadius: 4),
+            with: .color(.black.opacity(0.55))
+        )
         drawText(readout, at: textPoint, anchor: .topLeading, context: &context)
     }
 
@@ -360,6 +401,14 @@ struct WaterfallView: View {
 
     /// Pick a corner of the crosshair point that has room for the
     /// readout pill without clipping outside the plot rect.
+    /// Rough text-width estimate used to size the crosshair readout
+    /// pill background. SwiftUI Canvas doesn't expose a text-metrics
+    /// API, so we estimate from character count at the caption2 font
+    /// size (~5 pt per char for monospace-ish digits + caption fonts).
+    private func estimatedReadoutWidth(for text: String) -> CGFloat {
+        return CGFloat(text.count) * 5.5
+    }
+
     private func readoutAnchor(near point: CGPoint, plot: CGRect) -> CGPoint {
         let estimatedTextWidth: CGFloat = 130
         let estimatedTextHeight: CGFloat = 14
@@ -602,10 +651,10 @@ struct WaterfallView: View {
             drawText("\(visibleMinDB) dB",
                      at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
                      anchor: .trailing, context: &context)
-            drawText("20 Hz",
+            drawText(formatHz(visibleLeftEdgeFreq),
                      at: CGPoint(x: plot.minX, y: bottomLabelY),
                      anchor: .leading, context: &context)
-            drawText("20 kHz",
+            drawText(formatHz(visibleRightEdgeFreq),
                      at: CGPoint(x: plot.maxX, y: bottomLabelY),
                      anchor: .trailing, context: &context)
 
@@ -618,10 +667,10 @@ struct WaterfallView: View {
             drawText("älter",
                      at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
                      anchor: .trailing, context: &context)
-            drawText("20 Hz",
+            drawText(formatHz(visibleLeftEdgeFreq),
                      at: CGPoint(x: plot.minX, y: bottomLabelY),
                      anchor: .leading, context: &context)
-            drawText("20 kHz",
+            drawText(formatHz(visibleRightEdgeFreq),
                      at: CGPoint(x: plot.maxX, y: bottomLabelY),
                      anchor: .trailing, context: &context)
 
