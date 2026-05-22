@@ -45,6 +45,30 @@ struct WaterfallView: View {
     private static let defaultZOffsetDB: Float = 0
     private static let defaultXPanFrac: Float = 0
 
+    /// Discrete render mode picked from `effectivePitch`.
+    /// - `.frontSpectrum2D`: pitch ≤ 0.15 — only the current/newest
+    ///   slice is drawn, full-bleed, no depth. Pure 2D spectrum.
+    /// - `.topDown2D`: pitch ≥ 0.85 — every slice rendered as a
+    ///   horizontal band of colored cells (classic spectrogram).
+    ///   X = frequency, Y = time, color = amplitude.
+    /// - `.oblique3D`: in between — the existing 3D waterfall.
+    private enum ViewMode { case frontSpectrum2D, oblique3D, topDown2D }
+
+    private var viewMode: ViewMode {
+        let p = effectivePitch
+        if p <= 0.15 { return .frontSpectrum2D }
+        if p >= 0.85 { return .topDown2D }
+        return .oblique3D
+    }
+
+    private var viewModeLabel: String {
+        switch viewMode {
+        case .frontSpectrum2D: return "2D · Spektrum"
+        case .oblique3D:        return "3D"
+        case .topDown2D:       return "2D · Spektrogramm"
+        }
+    }
+
     private var effectivePitch: CGFloat {
         // Vertical drag: down → more tilt; up → flatter.
         let raw = pitch + dragDelta.height / 200
@@ -158,14 +182,81 @@ struct WaterfallView: View {
             width: max(1, bounds.width - 54),
             height: max(1, bounds.height - 58)
         )
-        let sliceCount = dataSet.slices.count
+        switch viewMode {
+        case .frontSpectrum2D:
+            drawFrontSpectrum(plot: plot, context: &context)
+        case .topDown2D:
+            drawTopDownSpectrogram(plot: plot, context: &context)
+        case .oblique3D:
+            drawOblique3D(plot: plot, context: &context)
+        }
 
-        // Camera-driven perspective. Pitch sets time-axis depth (Y),
-        // yaw rotates the recession horizontally (X-shear), zoom
-        // scales amplitude (Z).
-        let pitchEff = effectivePitch          // 0…1
-        let yawEff = effectiveYaw              // −1…+1
-        let zoomEff = effectiveZoom            // 0.25…4
+        drawLabels(plot: plot, bounds: bounds, context: &context)
+    }
+
+    // MARK: - Render modes
+
+    /// Pitch ≤ 0.15. Only the current (newest) spectrum is shown,
+    /// rendered front-on like a regular spectrum widget.
+    private func drawFrontSpectrum(plot: CGRect, context: inout GraphicsContext) {
+        let zoomEff = effectiveZoom
+        let baseY = plot.maxY
+        let usableHeight = max(1, plot.height - 10) * zoomEff
+        drawGrid(plot: plot, frontBaseY: baseY, depthX: 0, depthY: 0, context: &context)
+
+        guard let current = dataSet.slices.last else { return }
+        let path = slicePath(slice: current, plot: plot, baseY: baseY, offsetX: 0, usableHeight: usableHeight)
+        let color = lineColor(for: current.magnitudes.max() ?? dataSet.minDB)
+        let fill = fillPath(from: path, plot: plot, baseY: baseY, offsetX: 0)
+        context.fill(fill, with: .color(color.opacity(0.15)))
+        context.stroke(path, with: .color(color), lineWidth: 1.8)
+    }
+
+    /// Pitch ≥ 0.85. Spectrogram heatmap. Each slice = one
+    /// horizontal row; each bin = one cell; cell color = amplitude
+    /// (uses the same `lineColor` ramp the 3D / 2D modes use).
+    /// Y-axis: top = oldest, bottom = newest (so the current
+    /// spectrum is at the FRONT, matching the 3D mode).
+    /// X-axis: same panFrac-aware mapping as `slicePath`.
+    private func drawTopDownSpectrogram(plot: CGRect, context: inout GraphicsContext) {
+        let slices = dataSet.slices
+        guard !slices.isEmpty,
+              let firstSlice = slices.first,
+              !firstSlice.magnitudes.isEmpty else { return }
+
+        let sliceCount = slices.count
+        let binCount = firstSlice.magnitudes.count
+        let panFrac = CGFloat(effectiveXPanFrac)
+        let cellHeight = plot.height / CGFloat(sliceCount)
+        let cellWidth = plot.width / CGFloat(max(binCount - 1, 1))
+
+        for (sliceIndex, slice) in slices.enumerated() {
+            // Newest slice → bottom row; oldest → top.
+            let rowY = plot.minY + CGFloat(sliceIndex) * cellHeight
+            for (binIndex, magnitude) in slice.magnitudes.enumerated() {
+                let normalized = normalizedLevel(magnitude)
+                guard normalized > 0.02 else { continue }
+                let binFrac = CGFloat(binIndex) / CGFloat(max(binCount - 1, 1))
+                let visibleFrac = binFrac - panFrac
+                let x = plot.minX + visibleFrac * plot.width
+                let rect = CGRect(
+                    x: x,
+                    y: rowY,
+                    width: cellWidth + 0.5, // overlap to avoid 1px seams
+                    height: cellHeight + 0.5
+                )
+                let color = lineColor(for: magnitude)
+                context.fill(Path(rect), with: .color(color.opacity(0.6 + 0.4 * Double(normalized))))
+            }
+        }
+    }
+
+    /// 0.15 < pitch < 0.85. Existing 3D oblique waterfall.
+    private func drawOblique3D(plot: CGRect, context: inout GraphicsContext) {
+        let sliceCount = dataSet.slices.count
+        let pitchEff = effectivePitch
+        let yawEff = effectiveYaw
+        let zoomEff = effectiveZoom
         let maxDepthY: CGFloat = 38
         let maxDepthX: CGFloat = 54
         let depthY = pitchEff * min(maxDepthY, plot.height * 0.30)
@@ -175,34 +266,19 @@ struct WaterfallView: View {
 
         drawGrid(plot: plot, frontBaseY: frontBaseY, depthX: depthX, depthY: depthY, context: &context)
 
-        // The newest slice = the *current* spectrum and lives at the
-        // FRONT of the 3D scene (the user's "current spectrum should
-        // be in the front" requirement). WaterfallDataBuilder writes
-        // oldest→newest in `dataSet.slices`, so age = 1 for index 0
-        // (oldest, max recession) and age = 0 for the last index
-        // (newest, no recession).
         let lastIndex = sliceCount - 1
-        // Draw back-to-front (painter's algorithm): start with oldest
-        // (highest age, deepest into the scene) and end with newest.
         for displayIndex in 0...lastIndex {
             let slice = dataSet.slices[displayIndex]
             let age = CGFloat(lastIndex - displayIndex) / CGFloat(max(lastIndex, 1))
             let offsetX = depthX * age
             let offsetY = -depthY * age
             let opacity = 0.20 + 0.70 * (1.0 - age)
-            let path = slicePath(
-                slice: slice,
-                plot: plot,
-                baseY: frontBaseY + offsetY,
-                offsetX: offsetX,
-                usableHeight: usableHeight
-            )
+            let path = slicePath(slice: slice, plot: plot, baseY: frontBaseY + offsetY,
+                                 offsetX: offsetX, usableHeight: usableHeight)
             let color = lineColor(for: slice.magnitudes.max() ?? dataSet.minDB).opacity(opacity)
-            // Newest slice = front = 1.8pt for emphasis; others 1pt.
             let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
             context.stroke(path, with: .color(color), lineWidth: lineWidth)
 
-            // Periodic fill highlights to give the stack body.
             if (lastIndex - displayIndex).isMultiple(of: 4) || displayIndex == 0 {
                 let fill = fillPath(from: path, plot: plot, baseY: frontBaseY + offsetY, offsetX: offsetX)
                 context.fill(fill, with: .color(color.opacity(0.10)))
@@ -210,7 +286,6 @@ struct WaterfallView: View {
         }
 
         drawPlayhead(plot: plot, frontBaseY: frontBaseY, depthX: depthX, depthY: depthY, context: &context)
-        drawLabels(plot: plot, bounds: bounds, context: &context)
     }
 
     private func drawGrid(
@@ -307,19 +382,44 @@ struct WaterfallView: View {
     }
 
     private func drawLabels(plot: CGRect, bounds: CGRect, context: inout GraphicsContext) {
-        // All labels live in the margin area OUTSIDE `plot` — never on top
-        // of the spectrogram trace.
+        // All labels live in the margin area OUTSIDE `plot` — never on
+        // top of the trace. With Z-offset applied via the 2F pan, show
+        // the SHIFTED window endpoints, not the dataset's raw min/max.
+        let zShift = effectiveZOffsetDB
+        let visibleMaxDB = Int((dataSet.maxDB + zShift).rounded())
+        let visibleMinDB = Int((dataSet.minDB + zShift).rounded())
+
         let topLabelY = bounds.minY + 10
         let bottomLabelY = bounds.maxY - 10
 
-        // Top margin: max dB on the left, duration on the right.
-        drawText("\(Int(dataSet.maxDB)) dB", at: CGPoint(x: bounds.minX + 4, y: topLabelY), anchor: .leading, context: &context)
-        drawText(formatDuration(dataSet.duration), at: CGPoint(x: bounds.maxX - 4, y: topLabelY), anchor: .trailing, context: &context)
+        // Top margin: view-mode tag on the left, duration on the right.
+        drawText(viewModeLabel, at: CGPoint(x: bounds.minX + 4, y: topLabelY),
+                 anchor: .leading, context: &context)
+        drawText(formatDuration(dataSet.duration), at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
+                 anchor: .trailing, context: &context)
 
-        // Bottom margin: 20 Hz, min dB (center), 20 kHz.
-        drawText("20 Hz", at: CGPoint(x: plot.minX, y: bottomLabelY), anchor: .leading, context: &context)
-        drawText("\(Int(dataSet.minDB)) dB", at: CGPoint(x: bounds.midX, y: bottomLabelY), anchor: .center, context: &context)
-        drawText("20 kHz", at: CGPoint(x: plot.maxX, y: bottomLabelY), anchor: .trailing, context: &context)
+        // Y-axis (left margin): max dB at the top of the plot rect,
+        // min dB at the bottom of the plot rect. Both sit OUTSIDE the
+        // plot, anchored to the trailing edge so the digits line up
+        // along the chart's left edge.
+        drawText("\(visibleMaxDB) dB",
+                 at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                 anchor: .trailing, context: &context)
+        drawText("\(visibleMinDB) dB",
+                 at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                 anchor: .trailing, context: &context)
+
+        // X-axis (bottom margin): frequency endpoints below the plot.
+        // Top-down mode swaps the bottom-row meaning: bottom-left is
+        // still 20 Hz, bottom-right still 20 kHz — the X axis is the
+        // same in all three modes, only Y changes meaning. So a single
+        // label set works.
+        drawText("20 Hz",
+                 at: CGPoint(x: plot.minX, y: bottomLabelY),
+                 anchor: .leading, context: &context)
+        drawText("20 kHz",
+                 at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                 anchor: .trailing, context: &context)
     }
 
     private func drawText(_ value: String, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
