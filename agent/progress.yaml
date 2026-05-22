@@ -595,7 +595,7 @@ tasks:
     - { id: task-6-kernel-math-extraction,        name: "Kernel math extraction",                     status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-6-kernel-math-extraction.md, notes: "Landed 2026-05-21: new Managers/SpectrumBandAggregator.swift (220 LOC) centralises third-octave + octave + Bark aggregation. The M12 negative-offset bug source — two identical implementations of the third-octave power-sum (AudioEngine.computeDisplayThirdOctaveBands + SpectrumBandChartView.thirdOctaveBands) — collapsed to one. AudioEngine -77 LOC (1790→1713), AudioWidgets -104 LOC (619→515). SpectrumBandChartView.computeBandData body 70→30 LOC (57% reduction). New SpectrumBandAggregatorTests.swift (7 cases) including a regression guard for the M12 sum-vs-mean bug. Level-history clamping/axis extraction deferred (intertwined with Canvas GraphicsContext). iOS + watchOS builds green." }
     - { id: task-7-watch-protocol-versioning,     name: "Watch protocol versioning + AppState",       status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-7-watch-protocol-versioning.md, notes: "Phase 1 landed 2026-05-21. SpectrogramData.toBinaryData() now prepends a UInt8 schema version (0x01); fromBinaryData rejects unknown versions cleanly. New Shared/WatchAppState.swift (105 LOC) defines a Codable envelope (activePresetID, isRecording, designAccent, theme, optional toneGenerator, schemaVersion) with JSON encode/decode helpers and version-mismatch rejection. WatchConnectivityProtocol gains MessageType.appStateUpdate + makeAppStateUpdateMessage + appStateUpdate(from:) decoder. Both connectivity managers (iOS + watch) gained the appStateUpdate switch arm (decode-and-drop today; consumption is Phase 2). New WatchProtocolVersioningTests.swift covers 7 cases including version-byte rejection on both SpectrogramData and WatchAppState. Phase 2 (iOS broker observing accent/theme/preset/recording + watch-side store + face migration from hardcoded phosphor) deferred — crosses concerns that need hardware verification together. iOS + watchOS builds green." }
     - { id: task-8-persistence-registry,          name: "Persistence registry",                       status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-8-persistence-registry.md, notes: "Phase 1 landed 2026-05-21. New Shared/PersistenceKeys.swift (110 LOC) inventories every UserDefaults / AppGroup / @AppStorage key with tier, schema version, and migration rule. 8 files migrated from string literals to registry constants: DashboardManager, CalibrationProvider, AudioEngine, Models/FFTConfiguration, Managers/BandstopFilterManager, ControlBarView, Shared/WatchWidgetConfiguration, both WatchConnectivityManager copies. Nested PersistenceKeys.FFT + Design enums for grouped namespaces. Sunset plan for DashboardConfiguration_v5 documented in the registry file. Phase 2 (one-shot PersistenceMigrator runner + @AppStorage declaration migration + legacy key removal) deferred. iOS + watchOS builds green. After migration: zero raw key strings remain outside the registry (a leftover CSV column header in CSVExporter named 'calibrationOffset' is a false positive in different namespace)." }
-    - { id: task-9-acceptance,                    name: "Acceptance",                                 status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md }
+    - { id: task-9-acceptance,                    name: "Acceptance",                                 status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md, notes: "Code-side acceptance landed 2026-05-21. Handoff report agent/reports/2026-05-21-milestone-13-acceptance.md covers all 8 tasks: per-task verdict table (Phase 1 ✅ / Phase 2 deferred), 10 new files / 4 modified files / net ~477 LOC reduction, 19 new tests, architectural-pressure status (3 resolved, 2 partially reduced). 6 hardware-only verification items documented (cold-launch parity, audio correctness, widget render parity, recording flow, watch pairing, Instruments re-render). iOS + watchOS builds green at HEAD. Routing reminders: A2/M6-task-4 (entitlements) + A3/M11-task-1 (NSLock) still routed there. Phase 2 candidates (deletable forwarders) flagged for follow-up milestone if M13 promotes cleanly."}
 
   M12:
     - id: task-1-chrome-and-tokens
@@ -761,7 +761,7 @@ tasks:
 
 updated_at: 2026-05-21
 current_milestone: M13
-current_task: task-8-persistence-registry
+current_task: task-9-acceptance
 last_proceed: 2026-05-21
 parked:
   - milestone: M8
@@ -782,6 +782,7 @@ recent_reports:
   - agent/reports/2026-05-21-milestone-12-phase-1.md
   - agent/reports/2026-05-21-milestone-9-widget-audit.md
   - agent/reports/2026-05-21-architecture-review.md
+  - agent/reports/2026-05-21-milestone-13-acceptance.md
 active_context:
   summary: >
     M1–M6 complete. M7 (Xcode Cloud Snapshot Testing) opened 2026-05-20.

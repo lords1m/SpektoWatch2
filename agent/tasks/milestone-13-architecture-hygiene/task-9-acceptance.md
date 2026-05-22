@@ -1,6 +1,6 @@
 # Task 9: Acceptance
 
-Status: pending
+Status: in_progress
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Depends on: task-1 … task-8
@@ -66,3 +66,29 @@ No new features in M13 — purely structural.
   module extract as part of M11).
 
 Mark M13 complete in `progress.yaml` after the report is written.
+
+## Landed (2026-05-21) — Code-side acceptance
+
+Handoff report:
+`agent/reports/2026-05-21-milestone-13-acceptance.md`.
+
+Summary:
+- All 8 refactor tasks shipped Phase 1.
+- 10 new files (1,224 LOC), 4 existing files reduced by a net
+  ~477 LOC across the refactor.
+- 19 new tests added (CalibrationProvider, SpectrumBandAggregator,
+  WatchProtocolVersioning).
+- iOS + watchOS targets build green at HEAD.
+- 6 hardware-only verification items documented in the report
+  (cold-launch parity, audio correctness, widget render parity,
+  recording flow, watch pairing, Instruments re-render
+  comparison).
+
+Routing reminders captured in the report:
+- A2 / M6 task-4 entitlements still pending (manual Xcode work).
+- A3 / M11 task-1 ToneGenerator NSLock still pending.
+- Phase 2 of tasks 1/4/5/7/8 each have a deletable-code path
+  that drops further LOC and finishes acceptance criteria.
+
+Task stays in_progress until a hardware session closes the
+verification checklist above.
