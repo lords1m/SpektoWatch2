@@ -224,148 +224,44 @@ private struct SpectrumBandChartView: View {
     }
 
     private func computeBandData(mode: SpectrumBandMode, frequencies: [Float], spectrum: [Float]) -> SpectrumBandData {
+        // Aggregation math lives in `Managers/SpectrumBandAggregator.swift`
+        // (M13 task-6). View is responsible only for picking the mode and
+        // bundling labels.
         switch mode {
         case .thirdOctave:
-            let labels = [
-                "20", "25", "31.5", "40", "50", "63", "80", "100", "125", "160",
-                "200", "250", "315", "400", "500", "630", "800", "1k", "1.25k", "1.6k",
-                "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k", "20k"
-            ]
-            let centerFreqs: [Float] = [
-                20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630,
-                800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-            ]
-            let values = precomputedThirdOctave.count == centerFreqs.count
-                ? precomputedThirdOctave
-                : thirdOctaveBands(centerFrequencies: centerFreqs, frequencies: frequencies, spectrum: spectrum)
+            let values: [Float]
+            if precomputedThirdOctave.count == SpectrumBandAggregator.thirdOctaveCenters.count {
+                values = precomputedThirdOctave
+            } else {
+                values = SpectrumBandAggregator.thirdOctaveBands(frequencies: frequencies, spectrum: spectrum)
+            }
             return SpectrumBandData(
                 values: values,
-                labels: labels,
+                labels: SpectrumBandAggregator.thirdOctaveLabels,
                 labelStride: 5
             )
 
         case .octave:
-            let labels = ["31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
-            let thirdCenters: [Float] = [
-                20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630,
-                800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-            ]
-            let thirds = precomputedThirdOctave.count == thirdCenters.count
-                ? precomputedThirdOctave
-                : thirdOctaveBands(centerFrequencies: thirdCenters, frequencies: frequencies, spectrum: spectrum)
-            let mapping: [[Int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12], [13, 14, 15], [16, 17, 18], [19, 20, 21], [22, 23, 24], [25, 26, 27], [28, 29, 30]]
-            var octaveValues: [Float] = []
-            for indices in mapping {
-                var sumLinear: Float = 0
-                for idx in indices where idx < thirds.count {
-                    sumLinear += pow(10, thirds[idx] / 10.0)
-                }
-                octaveValues.append(10 * log10(max(sumLinear, 1e-10)))
-            }
-            return SpectrumBandData(values: octaveValues, labels: labels, labelStride: 1)
+            let precomputedMatches = precomputedThirdOctave.count == SpectrumBandAggregator.thirdOctaveCenters.count
+            let values = SpectrumBandAggregator.octaveBands(
+                frequencies: frequencies,
+                spectrum: spectrum,
+                fromThirds: precomputedMatches ? precomputedThirdOctave : nil
+            )
+            return SpectrumBandData(
+                values: values,
+                labels: SpectrumBandAggregator.octaveLabels,
+                labelStride: 1
+            )
 
         case .bark:
-            // 24 Bark bands, approximated by standard edge frequencies.
-            let barkEdges: [Float] = [
-                20, 100, 200, 300, 400, 510, 630, 770, 920, 1080, 1270, 1480, 1720,
-                2000, 2320, 2700, 3150, 3700, 4400, 5300, 6400, 7700, 9500, 12000, 15500
-            ]
-            var barkValues: [Float] = []
-            for i in 0..<(barkEdges.count - 1) {
-                let lower = barkEdges[i]
-                let upper = barkEdges[i + 1]
-                var sumLinear: Float = 0
-                var hasBin = false
-                for (idx, freq) in frequencies.enumerated() where idx < spectrum.count {
-                    if freq >= lower && freq < upper {
-                        sumLinear += pow(10, spectrum[idx] / 10.0)
-                        hasBin = true
-                    }
-                }
-                barkValues.append(hasBin ? 10 * log10(max(sumLinear, 1e-10)) : -120.0)
-            }
-            let labels = (1...24).map(String.init)
-            return SpectrumBandData(values: barkValues, labels: labels, labelStride: 3)
+            let values = SpectrumBandAggregator.barkBands(frequencies: frequencies, spectrum: spectrum)
+            return SpectrumBandData(
+                values: values,
+                labels: (1...24).map(String.init),
+                labelStride: 3
+            )
         }
-    }
-
-    private func thirdOctaveBands(centerFrequencies: [Float], frequencies: [Float], spectrum: [Float]) -> [Float] {
-        var bands = [Float](repeating: -120.0, count: centerFrequencies.count)
-        guard !frequencies.isEmpty, !spectrum.isEmpty else { return bands }
-        let usableIndices = frequencies.indices.filter { idx in
-            idx < spectrum.count && frequencies[idx] >= 0.0 && frequencies[idx] <= 20000.0
-        }
-        guard !usableIndices.isEmpty else { return bands }
-
-        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
-        let upperFactor = pow(2.0 as Float, 1.0 / 6.0)
-        for (i, center) in centerFrequencies.enumerated() {
-            let lower = center * lowerFactor
-            let upper = center * upperFactor
-            var hasBinInBand = false
-            var bandLinearSum: Float = 0.0
-            var bandBinCount = 0
-            for idx in usableIndices {
-                let freq = frequencies[idx]
-                if freq >= lower && freq < upper {
-                    hasBinInBand = true
-                    bandLinearSum += pow(10.0, spectrum[idx] / 10.0)
-                    bandBinCount += 1
-                }
-            }
-            if hasBinInBand, bandBinCount > 0 {
-                // Band SPL = sum of linear bin powers, then back to dB.
-                // Mirrors the fix in AudioEngine.computeDisplayThirdOctaveBands —
-                // mean-of-bin-power under-reports by 10·log10(bins per band)
-                // and produces the apparent "negative offset" vs broadband LAeq.
-                bands[i] = 10.0 * log10(max(bandLinearSum, 1e-12))
-                continue
-            }
-
-            // Coarse FFT grids can miss narrow low-frequency 1/3-octave bands.
-            // Fallback to linear interpolation between neighboring FFT bins.
-            if center <= 250.0 {
-                bands[i] = interpolatedMagnitude(
-                    targetFrequency: center,
-                    frequencies: frequencies,
-                    spectrum: spectrum,
-                    usableIndices: usableIndices
-                )
-            } else {
-                bands[i] = -120.0
-            }
-        }
-        return bands
-    }
-
-    private func interpolatedMagnitude(
-        targetFrequency: Float,
-        frequencies: [Float],
-        spectrum: [Float],
-        usableIndices: [Int]
-    ) -> Float {
-        guard let first = usableIndices.first, let last = usableIndices.last else { return -120.0 }
-        if targetFrequency <= frequencies[first] { return spectrum[first] }
-        if targetFrequency >= frequencies[last] { return spectrum[last] }
-
-        var upperIdx = first
-        for idx in usableIndices where frequencies[idx] >= targetFrequency {
-            upperIdx = idx
-            break
-        }
-        guard let position = usableIndices.firstIndex(of: upperIdx), position > 0 else {
-            return spectrum[upperIdx]
-        }
-
-        let lowerIdx = usableIndices[position - 1]
-        let f0 = frequencies[lowerIdx]
-        let f1 = frequencies[upperIdx]
-        if abs(f1 - f0) < 0.001 {
-            return max(spectrum[lowerIdx], spectrum[upperIdx])
-        }
-
-        let t = (targetFrequency - f0) / (f1 - f0)
-        return spectrum[lowerIdx] * (1.0 - t) + spectrum[upperIdx] * t
     }
 
     private func logBandDiagnosticsIfNeeded(_ bandData: SpectrumBandData) {

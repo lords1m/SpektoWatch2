@@ -47,11 +47,12 @@ enum StereoInputMode: String, CaseIterable {
 /// Main audio engine coordinating FFT processing, frequency weighting, and acoustic metrics
 class AudioEngine: ObservableObject {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.audio")
-    private static let thirdOctaveCenters: [Float] = [
-        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-    ]
-    private static let emptyThirdOctaveBands = [Float](repeating: -120.0, count: thirdOctaveCenters.count)
+    // Canonical third-octave centers live in
+    // `Managers/SpectrumBandAggregator.swift` (M13 task-6).
+    private static let emptyThirdOctaveBands = [Float](
+        repeating: -120.0,
+        count: SpectrumBandAggregator.thirdOctaveCenters.count
+    )
     
     // MARK: - Processing Components
 
@@ -1673,92 +1674,14 @@ class AudioEngine: ObservableObject {
         )
     }
 
+    /// Compute display 1/3-octave band SPL for the watch ingest /
+    /// emission path. Logic lives in
+    /// `Managers/SpectrumBandAggregator.swift` (M13 task-6) — the
+    /// previous in-engine implementation was a duplicate of the
+    /// widget-side fallback, and the M12 "negative offset" bug came
+    /// from those two implementations drifting apart.
     private func computeDisplayThirdOctaveBands(frequencies: [Float], magnitudes: [Float]) -> [Float] {
-        let pairCount = min(frequencies.count, magnitudes.count)
-        guard pairCount > 0 else {
-            return [Float](repeating: -120.0, count: Self.thirdOctaveCenters.count)
-        }
-
-        let usableIndices = (0..<pairCount).filter { frequencies[$0] >= 0.0 && frequencies[$0] <= 20000.0 }
-        guard !usableIndices.isEmpty else {
-            return [Float](repeating: -120.0, count: Self.thirdOctaveCenters.count)
-        }
-
-        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
-        let upperFactor = pow(2.0 as Float, 1.0 / 6.0)
-        var bands = [Float](repeating: -120.0, count: Self.thirdOctaveCenters.count)
-
-        for (i, center) in Self.thirdOctaveCenters.enumerated() {
-            let lower = center * lowerFactor
-            let upper = center * upperFactor
-            var hasDirectBin = false
-            var bandLinearSum: Float = 0.0
-            var bandBinCount = 0
-
-            for idx in usableIndices {
-                let f = frequencies[idx]
-                guard f >= lower, f < upper else { continue }
-                hasDirectBin = true
-                bandLinearSum += pow(10.0, magnitudes[idx] / 10.0)
-                bandBinCount += 1
-            }
-
-            if hasDirectBin, bandBinCount > 0 {
-                // Bandenergie = Summe der linearen Bin-Leistungen, dann zurück
-                // in dB. Das ist die konventionelle 1/3-Oktav-SPL (entspricht
-                // dem, was ein klassischer Schallpegelmesser anzeigt).
-                // Vorherige Mean-Variante unter-darstellte um 10·log10(bins)
-                // ≈ 5–20 dB je nach Band und führte zum "negativen Offset"
-                // gegenüber dem broadband LAeq.
-                bands[i] = 10.0 * log10(max(bandLinearSum, 1e-12))
-            } else {
-                // Nur im unteren Bereich interpolieren (coarse FFT kann dort Bänder verfehlen).
-                // Für hohe Bänder keine künstlichen Werte erzeugen.
-                if center <= 250.0 {
-                    bands[i] = interpolatedMagnitudeAtFrequency(
-                        center,
-                        frequencies: frequencies,
-                        magnitudes: magnitudes,
-                        usableIndices: usableIndices
-                    )
-                } else {
-                    bands[i] = -120.0
-                }
-            }
-        }
-
-        return bands
-    }
-
-    private func interpolatedMagnitudeAtFrequency(
-        _ targetFrequency: Float,
-        frequencies: [Float],
-        magnitudes: [Float],
-        usableIndices: [Int]
-    ) -> Float {
-        guard let first = usableIndices.first, let last = usableIndices.last else { return -120.0 }
-        if targetFrequency <= frequencies[first] { return magnitudes[first] }
-        if targetFrequency >= frequencies[last] { return magnitudes[last] }
-
-        var upperIdx = first
-        for idx in usableIndices where frequencies[idx] >= targetFrequency {
-            upperIdx = idx
-            break
-        }
-
-        guard let position = usableIndices.firstIndex(of: upperIdx), position > 0 else {
-            return magnitudes[upperIdx]
-        }
-
-        let lowerIdx = usableIndices[position - 1]
-        let f0 = frequencies[lowerIdx]
-        let f1 = frequencies[upperIdx]
-        guard abs(f1 - f0) > 0.001 else {
-            return max(magnitudes[lowerIdx], magnitudes[upperIdx])
-        }
-
-        let t = (targetFrequency - f0) / (f1 - f0)
-        return magnitudes[lowerIdx] * (1.0 - t) + magnitudes[upperIdx] * t
+        SpectrumBandAggregator.thirdOctaveBands(frequencies: frequencies, spectrum: magnitudes)
     }
 
     private func updateProcessingSampleRateIfNeeded(_ newSampleRate: Double, source: String) {
