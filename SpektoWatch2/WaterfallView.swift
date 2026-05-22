@@ -21,9 +21,29 @@ struct WaterfallView: View {
     @GestureState private var dragDelta: CGSize = .zero
     @GestureState private var magnification: CGFloat = 1.0
 
+    /// View-local **Z range overlay** (dB shift). Non-destructive: does
+    /// NOT write to the persisted widget settings. Reset on double-tap.
+    /// Positive → shifts the visible dB window upward (display window
+    /// reveals louder content); negative → downward.
+    @State private var zOffsetDB: Float = 0
+    /// View-local **X range overlay** (frequency-window pan). Fraction
+    /// of the spectrum's full bin range, −1…+1. 0 = full bin range
+    /// shown across the plot; +0.5 = visible window starts mid-spectrum
+    /// (high frequencies fall off the right edge); −0.5 = visible
+    /// window ends mid-spectrum (high frequencies pushed off-left).
+    /// Reset on double-tap.
+    @State private var xPanFrac: Float = 0
+
+    /// Live deltas from the in-flight 2-finger pan (driven by the
+    /// UIKit recognizer below). Committed into `zOffsetDB` / `xPanFrac`
+    /// on gesture end.
+    @State private var twoFingerDelta: CGSize = .zero
+
     private static let defaultPitch: CGFloat = 0.5
     private static let defaultYaw: CGFloat = 1.0
     private static let defaultZoom: CGFloat = 1.0
+    private static let defaultZOffsetDB: Float = 0
+    private static let defaultXPanFrac: Float = 0
 
     private var effectivePitch: CGFloat {
         // Vertical drag: down → more tilt; up → flatter.
@@ -40,6 +60,24 @@ struct WaterfallView: View {
     private var effectiveZoom: CGFloat {
         max(0.25, min(4.0, zoom * magnification))
     }
+
+    /// Live Z dB shift, including the in-flight 2-finger pan delta.
+    /// 2F vertical pan: 100pt → ~6 dB shift (scaled so a full-screen
+    /// pan walks the dB window by a meaningful chunk).
+    private var effectiveZOffsetDB: Float {
+        let live = Float(-twoFingerDelta.height) * 0.06
+        return clampDB(zOffsetDB + live)
+    }
+
+    /// Live X frequency-window pan, including the in-flight 2-finger
+    /// pan delta. 2F horizontal pan: 100pt → ~0.10 (10%) shift.
+    private var effectiveXPanFrac: Float {
+        let live = Float(-twoFingerDelta.width) * 0.001
+        return clampPan(xPanFrac + live)
+    }
+
+    private func clampDB(_ v: Float) -> Float { max(-40, min(40, v)) }
+    private func clampPan(_ v: Float) -> Float { max(-1, min(1, v)) }
 
     var body: some View {
         GeometryReader { geometry in
@@ -77,14 +115,31 @@ struct WaterfallView: View {
                         zoom = max(0.25, min(4.0, zoom * value))
                     }
             )
-            // Double-tap: reset camera + zoom.
+            // Double-tap: reset camera + zoom + view-local Z/X overlays.
             .onTapGesture(count: 2) {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     pitch = Self.defaultPitch
                     yaw = Self.defaultYaw
                     zoom = Self.defaultZoom
+                    zOffsetDB = Self.defaultZOffsetDB
+                    xPanFrac = Self.defaultXPanFrac
                 }
             }
+            // 2-finger pan: vertical → Z dB-window shift, horizontal →
+            // X frequency-window pan. View-local overlay, never written
+            // to widget settings. Layered as an overlay so the UIKit
+            // recognizer can coexist with the SwiftUI 1F drag + pinch.
+            .overlay(
+                TwoFingerPanRecognizer(
+                    onChange: { delta in twoFingerDelta = delta },
+                    onEnd: { delta in
+                        zOffsetDB = clampDB(zOffsetDB + Float(-delta.height) * 0.06)
+                        xPanFrac = clampPan(xPanFrac + Float(-delta.width) * 0.001)
+                        twoFingerDelta = .zero
+                    }
+                )
+                .allowsHitTesting(true)
+            )
             .accessibilityIdentifier("recordingWaterfallView")
         }
     }
@@ -201,8 +256,18 @@ struct WaterfallView: View {
         var path = Path()
         guard !slice.magnitudes.isEmpty else { return path }
 
+        // 2F horizontal pan: shifts the visible frequency window. The
+        // bin → x mapping subtracts xPanFracEff (−1…+1) so positive
+        // pan slides the spectrum left (high frequencies enter the
+        // view from the right). Bins that fall outside the plot rect
+        // are still drawn but clipped by the surrounding chrome.
+        let panFrac = CGFloat(effectiveXPanFrac)
+        let denominator = CGFloat(max(slice.magnitudes.count - 1, 1))
+
         for (index, magnitude) in slice.magnitudes.enumerated() {
-            let x = plot.minX + CGFloat(index) / CGFloat(max(slice.magnitudes.count - 1, 1)) * plot.width + offsetX
+            let binFrac = CGFloat(index) / denominator
+            let visibleFrac = binFrac - panFrac
+            let x = plot.minX + visibleFrac * plot.width + offsetX
             let normalized = normalizedLevel(magnitude)
             let y = baseY - CGFloat(normalized) * usableHeight
             let point = CGPoint(x: x, y: y)
@@ -263,8 +328,15 @@ struct WaterfallView: View {
     }
 
     private func normalizedLevel(_ value: Float) -> Float {
-        let range = max(1, dataSet.maxDB - dataSet.minDB)
-        return max(0, min(1, (value - dataSet.minDB) / range))
+        // 2F vertical pan: shifts the dB window. zOffsetDB > 0 moves
+        // the window UP (display reveals louder content; the same raw
+        // value normalises to a lower position). Keep the window
+        // width unchanged.
+        let zShift = effectiveZOffsetDB
+        let minDB = dataSet.minDB + zShift
+        let maxDB = dataSet.maxDB + zShift
+        let range = max(1, maxDB - minDB)
+        return max(0, min(1, (value - minDB) / range))
     }
 
     private func lineColor(for value: Float) -> Color {
@@ -404,5 +476,93 @@ struct WaterfallWidget: View {
             minDB: minDB,
             maxDB: maxDB
         )
+    }
+}
+
+// MARK: - Two-finger pan recognizer (UIKit bridge)
+//
+// SwiftUI's DragGesture is 1-finger only. To get a true 2-finger pan
+// that coexists with SwiftUI's MagnificationGesture (pinch) and the
+// 1-finger DragGesture (tilt), we drop a transparent UIView into the
+// view tree as an overlay and attach a UIPanGestureRecognizer with
+// minimumNumberOfTouches = 2.
+//
+// Touch routing
+// -------------
+// The wrapping UIView only "claims" touch events when 2+ fingers are
+// down. With 0 or 1 finger, hitTest returns nil so touches fall through
+// to the SwiftUI layer beneath (where the 1-finger DragGesture lives).
+// Once 2 fingers are detected, the recognizer fires .changed events with
+// translation, which we feed back into SwiftUI state via the closures.
+//
+// Simultaneous recognition with MagnificationGesture works because UIKit
+// dispatches pinch and 2-finger pan to separate recognizers based on
+// motion type (parallel vs. opposing). Both fire at once if both motion
+// signatures are present.
+private struct TwoFingerPanRecognizer: UIViewRepresentable {
+    let onChange: (CGSize) -> Void
+    let onEnd: (CGSize) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = TwoFingerPassThroughView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = true
+        let recognizer = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePan(_:))
+        )
+        recognizer.minimumNumberOfTouches = 2
+        recognizer.maximumNumberOfTouches = 2
+        recognizer.delegate = context.coordinator
+        view.addGestureRecognizer(recognizer)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        let parent: TwoFingerPanRecognizer
+        init(_ parent: TwoFingerPanRecognizer) { self.parent = parent }
+
+        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            let translation = recognizer.translation(in: recognizer.view)
+            let delta = CGSize(width: translation.x, height: translation.y)
+            switch recognizer.state {
+            case .began, .changed:
+                parent.onChange(delta)
+            case .ended, .cancelled, .failed:
+                parent.onEnd(delta)
+            default:
+                break
+            }
+        }
+
+        // Allow this recognizer to fire at the same time as the SwiftUI
+        // MagnificationGesture (pinch). Without this, UIKit would
+        // arbitrate and one would win exclusively.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            return true
+        }
+    }
+}
+
+/// Transparent UIView that passes single-finger touches through to
+/// the SwiftUI layer beneath and only intercepts events with 2+
+/// active touches (where its UIPanGestureRecognizer will fire).
+private final class TwoFingerPassThroughView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Counting allTouches is the cheapest way to disambiguate.
+        // Single-finger drags arriving while this view is on top would
+        // otherwise be swallowed and never reach the SwiftUI 1F drag.
+        let touchCount = event?.allTouches?.count ?? 0
+        if touchCount >= 2 {
+            return super.hitTest(point, with: event)
+        }
+        return nil
     }
 }
