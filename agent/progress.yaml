@@ -194,6 +194,28 @@ milestones:
       Existing Hz slider and acoustic preset buttons stay primary.
     file: agent/milestones/milestone-11-tone-generator-piano-input.md
 
+  M13:
+    name: Architecture Hygiene
+    status: in_progress
+    priority: medium
+    progress: 0
+    started: "2026-05-21"
+    estimated_weeks: "3"
+    tasks_completed: 0
+    tasks_total: 9
+    notes: >
+      Planned 2026-05-21 from agent/reports/2026-05-21-architecture-review.md.
+      Covers the CLI-doable subset of architecture-review findings:
+      A1 (AudioEngine decomposition — 3 phases), A4 (kernel math
+      extraction out of view bodies), A5 (watch protocol version
+      byte + AppState envelope), A6 (RecordingDetailView split),
+      A7 (AppServices injection), A8 (persistence registry). A2
+      (App Group entitlements) stays routed to M6 task-4. A3
+      (ToneGenerator NSLock) stays routed to M11 task-1. A9-A14
+      remain backlog. First actionable task: task-1-app-services-
+      injection (small, foundational, enables test scaffolding).
+    file: agent/milestones/milestone-13-architecture-hygiene.md
+
   M12:
     name: Liquid Glass Redesign
     status: in_progress
@@ -564,6 +586,17 @@ tasks:
       status: pending
       file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-4-acceptance.md
 
+  M13:
+    - { id: task-1-app-services-injection,        name: "AppServices injection layer",                status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md }
+    - { id: task-2-recording-detail-split,        name: "Split RecordingDetailView",                  status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md }
+    - { id: task-3-extract-calibration-provider,  name: "Extract CalibrationProvider",                status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-3-extract-calibration-provider.md }
+    - { id: task-4-extract-live-acoustic-state,   name: "Extract LiveAcousticState",                  status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-4-extract-live-acoustic-state.md }
+    - { id: task-5-extract-recording-coordinator, name: "Extract RecordingCoordinator",               status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-5-extract-recording-coordinator.md }
+    - { id: task-6-kernel-math-extraction,        name: "Kernel math extraction",                     status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-6-kernel-math-extraction.md }
+    - { id: task-7-watch-protocol-versioning,     name: "Watch protocol versioning + AppState",       status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-7-watch-protocol-versioning.md }
+    - { id: task-8-persistence-registry,          name: "Persistence registry",                       status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-8-persistence-registry.md }
+    - { id: task-9-acceptance,                    name: "Acceptance",                                 status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md }
+
   M12:
     - id: task-1-chrome-and-tokens
       name: Chrome & Tokens (Phase 1)
@@ -727,8 +760,8 @@ tasks:
         Hardware visual pass gated on task-6.
 
 updated_at: 2026-05-21
-current_milestone: M9
-current_task: task-11-acceptance
+current_milestone: M13
+current_task: task-1-app-services-injection
 last_proceed: 2026-05-21
 parked:
   - milestone: M8
@@ -740,6 +773,9 @@ parked:
   - milestone: M12
     task: task-4-watch-faces-and-complications
     reason: all 5 watch-face subtasks landed code-side; promotion to completed gated on M12 task-6 hardware acceptance
+  - milestone: M9
+    task: task-11-acceptance
+    reason: code-side acceptance complete; promotion gated on hardware screenshot grid across 10 widgets
 recent_reports:
   - agent/reports/2026-05-21-spectrogram-quickwins.md
   - agent/reports/2026-05-21-widget-screenshot-review.md

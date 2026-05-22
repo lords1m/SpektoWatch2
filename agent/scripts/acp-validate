@@ -91,6 +91,7 @@ case "$current_milestone" in
   M10) task_dir="agent/tasks/milestone-10-ios-standalone-widgets" ;;
   M11) task_dir="agent/tasks/milestone-11-tone-generator-piano-input" ;;
   M12) task_dir="agent/tasks/milestone-12-liquid-glass-redesign" ;;
+  M13) task_dir="agent/tasks/milestone-13-architecture-hygiene" ;;
   *) task_dir="agent/tasks/$current_milestone" ;;
 esac
 
