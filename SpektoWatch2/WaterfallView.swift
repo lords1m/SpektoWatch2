@@ -4,6 +4,43 @@ struct WaterfallView: View {
     let dataSet: WaterfallDataSet
     let highlightedTime: TimeInterval
 
+    /// Camera state for the 3D-style waterfall projection.
+    /// In the diagram's coordinate system: X = frequency (horizontal),
+    /// Y = time (depth into the scene), Z = amplitude (vertical).
+    ///
+    /// - `pitch`: 0…1 controls how steep the time recession is. 0 = pure
+    ///   side-on (no depth, current spectrum line only), 1 = strongly
+    ///   tilted "looking down" (max depth, near top-down).
+    /// - `yaw`: −1…+1 controls horizontal shear of the time stack
+    ///   (slices recede to the right at +1, to the left at −1).
+    /// - `zoom`: 1.0 baseline; >1 zooms in on amplitude, <1 zooms out.
+    /// - Reset via double-tap.
+    @State private var pitch: CGFloat = 0.5
+    @State private var yaw: CGFloat = 1.0
+    @State private var zoom: CGFloat = 1.0
+    @GestureState private var dragDelta: CGSize = .zero
+    @GestureState private var magnification: CGFloat = 1.0
+
+    private static let defaultPitch: CGFloat = 0.5
+    private static let defaultYaw: CGFloat = 1.0
+    private static let defaultZoom: CGFloat = 1.0
+
+    private var effectivePitch: CGFloat {
+        // Vertical drag: down → more tilt; up → flatter.
+        let raw = pitch + dragDelta.height / 200
+        return max(0, min(1, raw))
+    }
+
+    private var effectiveYaw: CGFloat {
+        // Horizontal drag: right → recede right; left → recede left.
+        let raw = yaw + dragDelta.width / 250
+        return max(-1, min(1, raw))
+    }
+
+    private var effectiveZoom: CGFloat {
+        max(0.25, min(4.0, zoom * magnification))
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in
@@ -16,6 +53,36 @@ struct WaterfallView: View {
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.72))
                         .padding(12)
+                }
+            }
+            .contentShape(Rectangle())
+            // 1-finger drag: tilt the 3D camera (pitch ↕ + yaw ↔).
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .updating($dragDelta) { value, state, _ in
+                        state = value.translation
+                    }
+                    .onEnded { value in
+                        pitch = max(0, min(1, pitch + value.translation.height / 200))
+                        yaw = max(-1, min(1, yaw + value.translation.width / 250))
+                    }
+            )
+            // 2-finger pinch: zoom the amplitude (Z) axis.
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .updating($magnification) { value, state, _ in
+                        state = value
+                    }
+                    .onEnded { value in
+                        zoom = max(0.25, min(4.0, zoom * value))
+                    }
+            )
+            // Double-tap: reset camera + zoom.
+            .onTapGesture(count: 2) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    pitch = Self.defaultPitch
+                    yaw = Self.defaultYaw
+                    zoom = Self.defaultZoom
                 }
             }
             .accessibilityIdentifier("recordingWaterfallView")
@@ -37,15 +104,34 @@ struct WaterfallView: View {
             height: max(1, bounds.height - 58)
         )
         let sliceCount = dataSet.slices.count
-        let depthX = min(54, plot.width * 0.14)
-        let depthY = min(38, plot.height * 0.18)
+
+        // Camera-driven perspective. Pitch sets time-axis depth (Y),
+        // yaw rotates the recession horizontally (X-shear), zoom
+        // scales amplitude (Z).
+        let pitchEff = effectivePitch          // 0…1
+        let yawEff = effectiveYaw              // −1…+1
+        let zoomEff = effectiveZoom            // 0.25…4
+        let maxDepthY: CGFloat = 38
+        let maxDepthX: CGFloat = 54
+        let depthY = pitchEff * min(maxDepthY, plot.height * 0.30)
+        let depthX = yawEff * min(maxDepthX, plot.width * 0.20)
         let frontBaseY = plot.maxY - depthY
-        let usableHeight = max(1, plot.height - depthY - 10)
+        let usableHeight = max(1, plot.height - depthY - 10) * zoomEff
 
         drawGrid(plot: plot, frontBaseY: frontBaseY, depthX: depthX, depthY: depthY, context: &context)
 
-        for (displayIndex, slice) in dataSet.slices.enumerated().reversed() {
-            let age = CGFloat(displayIndex) / CGFloat(max(sliceCount - 1, 1))
+        // The newest slice = the *current* spectrum and lives at the
+        // FRONT of the 3D scene (the user's "current spectrum should
+        // be in the front" requirement). WaterfallDataBuilder writes
+        // oldest→newest in `dataSet.slices`, so age = 1 for index 0
+        // (oldest, max recession) and age = 0 for the last index
+        // (newest, no recession).
+        let lastIndex = sliceCount - 1
+        // Draw back-to-front (painter's algorithm): start with oldest
+        // (highest age, deepest into the scene) and end with newest.
+        for displayIndex in 0...lastIndex {
+            let slice = dataSet.slices[displayIndex]
+            let age = CGFloat(lastIndex - displayIndex) / CGFloat(max(lastIndex, 1))
             let offsetX = depthX * age
             let offsetY = -depthY * age
             let opacity = 0.20 + 0.70 * (1.0 - age)
@@ -57,9 +143,12 @@ struct WaterfallView: View {
                 usableHeight: usableHeight
             )
             let color = lineColor(for: slice.magnitudes.max() ?? dataSet.minDB).opacity(opacity)
-            context.stroke(path, with: .color(color), lineWidth: displayIndex == 0 ? 1.8 : 1.0)
+            // Newest slice = front = 1.8pt for emphasis; others 1pt.
+            let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
+            context.stroke(path, with: .color(color), lineWidth: lineWidth)
 
-            if displayIndex.isMultiple(of: 4) || displayIndex == sliceCount - 1 {
+            // Periodic fill highlights to give the stack body.
+            if (lastIndex - displayIndex).isMultiple(of: 4) || displayIndex == 0 {
                 let fill = fillPath(from: path, plot: plot, baseY: frontBaseY + offsetY, offsetX: offsetX)
                 context.fill(fill, with: .color(color.opacity(0.10)))
             }
