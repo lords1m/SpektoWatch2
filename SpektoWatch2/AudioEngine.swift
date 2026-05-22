@@ -138,79 +138,18 @@ class AudioEngine: ObservableObject {
     private var widgetSpectralWeightingRequirements: Set<FrequencyWeighting> = []
 
     // MARK: - Microphone Calibration
-    // Basierend auf Studio Six Digital AudioTools Kalibrierungsdaten
-    // Default iOS Mic Calibration: +7.0 dB (relativ zu 94 dB SPL Referenz)
-    // dB SPL = dBFS + calibrationOffset
-    @Published var calibrationOffset: Float = 94.0 {
+    // Device map, recommended-offset lookup, and load/save logic live
+    // in CalibrationProvider (M13 task-3). This file owns only the
+    // active runtime value + its didSet persistence, so the settings
+    // slider's `$audioEngine.calibrationOffset` binding still works.
+    // dB SPL = dBFS + calibrationOffset.
+    @Published var calibrationOffset: Float = CalibrationProvider.defaultOffset {
         didSet {
-            UserDefaults.standard.set(calibrationOffset, forKey: "calibrationOffset")
+            CalibrationProvider.persist(offset: calibrationOffset)
         }
     }
     private var currentInputGain: Float = 1.0
 
-    // Gerätespezifische Kalibrierungswerte (Offset in dB)
-    // Diese Werte basieren auf typischen Messungen und können manuell angepasst werden
-    // Quelle: Studio Six Digital, Faber Acoustical
-    private static let deviceCalibrationOffsets: [String: Float] = [
-        // iPhone 12 Serie - empfindlichere Mikrofone
-        "iPhone13,1": 91.0,  // iPhone 12 mini
-        "iPhone13,2": 92.0,  // iPhone 12
-        "iPhone13,3": 92.0,  // iPhone 12 Pro
-        "iPhone13,4": 92.0,  // iPhone 12 Pro Max
-
-        // iPhone 13 Serie
-        "iPhone14,4": 91.0,  // iPhone 13 mini
-        "iPhone14,5": 92.0,  // iPhone 13
-        "iPhone14,2": 92.0,  // iPhone 13 Pro
-        "iPhone14,3": 92.0,  // iPhone 13 Pro Max
-
-        // iPhone 14 Serie
-        "iPhone14,7": 92.0,  // iPhone 14
-        "iPhone14,8": 92.0,  // iPhone 14 Plus
-        "iPhone15,2": 93.0,  // iPhone 14 Pro
-        "iPhone15,3": 93.0,  // iPhone 14 Pro Max
-
-        // iPhone 15 Serie
-        "iPhone15,4": 93.0,  // iPhone 15
-        "iPhone15,5": 93.0,  // iPhone 15 Plus
-        "iPhone16,1": 94.0,  // iPhone 15 Pro
-        "iPhone16,2": 94.0,  // iPhone 15 Pro Max
-
-        // iPhone 11 Serie
-        "iPhone12,1": 94.0,  // iPhone 11
-        "iPhone12,3": 94.0,  // iPhone 11 Pro
-        "iPhone12,5": 94.0,  // iPhone 11 Pro Max
-
-        // Ältere iPhones
-        "iPhone11,2": 95.0,  // iPhone XS
-        "iPhone11,4": 95.0,  // iPhone XS Max
-        "iPhone11,6": 95.0,  // iPhone XS Max (China)
-        "iPhone11,8": 95.0,  // iPhone XR
-        "iPhone10,1": 96.0,  // iPhone 8
-        "iPhone10,4": 96.0,  // iPhone 8
-        "iPhone10,2": 96.0,  // iPhone 8 Plus
-        "iPhone10,5": 96.0,  // iPhone 8 Plus
-    ]
-
-    /// Ermittelt das Gerätemodell (z.B. "iPhone13,1" für iPhone 12 mini)
-    static func getDeviceModel() -> String {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let machineMirror = Mirror(reflecting: systemInfo.machine)
-        let identifier = machineMirror.children.reduce("") { identifier, element in
-            guard let value = element.value as? Int8, value != 0 else { return identifier }
-            return identifier + String(UnicodeScalar(UInt8(value)))
-        }
-        return identifier
-    }
-
-    /// Gibt den empfohlenen Kalibrierungsoffset für das aktuelle Gerät zurück
-    static func getRecommendedCalibrationOffset() -> Float {
-        let model = getDeviceModel()
-        Logger.audioEngine.info("Detected device model: \(model)")
-        return deviceCalibrationOffsets[model] ?? 94.0  // Default: 94 dB
-    }
-    
     // MARK: - Recording
     
     private var recordingStartTime: Date?
@@ -335,18 +274,9 @@ class AudioEngine: ObservableObject {
             self?.processSamples(samples)
         }
 
-        // Load saved calibration offset or use device-specific default
-        // Version 2: Gerätespezifische Kalibrierung
-        let calibrationVersion = UserDefaults.standard.integer(forKey: "calibrationVersion")
-        if calibrationVersion >= 2, let savedOffset = UserDefaults.standard.object(forKey: "calibrationOffset") as? Float {
-            calibrationOffset = savedOffset
-            Logger.audioEngine.info("Loaded saved calibration offset: \(self.calibrationOffset) dB")
-        } else {
-            // Verwende gerätespezifischen Kalibrierungswert (neu oder nach Update)
-            calibrationOffset = AudioEngine.getRecommendedCalibrationOffset()
-            UserDefaults.standard.set(2, forKey: "calibrationVersion")
-            Logger.audioEngine.info("Using device-specific calibration offset: \(self.calibrationOffset) dB for \(AudioEngine.getDeviceModel())")
-        }
+        // Load saved calibration offset or use device-specific default.
+        // Logic + device map lives in CalibrationProvider (M13 task-3).
+        calibrationOffset = CalibrationProvider.resolveStartupOffset()
 
         if let savedFrequencySmoothing = UserDefaults.standard.object(forKey: "spectrogramFrequencySmoothing") as? Double {
             spectrogramFrequencySmoothing = Float(savedFrequencySmoothing)
@@ -811,9 +741,9 @@ class AudioEngine: ObservableObject {
 
     /// Setzt die Kalibrierung auf den empfohlenen Wert für dieses Gerät zurück
     func resetCalibrationToDeviceDefault() {
-        let recommendedOffset = AudioEngine.getRecommendedCalibrationOffset()
-        calibrationOffset = recommendedOffset
-        Logger.audioEngine.info("Calibration reset to device default: \(recommendedOffset) dB")
+        let recommended = CalibrationProvider.recommendedOffset()
+        calibrationOffset = recommended
+        Logger.audioEngine.info("Calibration reset to device default: \(recommended) dB")
     }
 
     /// Gibt den aktuellen Kalibrierungs-Offset zurück

@@ -124,7 +124,7 @@ struct SpectrogramSettingsView: View {
                     }) {
                         HStack {
                             Image(systemName: "arrow.counterclockwise")
-                            Text("Auf Gerätewert zurücksetzen (\(Int(AudioEngine.getRecommendedCalibrationOffset())) dB)")
+                            Text("Auf Gerätewert zurücksetzen (\(Int(CalibrationProvider.recommendedOffset())) dB)")
                         }
                     }
                 }
