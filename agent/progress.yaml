@@ -783,6 +783,7 @@ recent_reports:
   - agent/reports/2026-05-21-milestone-9-widget-audit.md
   - agent/reports/2026-05-21-architecture-review.md
   - agent/reports/2026-05-21-milestone-13-acceptance.md
+  - agent/reports/2026-05-21-performance-centralization-audit.md
 active_context:
   summary: >
     M1–M6 complete. M7 (Xcode Cloud Snapshot Testing) opened 2026-05-20.
