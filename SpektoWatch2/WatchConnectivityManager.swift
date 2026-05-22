@@ -159,6 +159,12 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
                 if let gain = WatchConnectivityProtocol.gain(from: message) {
                     NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
                 }
+            case .appStateUpdate:
+                // iOS-side receives no appStateUpdate today (envelope
+                // flows iOS → watch only). Reserved for the watch's
+                // future ability to push state back. Decode-and-drop
+                // to keep the protocol future-proof.
+                _ = WatchConnectivityProtocol.appStateUpdate(from: message)
             }
         }
     }

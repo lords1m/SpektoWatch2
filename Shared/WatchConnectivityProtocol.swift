@@ -8,6 +8,11 @@ enum WatchConnectivityProtocol {
         case microphoneSource
         case frequencyWeighting
         case watchDashboardConfig
+        /// Envelope of non-audio app state (preset, recording flag,
+        /// accent, theme, tone state). Added in M13 task-7. Payload is
+        /// a JSON-encoded `WatchAppState` blob under
+        /// `WatchConnectivityProtocol.Key.value`.
+        case appStateUpdate
     }
 
     enum BinaryPacketKind: UInt8 {
@@ -65,6 +70,23 @@ enum WatchConnectivityProtocol {
 
     static func makeWatchDashboardConfigMessage(_ configString: String) -> [String: Any] {
         [Key.type: MessageType.watchDashboardConfig.rawValue, Key.config: configString]
+    }
+
+    /// Build an appStateUpdate message envelope from a
+    /// `WatchAppState` blob. Returns nil if the envelope fails to
+    /// JSON-encode (shouldn't happen in practice — Codable values
+    /// are all primitive).
+    static func makeAppStateUpdateMessage(_ state: WatchAppState) -> [String: Any]? {
+        guard let data = try? state.encode() else { return nil }
+        return [Key.type: MessageType.appStateUpdate.rawValue, Key.value: data]
+    }
+
+    /// Decode an appStateUpdate message envelope. Returns nil for
+    /// unknown schema versions (handled inside `WatchAppState.decode`)
+    /// or malformed payloads.
+    static func appStateUpdate(from message: [String: Any]) -> WatchAppState? {
+        guard let data = message[Key.value] as? Data else { return nil }
+        return WatchAppState.decode(data)
     }
 
     static func messageType(from message: [String: Any]) -> MessageType? {

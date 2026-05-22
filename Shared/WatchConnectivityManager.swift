@@ -280,6 +280,14 @@ extension WatchConnectivityManager: WCSessionDelegate {
                     self.frequencyWeighting = weighting
                 }
             }
+        case .appStateUpdate:
+            // Phase 2 (M13 task-7) wires consumption — watch faces
+            // read accent/theme from this envelope to replace
+            // hardcoded phosphor. For now: decode-and-drop so the
+            // exhaustive switch compiles and the envelope can be
+            // round-tripped end-to-end on hardware without
+            // user-visible effect.
+            _ = WatchConnectivityProtocol.appStateUpdate(from: message)
         }
     }
 

@@ -39,10 +39,32 @@ public struct SpectrogramData: Codable {
     }
     
     // MARK: - Binary Encoding
-    
+    //
+    // Wire format (M13 task-7):
+    //   [0] version: UInt8 = currentVersion (0x01)
+    //   [1..] payload — Float broadbandLevel, Double sampleRate, etc.
+    //
+    // Versioning rationale: prior to M13, payloads started directly
+    // with the broadbandLevel Float and had no schema marker. The
+    // outer `BinaryPacketKind` byte in `WatchConnectivityProtocol`
+    // already provides packet-type dispatch; the new version byte
+    // here lets the spectrogram payload itself evolve without
+    // colliding with that. Old-build watches reading new-build
+    // payloads will misparse and return nil; the receiver logs
+    // "unknown protocol version" and keeps running.
+
+    /// Current spectrogram-payload schema version. Bump on any
+    /// breaking layout change to fields after this byte.
+    public static let currentSchemaVersion: UInt8 = 0x01
+
     public func toBinaryData() -> Data {
         var data = Data()
-        
+
+        // 0. Schema version (UInt8 - 1 byte). MUST be the very first
+        // byte; the decoder rejects unknown values before any field
+        // parse.
+        data.append(Self.currentSchemaVersion)
+
         // 1. Broadband Level (Float - 4 bytes)
         var level = broadbandLevel
         data.append(Data(bytes: &level, count: MemoryLayout<Float>.size))
@@ -131,7 +153,17 @@ public struct SpectrogramData: Codable {
         }
         
         var offset = 0
-        
+
+        // 0. Schema version (UInt8 - 1 byte). Reject unknown versions
+        // before any field parse — sender is on a different schema.
+        guard data.count > 0 else { return nil }
+        let version = data[data.startIndex]
+        guard version == SpectrogramData.currentSchemaVersion else {
+            // Future: when we ship a v2 layout, dispatch here.
+            return nil
+        }
+        offset = 1
+
         // 1. Broadband Level
         guard let broadbandLevel = readFloat(data, &offset) else { return nil }
         
