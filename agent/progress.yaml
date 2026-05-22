@@ -588,7 +588,7 @@ tasks:
 
   M13:
     - { id: task-1-app-services-injection,        name: "AppServices injection layer",                status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md, notes: "Code-side landed 2026-05-21. New AppServices.swift (@MainActor ObservableObject) owns the 5 eager managers + deferred AudioEngine/MaskingEngine via startAudio(). Convenience init() + testFixture(...) static factory. SpektoWatch2App uses one @StateObject AppServices instead of 5 individual @StateObjects + 1 AudioEngineContainer. Body still calls 8 .environmentObject(...) (consumer migration explicitly deferred to a future task; scope here was producer-side only). Old AudioEngineContainer private type removed. iOS build green. Tests not migrated to testFixture (deferred — drop-in pattern across 5+ test files; do alongside M13 task-3/-4 AudioEngine extracts). Hardware acceptance gated on M13 task-9." }
-    - { id: task-2-recording-detail-split,        name: "Split RecordingDetailView",                  status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md }
+    - { id: task-2-recording-detail-split,        name: "Split RecordingDetailView",                  status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md, notes: "Phase 1 landed 2026-05-21: 3 standalone helpers extracted — Views/RecordingDetailComponents.swift (MiniLineChart + StatRow, 96 LOC), Views/AudioPlayerManager.swift (161 LOC), Views/PhotoPickerView.swift (39 LOC). RecordingDetailView.swift dropped 1496→1211 LOC (-285). Phase 2 (per-tab card split into RecordingPlaybackSection / Markers / Export / Notes / Metadata) deferred — requires a shared RecordingDetailViewModel for the 29+ @State graph that spans all tabs; high regression risk without hardware pass. Recommended timing: after M13 task-4 (LiveAcousticState) so the VM can consume the new live-state pattern. iOS build green." }
     - { id: task-3-extract-calibration-provider,  name: "Extract CalibrationProvider",                status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-3-extract-calibration-provider.md }
     - { id: task-4-extract-live-acoustic-state,   name: "Extract LiveAcousticState",                  status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-4-extract-live-acoustic-state.md }
     - { id: task-5-extract-recording-coordinator, name: "Extract RecordingCoordinator",               status: pending, file: agent/tasks/milestone-13-architecture-hygiene/task-5-extract-recording-coordinator.md }
@@ -761,7 +761,7 @@ tasks:
 
 updated_at: 2026-05-21
 current_milestone: M13
-current_task: task-1-app-services-injection
+current_task: task-3-extract-calibration-provider
 last_proceed: 2026-05-21
 parked:
   - milestone: M8
