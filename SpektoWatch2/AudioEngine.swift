@@ -165,21 +165,35 @@ class AudioEngine: ObservableObject {
     
     // MARK: - Published Properties
 
+    // MARK: - Recording coordinator
+    //
+    // Flags + duration storage moved into RecordingCoordinator as part
+    // of M13 task-5. The properties below are computed forwarders so
+    // existing read/write call sites (ControlBarView, DashboardViewModel,
+    // WaterfallView, the audio frame writers below) keep working
+    // unchanged.
+    //
+    // The `isMeasurementRecording` didSet side effects
+    // (setupMeasurementDataFileIfNeeded / closeMeasurementWriter) moved
+    // out of the property and into a Combine subscription bridged in
+    // init — same pattern as task-4's live-state extraction.
+    let recording = RecordingCoordinator()
+    private var recordingBridge: AnyCancellable?
+    private var measurementRecordingSink: AnyCancellable?
+
     /// Gibt an, ob Audio in eine Datei geschrieben wird (true) oder nur Live-Anzeige (false)
-    @Published var isRecordingToFile: Bool = false
-    @Published var isMeasurementRecording: Bool = false {
-        didSet {
-            if isRecordingToFile {
-                if isMeasurementRecording {
-                    setupMeasurementDataFileIfNeeded()
-                } else {
-                    lastMeasurementDataURL = nil
-                    closeMeasurementWriter()
-                }
-            }
-        }
+    var isRecordingToFile: Bool {
+        get { recording.isRecordingToFile }
+        set { recording.isRecordingToFile = newValue }
     }
-    @Published var recordingDuration: TimeInterval = 0.0
+    var isMeasurementRecording: Bool {
+        get { recording.isMeasurementRecording }
+        set { recording.isMeasurementRecording = newValue }
+    }
+    var recordingDuration: TimeInterval {
+        get { recording.recordingDuration }
+        set { recording.recordingDuration = newValue }
+    }
     @Published var engineStatus: EngineStatus = .idle
     @Published private(set) var activeMicrophoneSource: MicrophoneSource?
     @Published var lastError: SpektoWatchError?
@@ -335,6 +349,29 @@ class AudioEngine: ObservableObject {
         liveBridge = live.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+
+        // Same bridge for RecordingCoordinator (M13 task-5).
+        recordingBridge = recording.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+
+        // Run the file-setup / writer-close side effects when
+        // isMeasurementRecording flips. Previously a didSet on the
+        // @Published property — moved here so the storage can live on
+        // RecordingCoordinator.
+        // dropFirst() to skip the initial false value emission.
+        measurementRecordingSink = recording.$isMeasurementRecording
+            .dropFirst()
+            .sink { [weak self] newValue in
+                guard let self else { return }
+                guard self.recording.isRecordingToFile else { return }
+                if newValue {
+                    self.setupMeasurementDataFileIfNeeded()
+                } else {
+                    self.lastMeasurementDataURL = nil
+                    self.closeMeasurementWriter()
+                }
+            }
 
         // Load saved calibration offset or use device-specific default.
         // Logic + device map lives in CalibrationProvider (M13 task-3).
