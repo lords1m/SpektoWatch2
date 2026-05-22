@@ -10,10 +10,8 @@ struct DashboardHeaderView: View {
     var onSaveLayout: () -> Void
     var onShowLayouts: () -> Void
     var onShowSettings: () -> Void
-    var onShowTweaks: () -> Void = {}
 
     @Environment(\.designAccent) private var accent
-    @AppStorage("design.accent") private var accentRaw: String = AccentChoice.phosphor.rawValue
 
     var body: some View {
         HStack(spacing: 12) {
@@ -38,7 +36,6 @@ struct DashboardHeaderView: View {
                     glassIconButton("gearshape.fill", id: "settingsButton", action: onShowSettings)
                     glassIconButton("square.stack.3d.up", id: "layoutsButton", action: onShowLayouts)
                         .accessibilityIdentifier("layoutsButton")
-                    accentMenuButton
                 }
 
                 Button(action: toggleEdit) {
@@ -77,49 +74,6 @@ struct DashboardHeaderView: View {
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .accessibilityIdentifier("dashboardHeaderView")
-    }
-
-    private var accentMenuButton: some View {
-        Menu {
-            Section("Akzent") {
-                ForEach(AccentChoice.allCases) { choice in
-                    Button {
-                        accentRaw = choice.rawValue
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        Label {
-                            Text(choice.label)
-                        } icon: {
-                            // System tinting in menu cells; checkmark for active.
-                            Image(systemName: accentRaw == choice.rawValue
-                                  ? "circle.inset.filled"
-                                  : "circle.fill")
-                                .foregroundStyle(choice.color)
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button {
-                onShowTweaks()
-            } label: {
-                Label("Mehr Optionen…", systemImage: "slider.horizontal.3")
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(.thinMaterial)
-                    .frame(width: 34, height: 34)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
-                Circle()
-                    .fill(accent)
-                    .frame(width: 14, height: 14)
-                    .shadow(color: accent.opacity(0.6), radius: 4)
-            }
-        }
-        .menuStyle(.button)
-        .accessibilityLabel("Akzent ändern")
-        .accessibilityIdentifier("tweaksButton")
     }
 
     private func glassIconButton(_ symbol: String, id: String, action: @escaping () -> Void) -> some View {

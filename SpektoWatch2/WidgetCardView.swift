@@ -21,18 +21,15 @@ struct WidgetCardView: View {
     private let cornerRadius: CGFloat = 22
     private let overlayTopInset: CGFloat = 46
 
-    // Card-internal geometry. Reserved unconditionally (header is hidden
-    // in edit mode but its space stays, so toggling edit doesn't reflow
-    // the kernel and break Metal redraw assumptions).
+    // Card-internal geometry. Header height is reserved unconditionally
+    // (hidden via opacity in edit mode) so toggling edit doesn't reflow
+    // the kernel and break Metal redraw assumptions.
     private let cardTopInset: CGFloat = 8
     private let headerHeight: CGFloat = 22
     private let headerGap: CGFloat = 6
-    private let kernelHorizontalInset: CGFloat = 6
-    private let cardBottomInset: CGFloat = 6
-    private let innerCornerRadius: CGFloat = 14
 
     private var chromeOverhead: CGFloat {
-        cardTopInset + headerHeight + headerGap + cardBottomInset
+        cardTopInset + headerHeight + headerGap
     }
 
     /// Kernel render height — preserved across edit-mode toggle. Floor at
@@ -55,28 +52,28 @@ struct WidgetCardView: View {
     }
 
     var body: some View {
-        VStack(spacing: headerGap) {
+        VStack(spacing: 0) {
             // Header strip — always reserved; hidden visually in edit mode
             // so the kernel area doesn't reflow when toggling.
             cardHeader
                 .frame(height: headerHeight)
                 .padding(.horizontal, 14)
+                .padding(.top, cardTopInset)
+                .padding(.bottom, headerGap)
                 .opacity(isEditMode ? 0 : 1)
 
-            // Inner canvas — clipped to a rounded rect so kernels that
-            // paint to their bounds get a smooth corner. Dark gradient
-            // sits behind any transparent kernel area.
+            // Kernel fills the remaining card area edge-to-edge so the
+            // card material (.thinMaterial) acts as the kernel background,
+            // with no visible inner frame. Outer rounded corners on the
+            // card itself clip overflow.
             renderWidgetContent()
                 .frame(maxWidth: .infinity)
                 .frame(height: kernelHeight)
                 .clipped()
-                .innerCanvas(cornerRadius: innerCornerRadius)
-                .padding(.horizontal, kernelHorizontalInset)
-                .padding(.bottom, cardBottomInset)
         }
-        .padding(.top, cardTopInset)
         .frame(height: widget.size.height)
         .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         // Resize handles go BEFORE the button overlays so the tap-eating
         // edge strips can't intercept touches meant for the gear/X buttons
         // in the top corners.

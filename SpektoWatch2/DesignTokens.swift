@@ -126,20 +126,16 @@ extension Font {
 
 // MARK: - Surfaces & modifiers
 
-/// Inner scientific-instrument canvas: always dark, regardless of theme.
-/// Flat fill — the kernel paints over most of this region anyway, and
-/// stacked gradients per card were noticeable on A14 (iPhone 12 mini).
-struct DarkCanvasBackground: View {
-    var body: some View {
-        Color(red: 0.05, green: 0.06, blue: 0.08)
-    }
-}
-
+/// Inner canvas — same `.thinMaterial` as the surrounding `LiquidGlassCard`
+/// so the diagram background reads as a seamless continuation of the
+/// card surface (no perceived inner border). Kernels that paint their
+/// own opaque background will still cover this material; for those,
+/// seamlessness depends on the kernel itself using a matching color.
 struct InnerCanvas: ViewModifier {
     var cornerRadius: CGFloat = 14
     func body(content: Content) -> some View {
         content
-            .background(DarkCanvasBackground())
+            .background(.thinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }

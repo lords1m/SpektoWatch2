@@ -13,7 +13,6 @@ struct ModularDashboardView: View {
     @State private var renameText = ""
     @State private var lastScrollOffset: CGFloat? = nil
     @State private var scrollOffset: CGFloat = 0
-    @State private var showTweaks = false
     @AppStorage("dashboard.activePreset") private var activePresetID: String = "overview"
     private let barSwipeThreshold: CGFloat = 36
     private let handleDragThreshold: CGFloat = 12
@@ -136,9 +135,6 @@ struct ModularDashboardView: View {
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
         }
-        .sheet(isPresented: $showTweaks) {
-            TweaksPanelView()
-        }
         .confirmationDialog("Layouts", isPresented: $showLayoutsDialog, titleVisibility: .visible) {
             Button("Aktuelle Seite speichern") {
                 viewModel.dashboardManager.saveCurrentAsNewLayout()
@@ -210,8 +206,7 @@ struct ModularDashboardView: View {
                 onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
                 onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
                 onShowLayouts: { showLayoutsDialog = true },
-                onShowSettings: { viewModel.showSettings = true },
-                onShowTweaks: { showTweaks = true }
+                onShowSettings: { viewModel.showSettings = true }
             )
             PresetRailView(
                 presets: PresetCatalogue.all,
