@@ -103,7 +103,7 @@ struct SingleValueWidget: View {
 
             Spacer()
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
+        .onReceive(audioEngine.live.$currentSpectrogramData) { data in
             guard let data = data else {
                 self.value = nil
                 return

@@ -183,19 +183,73 @@ class AudioEngine: ObservableObject {
     @Published var engineStatus: EngineStatus = .idle
     @Published private(set) var activeMicrophoneSource: MicrophoneSource?
     @Published var lastError: SpektoWatchError?
-    @Published var currentSpectrogramData: SpectrogramData?
-    @Published var currentLevel: Float = -120.0
-    @Published var maxLevel: Float = -120.0
-    @Published var minLevel: Float = -120.0
-    @Published var levelHistory: [Float] = []
-    @Published var currentPeakLevel: Float = -120.0
-    @Published var currentStereoPhase: Float = 1.0
-    @Published var isStereoActive: Bool = false
-    @Published var currentOctaveBands: [Float] = Array(repeating: -120.0, count: 31)
-    @Published var currentOctaveBandsZ: [Float] = Array(repeating: -120.0, count: 31)
-    @Published var currentOctaveBandsA: [Float] = Array(repeating: -120.0, count: 31)
-    @Published var currentOctaveBandsC: [Float] = Array(repeating: -120.0, count: 31)
-    @Published var currentSpectrum: [Float] = []
+    // MARK: - Live acoustic state
+    //
+    // Storage for the 12 live-metric @Published properties moved into
+    // LiveAcousticState as part of M13 task-4. The properties below are
+    // computed forwarders so the existing ~30 read sites across the
+    // codebase keep working unchanged.
+    //
+    // AudioEngine still emits objectWillChange for these by bridging
+    // `live.objectWillChange` into `self` in init — that preserves
+    // existing widget update behavior until they migrate to
+    // `@ObservedObject var live = audioEngine.live` per-widget for
+    // the actual re-render breadth reduction.
+    let live = LiveAcousticState()
+    private var liveBridge: AnyCancellable?
+
+    var currentSpectrogramData: SpectrogramData? {
+        get { live.currentSpectrogramData }
+        set { live.currentSpectrogramData = newValue }
+    }
+    var currentLevel: Float {
+        get { live.currentLevel }
+        set { live.currentLevel = newValue }
+    }
+    var maxLevel: Float {
+        get { live.maxLevel }
+        set { live.maxLevel = newValue }
+    }
+    var minLevel: Float {
+        get { live.minLevel }
+        set { live.minLevel = newValue }
+    }
+    var levelHistory: [Float] {
+        get { live.levelHistory }
+        set { live.levelHistory = newValue }
+    }
+    var currentPeakLevel: Float {
+        get { live.currentPeakLevel }
+        set { live.currentPeakLevel = newValue }
+    }
+    var currentStereoPhase: Float {
+        get { live.currentStereoPhase }
+        set { live.currentStereoPhase = newValue }
+    }
+    var isStereoActive: Bool {
+        get { live.isStereoActive }
+        set { live.isStereoActive = newValue }
+    }
+    var currentOctaveBands: [Float] {
+        get { live.currentOctaveBands }
+        set { live.currentOctaveBands = newValue }
+    }
+    var currentOctaveBandsZ: [Float] {
+        get { live.currentOctaveBandsZ }
+        set { live.currentOctaveBandsZ = newValue }
+    }
+    var currentOctaveBandsA: [Float] {
+        get { live.currentOctaveBandsA }
+        set { live.currentOctaveBandsA = newValue }
+    }
+    var currentOctaveBandsC: [Float] {
+        get { live.currentOctaveBandsC }
+        set { live.currentOctaveBandsC = newValue }
+    }
+    var currentSpectrum: [Float] {
+        get { live.currentSpectrum }
+        set { live.currentSpectrum = newValue }
+    }
 
     // Called on the main thread after each band-update cycle.
     // MaskingEngine sets this to observe live spectrum data without a second audio tap.
@@ -272,6 +326,14 @@ class AudioEngine: ObservableObject {
         // Setup test generator callback
         testGenerator.onDataGenerated = { [weak self] samples in
             self?.processSamples(samples)
+        }
+
+        // Bridge LiveAcousticState's objectWillChange into this engine's
+        // so existing `@ObservedObject var audioEngine: AudioEngine`
+        // consumers keep updating on live ticks until they migrate to
+        // observing `audioEngine.live` directly (M13 task-4 phase 2).
+        liveBridge = live.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
         }
 
         // Load saved calibration offset or use device-specific default.

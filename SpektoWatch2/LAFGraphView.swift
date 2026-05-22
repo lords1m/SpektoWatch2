@@ -146,7 +146,7 @@ struct LevelHistoryView: View {
             }
             .drawingGroup()
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
+        .onReceive(audioEngine.live.$currentSpectrogramData) { data in
             guard let data = data, !isPaused else { return }
             observedSampleRate = data.sampleRate
             let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel

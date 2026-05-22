@@ -69,7 +69,7 @@ struct LevelHistoryWidget: View {
                 .padding(4)
             }
         }
-        .onReceive(audioEngine.$currentSpectrogramData) { data in
+        .onReceive(audioEngine.live.$currentSpectrogramData) { data in
             guard let data = data else {
                 phonValue = nil
                 soneValue = nil
