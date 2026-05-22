@@ -198,11 +198,11 @@ milestones:
     name: Liquid Glass Redesign
     status: in_progress
     priority: medium
-    progress: 14
+    progress: 12
     started: "2026-05-21"
     estimated_weeks: "2"
     tasks_completed: 1
-    tasks_total: 7
+    tasks_total: 8
     notes: >
       Phase 1 chrome + tweaks landed on branch redesign/liquid-glass
       (commit 21453dd): DesignTokens (Theme/Accent/Density/Numerals/
@@ -679,6 +679,28 @@ tasks:
       name: Review Follow-ups
       status: in_progress
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-7-review-followups.md
+    - id: task-8-stability-polish
+      name: Stability & Polish (in-flight fixes)
+      status: in_progress
+      file: agent/tasks/milestone-12-liquid-glass-redesign/task-8-stability-polish.md
+      notes: >
+        Captures fixes that landed organically during M12 implementation
+        and don't fit any other task. Audio-correctness: waterfall
+        default range moved from dBFS-style -110/20 to dB SPL 30/110
+        with migration for legacy overrides; spectrum band levels
+        switched from mean to sum of linear bin power (fixed
+        10·log10(bins) negative offset vs broadband LAeq); phase
+        meter deactivated (kept in enum for legacy decode). Perf
+        (iPhone 12 mini A14): WidgetCardView no longer observes
+        audioEngine — meta moved to isolated CardMetaReader child;
+        thinMaterial + single shadow on LiquidGlassCard; flat dark
+        canvas. UX: widget settings tap regression fixed (overlay
+        reorder + highPriorityGesture); design tokens inlined into
+        SpectrogramSettingsView via DesignTweaksSections; per-widget
+        editable Y bounds across chart widgets (levelHistory/
+        frequencyDisplay/levelMeter) plus waterfall axis labels
+        relocated to plot margins; seamless inner canvas + non-edit
+        borders removed. Hardware visual pass gated on task-6.
       notes: >
         Created from the M12 code-review punch-list. Landed 2026-05-21:
         #2 metaText floor tightened (>-119.5 + broadbandLevel >-119
