@@ -473,7 +473,7 @@ tasks:
     - { id: task-8-tone-generator,      name: "Audit: Tone Generator",      status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-8-tone-generator.md, notes: "Code-side pre-pass 2026-05-21: zero settings exposed; 10 findings, 1 BLOCKER: NSLock on audio render thread (ToneGenerator.phaseLock, lines 95/100) — exactly the M6 task-6 anti-pattern missed because tone generator has its own AVAudioEngine. Other findings: dead settings parameter, no persistence of frequency/amplitude/waveform across launches, no settings sheet (falls to placeholder), exact-match preset highlight, linear amplitude slider, undiscoverable pinch-to-fullscreen, onDisappear-stop semantics, audio session category mutation while recording, 2x2 minimum layout barely fits 6 UI groups." }
     - { id: task-9-spektralanalyse-lab, name: "Audit: Spektralanalyse Lab", status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-9-spektralanalyse-lab.md, notes: "Code-side pre-pass 2026-05-21: control-panel widget (no settings parameter, manipulates app-global fftConfig); 10 findings (shared state across instances, no settings sheet, app-global mutation without warning, no undo/reset, mid-recording mutation behaviour unverified, overlap slider step-25 looks continuous, duplicated window selector UI Parameter+Fenster tabs, German strings hardcoded, tab labels tight at 2x2, nested ScrollView inside dashboard grid)." }
     - { id: task-10-masking,            name: "Audit: Masking",             status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-10-masking.md, notes: "Code-side pre-pass 2026-05-21: zero settings exposed (no widget.type==.masking arm in WidgetSettingsView; widget takes no settings dict). Internal tunables hardcoded — minimumCaptures=3, convergence threshold 0.7, novelty scoring divergence/20.0. 6 findings (empty settings sheet, hardcoded thresholds, no reset confirmation on Neu aufnehmen, no accessibilityIdentifier on widget body, 1×1 spectrum strip is thin, 3×3 footer text stays 9pt while spectrum dominates, RGB-literal state colors). Hardware screenshot/cycling pass (9 sizes × 2 modes + stress) still pending." }
-    - { id: task-11-acceptance,         name: "Acceptance",                 status: pending, file: agent/tasks/milestone-9-widget-audit/task-11-acceptance.md }
+    - { id: task-11-acceptance,         name: "Acceptance",                 status: in_progress, file: agent/tasks/milestone-9-widget-audit/task-11-acceptance.md, notes: "Code-side acceptance landed 2026-05-21. Handoff report agent/reports/2026-05-21-milestone-9-widget-audit.md with per-widget verdicts (8 ⚠, 1 ✅, 1 ❌ blocker, 1 deactivated) and 12 cross-cut findings. Outcomes already routed: toneGenerator NSLock blocker → M11 task-1; chart-widget dB ranges → M12 task-8 (resolved); phase meter → M12 (deactivated). Hardware screenshot grid + stress scenarios still required for full closure of all 10 per-widget tasks." }
 
   M10:
     - { id: task-1-design,                       name: "Design Pass",                              status: pending, file: agent/tasks/milestone-10-ios-standalone-widgets/task-1-design.md }
@@ -728,7 +728,7 @@ tasks:
 
 updated_at: 2026-05-21
 current_milestone: M9
-current_task: task-10-masking
+current_task: task-11-acceptance
 last_proceed: 2026-05-21
 parked:
   - milestone: M8
@@ -744,6 +744,7 @@ recent_reports:
   - agent/reports/2026-05-21-spectrogram-quickwins.md
   - agent/reports/2026-05-21-widget-screenshot-review.md
   - agent/reports/2026-05-21-milestone-12-phase-1.md
+  - agent/reports/2026-05-21-milestone-9-widget-audit.md
 active_context:
   summary: >
     M1–M6 complete. M7 (Xcode Cloud Snapshot Testing) opened 2026-05-20.
