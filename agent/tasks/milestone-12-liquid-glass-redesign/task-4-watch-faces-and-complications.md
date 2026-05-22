@@ -17,15 +17,10 @@ turn ships a coherent deliverable.
 
 - **4a. Pegelmesser face** — landed 2026-05-21.
 - **4b. Spektrogramm face** — landed 2026-05-21.
+- **4c. Tongenerator face** — landed 2026-05-21 (design preview;
+  see notes below).
 - **4d. Complication chrome refresh** — landed 2026-05-21.
 - **4e. Modular 4-slot face** — landed 2026-05-21.
-- **4c. Tongenerator face** — pending. New file; mini sine wave
-  with glow filter + PAUSE button + λ readout. Requires a watch-side
-  tone source or a "static demo" mode.
-- **4d. Complication chrome refresh** — pending. Update
-  `WatchComplicationViews` for the 5 slot layouts.
-- **4e. Modular 4-slot face** — pending. New face combining hero
-  LAF + mini spectrogram strip + PEAK + Leq tiles.
 
 ## Landed (2026-05-21) — Subtask 4a
 
@@ -102,13 +97,35 @@ turn ships a coherent deliverable.
 - All data sourced from existing `WatchAudioEngine.liveData` — no
   protocol or App Group changes.
 
+## Landed (2026-05-21) — Subtask 4c
+
+- New `SpektoWatch Watch App/WatchTonegeneratorFace.swift`.
+  Visually-faithful redesign of the Tongenerator face:
+  - `FREQUENZ` eyebrow (mono, tracking 1.8).
+  - Big frequency readout (32pt SF Pro Display ultralight, phosphor).
+  - Mini glowing sine wave drawn in a Canvas + TimelineView (30 fps
+    when playing; paused = static curve). Glow effect via stacked
+    `stroke` (5pt phosphor 35% + 1.8pt phosphor solid).
+  - PAUSE / PLAY pill (red-tinted when playing → audio is on,
+    phosphor when paused → safe state). Capsule background +
+    border, WKInterfaceDevice click haptic on tap.
+  - λ wavelength readout (343 m/s ÷ Hz) in m or cm.
+- Tap the frequency number to cycle through 440 / 1000 / 2000 / 4000
+  Hz presets (haptic on each step).
+- **Design preview only.** The watch target does not host the tone
+  generator's audio engine (iOS owns the AVAudioEngine; the
+  WatchConnectivity protocol does not yet relay tone state). State
+  is local @State so the face is browsable. Wiring to the real
+  generator is tracked as a follow-up dependency on an iOS↔watch
+  tone-state protocol — out of scope for M12.
+
 ## Acceptance status
 
 - [x] Pegelmesser face implemented (subtask 4a).
 - [x] Spektrogramm face implemented (subtask 4b).
-- [ ] Tongenerator face (subtask 4c).
+- [x] Tongenerator face implemented (subtask 4c, design preview —
+  not wired to iOS tone generator).
 - [x] Complication chrome refresh (subtask 4d, partial — sparkline
   and peak suffix deferred behind entry extension).
 - [x] Modular 4-slot face implemented (subtask 4e).
-- [ ] Modular 4-slot face (subtask 4e).
 - [ ] Hardware visual pass (task-6).

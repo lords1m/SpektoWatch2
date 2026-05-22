@@ -654,8 +654,18 @@ tasks:
         same RingBuffer pattern as WatchSpectrogramView at 16 display
         bins. Added as second TabView page in WatchContentView.
         Phosphor + amber accents hardcoded.
-        Subtask 4c (Tongenerator face) and hardware acceptance still
-        pending.
+        Subtask 4c landed 2026-05-21: WatchTonegeneratorFace.swift —
+        visually-faithful design preview (FREQUENZ eyebrow + 32pt
+        ultralight phosphor frequency + animated glowing sine via
+        TimelineView Canvas + PAUSE/PLAY capsule with haptic +
+        λ wavelength readout 343 m/s ÷ Hz). Tap the frequency to
+        cycle 440/1000/2000/4000 Hz. Not wired to the iOS tone
+        generator — watch target doesn't host the audio engine and
+        the WatchConnectivity protocol doesn't yet relay tone state;
+        flagged as a follow-up dependency on an iOS↔watch tone
+        protocol, out of scope for M12.
+        All 5 watch-face subtasks (4a-4e) now landed code-side.
+        Hardware acceptance still pending under task-6.
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
       status: in_progress

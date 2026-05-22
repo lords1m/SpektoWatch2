@@ -8,6 +8,7 @@ struct WatchContentView: View {
         TabView {
             WatchPegelmesserFace()
             WatchModularFace()
+            WatchTonegeneratorFace()
             WatchDashboardView()
             WatchSpectrogramView()
             WatchLevelMeterView()
