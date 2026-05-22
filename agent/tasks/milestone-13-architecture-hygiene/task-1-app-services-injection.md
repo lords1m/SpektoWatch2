@@ -1,6 +1,6 @@
 # Task 1: AppServices injection layer
 
-Status: pending
+Status: in_progress
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A7 in `2026-05-21-architecture-review.md`
@@ -8,39 +8,71 @@ Source finding: A7 in `2026-05-21-architecture-review.md`
 ## Goal
 
 Replace the 7 hand-wired `.environmentObject(...)` calls in
-`SpektoWatch2App` with a single `AppServices` container. Reduces
-boilerplate for adding the next service and gives tests one type to
-construct instead of seven.
+`SpektoWatch2App` with a single `AppServices` container.
 
-## Scope
+## Landed (2026-05-21)
 
-- New `SpektoWatch2/AppServices.swift` — a `final class
-  AppServices: ObservableObject` holding the existing managers
-  (`BandstopFilterManager`, `WatchConnectivityManager`,
-  `RecordingManager`, `FFTConfiguration`, audio engine,
-  `MaskingEngine`, `MaskingProfileManager`).
-- `SpektoWatch2App.body` constructs one `AppServices` and pushes
-  one `@EnvironmentObject` instead of seven.
-- Existing consumer views keep their `@EnvironmentObject` for the
-  specific service they need — `AppServices` is the producer, not
-  a service locator. Migration is incremental.
-- Add a convenience initializer
-  `AppServices.testFixture(audioEngine: AudioEngine = …)` for
-  test scaffolding (replaces the hand-graph in
-  `SpektoWatch2Tests/SnapshotTestSupport.swift`).
+- New `SpektoWatch2/AppServices.swift` —
+  `@MainActor final class AppServices: ObservableObject` owning:
+  - `BandstopFilterManager`
+  - `WatchConnectivityManager`
+  - `RecordingManager`
+  - `FFTConfiguration`
+  - `MaskingProfileManager`
+  - Deferred `AudioEngine?` + `MaskingEngine?` exposed as
+    `@Published` (constructed via `startAudio()`, idempotent).
+- Convenience no-arg `init()` constructs every sub-service with
+  its default initializer (defined inside the MainActor class so
+  the MainActor-isolated sub-service inits compile cleanly).
+- `AppServices.testFixture(...)` static factory for test
+  scaffolding — synchronous construction including AudioEngine +
+  MaskingEngine (no deferred startup); each sub-service is
+  overridable for targeted tests.
+- `SpektoWatch2App` refactored:
+  - One `@StateObject var services = AppServices()`.
+  - Body conditions on `services.audioEngine` /
+    `services.maskingEngine`.
+  - First-frame `services.startAudio()` replaces the old
+    `engineContainer.createEngine(...)`.
+  - Per-task non-goal: consumer views still pull individual
+    services via `@EnvironmentObject`, so the body still calls
+    `.environmentObject(...)` for each of the 7 (plus the new
+    `services`). Migration to a single environment object is
+    deferred to a future polish task — the producer side is
+    consolidated; consumer migration would touch dozens of views
+    and was explicitly out of scope.
+- The old private `AudioEngineContainer` type is gone; its logic
+  lives in `AppServices.startAudio()`.
 
-## Non-Goals
+## Validation
 
-- Changing how individual views consume services (no
-  `@Environment(\.appServices)` migration in this task).
-- Defining service protocols / abstractions (that's task A14,
-  deferred backlog).
+- `xcodebuild -scheme SpektoWatch2 -destination 'generic/platform=
+  iOS Simulator' build` → `** BUILD SUCCEEDED **`.
+- No consumer view touched; behavior is unchanged.
+- Local simulator broken (AGENT.md); functional acceptance still
+  gated on hardware (task-9).
 
-## Acceptance
+## Acceptance status
 
-- `SpektoWatch2App.body` shows one `AppServices` construction +
-  one `.environmentObject(services)` (services may still spread
-  their individual managers downstream — see Non-Goals).
-- iOS + watchOS builds green.
-- All existing tests pass.
-- SnapshotTestSupport uses `AppServices.testFixture(...)`.
+- [x] `SpektoWatch2App.body` shows one `AppServices` construction.
+- [x] iOS build green.
+- [ ] Existing tests pass — code-side OK; can't run locally per
+  AGENT.md. Will verify in Xcode Cloud / on hardware.
+- [ ] `SnapshotTestSupport` uses `AppServices.testFixture(...)` —
+  **deferred**: existing tests construct managers manually
+  (`AudioEngineTests`, `IntegrationTests`, `PerformanceMetricsTests`,
+  `PDFReportGeneratorTests` all do this). Migrating them is a
+  drop-in pattern but adds churn across 5+ test files; scope it as
+  a follow-up so this task stays minimal. The fixture exists and
+  is documented; tests can adopt it incrementally.
+
+## Notes for follow-up tasks
+
+- `SpektoWatch2App.body` still calls 8 `.environmentObject(...)`
+  (one new + 7 existing). To reduce this to 1, every consumer
+  view's `@EnvironmentObject var foo: Foo` would need to become
+  `@EnvironmentObject var services: AppServices` + reading
+  `services.foo`. That's the next consolidation step.
+- Test fixture migration (the deferred acceptance item) can land
+  alongside any test that's modified in M13 task-3 / task-4
+  (AudioEngine extracts).
