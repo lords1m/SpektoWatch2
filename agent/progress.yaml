@@ -194,6 +194,31 @@ milestones:
       Existing Hz slider and acoustic preset buttons stay primary.
     file: agent/milestones/milestone-11-tone-generator-piano-input.md
 
+  M14:
+    name: Performance & Centralization
+    status: in_progress
+    priority: medium
+    progress: 0
+    started: "2026-05-21"
+    estimated_weeks: "2"
+    tasks_completed: 0
+    tasks_total: 9
+    notes: >
+      Planned 2026-05-21 from agent/reports/2026-05-21-performance-
+      centralization-audit.md. Closes the 11 redundancies identified
+      in that audit. Binary acceptance: (1) single AudioEngine
+      instance per app lifetime, (2) zero per-bin/per-band aggregation
+      inside SwiftUI Canvas closures, (3) all acoustic metrics
+      (broadband + per-band Leq + phon + sone) in
+      AcousticMetricsCalculator, (4) MeasurementDataWriter is the
+      only recording-time output path. Depends on M13 closing its
+      hardware acceptance pass — the LiveAcousticState +
+      SpectrumBandAggregator + AppServices seams from M13 are
+      prerequisites. M13 task-4 Phase 2 (widget migration to
+      audioEngine.live) is folded into M14 task-8 (kill
+      vizAudioEngine) since both touch the same surface.
+    file: agent/milestones/milestone-14-performance-centralization.md
+
   M13:
     name: Architecture Hygiene
     status: in_progress
@@ -586,6 +611,17 @@ tasks:
       status: pending
       file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-4-acceptance.md
 
+  M14:
+    - { id: task-1-quick-wins,                    name: "Quick wins (R6+R7+R8+R9)",                    status: pending, file: agent/tasks/milestone-14-performance-centralization/task-1-quick-wins.md }
+    - { id: task-2-centralize-loudness,           name: "Centralize loudness (R4)",                    status: pending, file: agent/tasks/milestone-14-performance-centralization/task-2-centralize-loudness.md }
+    - { id: task-3-per-band-leq,                  name: "Per-band Leq in metrics (R3)",                status: pending, file: agent/tasks/milestone-14-performance-centralization/task-3-per-band-leq.md }
+    - { id: task-4-bark-precompute-upstream,      name: "Bark precompute upstream (R2)",               status: pending, file: agent/tasks/milestone-14-performance-centralization/task-4-bark-precompute-upstream.md }
+    - { id: task-5-masking-weighting-fix,         name: "Masking receives Z bands (R11)",              status: pending, file: agent/tasks/milestone-14-performance-centralization/task-5-masking-weighting-fix.md }
+    - { id: task-6-tighten-weighting-contract,    name: "Tighten weighting contract (R5)",             status: pending, file: agent/tasks/milestone-14-performance-centralization/task-6-tighten-weighting-contract.md }
+    - { id: task-7-investigate-double-smoothing,  name: "Investigate double smoothing (R10)",          status: pending, file: agent/tasks/milestone-14-performance-centralization/task-7-investigate-double-smoothing.md }
+    - { id: task-8-kill-viz-audio-engine,         name: "Kill vizAudioEngine (R1)",                    status: pending, file: agent/tasks/milestone-14-performance-centralization/task-8-kill-viz-audio-engine.md }
+    - { id: task-9-acceptance,                    name: "Acceptance",                                  status: pending, file: agent/tasks/milestone-14-performance-centralization/task-9-acceptance.md }
+
   M13:
     - { id: task-1-app-services-injection,        name: "AppServices injection layer",                status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md, notes: "Code-side landed 2026-05-21. New AppServices.swift (@MainActor ObservableObject) owns the 5 eager managers + deferred AudioEngine/MaskingEngine via startAudio(). Convenience init() + testFixture(...) static factory. SpektoWatch2App uses one @StateObject AppServices instead of 5 individual @StateObjects + 1 AudioEngineContainer. Body still calls 8 .environmentObject(...) (consumer migration explicitly deferred to a future task; scope here was producer-side only). Old AudioEngineContainer private type removed. iOS build green. Tests not migrated to testFixture (deferred — drop-in pattern across 5+ test files; do alongside M13 task-3/-4 AudioEngine extracts). Hardware acceptance gated on M13 task-9." }
     - { id: task-2-recording-detail-split,        name: "Split RecordingDetailView",                  status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md, notes: "Phase 1 landed 2026-05-21: 3 standalone helpers extracted — Views/RecordingDetailComponents.swift (MiniLineChart + StatRow, 96 LOC), Views/AudioPlayerManager.swift (161 LOC), Views/PhotoPickerView.swift (39 LOC). RecordingDetailView.swift dropped 1496→1211 LOC (-285). Phase 2 (per-tab card split into RecordingPlaybackSection / Markers / Export / Notes / Metadata) deferred — requires a shared RecordingDetailViewModel for the 29+ @State graph that spans all tabs; high regression risk without hardware pass. Recommended timing: after M13 task-4 (LiveAcousticState) so the VM can consume the new live-state pattern. iOS build green." }
@@ -760,8 +796,8 @@ tasks:
         Hardware visual pass gated on task-6.
 
 updated_at: 2026-05-21
-current_milestone: M13
-current_task: task-9-acceptance
+current_milestone: M14
+current_task: task-1-quick-wins
 last_proceed: 2026-05-21
 parked:
   - milestone: M8
@@ -776,6 +812,9 @@ parked:
   - milestone: M9
     task: task-11-acceptance
     reason: code-side acceptance complete; promotion gated on hardware screenshot grid across 10 widgets
+  - milestone: M13
+    task: task-9-acceptance
+    reason: code-side acceptance complete; promotion gated on hardware behavior parity + Instruments re-render comparison
 recent_reports:
   - agent/reports/2026-05-21-spectrogram-quickwins.md
   - agent/reports/2026-05-21-widget-screenshot-review.md
