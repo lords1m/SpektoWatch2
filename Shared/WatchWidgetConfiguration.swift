@@ -134,7 +134,7 @@ public struct WatchDashboardConfig: Codable, Equatable {
 // MARK: - UserDefaults Keys
 
 public extension WatchDashboardConfig {
-    static let userDefaultsKey = "watchDashboardConfig"
+    static let userDefaultsKey = PersistenceKeys.watchDashboardConfig
 
     static func load() -> WatchDashboardConfig {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),

@@ -29,8 +29,9 @@ class DashboardManager: ObservableObject {
     @Published private(set) var activeLayoutIndex: Int = 0
     @Published var isEditMode: Bool = false
 
-    private let userDefaultsKey = "DashboardConfiguration_v5" // legacy single-layout key
-    private let layoutsUserDefaultsKey = "DashboardLayouts_v1"
+    // Keys live in PersistenceKeys (M13 task-8).
+    private let userDefaultsKey = PersistenceKeys.dashboardLegacySnapshot
+    private let layoutsUserDefaultsKey = PersistenceKeys.dashboardLayouts
     /// True when saved data existed but could not be decoded; prevents silently overwriting
     /// a corrupt save file with defaults.
     private var configurationLoadFailed = false

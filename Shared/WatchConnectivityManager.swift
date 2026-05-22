@@ -137,7 +137,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         }
 
         do {
-            try WCSession.default.updateApplicationContext(["watchDashboardConfig": configString])
+            try WCSession.default.updateApplicationContext([PersistenceKeys.watchDashboardConfig: configString])
             print("[WCM] Dashboard config sent via application context")
         } catch {
             print("[WCM] Error sending dashboard config via context: \(error.localizedDescription)")
@@ -348,7 +348,7 @@ extension WatchConnectivityManager: WCSessionDelegate {
                 self.frequencyWeighting = weighting
             }
         }
-        if let configString = applicationContext["watchDashboardConfig"] as? String,
+        if let configString = applicationContext[PersistenceKeys.watchDashboardConfig] as? String,
            let configData = configString.data(using: .utf8),
            let config = WatchDashboardConfig.decode(from: configData) {
             DispatchQueue.main.async {

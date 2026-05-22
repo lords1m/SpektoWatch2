@@ -174,7 +174,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             if let weighting = applicationContext["frequencyWeighting"] as? String {
                 self.frequencyWeighting = weighting
             }
-            if let configString = applicationContext["watchDashboardConfig"] as? String,
+            if let configString = applicationContext[PersistenceKeys.watchDashboardConfig] as? String,
                let configData = configString.data(using: .utf8),
                let config = WatchDashboardConfig.decode(from: configData) {
                 self.watchDashboardConfig = config
@@ -289,7 +289,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
 
         // Also send via application context for background delivery
         do {
-            try WCSession.default.updateApplicationContext(["watchDashboardConfig": configString])
+            try WCSession.default.updateApplicationContext([PersistenceKeys.watchDashboardConfig: configString])
         } catch {
             // Ignore context errors
         }

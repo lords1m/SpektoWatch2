@@ -101,12 +101,14 @@ enum CalibrationProvider {
 
     // MARK: - Persistence
 
+    // Keys + schema version centralised in PersistenceKeys (M13
+    // task-8). Local aliases keep call sites compact.
     private enum Keys {
-        static let version = "calibrationVersion"
-        static let offset = "calibrationOffset"
+        static let version = PersistenceKeys.calibrationVersion
+        static let offset = PersistenceKeys.calibrationOffset
     }
 
-    private static let currentSchemaVersion = 2
+    private static let currentSchemaVersion = PersistenceKeys.calibrationCurrentSchemaVersion
 
     /// Resolves the offset to apply on engine start: prefers the saved
     /// value if its schema version matches; otherwise returns the

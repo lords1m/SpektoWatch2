@@ -16,7 +16,7 @@ class BandstopFilterManager: ObservableObject {
     private let snapshotLock = NSLock()
     nonisolated(unsafe) private var enabledFiltersSnapshot: [BandstopFilter] = []
     
-    private let userDefaultsKey = "bandstopFilters"
+    private let userDefaultsKey = PersistenceKeys.bandstopFilters
     private var attenuationCache: [Float]?
     private var cachedFrequencies: [Float]?
     

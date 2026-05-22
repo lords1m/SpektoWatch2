@@ -288,7 +288,7 @@ class AudioEngine: ObservableObject {
                 spectrogramFrequencySmoothing = clamped
                 return
             }
-            UserDefaults.standard.set(Double(clamped), forKey: "spectrogramFrequencySmoothing")
+            UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramFrequencySmoothing)
         }
     }
     @Published var spectrogramTemporalSmoothing: Float = 1.0 {
@@ -299,7 +299,7 @@ class AudioEngine: ObservableObject {
                 return
             }
             spectrogramProcessor.temporalSmoothingIntensity = clamped
-            UserDefaults.standard.set(Double(clamped), forKey: "spectrogramTemporalSmoothing")
+            UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramTemporalSmoothing)
         }
     }
     @Published var scrollSpeed: ScrollSpeed = .fast
@@ -378,10 +378,10 @@ class AudioEngine: ObservableObject {
         // Logic + device map lives in CalibrationProvider (M13 task-3).
         calibrationOffset = CalibrationProvider.resolveStartupOffset()
 
-        if let savedFrequencySmoothing = UserDefaults.standard.object(forKey: "spectrogramFrequencySmoothing") as? Double {
+        if let savedFrequencySmoothing = UserDefaults.standard.object(forKey: PersistenceKeys.spectrogramFrequencySmoothing) as? Double {
             spectrogramFrequencySmoothing = Float(savedFrequencySmoothing)
         }
-        if let savedTemporalSmoothing = UserDefaults.standard.object(forKey: "spectrogramTemporalSmoothing") as? Double {
+        if let savedTemporalSmoothing = UserDefaults.standard.object(forKey: PersistenceKeys.spectrogramTemporalSmoothing) as? Double {
             spectrogramTemporalSmoothing = Float(savedTemporalSmoothing)
         }
     }

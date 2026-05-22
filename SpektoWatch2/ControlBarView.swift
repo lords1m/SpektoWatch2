@@ -362,7 +362,7 @@ struct ControlBarView: View {
                         channelCount: 1,
                         timeWeighting: audioEngine.timeWeighting.rawValue,
                         frequencyWeighting: audioEngine.frequencyWeighting.rawValue,
-                        widgetConfigurations: UserDefaults.standard.data(forKey: "DashboardConfiguration_v5"),
+                        widgetConfigurations: UserDefaults.standard.data(forKey: PersistenceKeys.dashboardLegacySnapshot),
                         markers: [],
                         calibrationOffset: audioEngine.calibrationOffset,
                         fftBlockSize: audioEngine.currentBlockSize.rawValue

@@ -8,31 +8,33 @@ class FFTConfiguration: ObservableObject {
 
     // MARK: - Published Properties
 
+    // Keys live in PersistenceKeys.FFT (M13 task-8).
+
     /// Aktuelle Fensterfunktion
     @Published var windowFunction: WindowFunction = .blackmanHarris {
         didSet {
-            UserDefaults.standard.set(windowFunction.rawValue, forKey: "fft_windowFunction")
+            UserDefaults.standard.set(windowFunction.rawValue, forKey: PersistenceKeys.FFT.windowFunction)
         }
     }
 
     /// Aktuelle FFT-Blockgröße
     @Published var blockSize: FFTBlockSize = .size2048 {
         didSet {
-            UserDefaults.standard.set(blockSize.rawValue, forKey: "fft_blockSize")
+            UserDefaults.standard.set(blockSize.rawValue, forKey: PersistenceKeys.FFT.blockSize)
         }
     }
 
     /// Overlap-Prozentsatz (0-87.5%)
     @Published var overlapPercent: Float = 87.5 {
         didSet {
-            UserDefaults.standard.set(overlapPercent, forKey: "fft_overlapPercent")
+            UserDefaults.standard.set(overlapPercent, forKey: PersistenceKeys.FFT.overlapPercent)
         }
     }
 
     /// Zeigt Erklärungen im UI an
     @Published var showExplanations: Bool = true {
         didSet {
-            UserDefaults.standard.set(showExplanations, forKey: "fft_showExplanations")
+            UserDefaults.standard.set(showExplanations, forKey: PersistenceKeys.FFT.showExplanations)
         }
     }
 
@@ -67,28 +69,28 @@ class FFTConfiguration: ObservableObject {
 
     private func loadSavedSettings() {
         let defaults = UserDefaults.standard
-        let configVersion = defaults.integer(forKey: "fft_configVersion")
-        if configVersion < 2 {
-            defaults.set(FFTBlockSize.size2048.rawValue, forKey: "fft_blockSize")
-            defaults.set(2, forKey: "fft_configVersion")
+        let configVersion = defaults.integer(forKey: PersistenceKeys.FFT.configVersion)
+        if configVersion < PersistenceKeys.FFT.currentVersion {
+            defaults.set(FFTBlockSize.size2048.rawValue, forKey: PersistenceKeys.FFT.blockSize)
+            defaults.set(PersistenceKeys.FFT.currentVersion, forKey: PersistenceKeys.FFT.configVersion)
         }
 
-        if let windowRaw = defaults.string(forKey: "fft_windowFunction"),
+        if let windowRaw = defaults.string(forKey: PersistenceKeys.FFT.windowFunction),
            let window = WindowFunction(rawValue: windowRaw) {
             windowFunction = window
         }
 
-        let blockRaw = defaults.integer(forKey: "fft_blockSize")
+        let blockRaw = defaults.integer(forKey: PersistenceKeys.FFT.blockSize)
         if blockRaw > 0, let block = FFTBlockSize(rawValue: blockRaw) {
             blockSize = block
         }
 
-        if defaults.object(forKey: "fft_overlapPercent") != nil {
-            overlapPercent = defaults.float(forKey: "fft_overlapPercent")
+        if defaults.object(forKey: PersistenceKeys.FFT.overlapPercent) != nil {
+            overlapPercent = defaults.float(forKey: PersistenceKeys.FFT.overlapPercent)
         }
         overlapPercent = min(max(overlapPercent, 0), 87.5)
 
-        showExplanations = defaults.object(forKey: "fft_showExplanations") as? Bool ?? true
+        showExplanations = defaults.object(forKey: PersistenceKeys.FFT.showExplanations) as? Bool ?? true
     }
 
     // MARK: - Educational Helpers
