@@ -16,8 +16,13 @@ struct WaterfallView: View {
     /// - `zoom`: 1.0 baseline; >1 zooms in on amplitude, <1 zooms out.
     /// - Reset via double-tap.
     @State private var pitch: CGFloat = 0.5
-    @State private var yaw: CGFloat = 1.0
+    @State private var yaw: CGFloat = 0.5
     @State private var zoom: CGFloat = 1.0
+    /// Crosshair position (plot-relative). Set when the user drags
+    /// inside a 2D mode (`topDown2D` or `sideLevelHistory2D`); the
+    /// crosshair persists until double-tap reset. Nil when no
+    /// crosshair is shown (default; or any time 3D mode is active).
+    @State private var crosshair: CGPoint? = nil
     @GestureState private var dragDelta: CGSize = .zero
     @GestureState private var magnification: CGFloat = 1.0
 
@@ -40,32 +45,48 @@ struct WaterfallView: View {
     @State private var twoFingerDelta: CGSize = .zero
 
     private static let defaultPitch: CGFloat = 0.5
-    private static let defaultYaw: CGFloat = 1.0
+    private static let defaultYaw: CGFloat = 0.5
     private static let defaultZoom: CGFloat = 1.0
     private static let defaultZOffsetDB: Float = 0
     private static let defaultXPanFrac: Float = 0
 
-    /// Discrete render mode picked from `effectivePitch`.
-    /// - `.frontSpectrum2D`: pitch ≤ 0.15 — only the current/newest
-    ///   slice is drawn, full-bleed, no depth. Pure 2D spectrum.
-    /// - `.topDown2D`: pitch ≥ 0.85 — every slice rendered as a
-    ///   horizontal band of colored cells (classic spectrogram).
+    /// Discrete view mode mapped from the camera state (pitch / yaw).
+    /// Per the user's "Front / Top / Side" sketch (PDF 22.05.2026),
+    /// the default view is the 3D oblique waterfall (their "Front")
+    /// and the 2D modes appear when tilting into the extremes.
+    ///
+    /// - `.oblique3D` — front view, 3D mountain range.
+    /// - `.topDown2D` — pitch ≥ 0.85 — classic spectrogram heatmap.
     ///   X = frequency, Y = time, color = amplitude.
-    /// - `.oblique3D`: in between — the existing 3D waterfall.
-    private enum ViewMode { case frontSpectrum2D, oblique3D, topDown2D }
+    /// - `.sideLevelHistory2D` — |yaw| ≥ 0.85 — broadband level
+    ///   over time (the "Side" view, "Laeq / ges. Pegel").
+    private enum ViewMode { case oblique3D, topDown2D, sideLevelHistory2D }
 
     private var viewMode: ViewMode {
         let p = effectivePitch
-        if p <= 0.15 { return .frontSpectrum2D }
+        let absY = abs(effectiveYaw)
+        // Top wins when both extremes are reached simultaneously
+        // (deliberate — vertical tilt is more directly tied to
+        // viewing the top of the cube).
         if p >= 0.85 { return .topDown2D }
+        if absY >= 0.85 { return .sideLevelHistory2D }
         return .oblique3D
     }
 
     private var viewModeLabel: String {
         switch viewMode {
-        case .frontSpectrum2D: return "2D · Spektrum"
-        case .oblique3D:        return "3D"
-        case .topDown2D:       return "2D · Spektrogramm"
+        case .oblique3D:            return "3D · Front"
+        case .topDown2D:            return "2D · Top"
+        case .sideLevelHistory2D:   return "2D · Side"
+        }
+    }
+
+    /// True when 1-finger drag should drive the crosshair picker
+    /// instead of camera tilt.
+    private var inPickerMode: Bool {
+        switch viewMode {
+        case .topDown2D, .sideLevelHistory2D: return true
+        case .oblique3D: return false
         }
     }
 
@@ -118,15 +139,31 @@ struct WaterfallView: View {
                 }
             }
             .contentShape(Rectangle())
-            // 1-finger drag: tilt the 3D camera (pitch ↕ + yaw ↔).
+            // 1-finger drag: tilt camera in 3D, or move the crosshair
+            // picker in 2D modes. The mode check happens inside the
+            // gesture closure so the same DragGesture instance covers
+            // both. `dragDelta` only updates in 3D mode — that
+            // prevents a drag inside a 2D mode from accidentally
+            // crossing the pitch threshold and bouncing back out.
             .gesture(
                 DragGesture(minimumDistance: 4)
                     .updating($dragDelta) { value, state, _ in
-                        state = value.translation
+                        if !inPickerMode {
+                            state = value.translation
+                        }
+                    }
+                    .onChanged { value in
+                        if inPickerMode {
+                            crosshair = value.location
+                        }
                     }
                     .onEnded { value in
-                        pitch = max(0, min(1, pitch + value.translation.height / 200))
-                        yaw = max(-1, min(1, yaw + value.translation.width / 250))
+                        if inPickerMode {
+                            crosshair = value.location
+                        } else {
+                            pitch = max(0, min(1, pitch + value.translation.height / 200))
+                            yaw = max(-1, min(1, yaw + value.translation.width / 250))
+                        }
                     }
             )
             // 2-finger pinch: zoom the amplitude (Z) axis.
@@ -139,7 +176,8 @@ struct WaterfallView: View {
                         zoom = max(0.25, min(4.0, zoom * value))
                     }
             )
-            // Double-tap: reset camera + zoom + view-local Z/X overlays.
+            // Double-tap: reset camera + zoom + view-local Z/X overlays
+            // + crosshair.
             .onTapGesture(count: 2) {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     pitch = Self.defaultPitch
@@ -147,6 +185,7 @@ struct WaterfallView: View {
                     zoom = Self.defaultZoom
                     zOffsetDB = Self.defaultZOffsetDB
                     xPanFrac = Self.defaultXPanFrac
+                    crosshair = nil
                 }
             }
             // 2-finger pan: vertical → Z dB-window shift, horizontal →
@@ -183,33 +222,188 @@ struct WaterfallView: View {
             height: max(1, bounds.height - 58)
         )
         switch viewMode {
-        case .frontSpectrum2D:
-            drawFrontSpectrum(plot: plot, context: &context)
         case .topDown2D:
             drawTopDownSpectrogram(plot: plot, context: &context)
+        case .sideLevelHistory2D:
+            drawSideLevelHistory(plot: plot, context: &context)
         case .oblique3D:
             drawOblique3D(plot: plot, context: &context)
         }
 
         drawLabels(plot: plot, bounds: bounds, context: &context)
+
+        // Crosshair overlay (2D modes only). Drawn last so it sits on
+        // top of everything inside the plot rect.
+        if inPickerMode, let position = crosshair {
+            drawCrosshair(at: position, plot: plot, context: &context)
+        }
     }
 
     // MARK: - Render modes
 
-    /// Pitch ≤ 0.15. Only the current (newest) spectrum is shown,
-    /// rendered front-on like a regular spectrum widget.
-    private func drawFrontSpectrum(plot: CGRect, context: inout GraphicsContext) {
+    /// |yaw| ≥ 0.85. Looks at the scene from the side: the X
+    /// (frequency) axis collapses into the page, so each slice
+    /// reduces to a single broadband level value. Result: a level
+    /// history curve, X = time, Y = amplitude. The "Laeq / ges.
+    /// Pegel" view in the user's sketch.
+    private func drawSideLevelHistory(plot: CGRect, context: inout GraphicsContext) {
         let zoomEff = effectiveZoom
         let baseY = plot.maxY
         let usableHeight = max(1, plot.height - 10) * zoomEff
         drawGrid(plot: plot, frontBaseY: baseY, depthX: 0, depthY: 0, context: &context)
 
-        guard let current = dataSet.slices.last else { return }
-        let path = slicePath(slice: current, plot: plot, baseY: baseY, offsetX: 0, usableHeight: usableHeight)
-        let color = lineColor(for: current.magnitudes.max() ?? dataSet.minDB)
-        let fill = fillPath(from: path, plot: plot, baseY: baseY, offsetX: 0)
-        context.fill(fill, with: .color(color.opacity(0.15)))
-        context.stroke(path, with: .color(color), lineWidth: 1.8)
+        let slices = dataSet.slices
+        guard slices.count >= 2 else { return }
+
+        // Per-slice broadband level = max bin (representative of the
+        // loudest moment in that slice's spectrum). Matches what
+        // `lineColor` uses elsewhere so the color ramp stays
+        // consistent.
+        let levels: [Float] = slices.map { $0.magnitudes.max() ?? dataSet.minDB }
+        let count = levels.count
+
+        // Newer time on the RIGHT (matches the 3D mode's "current at
+        // front" — front of the 3D scene becomes the right of the
+        // side projection).
+        var path = Path()
+        for (i, level) in levels.enumerated() {
+            let xFrac = CGFloat(i) / CGFloat(max(count - 1, 1))
+            let x = plot.minX + xFrac * plot.width
+            let normalized = normalizedLevel(level)
+            let y = baseY - CGFloat(normalized) * usableHeight
+            if i == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+            } else {
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
+        }
+
+        // Soft fill underneath for readability, stroke on top.
+        var fillPath = path
+        fillPath.addLine(to: CGPoint(x: plot.maxX, y: baseY))
+        fillPath.addLine(to: CGPoint(x: plot.minX, y: baseY))
+        fillPath.closeSubpath()
+        let peakLevel = levels.max() ?? dataSet.minDB
+        let lineCol = lineColor(for: peakLevel)
+        context.fill(fillPath, with: .color(lineCol.opacity(0.15)))
+        context.stroke(path, with: .color(lineCol), lineWidth: 1.8)
+    }
+
+    // MARK: - Crosshair picker (2D modes)
+
+    /// Renders a vertical + horizontal crosshair at `position` and a
+    /// small readout pill with mode-appropriate values:
+    /// - topDown2D: shows frequency (X) + time-ago (Y) + level (color sample).
+    /// - sideLevelHistory2D: shows time-ago (X) + level (Y).
+    /// The readout is drawn in whichever corner of the crosshair has
+    /// the most room so it never clips off the plot.
+    private func drawCrosshair(at position: CGPoint, plot: CGRect, context: inout GraphicsContext) {
+        // Clamp the crosshair position to the plot rect so a drag
+        // that overshoots the edge still produces a sensible readout.
+        let x = max(plot.minX, min(plot.maxX, position.x))
+        let y = max(plot.minY, min(plot.maxY, position.y))
+
+        let lineColor = Color.white.opacity(0.65)
+        var hLine = Path()
+        hLine.move(to: CGPoint(x: plot.minX, y: y))
+        hLine.addLine(to: CGPoint(x: plot.maxX, y: y))
+        context.stroke(hLine, with: .color(lineColor), lineWidth: 0.5)
+
+        var vLine = Path()
+        vLine.move(to: CGPoint(x: x, y: plot.minY))
+        vLine.addLine(to: CGPoint(x: x, y: plot.maxY))
+        context.stroke(vLine, with: .color(lineColor), lineWidth: 0.5)
+
+        // Centre dot.
+        let dotRect = CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
+        context.fill(Path(ellipseIn: dotRect), with: .color(.white))
+
+        // Compose readout based on mode.
+        let readout = crosshairReadout(at: CGPoint(x: x, y: y), plot: plot)
+        let textPoint = readoutAnchor(near: CGPoint(x: x, y: y), plot: plot)
+        drawText(readout, at: textPoint, anchor: .topLeading, context: &context)
+    }
+
+    private func crosshairReadout(at point: CGPoint, plot: CGRect) -> String {
+        let xFrac = (point.x - plot.minX) / max(1, plot.width)
+        let yFrac = (point.y - plot.minY) / max(1, plot.height)
+
+        let panFrac = CGFloat(effectiveXPanFrac)
+        let zShift = effectiveZOffsetDB
+
+        switch viewMode {
+        case .topDown2D:
+            // X = frequency (bin index frac, panFrac-aware).
+            let binFrac = xFrac + panFrac
+            let freqHz = frequencyAt(binFrac: binFrac)
+            // Y = time. Top row = oldest, bottom = newest.
+            let timeAgo = max(0, dataSet.duration * (1 - Double(yFrac)))
+            // Color sample = magnitude at (binIndex, sliceIndex).
+            let level = sampledLevel(binFrac: binFrac, sliceFrac: yFrac)
+            return String(
+                format: "%@   %@   %.0f dB",
+                formatHz(freqHz),
+                formatSec(timeAgo),
+                level + zShift
+            )
+        case .sideLevelHistory2D:
+            // X = time. Right = newest.
+            let timeAgo = max(0, dataSet.duration * (1 - Double(xFrac)))
+            // Y = level — derive from y position inside the plot.
+            let range = max(1, dataSet.maxDB - dataSet.minDB)
+            let level = (dataSet.minDB + zShift) + Float(1 - yFrac) * range
+            return String(format: "%@   %.1f dB", formatSec(timeAgo), level)
+        case .oblique3D:
+            return "" // crosshair not drawn in 3D
+        }
+    }
+
+    /// Pick a corner of the crosshair point that has room for the
+    /// readout pill without clipping outside the plot rect.
+    private func readoutAnchor(near point: CGPoint, plot: CGRect) -> CGPoint {
+        let estimatedTextWidth: CGFloat = 130
+        let estimatedTextHeight: CGFloat = 14
+        let offset: CGFloat = 8
+
+        // Default: top-right of the crosshair.
+        var anchor = CGPoint(x: point.x + offset, y: point.y + offset)
+        if anchor.x + estimatedTextWidth > plot.maxX {
+            anchor.x = point.x - offset - estimatedTextWidth
+        }
+        if anchor.y + estimatedTextHeight > plot.maxY {
+            anchor.y = point.y - offset - estimatedTextHeight
+        }
+        return anchor
+    }
+
+    private func frequencyAt(binFrac: CGFloat) -> Float {
+        let freqs = dataSet.frequencies
+        guard !freqs.isEmpty else { return 0 }
+        let clamped = max(0, min(1, binFrac))
+        let idx = Int((clamped * CGFloat(freqs.count - 1)).rounded())
+        return freqs[min(max(0, idx), freqs.count - 1)]
+    }
+
+    private func sampledLevel(binFrac: CGFloat, sliceFrac: CGFloat) -> Float {
+        let slices = dataSet.slices
+        guard !slices.isEmpty else { return dataSet.minDB }
+        let sliceClamped = max(0, min(1, sliceFrac))
+        let sliceIdx = Int((sliceClamped * CGFloat(slices.count - 1)).rounded())
+        let slice = slices[min(max(0, sliceIdx), slices.count - 1)]
+        guard !slice.magnitudes.isEmpty else { return dataSet.minDB }
+        let binClamped = max(0, min(1, binFrac))
+        let binIdx = Int((binClamped * CGFloat(slice.magnitudes.count - 1)).rounded())
+        return slice.magnitudes[min(max(0, binIdx), slice.magnitudes.count - 1)]
+    }
+
+    private func formatHz(_ hz: Float) -> String {
+        if hz >= 1000 { return String(format: "%.2f kHz", hz / 1000) }
+        return String(format: "%.0f Hz", hz)
+    }
+
+    private func formatSec(_ seconds: Double) -> String {
+        if seconds >= 1 { return String(format: "%.1fs", seconds) }
+        return String(format: "%.0fms", seconds * 1000)
     }
 
     /// Pitch ≥ 0.85. Spectrogram heatmap. Each slice = one
@@ -382,44 +576,70 @@ struct WaterfallView: View {
     }
 
     private func drawLabels(plot: CGRect, bounds: CGRect, context: inout GraphicsContext) {
-        // All labels live in the margin area OUTSIDE `plot` — never on
-        // top of the trace. With Z-offset applied via the 2F pan, show
-        // the SHIFTED window endpoints, not the dataset's raw min/max.
+        // All labels sit OUTSIDE the plot rect. Axis meaning depends
+        // on the active view mode (Front/Top/Side per the user's
+        // sketch).
         let zShift = effectiveZOffsetDB
         let visibleMaxDB = Int((dataSet.maxDB + zShift).rounded())
         let visibleMinDB = Int((dataSet.minDB + zShift).rounded())
-
         let topLabelY = bounds.minY + 10
         let bottomLabelY = bounds.maxY - 10
 
-        // Top margin: view-mode tag on the left, duration on the right.
-        drawText(viewModeLabel, at: CGPoint(x: bounds.minX + 4, y: topLabelY),
+        // Top margin: view-mode tag + duration. Always shown.
+        drawText(viewModeLabel,
+                 at: CGPoint(x: bounds.minX + 4, y: topLabelY),
                  anchor: .leading, context: &context)
-        drawText(formatDuration(dataSet.duration), at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
+        drawText(formatDuration(dataSet.duration),
+                 at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
                  anchor: .trailing, context: &context)
 
-        // Y-axis (left margin): max dB at the top of the plot rect,
-        // min dB at the bottom of the plot rect. Both sit OUTSIDE the
-        // plot, anchored to the trailing edge so the digits line up
-        // along the chart's left edge.
-        drawText("\(visibleMaxDB) dB",
-                 at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
-                 anchor: .trailing, context: &context)
-        drawText("\(visibleMinDB) dB",
-                 at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
-                 anchor: .trailing, context: &context)
+        switch viewMode {
+        case .oblique3D:
+            // Y = amplitude (dB), X = frequency (Hz).
+            drawText("\(visibleMaxDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                     anchor: .trailing, context: &context)
+            drawText("\(visibleMinDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                     anchor: .trailing, context: &context)
+            drawText("20 Hz",
+                     at: CGPoint(x: plot.minX, y: bottomLabelY),
+                     anchor: .leading, context: &context)
+            drawText("20 kHz",
+                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                     anchor: .trailing, context: &context)
 
-        // X-axis (bottom margin): frequency endpoints below the plot.
-        // Top-down mode swaps the bottom-row meaning: bottom-left is
-        // still 20 Hz, bottom-right still 20 kHz — the X axis is the
-        // same in all three modes, only Y changes meaning. So a single
-        // label set works.
-        drawText("20 Hz",
-                 at: CGPoint(x: plot.minX, y: bottomLabelY),
-                 anchor: .leading, context: &context)
-        drawText("20 kHz",
-                 at: CGPoint(x: plot.maxX, y: bottomLabelY),
-                 anchor: .trailing, context: &context)
+        case .topDown2D:
+            // Y = time (newest at bottom), X = frequency. Amplitude is
+            // encoded in cell color so no dB labels here.
+            drawText("aktuell",
+                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                     anchor: .trailing, context: &context)
+            drawText("älter",
+                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                     anchor: .trailing, context: &context)
+            drawText("20 Hz",
+                     at: CGPoint(x: plot.minX, y: bottomLabelY),
+                     anchor: .leading, context: &context)
+            drawText("20 kHz",
+                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                     anchor: .trailing, context: &context)
+
+        case .sideLevelHistory2D:
+            // Y = amplitude (dB), X = time (newest right).
+            drawText("\(visibleMaxDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                     anchor: .trailing, context: &context)
+            drawText("\(visibleMinDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                     anchor: .trailing, context: &context)
+            drawText("älter",
+                     at: CGPoint(x: plot.minX, y: bottomLabelY),
+                     anchor: .leading, context: &context)
+            drawText("aktuell",
+                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                     anchor: .trailing, context: &context)
+        }
     }
 
     private func drawText(_ value: String, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
