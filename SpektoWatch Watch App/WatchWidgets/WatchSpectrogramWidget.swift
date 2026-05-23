@@ -47,7 +47,7 @@ struct WatchSpectrogramWidget: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         // Single source of truth: `liveData` reflects whichever mode is active
-        // (companion → phone-pushed; wearableMic → local FFT). No branching.
+        // (companion -> phone-pushed; wearableMic -> local audio). No branching.
         .onReceive(audioEngine.$liveData) { data in
             guard let data else { return }
             processData(data)
@@ -55,7 +55,7 @@ struct WatchSpectrogramWidget: View {
     }
 
     private func processData(_ data: SpectrogramData) {
-        frames.append(data.magnitudes)
+        frames.append(data.visualMagnitudes ?? data.magnitudes)
     }
 
     private func spectrogramColor(_ value: Double) -> Color {

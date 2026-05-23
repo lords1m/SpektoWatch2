@@ -136,8 +136,9 @@ struct WatchModularFace: View {
         leq = data.levels["LAeq"] ?? data.levels["LAFeq"] ?? level
         peak = data.levels["LCpeak"] ?? data.levels["LAFmax"] ?? max(peak, level)
 
-        if !data.magnitudes.isEmpty {
-            spectroFrames.append(data.magnitudes)
+        let visualMagnitudes = data.visualMagnitudes ?? data.magnitudes
+        if !visualMagnitudes.isEmpty {
+            spectroFrames.append(visualMagnitudes)
         }
     }
 

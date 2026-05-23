@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: in_progress
   started: "2026-05-12"
-  current_milestone: M8
+  current_milestone: M14
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
@@ -198,11 +198,11 @@ milestones:
     name: Performance & Centralization
     status: in_progress
     priority: medium
-    progress: 0
+    progress: 10
     started: "2026-05-21"
     estimated_weeks: "2"
-    tasks_completed: 0
-    tasks_total: 9
+    tasks_completed: 1
+    tasks_total: 10
     notes: >
       Planned 2026-05-21 from agent/reports/2026-05-21-performance-
       centralization-audit.md. Closes the 11 redundancies identified
@@ -217,6 +217,11 @@ milestones:
       prerequisites. M13 task-4 Phase 2 (widget migration to
       audioEngine.live) is folded into M14 task-8 (kill
       vizAudioEngine) since both touch the same surface.
+      2026-05-22 opportunistic addition: task-10 completed the
+      FFT-measurement / DCT-visual split. Visual spectrogram,
+      waterfall, watch spectrogram, recording-detail visual playback,
+      and PNG export now prefer DCT payloads; acoustic measurements
+      remain FFT-based.
     file: agent/milestones/milestone-14-performance-centralization.md
 
   M13:
@@ -621,6 +626,7 @@ tasks:
     - { id: task-7-investigate-double-smoothing,  name: "Investigate double smoothing (R10)",          status: pending, file: agent/tasks/milestone-14-performance-centralization/task-7-investigate-double-smoothing.md }
     - { id: task-8-kill-viz-audio-engine,         name: "Kill vizAudioEngine (R1)",                    status: pending, file: agent/tasks/milestone-14-performance-centralization/task-8-kill-viz-audio-engine.md }
     - { id: task-9-acceptance,                    name: "Acceptance",                                  status: pending, file: agent/tasks/milestone-14-performance-centralization/task-9-acceptance.md }
+    - { id: task-10-dct-visual-path,              name: "DCT visual path, FFT measurement path",       status: completed, file: agent/tasks/milestone-14-performance-centralization/task-10-dct-visual-path.md, notes: "Completed 2026-05-22. SpectrogramData gained optional visualFrequencies/visualMagnitudes; AudioEngine and WatchAudioEngine compute visual DCT-II payloads alongside FFT measurement data; live spectrogram, waterfall, watch visual surfaces, recording-detail visual playback, and PNG export prefer DCT visual arrays. Measurement metrics, weighting, and stored measurement semantics remain FFT-based. Focused Xcode test run passed: 56 tests, 0 failures." }
 
   M13:
     - { id: task-1-app-services-injection,        name: "AppServices injection layer",                status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md, notes: "Code-side landed 2026-05-21. New AppServices.swift (@MainActor ObservableObject) owns the 5 eager managers + deferred AudioEngine/MaskingEngine via startAudio(). Convenience init() + testFixture(...) static factory. SpektoWatch2App uses one @StateObject AppServices instead of 5 individual @StateObjects + 1 AudioEngineContainer. Body still calls 8 .environmentObject(...) (consumer migration explicitly deferred to a future task; scope here was producer-side only). Old AudioEngineContainer private type removed. iOS build green. Tests not migrated to testFixture (deferred — drop-in pattern across 5+ test files; do alongside M13 task-3/-4 AudioEngine extracts). Hardware acceptance gated on M13 task-9." }
@@ -795,10 +801,10 @@ tasks:
         #8 OKLCH→sRGB drift (low-impact). iOS + watch builds green.
         Hardware visual pass gated on task-6.
 
-updated_at: 2026-05-21
+updated_at: 2026-05-23
 current_milestone: M14
 current_task: task-1-quick-wins
-last_proceed: 2026-05-21
+last_proceed: 2026-05-22
 parked:
   - milestone: M8
     task: task-2-acceptance
@@ -839,25 +845,23 @@ active_context:
     PDFReportSnapshotTests helpers implemented with a frozen 2026-01-01
     Recording routed through PDFReportGenerator's production entry point.
   next_action: >
-    M8 task-2 acceptance remains gated on runtime validation on hardware
-    or Xcode Cloud because the local simulator is broken. Verify fresh
-    dashboard defaults, legacy dashboard visual clamp behaviour, and
-    drag-and-drop reorder after the widget sizing migration. If checks
-    pass, write agent/reports/2026-05-21-milestone-8-acceptance.md and
-    mark M8 complete. Separately, M7 snapshot baseline recording still
-    requires an Xcode Cloud RECORD_SNAPSHOTS=YES run and committed
-    baselines. M11 Tone Generator Piano Input is planned as low-priority
-    backlog and should start only after the M9 tone-generator render-thread
-    safety blocker is addressed. Runtime screenshots are available in
-    `Spectowatch Widget Screenshots /`; review report says to keep M8 open
-    until fresh-dashboard defaults, legacy-dashboard clamp behaviour, and
-    drag-and-drop reorder are explicitly verified.
-    M12 (Liquid Glass Redesign) opened 2026-05-21 as a parallel track on
-    branch `redesign/liquid-glass`. Phase 1 chrome + Tweaks landed
-    (task-1 completed, commit 21453dd). Five follow-up tasks pending:
-    widget card eyebrow headers (task-2), preset rail → layout wiring
-    (task-3), watch faces + complications (task-4), density/numerals
-    application (task-5), hardware acceptance (task-6).
+    Active focus: M14 task-1-quick-wins (Quick wins R6+R7+R8+R9 from the
+    performance-centralization audit). M14 task-10 (DCT visual path)
+    landed opportunistically 2026-05-22; the remaining 8 tasks (task-1
+    through task-9) are pending. Start with task-1-quick-wins per
+    agent/tasks/milestone-14-performance-centralization/task-1-quick-wins.md.
+    Parked / gated tracks (do not pick up without unblock):
+    - M8 task-2 acceptance: gated on hardware/Xcode Cloud validation of
+      fresh-dashboard defaults, legacy-dashboard clamp, and drag-and-drop
+      reorder. On unblock, write agent/reports/2026-05-21-milestone-8-acceptance.md.
+    - M7 task-2: gated on Xcode Cloud RECORD_SNAPSHOTS=YES baseline run.
+    - M9 task-11, M12 task-4, M13 task-9: code-side complete; promotion
+      gated on hardware screenshot/behavior verification.
+    - M11 (Tone Generator Piano Input): low-priority backlog; do not
+      start until the M9 tone-generator render-thread NSLock blocker
+      (now M11 task-1) is addressed.
+    M12 (Liquid Glass Redesign) remains in progress on branch
+    `redesign/liquid-glass` with task-6 hardware acceptance pending.
 known_constraints:
   - Watch complication manual acceptance still requires Apple Watch hardware or
     an interactive paired simulator session.

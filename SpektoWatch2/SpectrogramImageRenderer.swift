@@ -30,22 +30,18 @@ final class SpectrogramImageRenderer {
         for y in 0..<targetHeight {
             let normalized = 1.0 - Float(y) / Float(max(targetHeight - 1, 1))
             let frequency = minFrequency * powf(maxFrequency / minFrequency, normalized)
-            let bin = Int((frequency / nyquist) * Float((fftSize / 2) - 1))
-            rowToBin[y] = max(0, min((fftSize / 2) - 1, bin))
+            let bin = Int((frequency / nyquist) * Float(fftSize - 1))
+            rowToBin[y] = max(0, min(fftSize - 1, bin))
         }
 
-        guard let fftSetup = vDSP_DFT_zrop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD) else {
-            throw MeasurementDataError.ioFailure("FFT Setup konnte nicht erstellt werden.")
+        guard let dct = vDSP.DCT(count: fftSize, transformType: .II) else {
+            throw MeasurementDataError.ioFailure("DCT Setup konnte nicht erstellt werden.")
         }
-        defer { vDSP_DFT_DestroySetup(fftSetup) }
 
-        var window = [Float](repeating: 0, count: fftSize)
-        // Manual Hann window implementation to avoid vDSP API compatibility issues
-        let n = Float(fftSize)
-        for i in 0..<fftSize {
-            let x = Float(i) / n
-            window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
-        }
+        let window = WindowFunction.hann.generate(size: fftSize)
+        var windowed = [Float](repeating: 0, count: fftSize)
+        var coefficients = [Float](repeating: 0, count: fftSize)
+        var magnitudes = [Float](repeating: 0, count: fftSize)
 
         var overlap = [Float]()
         let chunkFrames = fftSize * 8
@@ -66,29 +62,14 @@ final class SpectrogramImageRenderer {
                 let pixelX = min(width - 1, Int(Double(sourceColumn) / columnsPerPixel))
                 sourceColumn += 1
 
-                var windowed = [Float](repeating: 0, count: fftSize)
                 samples.withUnsafeBufferPointer { ptr in
                     vDSP_vmul(ptr.baseAddress! + offset, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
                 }
 
-                var realIn = [Float](repeating: 0, count: fftSize / 2)
-                var imagIn = [Float](repeating: 0, count: fftSize / 2)
-                for i in 0..<(fftSize / 2) {
-                    realIn[i] = windowed[2 * i]
-                    imagIn[i] = windowed[2 * i + 1]
-                }
-
-                var realOut = [Float](repeating: 0, count: fftSize / 2)
-                var imagOut = [Float](repeating: 0, count: fftSize / 2)
-                vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
-
-                var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-                realOut.withUnsafeMutableBufferPointer { realPtr in
-                    imagOut.withUnsafeMutableBufferPointer { imagPtr in
-                        var split = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                        vDSP_zvabs(&split, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-                    }
-                }
+                dct.transform(windowed, result: &coefficients)
+                vDSP_vabs(coefficients, 1, &magnitudes, 1, vDSP_Length(fftSize))
+                var scale = 2.0 / Float(fftSize)
+                vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize))
 
                 for y in 0..<targetHeight {
                     let bin = rowToBin[y]
@@ -106,20 +87,9 @@ final class SpectrogramImageRenderer {
             overlap = offset < samples.count ? Array(samples[offset..<samples.count]) : []
         }
 
-        var rgba = [UInt8](repeating: 0, count: width * targetHeight * 4)
-        for y in 0..<targetHeight {
-            for x in 0..<width {
-                let intensity = heatmap[y * width + x]
-                let color = Self.color(for: intensity)
-                let pixelIndex = (y * width + x) * 4
-                rgba[pixelIndex + 0] = color.r
-                rgba[pixelIndex + 1] = color.g
-                rgba[pixelIndex + 2] = color.b
-                rgba[pixelIndex + 3] = 255
-            }
-        }
+        let argb = Self.makeARGBPixels(fromNormalizedHeatmap: heatmap, width: width, height: targetHeight)
 
-        let provider = CGDataProvider(data: Data(rgba) as CFData)!
+        let provider = CGDataProvider(data: Data(argb) as CFData)!
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let cg = CGImage(
             width: width,
@@ -128,11 +98,9 @@ final class SpectrogramImageRenderer {
             bitsPerPixel: 32,
             bytesPerRow: width * 4,
             space: colorSpace,
-            // Alpha byte is always 255 (opaque); `.noneSkipLast` is the
-            // supported pixel format for 32-bit RGB. `.last` (non-premultiplied
-            // RGBA) is not in CGImage's supported-pixel-formats table for the
-            // device RGB color space and can produce undefined rendering.
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            // vImage emits ARGB8888 with an opaque first byte. Skip it when
+            // constructing the CGImage so bytes 1...3 become RGB.
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue),
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
@@ -140,6 +108,87 @@ final class SpectrogramImageRenderer {
         )!
 
         return UIImage(cgImage: cg)
+    }
+
+    private static func makeARGBPixels(fromNormalizedHeatmap heatmap: [Float], width: Int, height: Int) -> [UInt8] {
+        let pixelCount = width * height
+        guard pixelCount > 0 else { return [] }
+
+        var indices = [UInt8](repeating: 0, count: pixelCount)
+        for index in 0..<min(pixelCount, heatmap.count) {
+            let t = max(0, min(1, heatmap[index]))
+            indices[index] = UInt8(t * 255.0 + 0.5)
+        }
+
+        var redTable = [UInt8](repeating: 0, count: 256)
+        var greenTable = [UInt8](repeating: 0, count: 256)
+        var blueTable = [UInt8](repeating: 0, count: 256)
+        for index in 0..<256 {
+            let color = color(for: Float(index) / 255.0)
+            redTable[index] = color.r
+            greenTable[index] = color.g
+            blueTable[index] = color.b
+        }
+
+        var alpha = [UInt8](repeating: 255, count: pixelCount)
+        var red = [UInt8](repeating: 0, count: pixelCount)
+        var green = [UInt8](repeating: 0, count: pixelCount)
+        var blue = [UInt8](repeating: 0, count: pixelCount)
+        var argb = [UInt8](repeating: 0, count: pixelCount * 4)
+
+        indices.withUnsafeMutableBufferPointer { indexPtr in
+            red.withUnsafeMutableBufferPointer { redPtr in
+                green.withUnsafeMutableBufferPointer { greenPtr in
+                    blue.withUnsafeMutableBufferPointer { bluePtr in
+                        var source = vImage_Buffer(
+                            data: indexPtr.baseAddress!,
+                            height: vImagePixelCount(height),
+                            width: vImagePixelCount(width),
+                            rowBytes: width
+                        )
+                        var redBuffer = vImage_Buffer(data: redPtr.baseAddress!, height: source.height, width: source.width, rowBytes: width)
+                        var greenBuffer = vImage_Buffer(data: greenPtr.baseAddress!, height: source.height, width: source.width, rowBytes: width)
+                        var blueBuffer = vImage_Buffer(data: bluePtr.baseAddress!, height: source.height, width: source.width, rowBytes: width)
+
+                        redTable.withUnsafeBufferPointer { table in
+                            _ = vImageTableLookUp_Planar8(&source, &redBuffer, table.baseAddress!, vImage_Flags(kvImageNoFlags))
+                        }
+                        greenTable.withUnsafeBufferPointer { table in
+                            _ = vImageTableLookUp_Planar8(&source, &greenBuffer, table.baseAddress!, vImage_Flags(kvImageNoFlags))
+                        }
+                        blueTable.withUnsafeBufferPointer { table in
+                            _ = vImageTableLookUp_Planar8(&source, &blueBuffer, table.baseAddress!, vImage_Flags(kvImageNoFlags))
+                        }
+                    }
+                }
+            }
+        }
+
+        alpha.withUnsafeMutableBufferPointer { alphaPtr in
+            red.withUnsafeMutableBufferPointer { redPtr in
+                green.withUnsafeMutableBufferPointer { greenPtr in
+                    blue.withUnsafeMutableBufferPointer { bluePtr in
+                        argb.withUnsafeMutableBufferPointer { argbPtr in
+                            var alphaBuffer = vImage_Buffer(data: alphaPtr.baseAddress!, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
+                            var redBuffer = vImage_Buffer(data: redPtr.baseAddress!, height: alphaBuffer.height, width: alphaBuffer.width, rowBytes: width)
+                            var greenBuffer = vImage_Buffer(data: greenPtr.baseAddress!, height: alphaBuffer.height, width: alphaBuffer.width, rowBytes: width)
+                            var blueBuffer = vImage_Buffer(data: bluePtr.baseAddress!, height: alphaBuffer.height, width: alphaBuffer.width, rowBytes: width)
+                            var dest = vImage_Buffer(data: argbPtr.baseAddress!, height: alphaBuffer.height, width: alphaBuffer.width, rowBytes: width * 4)
+                            _ = vImageConvert_Planar8toARGB8888(
+                                &alphaBuffer,
+                                &redBuffer,
+                                &greenBuffer,
+                                &blueBuffer,
+                                &dest,
+                                vImage_Flags(kvImageNoFlags)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        return argb
     }
 
     private static func color(for value: Float) -> (r: UInt8, g: UInt8, b: UInt8) {

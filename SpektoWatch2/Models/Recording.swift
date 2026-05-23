@@ -129,20 +129,32 @@ struct Recording: Identifiable, Codable {
         self.fftBlockSize = fftBlockSize
     }
     
-    /// Formatierte Anzeige der Dauer
+    /// Formatierte Anzeige der Dauer. Stellt sich bei langen Sessions auf
+    /// Stunden um (1:10:00 statt 70:00).
     var formattedDuration: String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
+        let total = Int(duration)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
         return String(format: "%02d:%02d", minutes, seconds)
     }
-    
-    /// Formatiertes Datum
+
+    /// Geteilter `DateFormatter` für die Listenanzeige. `DateFormatter` ist
+    /// teuer pro Instanz; einmal anlegen reicht.
+    private static let displayDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.locale = Locale(identifier: "de_DE")
+        return f
+    }()
+
+    /// Formatiertes Datum (z.B. „23. Mai 2026, 14:32").
     var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.locale = Locale(identifier: "de_DE")
-        return formatter.string(from: startDate)
+        Recording.displayDateFormatter.string(from: startDate)
     }
 
     /// Datei-Titel für Listenansicht

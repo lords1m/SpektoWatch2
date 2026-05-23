@@ -255,6 +255,147 @@ final class FFTProcessorTests: XCTestCase {
         )
     }
 
+    func testMelFrequencyRoundTrip() {
+        let testFrequencies: [Float] = [20, 100, 1_000, 8_000, 20_000]
+
+        for frequency in testFrequencies {
+            let mel = MelSpectrogramProcessor.frequencyToMel(frequency)
+            let recovered = MelSpectrogramProcessor.melToFrequency(mel)
+            XCTAssertEqual(recovered, frequency, accuracy: max(0.01, frequency * 0.0001))
+        }
+    }
+
+    func testMelSpectrogramProcessorProducesExpectedShape() {
+        let processor = MelSpectrogramProcessor(
+            filterBankCount: 40,
+            fftBinCount: defaultFFTSize / 2,
+            sampleRate: sampleRate
+        )
+        var magnitudes = [Float](repeating: 0, count: defaultFFTSize / 2)
+        let oneKilohertzBin = fftProcessor.binForFrequency(1_000)
+        magnitudes[oneKilohertzBin] = 1.0
+
+        let melValues = processor.compute(linearMagnitudes: magnitudes)
+
+        XCTAssertEqual(melValues.count, 40)
+        XCTAssertGreaterThan(melValues.max() ?? 0, 0)
+        XCTAssertFalse(melValues.contains(where: { $0.isNaN || $0.isInfinite }))
+    }
+
+    /// Legacy (mel-off) DCT path: emits one bin per DCT coefficient on a
+    /// linear-from-Nyquist axis. Kept for parity with the FFT path during
+    /// debug/calibration; production uses the mel-band variant below.
+    func testVisualSpectrogramProcessorProducesLegacyDCTBins() {
+        let processor = VisualSpectrogramProcessor(
+            transformSize: defaultFFTSize,
+            sampleRate: sampleRate,
+            windowFunction: .hann,
+            melBandCount: 0
+        )
+        let frequency: Float = 1_000
+        let amplitude: Float = 0.8
+        let samples = (0..<defaultFFTSize).map { index in
+            amplitude * sin(2 * .pi * frequency * Float(index) / Float(sampleRate))
+        }
+        var visualMagnitudes: [Float] = []
+
+        let visualFrequencies = processor.computeDBMagnitudes(
+            on: samples,
+            gainBoost: 1,
+            calibrationOffset: 0,
+            into: &visualMagnitudes
+        )
+
+        XCTAssertEqual(visualMagnitudes.count, defaultFFTSize)
+        XCTAssertEqual(visualFrequencies.count, defaultFFTSize)
+        XCTAssertGreaterThan(visualMagnitudes.max() ?? -120, -80)
+        XCTAssertFalse(visualMagnitudes.contains(where: { $0.isNaN || $0.isInfinite }))
+    }
+
+    /// Apple "Visualizing Sound as an Audio Spectrogram" pipeline:
+    /// DCT-II of windowed audio → magnitudes → mel filter bank → log dB.
+    /// Output length equals the mel band count, not the transform size;
+    /// `visualFrequencies` carries the mel band center frequencies.
+    func testVisualSpectrogramProcessorProducesMelBands() {
+        let melBandCount = 128
+        let processor = VisualSpectrogramProcessor(
+            transformSize: defaultFFTSize,
+            sampleRate: sampleRate,
+            windowFunction: .hann,
+            melBandCount: melBandCount,
+            frequencyRange: 20...20_000
+        )
+        let frequency: Float = 1_000
+        let amplitude: Float = 0.8
+        let samples = (0..<defaultFFTSize).map { index in
+            amplitude * sin(2 * .pi * frequency * Float(index) / Float(sampleRate))
+        }
+        var visualMagnitudes: [Float] = []
+
+        let visualFrequencies = processor.computeDBMagnitudes(
+            on: samples,
+            gainBoost: 1,
+            calibrationOffset: 0,
+            into: &visualMagnitudes
+        )
+
+        XCTAssertEqual(visualMagnitudes.count, melBandCount)
+        XCTAssertEqual(visualFrequencies.count, melBandCount)
+        XCTAssertFalse(visualMagnitudes.contains(where: { $0.isNaN || $0.isInfinite }))
+
+        // Mel band centers are monotonically increasing in Hz and span the
+        // configured range.
+        XCTAssertGreaterThanOrEqual(visualFrequencies.first ?? 0, 20)
+        XCTAssertLessThanOrEqual(visualFrequencies.last ?? 0, 20_000)
+        for i in 1..<visualFrequencies.count {
+            XCTAssertGreaterThan(visualFrequencies[i], visualFrequencies[i - 1])
+        }
+
+        // A 1 kHz tone produces its peak near a mel band whose center is
+        // closest to 1 kHz — not necessarily exactly at it, but within a
+        // few mel bands.
+        guard let peakIndex = visualMagnitudes.indices.max(by: { visualMagnitudes[$0] < visualMagnitudes[$1] }) else {
+            return XCTFail("no peak found")
+        }
+        let nearestMelIndex = visualFrequencies.indices.min(by: {
+            abs(visualFrequencies[$0] - frequency) < abs(visualFrequencies[$1] - frequency)
+        }) ?? 0
+        XCTAssertLessThan(abs(peakIndex - nearestMelIndex), 6,
+                          "1 kHz peak landed at mel band \(peakIndex) (center \(visualFrequencies[peakIndex]) Hz); expected near band \(nearestMelIndex) (\(visualFrequencies[nearestMelIndex]) Hz)")
+    }
+
+    /// Reconfiguring at runtime (e.g. window-size picker or sample-rate
+    /// change) must rebuild the DCT setup, mel filter bank, and frequency
+    /// table without leaking state from the prior config.
+    func testVisualSpectrogramProcessorReconfigureRebuildsMelBank() {
+        let processor = VisualSpectrogramProcessor(
+            transformSize: defaultFFTSize,
+            sampleRate: sampleRate,
+            windowFunction: .hann,
+            melBandCount: 64
+        )
+        XCTAssertEqual(processor.outputBinCount, 64)
+
+        processor.reconfigure(
+            transformSize: defaultFFTSize,
+            sampleRate: sampleRate,
+            windowFunction: .hann,
+            melBandCount: 96
+        )
+        XCTAssertEqual(processor.outputBinCount, 96)
+        XCTAssertEqual(processor.currentFrequencies().count, 96)
+
+        // Mel-off path: output reverts to transform-size linear bins.
+        processor.reconfigure(
+            transformSize: defaultFFTSize,
+            sampleRate: sampleRate,
+            windowFunction: .hann,
+            melBandCount: 0
+        )
+        XCTAssertEqual(processor.outputBinCount, defaultFFTSize)
+        XCTAssertEqual(processor.currentFrequencies().count, defaultFFTSize)
+    }
+
     // MARK: - Thread Safety Tests
 
     /// Testet gleichzeitige Rekonfiguration und FFT-Berechnung

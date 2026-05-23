@@ -100,7 +100,7 @@ struct WatchSpectrogramView: View {
                     .foregroundStyle(.white.opacity(0.85))
             }
             Spacer(minLength: 4)
-            Text("STFT")
+            Text("DCT")
                 .font(.system(size: 9, weight: .regular, design: .monospaced))
                 .tracking(1.6)
                 .foregroundStyle(.white.opacity(0.55))
@@ -167,6 +167,7 @@ struct WatchSpectrogramView: View {
     }
 
     private func processSpectrogramData(_ data: SpectrogramData) {
+        let visualMagnitudes = data.visualMagnitudes ?? data.magnitudes
         #if DEBUG
         // Periodic range probe — kept under DEBUG so neither the counter nor
         // the `reduce(0, +)` over a 1024-element array runs on every frame in
@@ -174,19 +175,19 @@ struct WatchSpectrogramView: View {
         // gratuitous per-frame work shows up as battery drain.
         debugCounter += 1
         if debugCounter % 60 == 0 {
-            let minVal = data.magnitudes.min() ?? 0
-            let maxVal = data.magnitudes.max() ?? 0
-            let avgVal = data.magnitudes.reduce(0, +) / Float(data.magnitudes.count)
+            let minVal = visualMagnitudes.min() ?? 0
+            let maxVal = visualMagnitudes.max() ?? 0
+            let avgVal = visualMagnitudes.reduce(0, +) / Float(max(visualMagnitudes.count, 1))
             print("[WatchView] Input Range: [\(String(format: "%.1f", minVal)), \(String(format: "%.1f", maxVal))] dB, Avg: \(String(format: "%.1f", avgVal)) dB")
         }
         #endif
         // `frames` is a fixed-capacity ring buffer (capacity = maxFrames) —
         // `append` is O(1) and drops the oldest slot in place when full,
         // replacing the previous O(n) `removeFirst()` per frame.
-        frames.append(data.magnitudes)
-        latestFrequencies = data.frequencies
+        frames.append(visualMagnitudes)
+        latestFrequencies = data.visualFrequencies ?? data.frequencies
         latestSampleRate = data.sampleRate
-        latestMagnitudesCount = data.magnitudes.count
+        latestMagnitudesCount = visualMagnitudes.count
     }
 
     /// Tatsächlich angezeigte Max-Frequenz unter Berücksichtigung des Zoom-Levels

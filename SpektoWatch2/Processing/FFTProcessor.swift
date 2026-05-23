@@ -74,40 +74,25 @@ enum WindowFunction: String, CaseIterable, Identifiable {
     /// Erzeugt die Fensterfunktion
     func generate(size: Int) -> [Float] {
         var window = [Float](repeating: 0, count: size)
-        let n = Float(size)
+        guard size > 0 else { return window }
 
         switch self {
         case .rectangular:
-            for i in 0..<size {
-                window[i] = 1.0
-            }
+            var one: Float = 1.0
+            vDSP_vfill(&one, &window, 1, vDSP_Length(size))
 
         case .hann:
-            // Manual implementation to avoid vDSP API compatibility issues
-            for i in 0..<size {
-                let x = Float(i) / n
-                window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
-            }
+            vDSP_hann_window(&window, vDSP_Length(size), Int32(vDSP_HANN_DENORM))
 
         case .hamming:
-            // Manual implementation to avoid vDSP API compatibility issues
-            for i in 0..<size {
-                let x = Float(i) / n
-                window[i] = 0.54 - 0.46 * cos(2 * .pi * x)
-            }
+            vDSP_hamm_window(&window, vDSP_Length(size), Int32(0))
 
         case .blackman:
-            // Manual implementation to avoid vDSP API compatibility issues
-            let a0: Float = 0.42
-            let a1: Float = 0.5
-            let a2: Float = 0.08
-            for i in 0..<size {
-                let x = Float(i) / n
-                window[i] = a0 - a1 * cos(2 * .pi * x) + a2 * cos(4 * .pi * x)
-            }
+            vDSP_blkman_window(&window, vDSP_Length(size), Int32(0))
 
         case .blackmanHarris:
             // 4-term Blackman-Harris
+            let n = Float(size)
             let a0: Float = 0.35875
             let a1: Float = 0.48829
             let a2: Float = 0.14128
@@ -119,6 +104,7 @@ enum WindowFunction: String, CaseIterable, Identifiable {
 
         case .flatTop:
             // Flat Top Window für präzise Amplitudenmessung
+            let n = Float(size)
             let a0: Float = 0.21557895
             let a1: Float = 0.41663158
             let a2: Float = 0.277263158

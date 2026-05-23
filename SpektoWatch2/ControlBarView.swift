@@ -159,7 +159,10 @@ struct ControlBarView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
         .sheet(isPresented: $showRecordingsList) {
-            RecordingsListView().environmentObject(recordingManager)
+            RecordingsListView()
+                .environmentObject(recordingManager)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .onAppear {
             audioEngine.prewarmAudioSession()

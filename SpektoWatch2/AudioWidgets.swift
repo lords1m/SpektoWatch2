@@ -293,58 +293,56 @@ struct LevelMeterWidget: View {
     private var yMaxDB: Float { WidgetSettings.chartYMaxDB(settings) }
 
     var body: some View {
-        VStack(spacing: 5) {
-            HStack {
-                Text("L")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .frame(width: 20)
-                
-                GeometryReader { geo in
-                    let width = geo.size.width
-                    let height = geo.size.height
-                    
-                    // Background
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.gray.opacity(0.2))
-                    
-                    // Level Bar
-                    let level = audioEngine.currentLevel // dB SPL (kalibriert)
-                    let minDB: Float = yMinDB
-                    let maxDB: Float = max(yMaxDB, yMinDB + 5)
-                    let norm = CGFloat((level - minDB) / (maxDB - minDB))
-                    let clamped = max(0, min(1, norm))
-                    
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: width * clamped)
-                    
-                    // Peak Hold (simplified)
-                    let peak = audioEngine.currentPeakLevel
-                    let peakNorm = CGFloat((peak - minDB) / (maxDB - minDB))
-                    let peakClamped = max(0, min(1, peakNorm))
-                    
-                    Rectangle()
-                        .fill(Color.primary)
-                        .frame(width: 2, height: height)
-                        .offset(x: width * peakClamped)
-                }
+        // Frameless layout: the card header already labels this widget.
+        // Center the meter + scale vertically inside the kernel area so
+        // small cards no longer leave a half-card empty void above the
+        // bar. Slim leading "L" label dropped — redundant with the
+        // header's "PEGEL-METER" eyebrow.
+        VStack(spacing: 6) {
+            GeometryReader { geo in
+                let width = geo.size.width
+                let height = geo.size.height
+
+                // Background
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.gray.opacity(0.2))
+
+                // Level Bar
+                let level = audioEngine.currentLevel // dB SPL (kalibriert)
+                let minDB: Float = yMinDB
+                let maxDB: Float = max(yMaxDB, yMinDB + 5)
+                let norm = CGFloat((level - minDB) / (maxDB - minDB))
+                let clamped = max(0, min(1, norm))
+
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: width * clamped)
+                    .animation(.easeOut(duration: 0.15), value: clamped)
+
+                // Peak Hold (simplified)
+                let peak = audioEngine.currentPeakLevel
+                let peakNorm = CGFloat((peak - minDB) / (maxDB - minDB))
+                let peakClamped = max(0, min(1, peakNorm))
+
+                Rectangle()
+                    .fill(Color.primary)
+                    .frame(width: 2, height: height)
+                    .offset(x: width * peakClamped)
+                    .animation(.easeOut(duration: 0.15), value: peakClamped)
             }
-            .frame(height: 20)
-            
-            // Scale
+            .frame(height: 24)
+
+            // Scale labels — bottom-aligned with the bar, no leading inset
             HStack {
-                Spacer().frame(width: 20)
-                HStack {
-                    Text("30").font(.caption2).foregroundColor(.gray)
-                    Spacer()
-                    Text("65").font(.caption2).foregroundColor(.gray)
-                    Spacer()
-                    Text("100").font(.caption2).foregroundColor(.gray)
-                }
+                Text("\(Int(yMinDB))").font(.caption2).foregroundColor(.gray)
+                Spacer()
+                Text("\(Int((yMinDB + yMaxDB) / 2))").font(.caption2).foregroundColor(.gray)
+                Spacer()
+                Text("\(Int(yMaxDB))").font(.caption2).foregroundColor(.gray)
             }
         }
-        .padding(10)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             print("[LevelMeterWidget] View appeared")
         }

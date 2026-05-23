@@ -1,6 +1,7 @@
 import Foundation
 import Accelerate
 import os.signpost
+import os.lock
 
 class SpectrogramProcessor {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.spectrogram")
@@ -391,5 +392,341 @@ class SpectrogramProcessor {
             emptyThirdOctaveBands: emptyBands,
             highestEnergeticFrequencyHz: highestEnergeticFrequency
         )
+    }
+}
+
+struct MelSpectrogramProcessor {
+    let filterBankCount: Int
+    let fftBinCount: Int
+    let sampleRate: Double
+    let frequencyRange: ClosedRange<Float>
+    private let filterBank: [Float]
+
+    init(
+        filterBankCount: Int = 40,
+        fftBinCount: Int,
+        sampleRate: Double,
+        frequencyRange: ClosedRange<Float>? = nil
+    ) {
+        self.filterBankCount = max(1, filterBankCount)
+        self.fftBinCount = max(1, fftBinCount)
+        self.sampleRate = sampleRate
+
+        let nyquist = Float(max(1.0, sampleRate / 2.0))
+        let lower = max(0, frequencyRange?.lowerBound ?? 20)
+        let upper = min(nyquist, max(lower + 1, frequencyRange?.upperBound ?? min(20_000, nyquist)))
+        self.frequencyRange = lower...upper
+        self.filterBank = Self.makeFilterBank(
+            filterBankCount: self.filterBankCount,
+            fftBinCount: self.fftBinCount,
+            nyquist: nyquist,
+            frequencyRange: self.frequencyRange
+        )
+    }
+
+    func compute(linearMagnitudes: [Float]) -> [Float] {
+        var output: [Float] = []
+        compute(linearMagnitudes: linearMagnitudes, into: &output)
+        return output
+    }
+
+    func compute(linearMagnitudes: [Float], into output: inout [Float]) {
+        if output.count != filterBankCount {
+            output = [Float](repeating: 0, count: filterBankCount)
+        }
+        guard linearMagnitudes.count >= fftBinCount else {
+            vDSP_vclr(&output, 1, vDSP_Length(output.count))
+            return
+        }
+
+        filterBank.withUnsafeBufferPointer { filterPtr in
+            linearMagnitudes.withUnsafeBufferPointer { inputPtr in
+                output.withUnsafeMutableBufferPointer { outputPtr in
+                    cblas_sgemv(
+                        CblasRowMajor,
+                        CblasNoTrans,
+                        Int32(filterBankCount),
+                        Int32(fftBinCount),
+                        1.0,
+                        filterPtr.baseAddress!,
+                        Int32(fftBinCount),
+                        inputPtr.baseAddress!,
+                        1,
+                        0.0,
+                        outputPtr.baseAddress!,
+                        1
+                    )
+                }
+            }
+        }
+    }
+
+    static func frequencyToMel(_ frequency: Float) -> Float {
+        2595.0 * log10(1.0 + frequency / 700.0)
+    }
+
+    static func melToFrequency(_ mel: Float) -> Float {
+        700.0 * (pow(10.0, mel / 2595.0) - 1.0)
+    }
+
+    private static func makeFilterBank(
+        filterBankCount: Int,
+        fftBinCount: Int,
+        nyquist: Float,
+        frequencyRange: ClosedRange<Float>
+    ) -> [Float] {
+        let pointCount = filterBankCount + 2
+        let minMel = frequencyToMel(frequencyRange.lowerBound)
+        let maxMel = frequencyToMel(frequencyRange.upperBound)
+        let step = (maxMel - minMel) / Float(max(pointCount - 1, 1))
+
+        var binPoints = (0..<pointCount).map { index -> Int in
+            let mel = minMel + Float(index) * step
+            let frequency = melToFrequency(mel)
+            let normalized = frequency / max(nyquist, 1)
+            return max(0, min(fftBinCount - 1, Int((normalized * Float(fftBinCount - 1)).rounded())))
+        }
+
+        for index in 1..<binPoints.count {
+            if binPoints[index] <= binPoints[index - 1] {
+                binPoints[index] = min(fftBinCount - 1, binPoints[index - 1] + 1)
+            }
+        }
+
+        var bank = [Float](repeating: 0, count: filterBankCount * fftBinCount)
+        bank.withUnsafeMutableBufferPointer { bankPtr in
+            guard let base = bankPtr.baseAddress else { return }
+            for filterIndex in 0..<filterBankCount {
+                let left = binPoints[filterIndex]
+                let center = binPoints[filterIndex + 1]
+                let right = binPoints[filterIndex + 2]
+                let row = base.advanced(by: filterIndex * fftBinCount)
+
+                if center > left {
+                    var start: Float = 0
+                    var end: Float = 1
+                    vDSP_vgen(&start, &end, row.advanced(by: left), 1, vDSP_Length(center - left + 1))
+                }
+                if right > center {
+                    var start: Float = 1
+                    var end: Float = 0
+                    vDSP_vgen(&start, &end, row.advanced(by: center), 1, vDSP_Length(right - center + 1))
+                }
+            }
+        }
+        return bank
+    }
+}
+
+/// Visualisierungspfad nach Apple "Visualizing Sound as an Audio Spectrogram":
+/// gefenstertes Audio → DCT-II → |.| → 2/N Skalierung → Mel-Filterbank →
+/// 20·log10 → +Kalibrierungsoffset. Wenn `melBandCount == 0` setzt der Prozessor
+/// die Mel-Stufe aus und gibt die linearen DCT-Bins zurück (Legacy-Modus,
+/// nützlich für Tests und Debug-Vergleiche).
+final class VisualSpectrogramProcessor {
+    private let lock = OSAllocatedUnfairLock()
+    private var transformSize: Int
+    private var sampleRate: Double
+    private var windowFunction: WindowFunction
+    private var melBandCount: Int
+    private var frequencyRange: ClosedRange<Float>
+    private var dct: vDSP.DCT?
+    private var window: [Float]
+    private var windowedSamples: [Float]
+    private var coefficients: [Float]
+    private var linearMagnitudes: [Float]
+    private var melScratch: [Float]
+    private var melProcessor: MelSpectrogramProcessor?
+    private var frequencies: [Float]
+
+    init(
+        transformSize: Int,
+        sampleRate: Double,
+        windowFunction: WindowFunction = .hann,
+        melBandCount: Int = 128,
+        frequencyRange: ClosedRange<Float> = 20...20_000
+    ) {
+        let safeSize = max(16, transformSize)
+        let safeMel = max(0, melBandCount)
+        self.transformSize = safeSize
+        self.sampleRate = sampleRate
+        self.windowFunction = windowFunction
+        self.melBandCount = safeMel
+        self.frequencyRange = frequencyRange
+        self.dct = vDSP.DCT(count: safeSize, transformType: .II)
+        self.window = windowFunction.generate(size: safeSize)
+        self.windowedSamples = [Float](repeating: 0, count: safeSize)
+        self.coefficients = [Float](repeating: 0, count: safeSize)
+        self.linearMagnitudes = [Float](repeating: 0, count: safeSize)
+
+        if safeMel > 0 {
+            let mel = MelSpectrogramProcessor(
+                filterBankCount: safeMel,
+                fftBinCount: safeSize,
+                sampleRate: sampleRate,
+                frequencyRange: frequencyRange
+            )
+            self.melProcessor = mel
+            self.melScratch = [Float](repeating: 0, count: safeMel)
+            self.frequencies = Self.makeMelFrequencies(
+                filterBankCount: safeMel,
+                frequencyRange: mel.frequencyRange
+            )
+        } else {
+            self.melProcessor = nil
+            self.melScratch = []
+            self.frequencies = Self.makeLinearFrequencies(transformSize: safeSize, sampleRate: sampleRate)
+        }
+    }
+
+    var outputBinCount: Int {
+        lock.withLockUnchecked { melBandCount > 0 ? melBandCount : transformSize }
+    }
+
+    func currentFrequencies() -> [Float] {
+        lock.withLockUnchecked { frequencies }
+    }
+
+    func reconfigure(
+        transformSize newSize: Int,
+        sampleRate newSampleRate: Double,
+        windowFunction newWindow: WindowFunction,
+        melBandCount newMelCount: Int? = nil,
+        frequencyRange newRange: ClosedRange<Float>? = nil
+    ) {
+        lock.withLockUnchecked {
+            let safeSize = max(16, newSize)
+            let resolvedMel = max(0, newMelCount ?? melBandCount)
+            let resolvedRange = newRange ?? frequencyRange
+
+            let sizeChanged = safeSize != transformSize
+            let sampleRateChanged = abs(newSampleRate - sampleRate) > 1.0
+            let windowChanged = newWindow != windowFunction
+            let melCountChanged = resolvedMel != melBandCount
+            let rangeChanged = resolvedRange != frequencyRange
+
+            guard sizeChanged || sampleRateChanged || windowChanged || melCountChanged || rangeChanged else {
+                return
+            }
+
+            transformSize = safeSize
+            sampleRate = newSampleRate
+            windowFunction = newWindow
+            melBandCount = resolvedMel
+            frequencyRange = resolvedRange
+
+            dct = vDSP.DCT(count: safeSize, transformType: .II)
+            window = newWindow.generate(size: safeSize)
+            windowedSamples = [Float](repeating: 0, count: safeSize)
+            coefficients = [Float](repeating: 0, count: safeSize)
+            linearMagnitudes = [Float](repeating: 0, count: safeSize)
+
+            if resolvedMel > 0 {
+                let mel = MelSpectrogramProcessor(
+                    filterBankCount: resolvedMel,
+                    fftBinCount: safeSize,
+                    sampleRate: newSampleRate,
+                    frequencyRange: resolvedRange
+                )
+                melProcessor = mel
+                melScratch = [Float](repeating: 0, count: resolvedMel)
+                frequencies = Self.makeMelFrequencies(
+                    filterBankCount: resolvedMel,
+                    frequencyRange: mel.frequencyRange
+                )
+            } else {
+                melProcessor = nil
+                melScratch = []
+                frequencies = Self.makeLinearFrequencies(transformSize: safeSize, sampleRate: newSampleRate)
+            }
+        }
+    }
+
+    /// Berechnet die dB-Magnituden für den Visualpfad. Liefert die
+    /// Frequenzbeschriftung der Ausgabe zurück (Mel-Zentren oder lineare
+    /// DCT-Bins, je nach Konfiguration). `output` wird auf die korrekte Länge
+    /// gebracht (Mel-Bandzahl oder Transformgröße).
+    func computeDBMagnitudes(
+        on samples: [Float],
+        gainBoost: Float,
+        calibrationOffset: Float,
+        into output: inout [Float]
+    ) -> [Float] {
+        lock.withLockUnchecked {
+            let bandCount = melBandCount > 0 ? melBandCount : transformSize
+            if output.count != bandCount {
+                output = [Float](repeating: -120, count: bandCount)
+            }
+
+            guard samples.count >= transformSize, let dct else {
+                var floor: Float = -120
+                vDSP_vfill(&floor, &output, 1, vDSP_Length(output.count))
+                return frequencies
+            }
+
+            // 1) Hann-Fenster × Samples
+            vDSP_vmul(samples, 1, window, 1, &windowedSamples, 1, vDSP_Length(transformSize))
+
+            // 2) optionaler Gain (Mic-Pre-Boost) zieht in den DCT-Eingang
+            if gainBoost != 1.0 {
+                var gain = gainBoost
+                vDSP_vsmul(windowedSamples, 1, &gain, &windowedSamples, 1, vDSP_Length(transformSize))
+            }
+
+            // 3) DCT-II → reelle Koeffizienten, |.| → lineare Magnituden
+            dct.transform(windowedSamples, result: &coefficients)
+            vDSP_vabs(coefficients, 1, &linearMagnitudes, 1, vDSP_Length(transformSize))
+
+            // 4) 2/N Skalierung (vDSP DCT-II gibt unskalierte Koeffizienten zurück)
+            var scale = 2.0 / Float(transformSize)
+            vDSP_vsmul(linearMagnitudes, 1, &scale, &linearMagnitudes, 1, vDSP_Length(transformSize))
+
+            // 5) Mel-Filterbank (oder Pass-through im Legacy-Modus)
+            if let melProcessor {
+                melProcessor.compute(linearMagnitudes: linearMagnitudes, into: &melScratch)
+                var lo: Float = 1e-10
+                var hi = Float.greatestFiniteMagnitude
+                vDSP_vclip(melScratch, 1, &lo, &hi, &output, 1, vDSP_Length(bandCount))
+            } else {
+                var lo: Float = 1e-10
+                var hi = Float.greatestFiniteMagnitude
+                vDSP_vclip(linearMagnitudes, 1, &lo, &hi, &output, 1, vDSP_Length(bandCount))
+            }
+
+            // 6) 20·log10 → dB-Amplitude
+            var count = Int32(bandCount)
+            vvlog10f(&output, output, &count)
+
+            var dbScale: Float = 20.0
+            vDSP_vsmul(output, 1, &dbScale, &output, 1, vDSP_Length(bandCount))
+
+            // 7) Kalibrierung in dB SPL
+            var offset = calibrationOffset
+            vDSP_vsadd(output, 1, &offset, &output, 1, vDSP_Length(bandCount))
+            return frequencies
+        }
+    }
+
+    private static func makeLinearFrequencies(transformSize: Int, sampleRate: Double) -> [Float] {
+        let nyquist = Float(sampleRate / 2.0)
+        return (0..<transformSize).map { Float($0) * nyquist / Float(max(transformSize - 1, 1)) }
+    }
+
+    /// Mel-Bandzentren in Hz, kompatibel mit
+    /// `MelSpectrogramProcessor.makeFilterBank` (pointCount = bands + 2,
+    /// gleichmäßig in Mel-Skala). Wird als `visualFrequencies` an Consumer
+    /// (HighEndSpectrogramAdapter, WaterfallView, Export) weitergereicht.
+    private static func makeMelFrequencies(
+        filterBankCount: Int,
+        frequencyRange: ClosedRange<Float>
+    ) -> [Float] {
+        let pointCount = filterBankCount + 2
+        let minMel = MelSpectrogramProcessor.frequencyToMel(frequencyRange.lowerBound)
+        let maxMel = MelSpectrogramProcessor.frequencyToMel(frequencyRange.upperBound)
+        let step = (maxMel - minMel) / Float(max(pointCount - 1, 1))
+        return (0..<filterBankCount).map { i in
+            let mel = minMel + Float(i + 1) * step
+            return MelSpectrogramProcessor.melToFrequency(mel)
+        }
     }
 }

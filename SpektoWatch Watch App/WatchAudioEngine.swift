@@ -27,6 +27,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var imagOut: [Float]
     private var window: [Float]
     private var fftMagnitudes: [Float]
+    private let visualDCT: vDSP.DCT
+    private var visualWindowedSamples: [Float]
+    private var visualCoefficients: [Float]
+    private var visualMagnitudes: [Float]
     #if DEBUG
     private var debugFrameCount = 0
     #endif
@@ -35,6 +39,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate)
     // and a scratch buffer for converting magnitude-dB to linear power for energy summation.
     private let binFrequencies: [Float]
+    private let visualFrequencies: [Float]
     private var linearPowerScratch: [Float]
 
     // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
@@ -72,6 +77,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             fatalError("Failed to create FFT setup")
         }
         fftSetup = setup
+        guard let dct = vDSP.DCT(count: fftSize, transformType: .II) else {
+            fatalError("Failed to create DCT setup")
+        }
+        visualDCT = dct
         
         realIn = [Float](repeating: 0, count: fftSize)
         imagIn = [Float](repeating: 0, count: fftSize)
@@ -79,15 +88,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         imagOut = [Float](repeating: 0, count: fftSize)
         window = [Float](repeating: 0, count: fftSize)
         fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
+        visualWindowedSamples = [Float](repeating: 0, count: fftSize)
+        visualCoefficients = [Float](repeating: 0, count: fftSize)
+        visualMagnitudes = [Float](repeating: 0, count: fftSize)
         fftInputScratch = [Float](repeating: 0, count: fftSize)
         linearPowerScratch = [Float](repeating: 0, count: fftSize / 2)
 
-        // Hann window — manual implementation to avoid vDSP API compatibility issues.
-        let n = Float(fftSize)
-        for i in 0..<fftSize {
-            let x = Float(i) / n
-            window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
-        }
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_DENORM))
 
         // Bin frequencies are constant for a given fftSize/sampleRate — compute once.
         let binCount = fftSize / 2
@@ -95,6 +102,9 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         var freqs = [Float](repeating: 0, count: binCount)
         for i in 0..<binCount { freqs[i] = Float(i) * binWidth }
         binFrequencies = freqs
+        let nyquist = Float(sampleRate / 2.0)
+        let visualBinCount = fftSize
+        visualFrequencies = (0..<visualBinCount).map { Float($0) * nyquist / Float(max(visualBinCount - 1, 1)) }
 
         super.init()
 
@@ -303,6 +313,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             }
         }
         performFFT(fftInputScratch)
+        performVisualDCT(fftInputScratch)
 
         // LAF energy: convert dB → linear power, then sum with vDSP_sve.
         // 10^(magDB/10) is equivalent to exp(magDB * ln(10) / 10).
@@ -322,6 +333,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // `binFrequencies` is a single immutable property — no per-frame rebuild.
         let data = SpectrogramData(frequencies: binFrequencies,
                                    magnitudes: fftMagnitudes,
+                                   visualFrequencies: visualFrequencies,
+                                   visualMagnitudes: visualMagnitudes,
                                    broadbandLevel: level,
                                    sampleRate: sampleRate)
 
@@ -414,6 +427,21 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             print("[WatchAudioEngine] FFT Low Freqs 0Hz: \(String(format: "%.1f", fftMagnitudes[0])) dB, 21Hz: \(String(format: "%.1f", fftMagnitudes[1])) dB")
         }
         #endif
+    }
+
+    private func performVisualDCT(_ samples: [Float]) {
+        vDSP_vmul(samples, 1, window, 1, &visualWindowedSamples, 1, vDSP_Length(fftSize))
+        visualDCT.transform(visualWindowedSamples, result: &visualCoefficients)
+        vDSP_vabs(visualCoefficients, 1, &visualMagnitudes, 1, vDSP_Length(fftSize))
+
+        var scale: Float = 2.0 / Float(fftSize)
+        vDSP_vsmul(visualMagnitudes, 1, &scale, &visualMagnitudes, 1, vDSP_Length(fftSize))
+
+        var epsilon: Float = 1e-9
+        vDSP_vsadd(visualMagnitudes, 1, &epsilon, &visualMagnitudes, 1, vDSP_Length(fftSize))
+
+        var ref: Float = 1.0
+        vDSP_vdbcon(visualMagnitudes, 1, &ref, &visualMagnitudes, 1, vDSP_Length(fftSize), 1)
     }
     
     // MARK: - WKExtendedRuntimeSessionDelegate

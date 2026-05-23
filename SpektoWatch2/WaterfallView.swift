@@ -1,140 +1,168 @@
 import SwiftUI
+import Combine
+
+// ============================================================================
+// MARK: - Turbo colormap LUT (matches HighEndSpectrogramShaders.metal)
+// ============================================================================
+
+/// 256-entry Turbo colormap, pre-computed once at first access. The polynomial
+/// is from Google Research's Turbo paper — same coefficients the live
+/// spectrogram Metal shader uses, so the two surfaces match visually.
+///
+/// Allocating Color per pixel per frame was burning ~1M allocations/s under the
+/// old per-segment colorizer; the LUT keeps the hot path allocation-free.
+private enum TurboColormap {
+    static let entries: [Color] = (0..<256).map { i in
+        sample(t: Float(i) / 255.0)
+    }
+
+    /// Looks up a normalized `t` in [0, 1] against the LUT.
+    static func color(for t: Float) -> Color {
+        let clamped = max(0, min(1, t))
+        return entries[Int(clamped * 255)]
+    }
+
+    private static func sample(t: Float) -> Color {
+        let t2 = t * t
+        let t3 = t2 * t
+        let t4 = t3 * t
+        let t5 = t4 * t
+        let r =  0.13572138 +  4.61539260 * t - 42.66032258 * t2 + 132.13108234 * t3 - 152.94239396 * t4 +  59.28637943 * t5
+        let g =  0.09140261 +  2.19418839 * t +  4.84296658 * t2 -  14.18503333 * t3 +   4.27729857 * t4 +   2.82956604 * t5
+        let b =  0.10667330 + 12.64194608 * t - 60.58204836 * t2 + 110.36276771 * t3 -  89.90310912 * t4 +  27.34824973 * t5
+        return Color(
+            red: Double(max(0, min(1, r))),
+            green: Double(max(0, min(1, g))),
+            blue: Double(max(0, min(1, b)))
+        )
+    }
+}
+
+// ============================================================================
+// MARK: - WaterfallView (renderer)
+// ============================================================================
 
 struct WaterfallView: View {
     let dataSet: WaterfallDataSet
-    let highlightedTime: TimeInterval
+    /// When non-nil, draws a playhead bar at this position in the time axis.
+    /// `nil` (live mode) suppresses the bar; recording-detail playback passes
+    /// the current scrub time so the user sees where they are in the data.
+    let highlightedTime: TimeInterval?
 
-    /// Camera state for the 3D-style waterfall projection.
-    /// In the diagram's coordinate system: X = frequency (horizontal),
-    /// Y = time (depth into the scene), Z = amplitude (vertical).
-    ///
-    /// - `pitch`: 0…1 controls how steep the time recession is. 0 = pure
-    ///   side-on (no depth, current spectrum line only), 1 = strongly
-    ///   tilted "looking down" (max depth, near top-down).
-    /// - `yaw`: −1…+1 controls horizontal shear of the time stack
-    ///   (slices recede to the right at +1, to the left at −1).
-    /// - `zoom`: 1.0 baseline; >1 zooms in on amplitude, <1 zooms out.
-    /// - Reset via double-tap.
-    @State private var pitch: CGFloat = 0.5
-    @State private var yaw: CGFloat = 0.5
-    @State private var zoom: CGFloat = 1.0
-    /// Crosshair position (plot-relative). Set when the user drags
-    /// inside a 2D mode (`topDown2D` or `sideLevelHistory2D`); the
-    /// crosshair persists until double-tap reset. Nil when no
-    /// crosshair is shown (default; or any time 3D mode is active).
+    // MARK: Camera state
+
+    /// `pitch` (0…1) — 0 = side-on, 1 = looking straight down.
+    /// `yaw` (-1…+1) — ±1 = looking along the time axis (side mode).
+    /// `zoom` — multiplicative amplitude scaling.
+    /// All persist across view ticks; in-flight gestures layer on top via
+    /// `@GestureState`.
+    @State private var pitch: CGFloat = Self.defaultPitch
+    @State private var yaw: CGFloat = Self.defaultYaw
+    @State private var zoom: CGFloat = Self.defaultZoom
+    /// View-local dB-window shift (2F vertical pan). Non-destructive.
+    @State private var zOffsetDB: Float = Self.defaultZOffsetDB
+    /// View-local frequency-window pan (2F horizontal pan).
+    @State private var xPanFrac: Float = Self.defaultXPanFrac
+
+    /// Crosshair picker state. `pickerEnabled` toggles on single-tap when in
+    /// a 2D mode; `crosshair` follows 1-finger drag while the picker is on.
+    @State private var pickerEnabled: Bool = false
     @State private var crosshair: CGPoint? = nil
+
     @GestureState private var dragDelta: CGSize = .zero
-    @GestureState private var magnification: CGFloat = 1.0
-
-    /// View-local **Z range overlay** (dB shift). Non-destructive: does
-    /// NOT write to the persisted widget settings. Reset on double-tap.
-    /// Positive → shifts the visible dB window upward (display window
-    /// reveals louder content); negative → downward.
-    @State private var zOffsetDB: Float = 0
-    /// View-local **X range overlay** (frequency-window pan). Fraction
-    /// of the spectrum's full bin range, −1…+1. 0 = full bin range
-    /// shown across the plot; +0.5 = visible window starts mid-spectrum
-    /// (high frequencies fall off the right edge); −0.5 = visible
-    /// window ends mid-spectrum (high frequencies pushed off-left).
-    /// Reset on double-tap.
-    @State private var xPanFrac: Float = 0
-
-    /// Live deltas from the in-flight 2-finger pan (driven by the
-    /// UIKit recognizer below). Committed into `zOffsetDB` / `xPanFrac`
-    /// on gesture end.
+    @GestureState private var pinchScale: CGFloat = 1.0
     @State private var twoFingerDelta: CGSize = .zero
 
-    private static let defaultPitch: CGFloat = 0.5
-    private static let defaultYaw: CGFloat = 0.5
+    // MARK: Constants
+
+    private static let defaultPitch: CGFloat = 0.4
+    private static let defaultYaw: CGFloat = 0.35
     private static let defaultZoom: CGFloat = 1.0
     private static let defaultZOffsetDB: Float = 0
     private static let defaultXPanFrac: Float = 0
 
-    /// Discrete view mode mapped from the camera state (pitch / yaw).
-    /// Per the user's "Front / Top / Side" sketch (PDF 22.05.2026),
-    /// the default view is the 3D oblique waterfall (their "Front")
-    /// and the 2D modes appear when tilting into the extremes.
-    ///
-    /// - `.oblique3D` — front view, 3D mountain range.
-    /// - `.topDown2D` — pitch ≥ 0.85 — classic spectrogram heatmap.
-    ///   X = frequency, Y = time, color = amplitude.
-    /// - `.sideLevelHistory2D` — |yaw| ≥ 0.85 — broadband level
-    ///   over time (the "Side" view, "Laeq / ges. Pegel").
+    private static let pitchSensitivity: CGFloat = 200
+    private static let yawSensitivity: CGFloat = 250
+    private static let zoomMin: CGFloat = 0.25
+    private static let zoomMax: CGFloat = 4.0
+    private static let zPanScale: Float = 0.06       // 100 pt → 6 dB
+    private static let xPanScale: Float = 0.001      // 100 pt → 0.10 pan
+
+    /// Mode hysteresis bands keep the label and the picker eligibility
+    /// stable when the user drags near a threshold. Mode is read from
+    /// the persisted (snapped) `pitch`/`yaw`, not from `effectivePitch`,
+    /// so in-flight drags don't flicker the mode label.
+    private static let topModeEnter: CGFloat = 0.85
+    private static let sideModeEnter: CGFloat = 0.85
+
+    // MARK: View-mode logic
+
     private enum ViewMode { case oblique3D, topDown2D, sideLevelHistory2D }
 
     private var viewMode: ViewMode {
-        let p = effectivePitch
-        let absY = abs(effectiveYaw)
-        // Top wins when both extremes are reached simultaneously
-        // (deliberate — vertical tilt is more directly tied to
-        // viewing the top of the cube).
-        if p >= 0.85 { return .topDown2D }
-        if absY >= 0.85 { return .sideLevelHistory2D }
+        if pitch >= Self.topModeEnter { return .topDown2D }
+        if abs(yaw) >= Self.sideModeEnter { return .sideLevelHistory2D }
         return .oblique3D
     }
 
     private var viewModeLabel: String {
         switch viewMode {
-        case .oblique3D:            return "3D · Front"
-        case .topDown2D:            return "2D · Top"
-        case .sideLevelHistory2D:   return "2D · Side"
+        case .oblique3D:          return "3D · ISO"
+        case .topDown2D:          return "2D · TOP"
+        case .sideLevelHistory2D: return "2D · SIDE"
         }
     }
 
-    /// True when 1-finger drag should drive the crosshair picker
-    /// instead of camera tilt.
+    /// 1-finger drag drives the crosshair picker only when (a) the camera
+    /// is in a 2D-ish mode and (b) the user has toggled the picker on.
+    /// Otherwise 1-finger drag tilts the camera (in 3D) or is a no-op (2D
+    /// + picker off).
     private var inPickerMode: Bool {
         switch viewMode {
         case .topDown2D, .sideLevelHistory2D: return true
-        case .oblique3D: return false
+        case .oblique3D:                      return false
         }
     }
 
+    // MARK: Effective values (camera state + in-flight gesture deltas)
+
     private var effectivePitch: CGFloat {
-        // Vertical drag: down → more tilt; up → flatter.
-        let raw = pitch + dragDelta.height / 200
-        return max(0, min(1, raw))
+        max(0, min(1, pitch + dragDelta.height / Self.pitchSensitivity))
     }
 
     private var effectiveYaw: CGFloat {
-        // Horizontal drag: right → recede right; left → recede left.
-        let raw = yaw + dragDelta.width / 250
-        return max(-1, min(1, raw))
+        max(-1, min(1, yaw + dragDelta.width / Self.yawSensitivity))
     }
 
     private var effectiveZoom: CGFloat {
-        max(0.25, min(4.0, zoom * magnification))
+        max(Self.zoomMin, min(Self.zoomMax, zoom * pinchScale))
     }
 
-    /// Live Z dB shift, including the in-flight 2-finger pan delta.
-    /// 2F vertical pan: 100pt → ~6 dB shift (scaled so a full-screen
-    /// pan walks the dB window by a meaningful chunk).
     private var effectiveZOffsetDB: Float {
-        let live = Float(-twoFingerDelta.height) * 0.06
+        let live = Float(-twoFingerDelta.height) * Self.zPanScale
         return clampDB(zOffsetDB + live)
     }
 
-    /// Live X frequency-window pan, including the in-flight 2-finger
-    /// pan delta. 2F horizontal pan: 100pt → ~0.10 (10%) shift.
+    /// Side mode ignores horizontal pan because X is time there, not
+    /// frequency. Suppressing the live delta keeps the visible window
+    /// fixed while the user 2F-pans for the Z shift in vertical motion.
     private var effectiveXPanFrac: Float {
-        let live = Float(-twoFingerDelta.width) * 0.001
+        guard viewMode != .sideLevelHistory2D else { return xPanFrac }
+        let live = Float(-twoFingerDelta.width) * Self.xPanScale
         return clampPan(xPanFrac + live)
     }
 
     private func clampDB(_ v: Float) -> Float { max(-40, min(40, v)) }
     private func clampPan(_ v: Float) -> Float { max(-1, min(1, v)) }
 
-    /// Frequency at the left edge of the currently-visible X window.
-    /// Accounts for the live 2F-horizontal pan so the axis label
-    /// reflects what the user is actually seeing.
     private var visibleLeftEdgeFreq: Float {
         frequencyAt(binFrac: CGFloat(effectiveXPanFrac))
     }
-
-    /// Frequency at the right edge of the currently-visible X window.
     private var visibleRightEdgeFreq: Float {
         frequencyAt(binFrac: CGFloat(effectiveXPanFrac) + 1)
     }
+
+    // MARK: Body
 
     var body: some View {
         GeometryReader { geometry in
@@ -142,193 +170,314 @@ struct WaterfallView: View {
                 draw(in: CGRect(origin: .zero, size: size), context: &context)
             }
             .background(Color.black)
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .center) {
                 if dataSet.isEmpty {
                     Text("Keine Wasserfall-Daten")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.72))
-                        .padding(12)
                 }
             }
             .contentShape(Rectangle())
-            // 1-finger drag: tilt camera in 3D, or move the crosshair
-            // picker in 2D modes. The mode check happens inside the
-            // gesture closure so the same DragGesture instance covers
-            // both. `dragDelta` only updates in 3D mode — that
-            // prevents a drag inside a 2D mode from accidentally
-            // crossing the pitch threshold and bouncing back out.
-            .gesture(
-                DragGesture(minimumDistance: 4)
-                    .updating($dragDelta) { value, state, _ in
-                        if !inPickerMode {
-                            state = value.translation
-                        }
-                    }
-                    .onChanged { value in
-                        if inPickerMode {
-                            crosshair = value.location
-                        }
-                    }
-                    .onEnded { value in
-                        if inPickerMode {
-                            crosshair = value.location
-                        } else {
-                            let newPitch = max(0, min(1, pitch + value.translation.height / 200))
-                            let newYaw = max(-1, min(1, yaw + value.translation.width / 250))
-                            // Snap-to-2D on commit: if the user dragged
-                            // past a mode threshold, animate the camera
-                            // the rest of the way so the new 2D mode
-                            // "sticks" instead of sitting half-tilted.
-                            // Returning to 3D happens via double-tap.
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                if newPitch >= 0.85 {
-                                    pitch = 1.0
-                                    yaw = 0
-                                } else if abs(newYaw) >= 0.85 {
-                                    yaw = newYaw >= 0 ? 1.0 : -1.0
-                                    pitch = 0.5 // mid-pitch for the side view
-                                } else {
-                                    pitch = newPitch
-                                    yaw = newYaw
-                                }
-                            }
-                        }
-                    }
-            )
-            // 2-finger pinch: zoom the amplitude (Z) axis.
-            .simultaneousGesture(
-                MagnificationGesture()
-                    .updating($magnification) { value, state, _ in
-                        state = value
-                    }
-                    .onEnded { value in
-                        zoom = max(0.25, min(4.0, zoom * value))
-                    }
-            )
-            // Double-tap: reset camera + zoom + view-local Z/X overlays
-            // + crosshair.
-            .onTapGesture(count: 2) {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    pitch = Self.defaultPitch
-                    yaw = Self.defaultYaw
-                    zoom = Self.defaultZoom
-                    zOffsetDB = Self.defaultZOffsetDB
-                    xPanFrac = Self.defaultXPanFrac
-                    crosshair = nil
-                }
-            }
-            // 2-finger pan: vertical → Z dB-window shift, horizontal →
-            // X frequency-window pan. View-local overlay, never written
-            // to widget settings. Layered as an overlay so the UIKit
-            // recognizer can coexist with the SwiftUI 1F drag + pinch.
+            .gesture(dragGesture)
+            .simultaneousGesture(zoomGesture)
+            // Tap ordering: count:2 must come BEFORE count:1 so SwiftUI's
+            // disambiguation lets the double-tap window resolve first.
+            .onTapGesture(count: 2, perform: resetCamera)
+            .onTapGesture(count: 1, perform: togglePicker)
             .overlay(
                 TwoFingerPanRecognizer(
                     onChange: { delta in twoFingerDelta = delta },
                     onEnd: { delta in
-                        zOffsetDB = clampDB(zOffsetDB + Float(-delta.height) * 0.06)
-                        xPanFrac = clampPan(xPanFrac + Float(-delta.width) * 0.001)
+                        commitTwoFingerPan(delta)
                         twoFingerDelta = .zero
                     }
                 )
                 .allowsHitTesting(true)
             )
+            .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("recordingWaterfallView")
+            .accessibilityLabel(accessibilityDescription)
         }
     }
+
+    // MARK: Gestures
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .updating($dragDelta) { value, state, _ in
+                // Only feed the camera-tilt delta when we're driving the
+                // camera; in picker mode the drag is for the crosshair.
+                if !(inPickerMode && pickerEnabled) {
+                    state = value.translation
+                }
+            }
+            .onChanged { value in
+                if inPickerMode && pickerEnabled {
+                    crosshair = value.location
+                }
+            }
+            .onEnded { value in
+                if inPickerMode && pickerEnabled {
+                    crosshair = value.location
+                    return
+                }
+                let newPitch = max(0, min(1, pitch + value.translation.height / Self.pitchSensitivity))
+                let newYaw   = max(-1, min(1, yaw + value.translation.width / Self.yawSensitivity))
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if newPitch >= Self.topModeEnter {
+                        pitch = 1.0
+                        yaw = 0
+                    } else if abs(newYaw) >= Self.sideModeEnter {
+                        yaw = newYaw >= 0 ? 1.0 : -1.0
+                        pitch = 0.5
+                    } else {
+                        pitch = newPitch
+                        yaw = newYaw
+                    }
+                }
+            }
+    }
+
+    private var zoomGesture: some Gesture {
+        // MagnifyGesture is the iOS 17+ replacement for the deprecated
+        // MagnificationGesture (same semantics, new value type).
+        MagnifyGesture()
+            .updating($pinchScale) { value, state, _ in
+                state = value.magnification
+            }
+            .onEnded { value in
+                zoom = max(Self.zoomMin, min(Self.zoomMax, zoom * value.magnification))
+            }
+    }
+
+    private func commitTwoFingerPan(_ delta: CGSize) {
+        zOffsetDB = clampDB(zOffsetDB + Float(-delta.height) * Self.zPanScale)
+        if viewMode != .sideLevelHistory2D {
+            xPanFrac = clampPan(xPanFrac + Float(-delta.width) * Self.xPanScale)
+        }
+    }
+
+    private func resetCamera() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            pitch = Self.defaultPitch
+            yaw = Self.defaultYaw
+            zoom = Self.defaultZoom
+            zOffsetDB = Self.defaultZOffsetDB
+            xPanFrac = Self.defaultXPanFrac
+            crosshair = nil
+            pickerEnabled = false
+        }
+    }
+
+    private func togglePicker() {
+        guard inPickerMode else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            pickerEnabled.toggle()
+            if !pickerEnabled { crosshair = nil }
+        }
+    }
+
+    private var accessibilityDescription: String {
+        if dataSet.isEmpty { return "Wasserfall: keine Daten" }
+        return "Wasserfall, \(viewModeLabel), \(dataSet.slices.count) Slices, \(formatDuration(dataSet.duration))"
+    }
+
+    // MARK: Draw entry point
 
     private func draw(in bounds: CGRect, context: inout GraphicsContext) {
         guard !dataSet.isEmpty else { return }
 
-        // Margins reserve space for axis labels OUTSIDE the plot area:
-        //  top 22pt: max-dB label + duration
-        //  left 42pt: keeps room for the implicit Y scale
-        //  bottom 36pt: 20 Hz / 20 kHz tick row + min-dB label
-        //  right 12pt: trailing breathing room
+        // Margins reserve space for axis labels OUTSIDE the plot area.
         let plot = CGRect(
             x: bounds.minX + 42,
             y: bounds.minY + 22,
             width: max(1, bounds.width - 54),
             height: max(1, bounds.height - 58)
         )
-        switch viewMode {
-        case .topDown2D:
-            drawTopDownSpectrogram(plot: plot, context: &context)
-        case .sideLevelHistory2D:
-            drawSideLevelHistory(plot: plot, context: &context)
-        case .oblique3D:
-            drawOblique3D(plot: plot, context: &context)
+
+        // Clip the unified scene to the plot rect — without this, content
+        // pans / projects outside `plot` and paints over the axis labels.
+        var sceneContext = context
+        sceneContext.clip(to: Path(plot))
+        drawUnifiedScene(plot: plot, context: &sceneContext)
+        if let t = highlightedTime, t.isFinite, t >= 0, dataSet.duration > 0 {
+            drawPlayhead3D(time: t, plot: plot, context: &sceneContext)
         }
 
+        // Labels render OUTSIDE the clip so they stay visible regardless
+        // of plot interior. Crosshair lives in the un-clipped layer too —
+        // the readout pill should not be clipped by the plot rect.
         drawLabels(plot: plot, bounds: bounds, context: &context)
 
-        // Crosshair overlay (2D modes only). Drawn last so it sits on
-        // top of everything inside the plot rect.
-        if inPickerMode, let position = crosshair {
+        if pickerEnabled, inPickerMode, let position = crosshair {
             drawCrosshair(at: position, plot: plot, context: &context)
         }
     }
 
-    // MARK: - Render modes
+    // ========================================================================
+    // MARK: - Unified 3D pipeline
+    // ========================================================================
 
-    /// |yaw| ≥ 0.85. Looks at the scene from the side: the X
-    /// (frequency) axis collapses into the page, so each slice
-    /// reduces to a single broadband level value. Result: a level
-    /// history curve, X = time, Y = amplitude. The "Laeq / ges.
-    /// Pegel" view in the user's sketch.
-    private func drawSideLevelHistory(plot: CGRect, context: inout GraphicsContext) {
-        let zoomEff = effectiveZoom
-        let baseY = plot.maxY
-        let usableHeight = max(1, plot.height - 10) * zoomEff
-        drawGrid(plot: plot, frontBaseY: baseY, depthX: 0, depthY: 0, context: &context)
-
+    /// Renders the waterfall as a single 3D scene through a unified camera
+    /// transform. World axes are centered around the origin so rotations
+    /// behave predictably:
+    /// - x: frequency (-0.5 = pan-left edge, +0.5 = pan-right edge)
+    /// - y: amplitude (-0.5 = minDB, +0.5 = maxDB)
+    /// - z: time      (-0.5 = oldest, +0.5 = newest)
+    ///
+    /// One `Path` per slice + one `stroke` per slice replaces the previous
+    /// per-bin-segment approach (~100× fewer GPU/Canvas commands per frame).
+    /// Amplitude detail is preserved through the world-Y axis displacement
+    /// (oblique / side) and through the slice's age-tinted Turbo color.
+    private func drawUnifiedScene(plot: CGRect, context: inout GraphicsContext) {
         let slices = dataSet.slices
-        guard slices.count >= 2 else { return }
+        guard !slices.isEmpty,
+              let firstSlice = slices.first,
+              !firstSlice.magnitudes.isEmpty else { return }
 
-        // Per-slice broadband level = max bin (representative of the
-        // loudest moment in that slice's spectrum). Matches what
-        // `lineColor` uses elsewhere so the color ramp stays
-        // consistent.
-        let levels: [Float] = slices.map { $0.magnitudes.max() ?? dataSet.minDB }
-        let count = levels.count
+        let pitchRad = Float(effectivePitch) * .pi / 2
+        let yawRad   = Float(effectiveYaw) * .pi / 2
+        let camera = CameraProjection(pitchRad: pitchRad, yawRad: yawRad)
 
-        // Newer time on the RIGHT (matches the 3D mode's "current at
-        // front" — front of the 3D scene becomes the right of the
-        // side projection).
-        var path = Path()
-        for (i, level) in levels.enumerated() {
-            let xFrac = CGFloat(i) / CGFloat(max(count - 1, 1))
-            let x = plot.minX + xFrac * plot.width
-            let normalized = normalizedLevel(level)
-            let y = baseY - CGFloat(normalized) * usableHeight
-            if i == 0 {
-                path.move(to: CGPoint(x: x, y: y))
-            } else {
-                path.addLine(to: CGPoint(x: x, y: y))
+        let sliceCount = slices.count
+        let lastIndex = sliceCount - 1
+        let binCount = firstSlice.magnitudes.count
+        let lastBinIndex = binCount - 1
+        let panFrac = Float(effectiveXPanFrac)
+
+        // Sort slices by post-rotation depth (painter's algorithm). The
+        // closer-to-camera slice is drawn last and occludes farther ones.
+        let drawOrder: [Int] = (0...lastIndex)
+            .map { i -> (Int, Float) in
+                let zWorld = Float(i) / Float(max(lastIndex, 1)) - 0.5
+                return (i, camera.project(SIMD3(0, 0, zWorld)).depth)
             }
-        }
+            .sorted { $0.1 < $1.1 }
+            .map { $0.0 }
 
-        // Soft fill underneath for readability, stroke on top.
-        var fillPath = path
-        fillPath.addLine(to: CGPoint(x: plot.maxX, y: baseY))
-        fillPath.addLine(to: CGPoint(x: plot.minX, y: baseY))
-        fillPath.closeSubpath()
-        let peakLevel = levels.max() ?? dataSet.minDB
-        let lineCol = lineColor(for: peakLevel)
-        context.fill(fillPath, with: .color(lineCol.opacity(0.15)))
-        context.stroke(path, with: .color(lineCol), lineWidth: 1.8)
+        let plotCenterX = plot.midX
+        let plotCenterY = plot.midY
+        let plotScaleX = plot.width
+        let plotScaleY = plot.height * effectiveZoom
+
+        // In top-down mode the amplitude axis collapses — pixels can no
+        // longer encode amplitude positionally, so we boost the per-slice
+        // color saturation by routing the slice's PEAK amplitude through
+        // the colormap instead of its age fraction.
+        let topDownTint = (viewMode == .topDown2D)
+
+        for displayIndex in drawOrder {
+            let slice = slices[displayIndex]
+            guard !slice.magnitudes.isEmpty else { continue }
+            let zWorld = Float(displayIndex) / Float(max(lastIndex, 1)) - 0.5
+
+            // Age 0 = newest, 1 = oldest. Old slices fade so the front of
+            // the mountain range stays readable.
+            let age = Float(lastIndex - displayIndex) / Float(max(lastIndex, 1))
+            let baseOpacity = Double(0.30 + 0.70 * (1 - age))
+
+            // Slice tint: in top-down mode use the slice's peak amplitude
+            // so loud rows pop in the heatmap. Otherwise tint by recency
+            // (newest = warm Turbo, oldest = cool).
+            let tintT: Float = {
+                if topDownTint {
+                    let peak = slice.magnitudes.max() ?? dataSet.minDB
+                    return normalizedLevel(peak)
+                }
+                return 0.20 + (1 - age) * 0.75 // 0.20 (cool) → 0.95 (warm)
+            }()
+            let strokeColor = TurboColormap.color(for: tintT)
+                .opacity(baseOpacity)
+
+            // Build the slice polyline as a single Path.
+            var path = Path()
+            for binIndex in 0..<binCount {
+                let binFrac = Float(binIndex) / Float(max(lastBinIndex, 1))
+                let xWorld = (binFrac - panFrac) - 0.5
+                let yWorld = normalizedLevel(slice.magnitudes[binIndex]) - 0.5
+                let projected = camera.project(SIMD3(xWorld, yWorld, zWorld))
+                let screen = CGPoint(
+                    x: plotCenterX + CGFloat(projected.x) * plotScaleX,
+                    y: plotCenterY + CGFloat(projected.y) * plotScaleY
+                )
+                if binIndex == 0 {
+                    path.move(to: screen)
+                } else {
+                    path.addLine(to: screen)
+                }
+            }
+
+            let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
+            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+        }
     }
 
-    // MARK: - Crosshair picker (2D modes)
+    /// Draws a horizontal segment in world space at the time matching
+    /// `highlightedTime`. Goes through the same `CameraProjection` so it
+    /// stays oriented correctly across all view modes (horizontal line on
+    /// top-down, vertical line on side, oblique cutaway in 3D).
+    private func drawPlayhead3D(time: TimeInterval, plot: CGRect, context: inout GraphicsContext) {
+        let t = Float(max(0, min(1, time / dataSet.duration)))
+        let zWorld = t - 0.5
+        let pitchRad = Float(effectivePitch) * .pi / 2
+        let yawRad   = Float(effectiveYaw) * .pi / 2
+        let camera = CameraProjection(pitchRad: pitchRad, yawRad: yawRad)
 
-    /// Renders a vertical + horizontal crosshair at `position` and a
-    /// small readout pill with mode-appropriate values:
-    /// - topDown2D: shows frequency (X) + time-ago (Y) + level (color sample).
-    /// - sideLevelHistory2D: shows time-ago (X) + level (Y).
-    /// The readout is drawn in whichever corner of the crosshair has
-    /// the most room so it never clips off the plot.
+        let leftWorld  = SIMD3<Float>(-0.5, 0, zWorld)
+        let rightWorld = SIMD3<Float>(+0.5, 0, zWorld)
+        let left  = camera.project(leftWorld)
+        let right = camera.project(rightWorld)
+
+        let plotCenterX = plot.midX
+        let plotCenterY = plot.midY
+        let scaleX = plot.width
+        let scaleY = plot.height * effectiveZoom
+
+        let p0 = CGPoint(x: plotCenterX + CGFloat(left.x) * scaleX,
+                         y: plotCenterY + CGFloat(left.y) * scaleY)
+        let p1 = CGPoint(x: plotCenterX + CGFloat(right.x) * scaleX,
+                         y: plotCenterY + CGFloat(right.y) * scaleY)
+        var path = Path()
+        path.move(to: p0)
+        path.addLine(to: p1)
+        context.stroke(path, with: .color(.white.opacity(0.78)), lineWidth: 1.4)
+    }
+
+    /// Orthographic 3D-to-2D projection. World box is [-0.5, 0.5]^3;
+    /// output is in normalized screen space [-0.5, 0.5] (caller scales).
+    private struct CameraProjection {
+        let pitchRad: Float
+        let yawRad: Float
+
+        func project(_ p: SIMD3<Float>) -> (x: Float, y: Float, depth: Float) {
+            // Yaw around world Y (vertical / amplitude).
+            let cy = cos(yawRad), sy = sin(yawRad)
+            let x1 = p.x * cy + p.z * sy
+            let y1 = p.y
+            let z1 = -p.x * sy + p.z * cy
+
+            // Pitch around world X (horizontal / frequency).
+            let cp = cos(pitchRad), sp = sin(pitchRad)
+            let y2 = y1 * cp - z1 * sp
+            let z2 = y1 * sp + z1 * cp
+
+            // Mild orthographic-with-perspective: scale x/y by a factor
+            // that grows with depth so closer slices look slightly larger
+            // than far ones. Keeps the projection invertible-ish without
+            // a true perspective divide (which would clip at the camera
+            // plane). Closer (higher depth, since after pitch the newest
+            // slice has positive z) gets ~1.15× scale; farther ~0.85×.
+            let perspective = 1.0 + 0.30 * z2
+
+            return (x: x1 * perspective, y: -y2 * perspective, depth: z2)
+        }
+    }
+
+    // ========================================================================
+    // MARK: - Crosshair picker
+    // ========================================================================
+
     private func drawCrosshair(at position: CGPoint, plot: CGRect, context: inout GraphicsContext) {
-        // Clamp the crosshair position to the plot rect so a drag
-        // that overshoots the edge still produces a sensible readout.
         let x = max(plot.minX, min(plot.maxX, position.x))
         let y = max(plot.minY, min(plot.maxY, position.y))
 
@@ -343,19 +492,16 @@ struct WaterfallView: View {
         vLine.addLine(to: CGPoint(x: x, y: plot.maxY))
         context.stroke(vLine, with: .color(lineColor), lineWidth: 0.5)
 
-        // Centre dot.
         let dotRect = CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
         context.fill(Path(ellipseIn: dotRect), with: .color(.white))
 
-        // Compose readout based on mode. Render on a dark capsule
-        // so it stays legible over the Top mode's bright heatmap
-        // cells.
         let readout = crosshairReadout(at: CGPoint(x: x, y: y), plot: plot)
-        let textPoint = readoutAnchor(near: CGPoint(x: x, y: y), plot: plot)
+        let readoutWidth = estimatedReadoutWidth(for: readout)
+        let textPoint = readoutAnchor(near: CGPoint(x: x, y: y), plot: plot, width: readoutWidth)
         let pillRect = CGRect(
             x: textPoint.x - 4,
             y: textPoint.y - 2,
-            width: estimatedReadoutWidth(for: readout) + 8,
+            width: readoutWidth + 8,
             height: 16
         )
         context.fill(
@@ -374,55 +520,120 @@ struct WaterfallView: View {
 
         switch viewMode {
         case .topDown2D:
-            // X = frequency (bin index frac, panFrac-aware).
             let binFrac = xFrac + panFrac
             let freqHz = frequencyAt(binFrac: binFrac)
-            // Y = time. Top row = oldest, bottom = newest.
             let timeAgo = max(0, dataSet.duration * (1 - Double(yFrac)))
-            // Color sample = magnitude at (binIndex, sliceIndex).
             let level = sampledLevel(binFrac: binFrac, sliceFrac: yFrac)
-            return String(
-                format: "%@   %@   %.0f dB",
-                formatHz(freqHz),
-                formatSec(timeAgo),
-                level + zShift
-            )
+            return String(format: "%@   %@   %.0f dB",
+                          formatHz(freqHz), formatSec(timeAgo), level + zShift)
         case .sideLevelHistory2D:
-            // X = time. Right = newest.
             let timeAgo = max(0, dataSet.duration * (1 - Double(xFrac)))
-            // Y = level — derive from y position inside the plot.
             let range = max(1, dataSet.maxDB - dataSet.minDB)
             let level = (dataSet.minDB + zShift) + Float(1 - yFrac) * range
             return String(format: "%@   %.1f dB", formatSec(timeAgo), level)
         case .oblique3D:
-            return "" // crosshair not drawn in 3D
+            return ""
         }
     }
 
-    /// Pick a corner of the crosshair point that has room for the
-    /// readout pill without clipping outside the plot rect.
-    /// Rough text-width estimate used to size the crosshair readout
-    /// pill background. SwiftUI Canvas doesn't expose a text-metrics
-    /// API, so we estimate from character count at the caption2 font
-    /// size (~5 pt per char for monospace-ish digits + caption fonts).
+    /// One source of truth for readout width — same estimator used both
+    /// for sizing the pill background and for overflow detection so they
+    /// can't disagree.
     private func estimatedReadoutWidth(for text: String) -> CGFloat {
-        return CGFloat(text.count) * 5.5
+        return CGFloat(text.count) * 5.8
     }
 
-    private func readoutAnchor(near point: CGPoint, plot: CGRect) -> CGPoint {
-        let estimatedTextWidth: CGFloat = 130
-        let estimatedTextHeight: CGFloat = 14
+    private func readoutAnchor(near point: CGPoint, plot: CGRect, width: CGFloat) -> CGPoint {
+        let textHeight: CGFloat = 14
         let offset: CGFloat = 8
 
-        // Default: top-right of the crosshair.
         var anchor = CGPoint(x: point.x + offset, y: point.y + offset)
-        if anchor.x + estimatedTextWidth > plot.maxX {
-            anchor.x = point.x - offset - estimatedTextWidth
+        if anchor.x + width > plot.maxX {
+            anchor.x = point.x - offset - width
         }
-        if anchor.y + estimatedTextHeight > plot.maxY {
-            anchor.y = point.y - offset - estimatedTextHeight
+        if anchor.y + textHeight > plot.maxY {
+            anchor.y = point.y - offset - textHeight
         }
         return anchor
+    }
+
+    // ========================================================================
+    // MARK: - Labels
+    // ========================================================================
+
+    private func drawLabels(plot: CGRect, bounds: CGRect, context: inout GraphicsContext) {
+        let zShift = effectiveZOffsetDB
+        let visibleMaxDB = Int((dataSet.maxDB + zShift).rounded())
+        let visibleMinDB = Int((dataSet.minDB + zShift).rounded())
+        let topLabelY = bounds.minY + 10
+        let bottomLabelY = bounds.maxY - 10
+
+        // Mode tag (top-left) + duration (top-right).
+        drawText(viewModeLabel,
+                 at: CGPoint(x: bounds.minX + 4, y: topLabelY),
+                 anchor: .leading, context: &context)
+        drawText(formatDuration(dataSet.duration),
+                 at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
+                 anchor: .trailing, context: &context)
+
+        switch viewMode {
+        case .oblique3D:
+            drawText("\(visibleMaxDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                     anchor: .trailing, context: &context)
+            drawText("\(visibleMinDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                     anchor: .trailing, context: &context)
+            drawText(formatHz(visibleLeftEdgeFreq),
+                     at: CGPoint(x: plot.minX, y: bottomLabelY),
+                     anchor: .leading, context: &context)
+            drawText(formatHz(visibleRightEdgeFreq),
+                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                     anchor: .trailing, context: &context)
+
+        case .topDown2D:
+            drawText("aktuell",
+                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                     anchor: .trailing, context: &context)
+            drawText("älter",
+                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                     anchor: .trailing, context: &context)
+            drawText(formatHz(visibleLeftEdgeFreq),
+                     at: CGPoint(x: plot.minX, y: bottomLabelY),
+                     anchor: .leading, context: &context)
+            drawText(formatHz(visibleRightEdgeFreq),
+                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                     anchor: .trailing, context: &context)
+
+        case .sideLevelHistory2D:
+            drawText("\(visibleMaxDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                     anchor: .trailing, context: &context)
+            drawText("\(visibleMinDB) dB",
+                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                     anchor: .trailing, context: &context)
+            drawText("älter",
+                     at: CGPoint(x: plot.minX, y: bottomLabelY),
+                     anchor: .leading, context: &context)
+            drawText("aktuell",
+                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                     anchor: .trailing, context: &context)
+        }
+    }
+
+    private func drawText(_ value: String, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
+        let text = Text(value).font(.caption2).foregroundColor(.white.opacity(0.72))
+        context.draw(text, at: point, anchor: anchor)
+    }
+
+    // MARK: Helpers
+
+    private func normalizedLevel(_ value: Float) -> Float {
+        let zShift = effectiveZOffsetDB
+        let minDB = dataSet.minDB + zShift
+        let maxDB = dataSet.maxDB + zShift
+        let range = max(1, maxDB - minDB)
+        return max(0, min(1, (value - minDB) / range))
     }
 
     private func frequencyAt(binFrac: CGFloat) -> Float {
@@ -446,7 +657,7 @@ struct WaterfallView: View {
     }
 
     private func formatHz(_ hz: Float) -> String {
-        if hz >= 1000 { return String(format: "%.2f kHz", hz / 1000) }
+        if hz >= 1000 { return String(format: "%.1f kHz", hz / 1000) }
         return String(format: "%.0f Hz", hz)
     }
 
@@ -455,419 +666,239 @@ struct WaterfallView: View {
         return String(format: "%.0fms", seconds * 1000)
     }
 
-    /// Pitch ≥ 0.85. Spectrogram heatmap. Each slice = one
-    /// horizontal row; each bin = one cell; cell color = amplitude
-    /// (uses the same `lineColor` ramp the 3D / 2D modes use).
-    /// Y-axis: top = oldest, bottom = newest (so the current
-    /// spectrum is at the FRONT, matching the 3D mode).
-    /// X-axis: same panFrac-aware mapping as `slicePath`.
-    private func drawTopDownSpectrogram(plot: CGRect, context: inout GraphicsContext) {
-        let slices = dataSet.slices
-        guard !slices.isEmpty,
-              let firstSlice = slices.first,
-              !firstSlice.magnitudes.isEmpty else { return }
-
-        let sliceCount = slices.count
-        let binCount = firstSlice.magnitudes.count
-        let panFrac = CGFloat(effectiveXPanFrac)
-        let cellHeight = plot.height / CGFloat(sliceCount)
-        let cellWidth = plot.width / CGFloat(max(binCount - 1, 1))
-
-        for (sliceIndex, slice) in slices.enumerated() {
-            // Newest slice → bottom row; oldest → top.
-            let rowY = plot.minY + CGFloat(sliceIndex) * cellHeight
-            for (binIndex, magnitude) in slice.magnitudes.enumerated() {
-                let normalized = normalizedLevel(magnitude)
-                guard normalized > 0.02 else { continue }
-                let binFrac = CGFloat(binIndex) / CGFloat(max(binCount - 1, 1))
-                let visibleFrac = binFrac - panFrac
-                let x = plot.minX + visibleFrac * plot.width
-                let rect = CGRect(
-                    x: x,
-                    y: rowY,
-                    width: cellWidth + 0.5, // overlap to avoid 1px seams
-                    height: cellHeight + 0.5
-                )
-                let color = lineColor(for: magnitude)
-                context.fill(Path(rect), with: .color(color.opacity(0.6 + 0.4 * Double(normalized))))
-            }
-        }
-    }
-
-    /// 0.15 < pitch < 0.85. Existing 3D oblique waterfall.
-    private func drawOblique3D(plot: CGRect, context: inout GraphicsContext) {
-        let sliceCount = dataSet.slices.count
-        let pitchEff = effectivePitch
-        let yawEff = effectiveYaw
-        let zoomEff = effectiveZoom
-        let maxDepthY: CGFloat = 38
-        let maxDepthX: CGFloat = 54
-        let depthY = pitchEff * min(maxDepthY, plot.height * 0.30)
-        let depthX = yawEff * min(maxDepthX, plot.width * 0.20)
-        let frontBaseY = plot.maxY - depthY
-        let usableHeight = max(1, plot.height - depthY - 10) * zoomEff
-
-        drawGrid(plot: plot, frontBaseY: frontBaseY, depthX: depthX, depthY: depthY, context: &context)
-
-        let lastIndex = sliceCount - 1
-        for displayIndex in 0...lastIndex {
-            let slice = dataSet.slices[displayIndex]
-            let age = CGFloat(lastIndex - displayIndex) / CGFloat(max(lastIndex, 1))
-            let offsetX = depthX * age
-            let offsetY = -depthY * age
-            let opacity = 0.20 + 0.70 * (1.0 - age)
-            let path = slicePath(slice: slice, plot: plot, baseY: frontBaseY + offsetY,
-                                 offsetX: offsetX, usableHeight: usableHeight)
-            let color = lineColor(for: slice.magnitudes.max() ?? dataSet.minDB).opacity(opacity)
-            let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
-            context.stroke(path, with: .color(color), lineWidth: lineWidth)
-
-            if (lastIndex - displayIndex).isMultiple(of: 4) || displayIndex == 0 {
-                let fill = fillPath(from: path, plot: plot, baseY: frontBaseY + offsetY, offsetX: offsetX)
-                context.fill(fill, with: .color(color.opacity(0.10)))
-            }
-        }
-
-        drawPlayhead(plot: plot, frontBaseY: frontBaseY, depthX: depthX, depthY: depthY, context: &context)
-    }
-
-    private func drawGrid(
-        plot: CGRect,
-        frontBaseY: CGFloat,
-        depthX: CGFloat,
-        depthY: CGFloat,
-        context: inout GraphicsContext
-    ) {
-        let gridColor = Color.white.opacity(0.18)
-        var outline = Path()
-        outline.move(to: CGPoint(x: plot.minX, y: frontBaseY))
-        outline.addLine(to: CGPoint(x: plot.maxX, y: frontBaseY))
-        outline.addLine(to: CGPoint(x: plot.maxX + depthX, y: frontBaseY - depthY))
-        outline.addLine(to: CGPoint(x: plot.minX + depthX, y: frontBaseY - depthY))
-        outline.closeSubpath()
-        context.stroke(outline, with: .color(gridColor), lineWidth: 1)
-
-        for fraction in stride(from: CGFloat(0.0), through: 1.0, by: 0.25) {
-            let y = frontBaseY - fraction * (plot.height - depthY - 10)
-            var path = Path()
-            path.move(to: CGPoint(x: plot.minX, y: y))
-            path.addLine(to: CGPoint(x: plot.maxX, y: y))
-            context.stroke(path, with: .color(gridColor.opacity(0.7)), lineWidth: 0.7)
-        }
-
-        for fraction in stride(from: CGFloat(0.0), through: 1.0, by: 0.25) {
-            let x = plot.minX + fraction * plot.width
-            var path = Path()
-            path.move(to: CGPoint(x: x, y: frontBaseY))
-            path.addLine(to: CGPoint(x: x + depthX, y: frontBaseY - depthY))
-            context.stroke(path, with: .color(gridColor.opacity(0.6)), lineWidth: 0.7)
-        }
-    }
-
-    private func slicePath(
-        slice: WaterfallSlice,
-        plot: CGRect,
-        baseY: CGFloat,
-        offsetX: CGFloat,
-        usableHeight: CGFloat
-    ) -> Path {
-        var path = Path()
-        guard !slice.magnitudes.isEmpty else { return path }
-
-        // 2F horizontal pan: shifts the visible frequency window. The
-        // bin → x mapping subtracts xPanFracEff (−1…+1) so positive
-        // pan slides the spectrum left (high frequencies enter the
-        // view from the right). Bins that fall outside the plot rect
-        // are still drawn but clipped by the surrounding chrome.
-        let panFrac = CGFloat(effectiveXPanFrac)
-        let denominator = CGFloat(max(slice.magnitudes.count - 1, 1))
-
-        for (index, magnitude) in slice.magnitudes.enumerated() {
-            let binFrac = CGFloat(index) / denominator
-            let visibleFrac = binFrac - panFrac
-            let x = plot.minX + visibleFrac * plot.width + offsetX
-            let normalized = normalizedLevel(magnitude)
-            let y = baseY - CGFloat(normalized) * usableHeight
-            let point = CGPoint(x: x, y: y)
-            if index == 0 {
-                path.move(to: point)
-            } else {
-                path.addLine(to: point)
-            }
-        }
-        return path
-    }
-
-    private func fillPath(from line: Path, plot: CGRect, baseY: CGFloat, offsetX: CGFloat) -> Path {
-        var fill = line
-        fill.addLine(to: CGPoint(x: plot.maxX + offsetX, y: baseY))
-        fill.addLine(to: CGPoint(x: plot.minX + offsetX, y: baseY))
-        fill.closeSubpath()
-        return fill
-    }
-
-    private func drawPlayhead(
-        plot: CGRect,
-        frontBaseY: CGFloat,
-        depthX: CGFloat,
-        depthY: CGFloat,
-        context: inout GraphicsContext
-    ) {
-        guard dataSet.duration > 0 else { return }
-        let t = max(0, min(1, highlightedTime / dataSet.duration))
-        let age = CGFloat(t)
-        let xOffset = depthX * age
-        let yOffset = -depthY * age
-        var path = Path()
-        path.move(to: CGPoint(x: plot.minX + xOffset, y: frontBaseY + yOffset))
-        path.addLine(to: CGPoint(x: plot.maxX + xOffset, y: frontBaseY + yOffset))
-        context.stroke(path, with: .color(.white.opacity(0.72)), lineWidth: 1.4)
-    }
-
-    private func drawLabels(plot: CGRect, bounds: CGRect, context: inout GraphicsContext) {
-        // All labels sit OUTSIDE the plot rect. Axis meaning depends
-        // on the active view mode (Front/Top/Side per the user's
-        // sketch).
-        let zShift = effectiveZOffsetDB
-        let visibleMaxDB = Int((dataSet.maxDB + zShift).rounded())
-        let visibleMinDB = Int((dataSet.minDB + zShift).rounded())
-        let topLabelY = bounds.minY + 10
-        let bottomLabelY = bounds.maxY - 10
-
-        // Top margin: view-mode tag + duration. Always shown.
-        drawText(viewModeLabel,
-                 at: CGPoint(x: bounds.minX + 4, y: topLabelY),
-                 anchor: .leading, context: &context)
-        drawText(formatDuration(dataSet.duration),
-                 at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
-                 anchor: .trailing, context: &context)
-
-        switch viewMode {
-        case .oblique3D:
-            // Y = amplitude (dB), X = frequency (Hz).
-            drawText("\(visibleMaxDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
-                     anchor: .trailing, context: &context)
-            drawText("\(visibleMinDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
-                     anchor: .trailing, context: &context)
-            drawText(formatHz(visibleLeftEdgeFreq),
-                     at: CGPoint(x: plot.minX, y: bottomLabelY),
-                     anchor: .leading, context: &context)
-            drawText(formatHz(visibleRightEdgeFreq),
-                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
-                     anchor: .trailing, context: &context)
-
-        case .topDown2D:
-            // Y = time (newest at bottom), X = frequency. Amplitude is
-            // encoded in cell color so no dB labels here.
-            drawText("aktuell",
-                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
-                     anchor: .trailing, context: &context)
-            drawText("älter",
-                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
-                     anchor: .trailing, context: &context)
-            drawText(formatHz(visibleLeftEdgeFreq),
-                     at: CGPoint(x: plot.minX, y: bottomLabelY),
-                     anchor: .leading, context: &context)
-            drawText(formatHz(visibleRightEdgeFreq),
-                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
-                     anchor: .trailing, context: &context)
-
-        case .sideLevelHistory2D:
-            // Y = amplitude (dB), X = time (newest right).
-            drawText("\(visibleMaxDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
-                     anchor: .trailing, context: &context)
-            drawText("\(visibleMinDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
-                     anchor: .trailing, context: &context)
-            drawText("älter",
-                     at: CGPoint(x: plot.minX, y: bottomLabelY),
-                     anchor: .leading, context: &context)
-            drawText("aktuell",
-                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
-                     anchor: .trailing, context: &context)
-        }
-    }
-
-    private func drawText(_ value: String, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
-        let text = Text(value).font(.caption2).foregroundColor(.white.opacity(0.72))
-        context.draw(text, at: point, anchor: anchor)
-    }
-
-    private func normalizedLevel(_ value: Float) -> Float {
-        // 2F vertical pan: shifts the dB window. zOffsetDB > 0 moves
-        // the window UP (display reveals louder content; the same raw
-        // value normalises to a lower position). Keep the window
-        // width unchanged.
-        let zShift = effectiveZOffsetDB
-        let minDB = dataSet.minDB + zShift
-        let maxDB = dataSet.maxDB + zShift
-        let range = max(1, maxDB - minDB)
-        return max(0, min(1, (value - minDB) / range))
-    }
-
-    private func lineColor(for value: Float) -> Color {
-        let t = Double(normalizedLevel(value))
-        if t < 0.33 {
-            let u = t / 0.33
-            return Color(red: 0.08, green: 0.22 + 0.42 * u, blue: 0.85 - 0.35 * u)
-        }
-        if t < 0.66 {
-            let u = (t - 0.33) / 0.33
-            return Color(red: 0.08 + 0.82 * u, green: 0.64 + 0.18 * u, blue: 0.50 - 0.42 * u)
-        }
-        let u = (t - 0.66) / 0.34
-        return Color(red: 0.90 + 0.10 * u, green: 0.82 - 0.56 * u, blue: 0.08)
-    }
-
     private func formatDuration(_ duration: TimeInterval) -> String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        if duration >= 60 {
+            let m = Int(duration) / 60
+            let s = Int(duration) % 60
+            return String(format: "%02d:%02d", m, s)
+        }
+        return String(format: "%.1fs", duration)
     }
 }
+
+// ============================================================================
+// MARK: - History store (audio-rate ingest, throttled rebuild)
+// ============================================================================
+
+/// Holds the rolling waterfall history and rebuilds the displayed
+/// `WaterfallDataSet` at a fixed cadence. Splitting this out of
+/// `WaterfallWidget` lets the SwiftUI body re-render only when the throttled
+/// dataset actually changes (≈8 Hz) instead of on every audio frame
+/// (~86 Hz). Storage is a `RingBuffer` so eviction is O(1) per frame.
+@MainActor
+final class WaterfallHistoryStore: ObservableObject {
+
+    struct Settings: Equatable {
+        var capacity: Int
+        var sliceCount: Int
+        var minDB: Float
+        var maxDB: Float
+        var rebuildInterval: TimeInterval
+        var targetFrequencyCount: Int
+
+        static let `default` = Settings(
+            capacity: 720,
+            sliceCount: WidgetSettings.defaultWaterfallSliceCount,
+            minDB: WidgetSettings.defaultWaterfallMinDB,
+            maxDB: WidgetSettings.defaultWaterfallMaxDB,
+            rebuildInterval: 0.12,
+            targetFrequencyCount: 128
+        )
+    }
+
+    private struct Frame {
+        let magnitudes: [Float]
+        let timestamp: Date
+    }
+
+    @Published private(set) var dataSet: WaterfallDataSet = WaterfallDataSet.empty
+
+    private(set) var settings: Settings
+    private var history: RingBuffer<Frame>
+    private var lastFrequencies: [Float] = []
+    private var lastBinCount: Int = 0
+    private var lastRebuild: TimeInterval = 0
+
+    init(settings: Settings = .default) {
+        self.settings = settings
+        self.history = RingBuffer(capacity: max(8, settings.capacity))
+        self.dataSet = WaterfallDataSet.empty.with(minDB: settings.minDB, maxDB: settings.maxDB)
+    }
+
+    func update(settings new: Settings) {
+        let capacityChanged = new.capacity != settings.capacity
+        let dbChanged = new.minDB != settings.minDB || new.maxDB != settings.maxDB
+        settings = new
+        if capacityChanged {
+            history = RingBuffer(capacity: max(8, new.capacity))
+            lastBinCount = 0
+            lastFrequencies = []
+            dataSet = WaterfallDataSet.empty.with(minDB: new.minDB, maxDB: new.maxDB)
+            return
+        }
+        if dbChanged || new.sliceCount != settings.sliceCount {
+            rebuild(force: true)
+        }
+    }
+
+    func reset() {
+        history.removeAll()
+        lastBinCount = 0
+        lastFrequencies = []
+        dataSet = WaterfallDataSet.empty.with(minDB: settings.minDB, maxDB: settings.maxDB)
+    }
+
+    func append(magnitudes: [Float], frequencies: [Float], timestamp: Date) {
+        guard !magnitudes.isEmpty, !frequencies.isEmpty else { return }
+        // Bin-count drift (e.g. FFT-size change, mel/linear toggle) makes
+        // older frames meaningless against the new axis. Drop history
+        // rather than rendering an axis-misaligned stripe.
+        if lastBinCount != 0, magnitudes.count != lastBinCount {
+            history.removeAll()
+        }
+        history.append(Frame(magnitudes: magnitudes, timestamp: timestamp))
+        lastBinCount = magnitudes.count
+        lastFrequencies = frequencies
+        rebuildIfDue()
+    }
+
+    private func rebuildIfDue() {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastRebuild >= settings.rebuildInterval else { return }
+        lastRebuild = now
+        rebuild(force: false)
+    }
+
+    private func rebuild(force: Bool) {
+        let frames = history.inOrder()
+        guard !frames.isEmpty, !lastFrequencies.isEmpty else {
+            if !dataSet.isEmpty {
+                dataSet = WaterfallDataSet.empty.with(minDB: settings.minDB, maxDB: settings.maxDB)
+            }
+            return
+        }
+        // Duration derived from frame timestamps — always honest about
+        // what the visible slices actually cover.
+        let span: TimeInterval = {
+            guard let first = frames.first?.timestamp,
+                  let last = frames.last?.timestamp else { return 0 }
+            return max(0, last.timeIntervalSince(first))
+        }()
+        let magnitudes = frames.map { $0.magnitudes }
+        dataSet = WaterfallDataBuilder.build(
+            history: magnitudes,
+            sourceFrequencies: lastFrequencies,
+            duration: span,
+            targetSliceCount: settings.sliceCount,
+            targetFrequencyCount: settings.targetFrequencyCount,
+            minDB: settings.minDB,
+            maxDB: settings.maxDB
+        )
+    }
+}
+
+private extension WaterfallDataSet {
+    static let empty = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: 30, maxDB: 110)
+
+    func with(minDB: Float, maxDB: Float) -> WaterfallDataSet {
+        WaterfallDataSet(slices: slices, frequencies: frequencies, duration: duration, minDB: minDB, maxDB: maxDB)
+    }
+}
+
+// ============================================================================
+// MARK: - WaterfallWidget (data plumbing)
+// ============================================================================
 
 struct WaterfallWidget: View {
     @ObservedObject var audioEngine: AudioEngine
     var settings: [String: String]
 
-    @State private var history: [[Float]] = []
-    @State private var frequencies: [Float] = []
-    @State private var dataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: -110, maxDB: 20)
-    @State private var lastBuildTime: TimeInterval = 0
+    @StateObject private var store = WaterfallHistoryStore()
 
+    // Settings derivation. With the mel visual pipeline `visualMagnitudes`
+    // is always present and weighting-agnostic, so the per-widget weighting
+    // override is intentionally not threaded into the store any more.
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
-    private var weighting: String {
-        if useWidgetOverrides {
-            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
-        }
-        return audioEngine.frequencyWeighting.rawValue
-    }
+
     private var sliceCount: Int {
         guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallSliceCount }
-        return Int(settings["waterfallSlices"] ?? String(WidgetSettings.defaultWaterfallSliceCount)) ?? WidgetSettings.defaultWaterfallSliceCount
+        return Int(settings["waterfallSlices"] ?? "") ?? WidgetSettings.defaultWaterfallSliceCount
     }
+
     private var minDB: Float {
         guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallMinDB }
-        let raw = Float(settings["waterfallMinDB"] ?? String(Int(WidgetSettings.defaultWaterfallMinDB))) ?? WidgetSettings.defaultWaterfallMinDB
-        // Migration: pre-fix settings stored dBFS-style negative values
-        // (e.g. -110). Magnitudes are calibrated dB SPL now, so any
-        // saved negative value is from the old scheme — fall back to
-        // the SPL default.
+        let raw = Float(settings["waterfallMinDB"] ?? "") ?? WidgetSettings.defaultWaterfallMinDB
+        // Pre-2026-05 settings stored dBFS-style negatives; fall back to default.
         return raw < 0 ? WidgetSettings.defaultWaterfallMinDB : raw
     }
+
     private var maxDB: Float {
         guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallMaxDB }
-        let raw = Float(settings["waterfallMaxDB"] ?? String(Int(WidgetSettings.defaultWaterfallMaxDB))) ?? WidgetSettings.defaultWaterfallMaxDB
-        // Migration: a saved max ≤ 0 is also from the old dBFS scheme.
+        let raw = Float(settings["waterfallMaxDB"] ?? "") ?? WidgetSettings.defaultWaterfallMaxDB
         return raw <= 0 ? WidgetSettings.defaultWaterfallMaxDB : raw
     }
-    private var maxHistoryFrames: Int {
-        max(24, min(240, sliceCount * 2))
+
+    /// History capacity sized for ~6 seconds at 86 Hz — long enough to
+    /// give the time axis meaningful depth without paying for a huge
+    /// ring buffer.
+    private var capacity: Int {
+        max(120, sliceCount * 6)
+    }
+
+    private var resolvedSettings: WaterfallHistoryStore.Settings {
+        WaterfallHistoryStore.Settings(
+            capacity: capacity,
+            sliceCount: sliceCount,
+            minDB: minDB,
+            maxDB: maxDB,
+            rebuildInterval: 0.12,
+            targetFrequencyCount: 128
+        )
     }
 
     var body: some View {
-        WaterfallView(dataSet: dataSet, highlightedTime: 0)
-            .overlay(alignment: .topLeading) {
-                HStack(spacing: 8) {
-                    Image(systemName: "water.waves")
-                        .font(.caption.weight(.semibold))
-                    Text("Wasserfall")
-                        .font(.caption.weight(.semibold))
-                    Text(weighting.uppercased())
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                .foregroundStyle(.white.opacity(0.82))
-                .padding(10)
-            }
+        // No widget-level header overlay: the card chrome
+        // (`WidgetCardView`) already labels the widget. Keeping the canvas
+        // surface clean leaves the mode tag drawn by `WaterfallView`
+        // unambiguous.
+        WaterfallView(dataSet: store.dataSet, highlightedTime: nil)
             .onReceive(audioEngine.spectrogramSubject) { data in
-                appendFrame(data)
+                let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
+                let frequencies = data.visualFrequencies ?? data.frequencies
+                store.append(
+                    magnitudes: magnitudes,
+                    frequencies: frequencies,
+                    timestamp: data.timestamp
+                )
             }
-            .onChange(of: weighting) { _, _ in
-                resetHistory()
-            }
-            .onChange(of: sliceCount) { _, _ in
-                trimHistoryIfNeeded()
-                rebuildDataSet(force: true)
-            }
-            .onChange(of: minDB) { _, _ in
-                rebuildDataSet(force: true)
-            }
-            .onChange(of: maxDB) { _, _ in
-                rebuildDataSet(force: true)
+            .onChange(of: resolvedSettings) { _, new in
+                store.update(settings: new)
             }
             .onAppear {
-                if let currentData = audioEngine.currentSpectrogramData {
-                    appendFrame(currentData)
+                store.update(settings: resolvedSettings)
+                if let current = audioEngine.currentSpectrogramData {
+                    let m = current.visualMagnitudes ?? current.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
+                    let f = current.visualFrequencies ?? current.frequencies
+                    store.append(magnitudes: m, frequencies: f, timestamp: current.timestamp)
                 }
             }
             .accessibilityIdentifier("waterfallWidget")
     }
-
-    private func appendFrame(_ data: SpectrogramData) {
-        let magnitudes = data.magnitudes(for: weighting)
-        guard !magnitudes.isEmpty, !data.frequencies.isEmpty else { return }
-
-        history.append(magnitudes)
-        frequencies = data.frequencies
-        trimHistoryIfNeeded()
-        rebuildDataSet(force: false)
-    }
-
-    private func trimHistoryIfNeeded() {
-        if history.count > maxHistoryFrames {
-            history.removeFirst(history.count - maxHistoryFrames)
-        }
-    }
-
-    private func resetHistory() {
-        history.removeAll(keepingCapacity: true)
-        dataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: minDB, maxDB: maxDB)
-    }
-
-    private func rebuildDataSet(force: Bool) {
-        let now = CFAbsoluteTimeGetCurrent()
-        guard force || now - lastBuildTime >= 0.12 else { return }
-        lastBuildTime = now
-
-        let sampleRate = audioEngine.currentSpectrogramData?.sampleRate ?? 44100.0
-        let hopDuration = Double(audioEngine.scrollSpeed.rawValue) / max(1, sampleRate)
-        let duration = max(hopDuration * Double(history.count), audioEngine.recordingDuration)
-        dataSet = WaterfallDataBuilder.build(
-            history: history,
-            sourceFrequencies: frequencies,
-            duration: duration,
-            targetSliceCount: sliceCount,
-            targetFrequencyCount: 128,
-            minDB: minDB,
-            maxDB: maxDB
-        )
-    }
 }
 
+// ============================================================================
 // MARK: - Two-finger pan recognizer (UIKit bridge)
+// ============================================================================
 //
-// SwiftUI's DragGesture is 1-finger only. To get a true 2-finger pan
-// that coexists with SwiftUI's MagnificationGesture (pinch) and the
-// 1-finger DragGesture (tilt), we drop a transparent UIView into the
-// view tree as an overlay and attach a UIPanGestureRecognizer with
-// minimumNumberOfTouches = 2.
+// SwiftUI's DragGesture is 1-finger only. To get a true 2-finger pan that
+// coexists with the SwiftUI MagnifyGesture (pinch) and the 1-finger drag,
+// we drop a transparent UIView into the view tree as an overlay and attach
+// a UIPanGestureRecognizer with minimumNumberOfTouches = 2.
 //
-// Touch routing
-// -------------
-// The wrapping UIView only "claims" touch events when 2+ fingers are
-// down. With 0 or 1 finger, hitTest returns nil so touches fall through
-// to the SwiftUI layer beneath (where the 1-finger DragGesture lives).
-// Once 2 fingers are detected, the recognizer fires .changed events with
-// translation, which we feed back into SwiftUI state via the closures.
-//
-// Simultaneous recognition with MagnificationGesture works because UIKit
-// dispatches pinch and 2-finger pan to separate recognizers based on
-// motion type (parallel vs. opposing). Both fire at once if both motion
-// signatures are present.
+// The wrapping UIView only "claims" touch events when 2+ fingers are down
+// — `hitTest` returns nil for 0–1 touches so events fall through to the
+// SwiftUI layer beneath.
+
 private struct TwoFingerPanRecognizer: UIViewRepresentable {
     let onChange: (CGSize) -> Void
     let onEnd: (CGSize) -> Void
@@ -908,9 +939,6 @@ private struct TwoFingerPanRecognizer: UIViewRepresentable {
             }
         }
 
-        // Allow this recognizer to fire at the same time as the SwiftUI
-        // MagnificationGesture (pinch). Without this, UIKit would
-        // arbitrate and one would win exclusively.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
@@ -920,14 +948,8 @@ private struct TwoFingerPanRecognizer: UIViewRepresentable {
     }
 }
 
-/// Transparent UIView that passes single-finger touches through to
-/// the SwiftUI layer beneath and only intercepts events with 2+
-/// active touches (where its UIPanGestureRecognizer will fire).
 private final class TwoFingerPassThroughView: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        // Counting allTouches is the cheapest way to disambiguate.
-        // Single-finger drags arriving while this view is on top would
-        // otherwise be swallowed and never reach the SwiftUI 1F drag.
         let touchCount = event?.allTouches?.count ?? 0
         if touchCount >= 2 {
             return super.hitTest(point, with: event)

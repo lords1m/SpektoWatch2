@@ -110,6 +110,13 @@ class HighEndSpectrogramAdapter: MTKView {
     }
     private var mappingCache: [MappingCacheEntry]?
     private var cachedInputSize: Int = 0
+    /// Hash of the most-recent input frequency labels so the mapping cache is
+    /// rebuilt when a producer switches between linear DCT bins, mel band
+    /// centers, or another spacing. Apple's "Visualizing Sound as an Audio
+    /// Spectrogram" sample produces mel-spaced bins; we honour that spacing
+    /// instead of forcing linear-from-Nyquist remapping on top.
+    private var cachedInputFrequenciesHash: UInt64 = 0
+    private var cachedInputFrequencies: [Float]?
     private var reusableColumnData: [Float] = []
     private var reusableSmoothedColumnData: [Float] = []
     private var previousColumnData: [Float] = []
@@ -235,14 +242,24 @@ class HighEndSpectrogramAdapter: MTKView {
 
     // MARK: - Frequency Mapping (precomputed)
 
-    private func precomputeMapping(inputSize: Int) {
+    private func precomputeMapping(inputSize: Int, inputFrequencies: [Float]? = nil) {
         var newCache = [MappingCacheEntry]()
         newCache.reserveCapacity(frequencyBins)
 
-        let nyquist = currentSampleRate / 2.0
         let logMin = log10(minFrequency)
         let logMax = log10(maxFrequency)
         let logSpan = max(logMax - logMin, 0.0001)
+
+        // Use producer-supplied frequencies (mel-spaced from
+        // VisualSpectrogramProcessor, or any monotonically increasing
+        // axis) when available. Falling back to linear-from-Nyquist
+        // preserves backward compat for legacy FFT magnitude paths that
+        // don't carry a frequencies array.
+        let useExplicitFrequencies =
+            (inputFrequencies?.count == inputSize) && (inputSize > 1)
+        let explicitFrequencies = useExplicitFrequencies ? inputFrequencies! : []
+
+        let nyquist = currentSampleRate / 2.0
         let magCount = Float(max(1, inputSize - 1))
 
         for i in 0..<frequencyBins {
@@ -257,13 +274,22 @@ class HighEndSpectrogramAdapter: MTKView {
                 ? (freqNext - frequency)
                 : (frequency - pow(10.0, logMin + Float(i - 1) / Float(frequencyBins - 1) * logSpan))
 
-            let centerBin = (frequency / nyquist) * magCount
-            let binWidth = (pixelBandwidth / nyquist) * magCount
+            let centerBin: Float
+            let binWidth: Float
+            if useExplicitFrequencies {
+                centerBin = sourceBinForFrequency(frequency, in: explicitFrequencies)
+                let upper = sourceBinForFrequency(frequency + pixelBandwidth / 2.0, in: explicitFrequencies)
+                let lower = sourceBinForFrequency(frequency - pixelBandwidth / 2.0, in: explicitFrequencies)
+                binWidth = max(0, upper - lower)
+            } else {
+                centerBin = (frequency / nyquist) * magCount
+                binWidth = (pixelBandwidth / nyquist) * magCount
+            }
 
             if binWidth < 1.0 {
-                let index0 = Int(floor(centerBin))
-                let index1 = index0 + 1
-                let fraction = centerBin - Float(index0)
+                let index0 = max(0, min(inputSize - 1, Int(floor(centerBin))))
+                let index1 = min(inputSize - 1, index0 + 1)
+                let fraction = max(0, min(1, centerBin - Float(index0)))
                 newCache.append(MappingCacheEntry(isInterpolated: true, index0: index0, index1: index1, fraction: fraction, startBin: 0, endBin: 0))
             } else {
                 let halfWidth = binWidth / 2.0
@@ -275,13 +301,51 @@ class HighEndSpectrogramAdapter: MTKView {
 
         mappingCache = newCache
         cachedInputSize = inputSize
+        cachedInputFrequencies = useExplicitFrequencies ? explicitFrequencies : nil
+        cachedInputFrequenciesHash = useExplicitFrequencies ? Self.hashFrequencies(explicitFrequencies) : 0
+    }
+
+    /// Fractional index of `frequency` inside a monotonically increasing
+    /// frequency table. Falls back to the nearest endpoint for out-of-range
+    /// queries. Linear search is fine — this only runs during the cache
+    /// rebuild path, never on the audio thread.
+    private func sourceBinForFrequency(_ frequency: Float, in frequencies: [Float]) -> Float {
+        guard let first = frequencies.first, let last = frequencies.last else { return 0 }
+        if frequency <= first { return 0 }
+        if frequency >= last { return Float(frequencies.count - 1) }
+        for i in 1..<frequencies.count {
+            let upper = frequencies[i]
+            if upper >= frequency {
+                let lower = frequencies[i - 1]
+                let span = max(upper - lower, 1e-6)
+                let frac = (frequency - lower) / span
+                return Float(i - 1) + frac
+            }
+        }
+        return Float(frequencies.count - 1)
+    }
+
+    private static func hashFrequencies(_ frequencies: [Float]) -> UInt64 {
+        // Cheap content fingerprint: count + first/mid/last bit patterns.
+        // Mel tables only switch on transform-size / sample-rate /
+        // band-count changes, which all flip at least one of these.
+        let count = UInt64(frequencies.count)
+        let firstBits = UInt64(frequencies.first?.bitPattern ?? 0)
+        let lastBits = UInt64(frequencies.last?.bitPattern ?? 0)
+        let midBits = UInt64(frequencies[frequencies.count / 2].bitPattern)
+        return count &* 0x9E3779B97F4A7C15 ^ firstBits &* 0x85EBCA77C2B2AE63 ^ midBits &* 0xC2B2AE3D27D4EB4F ^ lastBits
     }
 
     // MARK: - Data Input (CPU-side normalization)
 
     /// Accepts FFT magnitudes (in dB SPL from AudioEngine) and writes a
     /// pre-normalized [0,1] column into the history texture.
-    func updateWithFFTMagnitudes(_ magnitudes: [Float], sampleRate: Double, timestamp: Date) {
+    func updateWithFFTMagnitudes(
+        _ magnitudes: [Float],
+        sampleRate: Double,
+        timestamp: Date,
+        inputFrequencies: [Float]? = nil
+    ) {
         guard isMetalReady, spectrogramTexture != nil, !isUpdatesPaused else {
             if !isMetalReady {
                 print("[HighEndSpectrogramAdapter] ⚠️ Cannot update - Metal not ready")
@@ -298,9 +362,18 @@ class HighEndSpectrogramAdapter: MTKView {
             return prev
         }
 
-        // Rebuild mapping cache if input size changed
-        if mappingCache == nil || cachedInputSize != magnitudes.count {
-            precomputeMapping(inputSize: magnitudes.count)
+        // Rebuild mapping cache if input size, frequency-axis content, or
+        // (implicitly via updateSampleRateIfNeeded) the sample rate changed.
+        let incomingHash: UInt64 = {
+            guard let freqs = inputFrequencies, freqs.count == magnitudes.count, magnitudes.count > 1 else {
+                return 0
+            }
+            return Self.hashFrequencies(freqs)
+        }()
+        if mappingCache == nil
+            || cachedInputSize != magnitudes.count
+            || cachedInputFrequenciesHash != incomingHash {
+            precomputeMapping(inputSize: magnitudes.count, inputFrequencies: inputFrequencies)
         }
 
         // Ensure reusable buffer
@@ -665,6 +738,8 @@ class HighEndSpectrogramAdapter: MTKView {
         currentSampleRate = normalized
         mappingCache = nil
         cachedInputSize = 0
+        cachedInputFrequencies = nil
+        cachedInputFrequenciesHash = 0
         columnAdvanceAccumulator = 0
         updateTimeColumns()
     }
@@ -784,11 +859,17 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
                 .receive(on: updateQueue)
                 .sink { [weak self] data in
                     guard let self = self else { return }
-                    let magnitudes = data.magnitudes(for: self.freqWeighting)
+                    let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: self.freqWeighting)
+                    // When the producer ran the Apple-style DCT→mel pipeline
+                    // it emits mel-spaced bin centers in `visualFrequencies`;
+                    // the adapter honours those instead of forcing the
+                    // linear-from-Nyquist remap that the FFT path uses.
+                    let inputFrequencies = (data.visualMagnitudes != nil) ? data.visualFrequencies : nil
                     self.view?.updateWithFFTMagnitudes(
                         magnitudes,
                         sampleRate: data.sampleRate,
-                        timestamp: data.timestamp
+                        timestamp: data.timestamp,
+                        inputFrequencies: inputFrequencies
                     )
                 }
         }

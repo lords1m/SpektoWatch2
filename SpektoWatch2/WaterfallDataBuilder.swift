@@ -67,11 +67,27 @@ enum WaterfallDataBuilder {
             return WaterfallDataSet(slices: [], frequencies: [], duration: duration, minDB: minDB, maxDB: maxDB)
         }
 
-        let targetFrequencies = makeTargetFrequencies(
-            sourceFrequencies: Array(sourceFrequencies.prefix(sourceCount)),
-            targetCount: targetFrequencyCount
-        )
-        let sourceIndices = targetFrequencies.map { nearestIndex(for: $0, in: sourceFrequencies, upperBound: sourceCount) }
+        // Pass-through: when the producer already emits a perceptually-
+        // spaced axis at the target resolution (e.g. the iOS mel pipeline
+        // emits 128 mel-spaced bins and we ask for 128), build a fresh
+        // log axis on top would double-log the frequencies and cluster
+        // the lows. Use source frequencies as-is and identity-map the
+        // bin indices.
+        let useSourceAxis = (sourceCount <= targetFrequencyCount)
+        let targetFrequencies: [Float]
+        let sourceIndices: [Int]
+        if useSourceAxis {
+            targetFrequencies = Array(sourceFrequencies.prefix(sourceCount))
+            sourceIndices = Array(0..<sourceCount)
+        } else {
+            targetFrequencies = makeTargetFrequencies(
+                sourceFrequencies: Array(sourceFrequencies.prefix(sourceCount)),
+                targetCount: targetFrequencyCount
+            )
+            sourceIndices = targetFrequencies.map {
+                nearestIndex(for: $0, in: sourceFrequencies, upperBound: sourceCount)
+            }
+        }
 
         let sliceCount = min(max(targetSliceCount, 1), columns.count)
         let framesPerSlice = Double(columns.count) / Double(sliceCount)

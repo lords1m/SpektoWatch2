@@ -1,6 +1,6 @@
 # Spectrogram Reference — HighEndSpectrogramAdapter
 
-Stand: 2026-01 (Metal-Rendering-Optimierung)  
+Stand: 2026-05 (FFT-Messpfad + DCT-Visualpfad)  
 Renderer: `HighEndSpectrogramAdapter` + `HighEndSpectrogramShaders.metal`
 
 ---
@@ -13,20 +13,32 @@ AVAudioInputNode Tap (PCM Float)
         ▼
 AudioEngine.processFFTFrame(...)
         │
-        ├──▶ FFTProcessor (zentrale FFT-Quelle)
-        │         │  4096 samples, Hann-Window
-        │         │  Zero-Pad → 8192
-        │         │  vDSP FFT → 4096 Bins
+        ├──▶ FFTProcessor (Messpfad)
+        │         │  4096 samples, konfigurierbares Window
+        │         │  vDSP DFT → 2048 Bins (linear in Hz)
         │         ▼
         │    SpectrogramData (magnitudes[], frequencies[])
+        │         │  für Pegel, Terz/Oktav, Recording-Messdaten
+        │
+        ├──▶ VisualSpectrogramProcessor (Visualpfad, Apple-Sample)
+        │         │  gleiches Zeitfenster (Hann)
+        │         │  vDSP DCT-II → |.| → 2/N Skalierung
+        │         │  → MelSpectrogramProcessor (128 Bänder, 20 Hz – 20 kHz)
+        │         │  → 20·log10 → +Kalibrierungsoffset
+        │         ▼
+        │    SpectrogramData (visualMagnitudes[128], visualFrequencies[128])
+        │         │  Mel-Bandzentren in Hz, monoton steigend
         │
         ▼
 HighEndSpectrogramAdapter
-        │  empfängt SpectrogramData via @Published
-        │  keine eigene FFT-Berechnung
+        │  empfängt SpectrogramData via spectrogramSubject
+        │  bevorzugt visualMagnitudes[]; Fallback auf magnitudes[]
+        │  bei vorhandenem visualFrequencies[] wird die Frequenzachse
+        │  daraus interpoliert (keine zweite Log-Mapping-Stufe);
+        │  ohne Frequenzen-Array: lineare 0…Nyquist Annahme.
         ▼
 Metal Texture (Ring Buffer, 1200×1024, R32Float)
-  – eine Spalte pro FFT-Frame schreiben (O(height), nicht O(width×height))
+  – eine Spalte pro Audiofenster schreiben (O(height), nicht O(width×height))
         │
         ▼
 HighEndSpectrogramShaders.metal (GPU @ 60 FPS)
@@ -42,22 +54,35 @@ HighEndSpectrogramShaders.metal (GPU @ 60 FPS)
 Display (60 FPS)
 ```
 
-> **Wichtig:** Der Adapter nutzt die bereits berechneten FFT-Daten von `AudioEngine`.
-> Es gibt keine doppelte FFT-Berechnung.
+> **Wichtig:** Messungen bleiben FFT-basiert. Spectrogramm, Wasserfall,
+> Recording-Detail und Export verwenden DCT-Daten aus den `visual*`-Feldern.
 
 ---
 
 ## Konfigurationsparameter
 
-### FFT (in AudioEngine / FFTProcessor)
+### Messpfad: FFT (in AudioEngine / FFTProcessor)
 
 | Parameter | Wert | Bedeutung |
 |-----------|------|-----------|
-| `audioFFTSize` | 4096 | Tatsächliche Audio-Samples pro Fenster |
-| `fftSize` | 8192 | FFT-Größe nach Zero-Padding (2× Auflösung) |
+| `fftSize` | 4096 | Tatsächliche Audio-Samples pro Fenster |
+| `binCount` | 2048 | Ausgabebins der reellen FFT (`fftSize / 2`) |
 | `hopSize` | 512 | Sliding-Window-Schritt (87,5 % Overlap) |
-| Window | Hann, 4096 Samples | Reduziert Spectral Leakage |
+| Window | konfigurierbar, Hann als Default | Reduziert Spectral Leakage |
 | **FFT-Rate** | **≈ 86 /s** | 44100 Hz ÷ 512 |
+
+### Visualpfad: DCT + Mel (in AudioEngine / VisualSpectrogramProcessor)
+
+| Parameter | Wert | Bedeutung |
+|-----------|------|-----------|
+| `transformSize` | entspricht `fftSize` (4096) | Gleiches Zeitfenster wie Messpfad |
+| Transform | vDSP DCT-II | Real-only Darstellungsspektrum |
+| `melBandCount` | 128 | Mel-Filterbank zwischen DCT und log10 |
+| `frequencyRange` | 20 Hz … 20 kHz | Mel-Eckpunkte (Apple-Sample-Konvention) |
+| dB-Konversion | `20·log10` + Kalibrierungs-Offset | Anschluss an dB SPL |
+| Ausgabe | `visualMagnitudes[128]`, `visualFrequencies[128]` | Nur für Spectrogramm/Wasserfall/Export |
+| Messdaten | unverändert FFT | Keine DCT-/Mel-Werte für Pegel oder Terzbänder |
+| Legacy-Modus | `melBandCount = 0` | Pass-through: lineare DCT-Bins (Debug/Tests) |
 
 ### Texture (in HighEndSpectrogramAdapter)
 
@@ -83,20 +108,30 @@ Display (60 FPS)
 
 ## Die 7 Optimierungen — Was & Warum
 
-### 1. Zero-Padding FFT
+### 1. Getrennter FFT-/DCT+Mel-Pfad
 
-**Code:** `HighEndSpectrogramShaders.metal`, `AudioEngine`
+**Code:** `AudioEngine`, `FFTProcessor`, `VisualSpectrogramProcessor`, `MelSpectrogramProcessor`
 
-4096 Audio-Samples werden mit 4096 Nullen auf 8192 aufgefüllt, dann FFT auf dem vollen Puffer.
+Der Live-Pfad nutzt die FFT weiter als Messquelle. Parallel dazu berechnet der Visualpfad nach dem Apple-Sample "Visualizing Sound as an Audio Spectrogram":
+
+1. **Hann-Fenster** auf 4096 Audio-Samples
+2. **vDSP DCT-II** → 4096 reelle Koeffizienten
+3. **|.| + 2/N Skalierung** → lineare Magnituden (Δf ≈ 5,4 Hz)
+4. **Mel-Filterbank** (128 Bänder, 20 Hz – 20 kHz, dreieckige Filter) via `cblas_sgemv`
+5. **20·log10** → Mel-dB
+6. **+ Kalibrierungs-Offset** → dB SPL
+
+Vergleich der Bin-Dichte:
 
 ```
-Ohne Zero-Padding:  4096 Samples → 2048 Bins, Δf ≈ 10,8 Hz
-Mit Zero-Padding:   4096 Samples → 4096 Bins, Δf ≈ 5,4 Hz
+FFT-Messpfad : 4096 Samples → 2048 Bins, Δf ≈ 10,8 Hz, linear in Hz
+DCT-Visual   : 4096 Samples → 4096 Bins, Δf ≈  5,4 Hz, linear in Hz (Zwischenstufe)
+Mel-Output   : 128 Bänder zwischen 20 Hz – 20 kHz, perzeptuell log-skaliert
 ```
 
-Zero-Padding verbessert nicht die spektrale Auflösung (die bleibt durch die Fensterlänge begrenzt), liefert aber doppelt so viele visuelle Interpolationspunkte — scharfe Linien statt breite Blobs.
+Mel-Bandzentren werden mit `MelSpectrogramProcessor.melToFrequency()` berechnet und als `visualFrequencies` an `HighEndSpectrogramAdapter` durchgereicht. Der Adapter erkennt das Array über `inputFrequencies:` und nutzt es für sein Frequenz-Mapping, statt erneut eine lineare 0…Nyquist Annahme zu machen. Dadurch entfällt die frühere Doppel-Log-Verzerrung.
 
-**Rechenaufwand:** ~2× FFT-Zeit, aber auf iPhone 12 noch < 12 % CPU.
+**Rechenaufwand:** Messungen lesen nur die FFT. Visuals lesen bevorzugt `visualMagnitudes`; Messwerte, Terzbänder und gespeicherte Measurement-Frames bleiben FFT-basiert. Die zusätzliche Mel-Multiplikation auf 4096 → 128 Bins kostet ~50 µs pro Frame (BLAS-optimiert) und ist gegenüber der DCT-Last vernachlässigbar.
 
 ---
 
@@ -360,7 +395,7 @@ private let minFrequency: Float = 80.0
 private let maxFrequency: Float = 8000.0
 ```
 
-### Höhere Zero-Padding-Stufe (4×)
+### Höhere FFT-Auflösung für Messungen
 
 ```swift
 // Warnung: 2× FFT-Rechenzeit
@@ -389,6 +424,7 @@ private let timeColumns: Int = 2580  // 86 updates/s × 30 s
 
 ## Referenzen
 
+- [Apple: Visualizing Sound as an Audio Spectrogram](https://developer.apple.com/documentation/accelerate/visualizing-sound-as-an-audio-spectrogram) — Referenz-Pipeline (DCT-II → Mel)
 - [Turbo Colormap — Google Research](https://ai.googleblog.com/2019/08/turbo-improved-rainbow-colormap-for.html)
 - [Apple vDSP / Accelerate](https://developer.apple.com/documentation/accelerate/vdsp)
 - [Metal Shading Language Spec](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf)

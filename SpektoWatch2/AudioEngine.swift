@@ -60,6 +60,7 @@ class AudioEngine: ObservableObject {
     private var weightingProcessor: FrequencyWeightingProcessor
     private let metricsCalculator: AcousticMetricsCalculator
     private let spectrogramProcessor: SpectrogramProcessor
+    private let visualSpectrogramProcessor: VisualSpectrogramProcessor
     private let testGenerator: TestAudioGenerator
     private let bandstopFilterManager: BandstopFilterManager
     private let connectivityManager: WatchConnectivityManager
@@ -86,6 +87,7 @@ class AudioEngine: ObservableObject {
     private var fftInputBuffer: [Float] = []
     private var fftLinearMagnitudesScratch: [Float] = []
     private var fftDBMagnitudesScratch: [Float] = []
+    private var visualDBMagnitudesScratch: [Float] = []
     private var fftEnergyScratch: [Float] = []
     private var gainBoost: Float = 10.0
 
@@ -332,6 +334,18 @@ class AudioEngine: ObservableObject {
         weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
         spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
+        // Visualisierungspfad nach Apple "Visualizing Sound as an Audio
+        // Spectrogram": DCT-II auf dem gefensterten Sample-Block, Mel-
+        // Filterbank mit 128 Bändern (20 Hz – 20 kHz), anschließend 20·log10.
+        // Mel-Bänder sind bereits perzeptuell skaliert; der Adapter respektiert
+        // `visualFrequencies` und überlagert keine zweite Log-Achse mehr.
+        visualSpectrogramProcessor = VisualSpectrogramProcessor(
+            transformSize: fftSize,
+            sampleRate: processingSampleRate,
+            windowFunction: .hann,
+            melBandCount: 128,
+            frequencyRange: 20...20_000
+        )
         spectrogramProcessor.binningFactor = 1
         spectrogramProcessor.spectrogramTimeWeighting = .fast
         spectrogramProcessor.hopDuration = Float(tapBlockSize) / Float(sampleRate)
@@ -427,6 +441,7 @@ class AudioEngine: ObservableObject {
             fftInputBuffer.removeAll()
             fftLinearMagnitudesScratch.removeAll()
             fftDBMagnitudesScratch.removeAll()
+            visualDBMagnitudesScratch.removeAll()
             fftEnergyScratch.removeAll()
 
             // Aktualisiere interne Werte
@@ -436,6 +451,11 @@ class AudioEngine: ObservableObject {
 
             // Rekonfiguriere den FFT Processor
             fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
+            visualSpectrogramProcessor.reconfigure(
+                transformSize: newSize,
+                sampleRate: processingSampleRate,
+                windowFunction: newWindow
+            )
 
             // Erstelle neuen Weighting Processor (alter wird nach unlock freigegeben)
             let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
@@ -455,6 +475,11 @@ class AudioEngine: ObservableObject {
         processingLock.withLockUnchecked {
             currentWindowFunction = function
             fftProcessor.setWindowFunction(function)
+            visualSpectrogramProcessor.reconfigure(
+                transformSize: fftSize,
+                sampleRate: processingSampleRate,
+                windowFunction: function
+            )
         }
         Logger.audioEngine.info("Window function changed to: \(function.rawValue)")
     }
@@ -470,11 +495,17 @@ class AudioEngine: ObservableObject {
             fftInputBuffer.removeAll()
             fftLinearMagnitudesScratch.removeAll()
             fftDBMagnitudesScratch.removeAll()
+            visualDBMagnitudesScratch.removeAll()
             fftEnergyScratch.removeAll()
 
             fftSize = size.rawValue
             currentBlockSize = size
             fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
+            visualSpectrogramProcessor.reconfigure(
+                transformSize: size.rawValue,
+                sampleRate: processingSampleRate,
+                windowFunction: currentWindowFunction
+            )
 
             // Erstelle neuen Weighting Processor
             let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: processingSampleRate)
@@ -849,6 +880,10 @@ class AudioEngine: ObservableObject {
     /// Gibt den aktuellen Kalibrierungs-Offset zurück
     func getCalibrationOffset() -> Float {
         return calibrationOffset
+    }
+
+    static func getDeviceModel() -> String {
+        CalibrationProvider.currentDeviceModel()
     }
 
     // MARK: - Private Recording Methods
@@ -1311,8 +1346,8 @@ class AudioEngine: ObservableObject {
 
         // Thread-sichere FFT-Verarbeitung — snapshot all three lock-protected
         // fields in one critical section to keep them mutually consistent.
-        let (currentFFTSize, localFFTProcessor, localWeightingProcessor) = processingLock.withLockUnchecked {
-            (fftSize, fftProcessor, weightingProcessor)
+        let (currentFFTSize, localFFTProcessor, localWeightingProcessor, localVisualSpectrogramProcessor) = processingLock.withLockUnchecked {
+            (fftSize, fftProcessor, weightingProcessor, visualSpectrogramProcessor)
         }
 
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
@@ -1321,6 +1356,12 @@ class AudioEngine: ObservableObject {
         // Perform FFT into reusable buffers to avoid per-frame result arrays.
         localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost, into: &fftLinearMagnitudesScratch)
         localFFTProcessor.convertToDB(fftLinearMagnitudesScratch, into: &fftDBMagnitudesScratch)
+        let visualFrequencies = localVisualSpectrogramProcessor.computeDBMagnitudes(
+            on: samples,
+            gainBoost: gainBoost,
+            calibrationOffset: calibrationOffset,
+            into: &visualDBMagnitudesScratch
+        )
         
         if enableVerboseLogs && debugPrintCounter % 240 == 0 {
             let minMag = (fftDBMagnitudesScratch.min() ?? 0) + calibrationOffset
@@ -1488,6 +1529,8 @@ class AudioEngine: ObservableObject {
             magnitudes: processedZ.bandMagnitudes,      // Z-weighted (linear)
             magnitudesA: processedA?.bandMagnitudes,    // A-weighted when requested
             magnitudesC: processedC?.bandMagnitudes,    // C-weighted when requested
+            visualFrequencies: visualFrequencies,
+            visualMagnitudes: visualDBMagnitudesScratch,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: processingSampleRate,
@@ -1621,9 +1664,16 @@ class AudioEngine: ObservableObject {
                 var negOffset = -offset
                 var dbfsMagnitudes = spectrogramData.magnitudes
                 vDSP_vsadd(dbfsMagnitudes, 1, &negOffset, &dbfsMagnitudes, 1, vDSP_Length(dbfsMagnitudes.count))
+                var visualDBFSMagnitudes = spectrogramData.visualMagnitudes
+                if var visual = visualDBFSMagnitudes {
+                    vDSP_vsadd(visual, 1, &negOffset, &visual, 1, vDSP_Length(visual.count))
+                    visualDBFSMagnitudes = visual
+                }
                 let watchData = SpectrogramData(
                     frequencies: spectrogramData.frequencies,
                     magnitudes: dbfsMagnitudes,
+                    visualFrequencies: spectrogramData.visualFrequencies,
+                    visualMagnitudes: visualDBFSMagnitudes,
                     broadbandLevel: spectrogramData.broadbandLevel,
                     levels: spectrogramData.levels,
                     sampleRate: spectrogramData.sampleRate,
@@ -1697,6 +1747,11 @@ class AudioEngine: ObservableObject {
 
             fftProcessor = FFTProcessor(
                 fftSize: fftSize,
+                sampleRate: normalized,
+                windowFunction: currentWindowFunction
+            )
+            visualSpectrogramProcessor.reconfigure(
+                transformSize: fftSize,
                 sampleRate: normalized,
                 windowFunction: currentWindowFunction
             )

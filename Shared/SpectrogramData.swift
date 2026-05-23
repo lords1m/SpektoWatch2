@@ -10,16 +10,31 @@ public struct SpectrogramData: Codable {
     public let magnitudes: [Float]       // Z-gewichtet (ungewichtet/linear)
     public let magnitudesA: [Float]?     // A-gewichtet
     public let magnitudesC: [Float]?     // C-gewichtet
+    public let visualFrequencies: [Float]?
+    public let visualMagnitudes: [Float]?
     public let broadbandLevel: Float
     public let levels: [String: Float]
     public let timestamp: Date
     public let sampleRate: Double
 
-    public init(frequencies: [Float], magnitudes: [Float], magnitudesA: [Float]? = nil, magnitudesC: [Float]? = nil, broadbandLevel: Float = -120.0, levels: [String: Float] = [:], sampleRate: Double, timestamp: Date = Date()) {
+    public init(
+        frequencies: [Float],
+        magnitudes: [Float],
+        magnitudesA: [Float]? = nil,
+        magnitudesC: [Float]? = nil,
+        visualFrequencies: [Float]? = nil,
+        visualMagnitudes: [Float]? = nil,
+        broadbandLevel: Float = -120.0,
+        levels: [String: Float] = [:],
+        sampleRate: Double,
+        timestamp: Date = Date()
+    ) {
         self.frequencies = frequencies
         self.magnitudes = magnitudes
         self.magnitudesA = magnitudesA
         self.magnitudesC = magnitudesC
+        self.visualFrequencies = visualFrequencies
+        self.visualMagnitudes = visualMagnitudes
         self.broadbandLevel = broadbandLevel
         self.levels = levels
         self.timestamp = timestamp
@@ -108,8 +123,23 @@ public struct SpectrogramData: Codable {
             var val = value
             data.append(Data(bytes: &val, count: MemoryLayout<Float>.size))
         }
+
+        // Optional visual-only DCT payload. Kept after the v1 fields so older
+        // receivers can ignore the trailing bytes and still parse measurements.
+        appendFloatArray(visualMagnitudes ?? [], to: &data)
+        appendFloatArray(visualFrequencies ?? [], to: &data)
         
         return data
+    }
+
+    private func appendFloatArray(_ values: [Float], to data: inout Data) {
+        var count = Int32(values.count)
+        data.append(Data(bytes: &count, count: MemoryLayout<Int32>.size))
+        values.withUnsafeBufferPointer { buffer in
+            if let baseAddress = buffer.baseAddress {
+                data.append(Data(bytes: baseAddress, count: values.count * MemoryLayout<Float>.size))
+            }
+        }
     }
     
     public static func fromBinaryData(_ data: Data) -> SpectrogramData? {
@@ -150,6 +180,20 @@ public struct SpectrogramData: Codable {
             }
             offset += doubleSize
             return Double(bitPattern: UInt64(littleEndian: bits))
+        }
+
+        func readFloatArray(_ bytes: Data, _ offset: inout Int) -> [Float]? {
+            guard let countRaw = readInt32(bytes, &offset) else { return nil }
+            guard countRaw >= 0 else { return nil }
+            let count = Int(countRaw)
+            guard count > 0 else { return [] }
+            let byteCount = count * floatSize
+            guard canReadByteCount(byteCount, offset, bytes.count) else { return nil }
+            let values = bytes.withUnsafeBytes {
+                Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: count), count: count))
+            }
+            offset += byteCount
+            return values
         }
         
         var offset = 0
@@ -214,10 +258,23 @@ public struct SpectrogramData: Codable {
             
             levels[key] = val
         }
+
+        var visualMagnitudes: [Float]?
+        var visualFrequencies: [Float]?
+        if offset < data.count {
+            guard let values = readFloatArray(data, &offset) else { return nil }
+            visualMagnitudes = values.isEmpty ? nil : values
+        }
+        if offset < data.count {
+            guard let values = readFloatArray(data, &offset) else { return nil }
+            visualFrequencies = values.isEmpty ? nil : values
+        }
         
         return SpectrogramData(
             frequencies: frequencies,
             magnitudes: magnitudes,
+            visualFrequencies: visualFrequencies,
+            visualMagnitudes: visualMagnitudes,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: sampleRate

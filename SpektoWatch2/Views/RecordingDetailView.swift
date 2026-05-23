@@ -846,12 +846,21 @@ struct RecordingDetailView: View {
             return
         }
 
+        let audioURL = recordingManager.url(for: recording)
+        let calibrationOffset = recording.calibrationOffset
         isLoadingSpectrogram = true
         spectrogramLoadTask = Task.detached(priority: .userInitiated) {
             // StoredDataProvider.init runs the full-file bootstrap synchronously.
             // For a long recording this can be hundreds of MB / many seconds, so
             // it must not happen on the main actor.
-            let result = Result { try StoredDataProvider(fileURL: measurementURL) }
+            let result = Result { () -> (StoredDataProvider, [[Float]]) in
+                let provider = try StoredDataProvider(fileURL: measurementURL)
+                let visualHistory = (try? computeSpectrogramHistoryStreaming(
+                    url: audioURL,
+                    calibrationOffset: calibrationOffset
+                )) ?? provider.spectrogramHistory
+                return (provider, visualHistory)
+            }
             if Task.isCancelled { return }
             await MainActor.run {
                 guard !Task.isCancelled else {
@@ -859,10 +868,10 @@ struct RecordingDetailView: View {
                     return
                 }
                 switch result {
-                case .success(let provider):
+                case .success(let (provider, visualHistory)):
                     storedDataProvider = provider
                     hasMeasurementData = true
-                    rawSpectrogramHistory = provider.spectrogramHistory
+                    rawSpectrogramHistory = visualHistory
                     weightedSpectrogramCache.removeAll()
                     applyPlaybackWeighting(playbackWeighting)
                     if selectedMetrics.isEmpty {
@@ -982,7 +991,7 @@ struct RecordingDetailView: View {
         let sourceFrequencies = WaterfallDataBuilder.sourceFrequencies(
             binCount: firstColumn.count,
             sampleRate: storedDataProvider?.sampleRate ?? recording.sampleRate,
-            storedProviderHasFullFFT: storedDataProvider?.hasFullFFT ?? false
+            storedProviderHasFullFFT: false
         )
 
         waterfallDataSet = WaterfallDataBuilder.build(
@@ -1004,16 +1013,12 @@ struct RecordingDetailView: View {
         let audioFile = try AVAudioFile(forReading: url)
         let format = audioFile.processingFormat
 
-        guard let fftSetup = vDSP_DFT_zrop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD) else { return [] }
-        defer { vDSP_DFT_DestroySetup(fftSetup) }
+        guard let dct = vDSP.DCT(count: fftSize, transformType: .II) else { return [] }
 
-        var window = [Float](repeating: 0, count: fftSize)
-        // Manual Hann window implementation to avoid vDSP API compatibility issues
-        let n = Float(fftSize)
-        for i in 0..<fftSize {
-            let x = Float(i) / n
-            window[i] = 0.5 - 0.5 * cos(2 * .pi * x)
-        }
+        let window = WindowFunction.hann.generate(size: fftSize)
+        var windowed = [Float](repeating: 0, count: fftSize)
+        var coefficients = [Float](repeating: 0, count: fftSize)
+        var magnitudes = [Float](repeating: 0, count: fftSize)
 
         var history: [[Float]] = []
         var overlap = [Float]()
@@ -1031,29 +1036,14 @@ struct RecordingDetailView: View {
 
             var offset = 0
             while offset + fftSize <= samples.count {
-                var windowed = [Float](repeating: 0, count: fftSize)
                 samples.withUnsafeBufferPointer { ptr in
                     vDSP_vmul(ptr.baseAddress! + offset, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
                 }
 
-                var realIn = [Float](repeating: 0, count: fftSize / 2)
-                var imagIn = [Float](repeating: 0, count: fftSize / 2)
-                for i in 0..<(fftSize / 2) {
-                    realIn[i] = windowed[2 * i]
-                    imagIn[i] = windowed[2 * i + 1]
-                }
-
-                var realOut = [Float](repeating: 0, count: fftSize / 2)
-                var imagOut = [Float](repeating: 0, count: fftSize / 2)
-                vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
-
-                var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-                realOut.withUnsafeMutableBufferPointer { realPtr in
-                    imagOut.withUnsafeMutableBufferPointer { imagPtr in
-                        var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
-                        vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-                    }
-                }
+                dct.transform(windowed, result: &coefficients)
+                vDSP_vabs(coefficients, 1, &magnitudes, 1, vDSP_Length(fftSize))
+                var scale = 2.0 / Float(fftSize)
+                vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize))
 
                 let minFreq: Float = 20.0
                 let nyquist = Float(format.sampleRate) / 2.0
@@ -1101,7 +1091,7 @@ struct RecordingDetailView: View {
             return
         }
 
-        let binCount = storedDataProvider?.fftBinCount ?? (rawSpectrogramHistory.first?.count ?? 0)
+        let binCount = rawSpectrogramHistory.first?.count ?? storedDataProvider?.fftBinCount ?? 0
         let sampleRate = storedDataProvider?.sampleRate ?? recording.sampleRate
         guard binCount > 0 else {
             spectrogramHistory = rawSpectrogramHistory

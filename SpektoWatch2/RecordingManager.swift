@@ -99,27 +99,176 @@ final class RecordingManager: NSObject, ObservableObject {
     }
 
     func deleteRecording(at offsets: IndexSet) {
-        for index in offsets {
-            guard index < recordings.count else { continue }
-            let recording = recordings[index]
-            let audioURL = url(for: recording)
-            if fileManager.fileExists(atPath: audioURL.path) {
-                try? fileManager.removeItem(at: audioURL)
-            }
-            if let measurementURL = measurementURL(for: recording),
-               fileManager.fileExists(atPath: measurementURL.path) {
-                try? fileManager.removeItem(at: measurementURL)
-            }
-            for photoName in recording.photoFileNames {
-                let photoURL = recordingsDirectory.appendingPathComponent(photoName)
-                if fileManager.fileExists(atPath: photoURL.path) {
-                    try? fileManager.removeItem(at: photoURL)
-                }
+        // Convert positional delete to id-based to avoid race conditions
+        // when the array mutates between swipe and confirm.
+        let ids = Set(offsets.compactMap { idx -> UUID? in
+            guard idx < recordings.count else { return nil }
+            return recordings[idx].id
+        })
+        deleteRecordings(ids: ids)
+    }
+
+    /// Id-based hard delete. Removes the metadata entries and their
+    /// backing files immediately.
+    func deleteRecordings(ids: Set<UUID>) {
+        let toDelete = recordings.filter { ids.contains($0.id) }
+        for recording in toDelete {
+            removeFiles(for: recording)
+        }
+        recordings.removeAll { ids.contains($0.id) }
+        saveRecordings()
+    }
+
+    /// Buffer of recordings just removed from `recordings` whose files
+    /// haven't been deleted yet. Lets the UI offer a brief "undo"
+    /// snackbar without losing data permanently the moment a user
+    /// confirms a delete.
+    ///
+    /// Only one pending batch is held at a time; queuing a new soft
+    /// delete commits any prior batch first (collapsing undo windows).
+    private var pendingSoftDeletes: [UUID: Recording] = [:]
+
+    /// Removes recordings from the visible list but defers file deletion
+    /// so the caller can offer an undo affordance. Call
+    /// `commitPendingSoftDeletes()` to make the deletion permanent, or
+    /// `undoLastSoftDelete()` to restore.
+    func softDeleteRecordings(ids: Set<UUID>) {
+        // Commit any previous pending batch — only one undo window at
+        // a time. Stacking would let an old undo restore a recording
+        // whose files have already been removed by a newer delete.
+        commitPendingSoftDeletes()
+
+        let toDelete = recordings.filter { ids.contains($0.id) }
+        for recording in toDelete {
+            pendingSoftDeletes[recording.id] = recording
+        }
+        recordings.removeAll { ids.contains($0.id) }
+        saveRecordings()
+    }
+
+    /// Restores the most recent soft-deleted batch. No-op if there is
+    /// nothing pending.
+    func undoLastSoftDelete() {
+        guard !pendingSoftDeletes.isEmpty else { return }
+        let restored = Array(pendingSoftDeletes.values)
+        pendingSoftDeletes.removeAll()
+        recordings.append(contentsOf: restored)
+        recordings.sort { $0.startDate > $1.startDate }
+        saveRecordings()
+    }
+
+    /// Commits the pending soft-deleted batch. Idempotent.
+    func commitPendingSoftDeletes() {
+        guard !pendingSoftDeletes.isEmpty else { return }
+        for recording in pendingSoftDeletes.values {
+            removeFiles(for: recording)
+        }
+        pendingSoftDeletes.removeAll()
+    }
+
+    /// Whether there is a pending soft-deleted batch that can still be
+    /// restored. Callers use this to keep undo affordances live across
+    /// view-recreation cycles.
+    var hasPendingSoftDelete: Bool {
+        !pendingSoftDeletes.isEmpty
+    }
+
+    /// In-place rename. Whitespace-only names are rejected silently.
+    func renameRecording(id: UUID, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = recordings.firstIndex(where: { $0.id == id }) else { return }
+        guard recordings[index].name != trimmed else { return }
+        recordings[index].name = trimmed
+        saveRecordings()
+    }
+
+    /// Creates a copy of an existing recording with new file backing.
+    /// Audio, measurement data, and photos are physically copied so the
+    /// duplicate can be edited or deleted independently.
+    func duplicateRecording(_ source: Recording) {
+        let newID = UUID()
+        let audioExt = (source.audioFileName as NSString).pathExtension
+        let newAudioFileName = audioExt.isEmpty
+            ? "\(newID.uuidString)"
+            : "\(newID.uuidString).\(audioExt)"
+
+        let srcAudioURL = url(for: source)
+        let dstAudioURL = recordingsDirectory.appendingPathComponent(newAudioFileName)
+        guard (try? fileManager.copyItem(at: srcAudioURL, to: dstAudioURL)) != nil else {
+            print("[RecordingManager] Duplicate failed: could not copy audio file")
+            return
+        }
+
+        var newMeasurementFileName: String? = nil
+        if let srcMeasurementURL = measurementURL(for: source) {
+            let measurementName = "\(newID.uuidString).spekto"
+            let dstMeasurementURL = recordingsDirectory.appendingPathComponent(measurementName)
+            if (try? fileManager.copyItem(at: srcMeasurementURL, to: dstMeasurementURL)) != nil {
+                newMeasurementFileName = measurementName
             }
         }
 
-        recordings.remove(atOffsets: offsets)
+        var newPhotoFileNames: [String] = []
+        newPhotoFileNames.reserveCapacity(source.photoFileNames.count)
+        for photoName in source.photoFileNames {
+            let srcURL = recordingsDirectory.appendingPathComponent(photoName)
+            let dstName = "\(newID.uuidString)-\(UUID().uuidString).jpg"
+            let dstURL = recordingsDirectory.appendingPathComponent(dstName)
+            if (try? fileManager.copyItem(at: srcURL, to: dstURL)) != nil {
+                newPhotoFileNames.append(dstName)
+            }
+        }
+
+        let duplicate = Recording(
+            id: newID,
+            name: source.name + " (Kopie)",
+            description: source.description,
+            startDate: source.startDate,
+            duration: source.duration,
+            audioFileName: newAudioFileName,
+            measurementDataFileName: newMeasurementFileName,
+            sampleRate: source.sampleRate,
+            channelCount: source.channelCount,
+            laeqFast: source.laeqFast,
+            peakLevel: source.peakLevel,
+            minLevel: source.minLevel,
+            location: source.location,
+            photoFileNames: newPhotoFileNames,
+            tags: source.tags,
+            timeWeighting: source.timeWeighting,
+            frequencyWeighting: source.frequencyWeighting,
+            widgetConfigurations: source.widgetConfigurations,
+            markers: source.markers,
+            calibrationOffset: source.calibrationOffset,
+            fftBlockSize: source.fftBlockSize
+        )
+        recordings.insert(duplicate, at: 0)
         saveRecordings()
+    }
+
+    /// Exposes a forced reload from disk — used by pull-to-refresh in
+    /// the list view and by external workflows that touch the
+    /// metadata file directly.
+    func reloadRecordings() {
+        loadRecordings()
+    }
+
+    private func removeFiles(for recording: Recording) {
+        let audioURL = url(for: recording)
+        if fileManager.fileExists(atPath: audioURL.path) {
+            try? fileManager.removeItem(at: audioURL)
+        }
+        if let measurementURL = measurementURL(for: recording),
+           fileManager.fileExists(atPath: measurementURL.path) {
+            try? fileManager.removeItem(at: measurementURL)
+        }
+        for photoName in recording.photoFileNames {
+            let photoURL = recordingsDirectory.appendingPathComponent(photoName)
+            if fileManager.fileExists(atPath: photoURL.path) {
+                try? fileManager.removeItem(at: photoURL)
+            }
+        }
     }
 
     func url(for recording: Recording) -> URL {

@@ -81,28 +81,27 @@ struct SingleValueWidget: View {
     }
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(displayTitle)
-                .font(.caption)
-                .foregroundColor(.gray)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-
-            Spacer()
-
+        // Frameless layout: rely on the card's own header for the widget
+        // name + dB(A) meta pill, so the kernel surfaces only the value
+        // and its unit. No internal title row, no surrounding padding —
+        // numerals fill the kernel area edge-to-edge and animate with
+        // SwiftUI's numericText content transition.
+        VStack(spacing: 0) {
             Text(displayValue)
-                .font(.numerals(numerals, size: 42, weight: .bold))
+                .font(.numerals(numerals, size: 36, weight: .semibold))
                 .monospacedDigit()
                 .foregroundColor(audioEngine.engineStatus == .running ? .primary : .gray)
-                .minimumScaleFactor(0.5)
+                .minimumScaleFactor(0.4)
+                .lineLimit(1)
+                .contentTransition(.numericText(value: Double(value ?? 0)))
+                .animation(.easeOut(duration: 0.2), value: value)
 
             Text(unitLabel)
-                .font(.headline)
-                .foregroundColor(.gray)
-
-            Spacer()
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 2)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(audioEngine.live.$currentSpectrogramData) { data in
             guard let data = data else {
                 self.value = nil

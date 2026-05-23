@@ -13,6 +13,8 @@ final class WatchConnectivityTests: XCTestCase {
         let magnitudes: [Float] = [40, 45, 50, 55, 60, 50]
         let magnitudesA: [Float] = [35, 42, 48, 55, 61, 48]
         let magnitudesC: [Float] = [38, 44, 49, 55, 59, 49]
+        let visualFrequencies: [Float] = [80, 160, 320, 640]
+        let visualMagnitudes: [Float] = [-88, -72, -61, -70]
         let broadbandLevel: Float = 65.5
         let levels: [String: Float] = ["LAF": 65.5, "LCF": 67.2, "LZF": 68.0]
         let sampleRate: Double = 44100.0
@@ -22,6 +24,8 @@ final class WatchConnectivityTests: XCTestCase {
             magnitudes: magnitudes,
             magnitudesA: magnitudesA,
             magnitudesC: magnitudesC,
+            visualFrequencies: visualFrequencies,
+            visualMagnitudes: visualMagnitudes,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: sampleRate
@@ -40,6 +44,8 @@ final class WatchConnectivityTests: XCTestCase {
         // Vergleiche
         XCTAssertEqual(restored.frequencies.count, original.frequencies.count, "Frequency count should match")
         XCTAssertEqual(restored.magnitudes.count, original.magnitudes.count, "Magnitude count should match")
+        XCTAssertEqual(restored.visualFrequencies, visualFrequencies)
+        XCTAssertEqual(restored.visualMagnitudes, visualMagnitudes)
         XCTAssertEqual(restored.broadbandLevel, original.broadbandLevel, accuracy: 0.1, "Broadband level should match")
         XCTAssertEqual(restored.sampleRate, original.sampleRate, accuracy: 0.1, "Sample rate should match")
 

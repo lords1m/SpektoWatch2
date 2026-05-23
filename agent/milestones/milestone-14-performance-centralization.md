@@ -98,12 +98,17 @@ mix. Battery / thermal impact tracked separately on hardware.
 9. **Acceptance.** Behavior parity verification, Instruments
    re-render and CPU comparison before/after, write handoff
    report.
+10. **DCT visual path, FFT measurement path.** Completed
+   2026-05-22 as an opportunistic visual-pipeline improvement:
+   spectrogram/waterfall/watch/export surfaces prefer visual-only
+   DCT payloads, while all acoustic measurements remain FFT-based.
 
 ## Non-Goals
 
 - Changing any DSP math (M12 task-8 + M13 task-6 already fixed
   the M12 negative-offset class).
 - New widget types or new measurement metrics.
+- Replacing FFT as the measurement source of truth. DCT is visual-only.
 - Watch-side performance work beyond what naturally falls out of
   the iOS centralization (watch has its own
   `WatchAudioEngine`).
@@ -140,5 +145,5 @@ mix. Battery / thermal impact tracked separately on hardware.
 ## Files in this bundle
 
 - This milestone file.
-- 9 task files under `agent/tasks/milestone-14-performance-centralization/`.
+- 10 task files under `agent/tasks/milestone-14-performance-centralization/`.
 - Source design: `agent/reports/2026-05-21-performance-centralization-audit.md`.

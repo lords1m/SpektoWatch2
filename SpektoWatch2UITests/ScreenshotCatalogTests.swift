@@ -22,6 +22,7 @@ final class ScreenshotCatalogTests: XCTestCase {
         app.launchArguments = [
             "-UIAnimationsDisabled", "YES",
             "-ResetState", "YES",
+            "-SeedTestData", "YES",
             "-SnapshotCatalog", "YES"
         ]
 
@@ -87,7 +88,43 @@ final class ScreenshotCatalogTests: XCTestCase {
         tap(identifier: "recordingsListButton")
         XCTAssertTrue(app.navigationBars["Aufnahmen"].waitForExistence(timeout: viewWait), "Recordings list should open")
         capture("07-Recordings-List")
-        app.buttons["Fertig"].tap()
+
+        // 07b — recordings list with the first recording's swipe actions
+        // partially revealed, so the screenshot documents the Teilen /
+        // Löschen affordances. Wrap in a try? so the screenshot still
+        // captures the base list if the swipe gesture path changes.
+        let firstRecording = app.cells.element(boundBy: 0)
+        if firstRecording.waitForExistence(timeout: viewWait) {
+            firstRecording.swipeLeft()
+            settle()
+            capture("07b-Recordings-List-Swipe-Actions")
+            // Tap somewhere neutral to dismiss the swipe actions before
+            // moving on, otherwise the next swipe/tap can trigger them.
+            app.navigationBars["Aufnahmen"].tap()
+        }
+
+        // 07c — push into recording detail for one of the seeded entries.
+        if firstRecording.waitForExistence(timeout: viewWait) {
+            firstRecording.tap()
+            // RecordingDetailView doesn't expose a single stable accessibility
+            // identifier yet; wait for the back button as a proxy.
+            if app.navigationBars.firstMatch.waitForExistence(timeout: viewWait) {
+                settle()
+                capture("07c-Recording-Detail")
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+            }
+        }
+
+        // 07d — sheet's close button is now an `xmark.circle.fill` on the
+        // leading edge (modern sheet convention). Tap by accessibility
+        // label "Schließen" rather than the legacy "Fertig" string.
+        let closeButton = app.buttons["Schließen"]
+        if closeButton.waitForExistence(timeout: viewWait) {
+            closeButton.tap()
+        } else {
+            // Fallback for legacy build state where the button still says "Fertig".
+            app.buttons["Fertig"].tap()
+        }
 
         XCTAssertTrue(app.buttons["layoutsButton"].waitForExistence(timeout: viewWait), "Layouts menu should be visible")
         tap(identifier: "layoutsButton")
