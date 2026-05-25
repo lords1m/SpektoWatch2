@@ -4,7 +4,7 @@ import Combine
 @MainActor
 class DashboardViewModel: ObservableObject {
     // UI State
-    @Published var dashboardManager = DashboardManager()
+    let dashboardManager: DashboardManager
     @Published var showWidgetPicker = false
     @Published var draggedWidget: WidgetConfiguration?
     @Published var showSettings = false
@@ -20,16 +20,10 @@ class DashboardViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
-    init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
+    init(dashboardManager: DashboardManager, audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
+        self.dashboardManager = dashboardManager
         self.audioEngine = audioEngine
         self.connectivityManager = connectivityManager
-
-        // Forward DashboardManager changes to trigger view updates
-        dashboardManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
 
         dashboardManager.$widgets
             .sink { [weak self] widgets in

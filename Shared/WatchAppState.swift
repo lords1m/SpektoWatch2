@@ -29,7 +29,7 @@ public struct WatchAppState: Codable, Equatable {
     public let designAccent: String
 
     /// Active theme mode (matches `ThemeMode.rawValue`).
-    /// e.g. "dark", "light".
+    /// e.g. "system" (follow iOS appearance), "dark", "light".
     public let theme: String
 
     /// Optional tone-generator state. Nil when the tone generator is
@@ -92,6 +92,7 @@ extension WatchAppState {
             return nil
         }
         guard envelope.schemaVersion == currentSchemaVersion else {
+            print("[WatchAppState] Unknown schema version \(envelope.schemaVersion); expected \(currentSchemaVersion) — dropping update")
             return nil
         }
         return envelope

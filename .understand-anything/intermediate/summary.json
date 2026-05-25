@@ -1,0 +1,67 @@
+{
+  "analyzedFiles": 353,
+  "filteredByIgnore": 79,
+  "review": {
+    "issues": [],
+    "warnings": [
+      "Generated with deterministic local extraction because this active session could not run the plugin LLM subagents.",
+      "Summaries, layers, and tour steps are heuristic and should be refined with /understand --review in a refreshed session if needed."
+    ],
+    "stats": {
+      "totalNodes": 1958,
+      "totalEdges": 5064,
+      "totalLayers": 9,
+      "tourSteps": 7,
+      "nodeTypes": {
+        "document": 156,
+        "file": 164,
+        "config": 24,
+        "pipeline": 9,
+        "class": 364,
+        "function": 1241
+      },
+      "edgeTypes": {
+        "contains": 1605,
+        "imports": 1269,
+        "tested_by": 115,
+        "documents": 972,
+        "configures": 1103
+      }
+    }
+  },
+  "nodeTypes": {
+    "document": 156,
+    "file": 164,
+    "config": 24,
+    "pipeline": 9,
+    "class": 364,
+    "function": 1241
+  },
+  "edgeTypes": {
+    "contains": 1605,
+    "imports": 1269,
+    "tested_by": 115,
+    "documents": 972,
+    "configures": 1103
+  },
+  "fileCategories": {
+    "docs": 153,
+    "code": 164,
+    "config": 28,
+    "script": 5,
+    "markup": 3
+  },
+  "layers": [
+    "Documentation",
+    "Shared Core",
+    "Watch Complications",
+    "Watch App",
+    "Project Configuration",
+    "iOS App",
+    "Test Suite",
+    "Agent Project Management",
+    "Design Handoff"
+  ],
+  "tourSteps": 7,
+  "fingerprintOutput": "Fingerprints baseline: 200 files"
+}

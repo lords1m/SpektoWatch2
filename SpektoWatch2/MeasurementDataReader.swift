@@ -4,6 +4,7 @@ final class MeasurementDataReader {
     let fileURL: URL
     let header: MeasurementDataHeader
     let frameSize: Int
+    let summaryFrameSize: Int
 
     private let fileHandle: FileHandle
     private let frameStartOffset: UInt64
@@ -71,6 +72,8 @@ final class MeasurementDataReader {
         )
         self.frameStartOffset = UInt64(bytesConsumed)
         let fullFftCount = header.hasFullFFT ? header.fftBinCount : 0
+        self.summaryFrameSize = MemoryLayout<Float>.size
+            * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3))
         self.frameSize = MemoryLayout<Float>.size
             * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
     }
@@ -80,15 +83,30 @@ final class MeasurementDataReader {
     }
 
     func readFrame(at index: Int) throws -> MeasurementFrame {
-        guard index >= 0, index < frameCount else {
+        try readFrame(at: index, includingFullFFT: true)
+    }
+
+    func readFrameSummary(at index: Int) throws -> MeasurementFrame {
+        try readFrame(at: index, includingFullFFT: false)
+    }
+
+    private func readFrame(at index: Int, includingFullFFT: Bool) throws -> MeasurementFrame {
+        guard index >= 0, index < frameCount, frameSize >= 0 else {
             throw MeasurementDataError.invalidFrameIndex
         }
-        let offset = frameStartOffset + UInt64(index * frameSize)
+        // PE-1: multiply in UInt64 with overflow detection so a very large
+        // `index * frameSize` cannot trap on Int overflow before the conversion.
+        let (mul, mulOverflow) = UInt64(index).multipliedReportingOverflow(by: UInt64(frameSize))
+        let (offset, addOverflow) = frameStartOffset.addingReportingOverflow(mul)
+        guard !mulOverflow, !addOverflow else {
+            throw MeasurementDataError.invalidFrameIndex
+        }
         try fileHandle.seek(toOffset: offset)
-        guard let frameData = try fileHandle.read(upToCount: frameSize), frameData.count == frameSize else {
+        let bytesToRead = includingFullFFT ? frameSize : summaryFrameSize
+        guard let frameData = try fileHandle.read(upToCount: bytesToRead), frameData.count == bytesToRead else {
             throw MeasurementDataError.ioFailure("Frame konnte nicht vollständig gelesen werden.")
         }
-        return try decodeFrame(from: frameData)
+        return try decodeFrame(from: frameData, includingFullFFT: includingFullFFT)
     }
 
     func readFrames(in range: Range<Int>) throws -> [MeasurementFrame] {
@@ -118,7 +136,7 @@ final class MeasurementDataReader {
         return data
     }
 
-    private func decodeFrame(from data: Data) throws -> MeasurementFrame {
+    private func decodeFrame(from data: Data, includingFullFFT: Bool) throws -> MeasurementFrame {
         var cursor = MeasurementDataCursor(data: data)
         let timestamp = try cursor.readFloat()
 
@@ -138,7 +156,7 @@ final class MeasurementDataReader {
         for i in 0..<MeasurementDataFormat.thirdOctaveBandCount { c[i] = try cursor.readFloat() }
 
         var fullFFT: [Float] = []
-        if header.hasFullFFT && header.fftBinCount > 0 {
+        if includingFullFFT && header.hasFullFFT && header.fftBinCount > 0 {
             fullFFT = [Float](repeating: -120.0, count: header.fftBinCount)
             for i in 0..<header.fftBinCount { fullFFT[i] = try cursor.readFloat() }
         }

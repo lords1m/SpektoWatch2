@@ -89,6 +89,9 @@ class AudioEngine: ObservableObject {
     private var fftDBMagnitudesScratch: [Float] = []
     private var visualDBMagnitudesScratch: [Float] = []
     private var fftEnergyScratch: [Float] = []
+    /// Scratch buffer for per-bin C-weighted amplitudes used in LCpeak computation.
+    /// Resized alongside `fftEnergyScratch` when the FFT size changes.
+    private var lcPeakScratch: [Float] = []
     private var gainBoost: Float = 10.0
 
     // Reusable scratch buffer for the mono channel of an incoming audio callback.
@@ -137,8 +140,15 @@ class AudioEngine: ObservableObject {
     private var pendingImpulseLog = false
     private var spectrumDiagnosticsCounter = 0
     private var lastObservedInputSampleRate: Double = 44100.0
-    private let widgetSpectralWeightingsLock = NSLock()
-    private var widgetSpectralWeightingRequirements: Set<FrequencyWeighting> = []
+    // State-isolated unfair lock matches the M6 task-6 pattern: the audio
+    // render path reads via `withLockUnchecked`, callers from main mutate
+    // via `withLock`. Replaces an `NSLock` that was reachable from
+    // `processFFTFrame` via `requiredSpectralWeightingsForCurrentFrame`.
+    private let widgetSpectralWeightingsLock = OSAllocatedUnfairLock<Set<FrequencyWeighting>>(initialState: [])
+
+    /// AE-5: Measurement frame write errors are stored here on the audio render thread
+    /// (Logger is not RT-safe). The `updateUI` main-thread block drains and logs it.
+    private let lastWriteErrorLock = OSAllocatedUnfairLock<String?>(initialState: nil)
 
     // MARK: - Microphone Calibration
     // Device map, recommended-offset lookup, and load/save logic live
@@ -154,10 +164,37 @@ class AudioEngine: ObservableObject {
     private var currentInputGain: Float = 1.0
 
     // MARK: - Recording
-    
+
     private var recordingStartTime: Date?
-    private var audioFile: AVAudioFile?
-    private var measurementWriter: MeasurementDataWriter?
+
+    // --- AE-2: Writer cross-thread safety ---
+    //
+    // Both writers are created and nulled on the main thread but read on the audio
+    // render thread (processAudioBuffer / processFFTFrame). Wrapping them in
+    // OSAllocatedUnfairLock prevents the use-after-free that would occur if the
+    // main thread nils the writer while the audio thread holds a reference.
+    //
+    // Audio thread: read via `withLockUnchecked { $0 }` (real-time safe, no
+    //   priority-inversion overhead).
+    // Main thread: read/write via `withLock { ... }` or `withLockUnchecked { ... }`.
+    //
+    // The lock duration covers only the reference load/store, not the write call
+    // itself — the strong reference keeps the object alive past the unlock.
+    private let audioFileWriterLock = OSAllocatedUnfairLock<RealtimeAudioFileWriter?>(initialState: nil)
+    private let measurementWriterLock = OSAllocatedUnfairLock<MeasurementDataWriter?>(initialState: nil)
+
+    /// Main-thread accessor for `audioFileWriter`. All main-thread sites use this;
+    /// the audio thread loads directly from `audioFileWriterLock`.
+    private var audioFileWriter: RealtimeAudioFileWriter? {
+        get { audioFileWriterLock.withLockUnchecked { $0 } }
+        set { audioFileWriterLock.withLock { $0 = newValue } }
+    }
+    /// Main-thread accessor for `measurementWriter`. Audio thread loads directly from
+    /// `measurementWriterLock`.
+    private var measurementWriter: MeasurementDataWriter? {
+        get { measurementWriterLock.withLockUnchecked { $0 } }
+        set { measurementWriterLock.withLock { $0 = newValue } }
+    }
     private let measurementMetricKeys: [String] = [
         "LAF", "LAS", "LCF", "LCS", "LZF", "LZS",
         "LAeq", "LAFmin", "LAFmax", "LCpeak",
@@ -184,14 +221,35 @@ class AudioEngine: ObservableObject {
     private var recordingBridge: AnyCancellable?
     private var measurementRecordingSink: AnyCancellable?
 
-    /// Gibt an, ob Audio in eine Datei geschrieben wird (true) oder nur Live-Anzeige (false)
+    // --- AE-3: Audio-thread-safe mirrors of RecordingCoordinator flags ---
+    //
+    // `RecordingCoordinator.isRecordingToFile` and `.isMeasurementRecording` are
+    // @Published properties. @Published has no thread-safety guarantee — writing on
+    // main while reading on the audio render thread is a data race per the Swift
+    // memory model. These locks mirror the flags atomically so the audio thread
+    // can read them without touching @Published storage.
+    //
+    // The mirrors are always updated alongside the RecordingCoordinator property
+    // (see the computed setters below). All audio-thread reads go through these locks.
+    private let audioThreadIsRecordingToFile = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private let audioThreadIsMeasurementRecording = OSAllocatedUnfairLock<Bool>(initialState: false)
+
+    /// Gibt an, ob Audio in eine Datei geschrieben wird (true) oder nur Live-Anzeige (false).
+    /// The setter also updates the audio-thread-safe mirror lock.
     var isRecordingToFile: Bool {
         get { recording.isRecordingToFile }
-        set { recording.isRecordingToFile = newValue }
+        set {
+            recording.isRecordingToFile = newValue
+            audioThreadIsRecordingToFile.withLock { $0 = newValue }
+        }
     }
+    /// The setter also updates the audio-thread-safe mirror lock.
     var isMeasurementRecording: Bool {
         get { recording.isMeasurementRecording }
-        set { recording.isMeasurementRecording = newValue }
+        set {
+            recording.isMeasurementRecording = newValue
+            audioThreadIsMeasurementRecording.withLock { $0 = newValue }
+        }
     }
     var recordingDuration: TimeInterval {
         get { recording.recordingDuration }
@@ -411,9 +469,9 @@ class AudioEngine: ObservableObject {
     }
 
     func setWidgetSpectralWeightingRequirements(_ weightings: Set<FrequencyWeighting>) {
-        widgetSpectralWeightingsLock.lock()
-        widgetSpectralWeightingRequirements = weightings
-        widgetSpectralWeightingsLock.unlock()
+        widgetSpectralWeightingsLock.withLock { state in
+            state = weightings
+        }
     }
     
     func setGainBoost(_ gain: Float) {
@@ -442,7 +500,13 @@ class AudioEngine: ObservableObject {
             fftLinearMagnitudesScratch.removeAll()
             fftDBMagnitudesScratch.removeAll()
             visualDBMagnitudesScratch.removeAll()
-            fftEnergyScratch.removeAll()
+
+            // AE-7: Pre-allocate energy scratch buffers to the new FFT bin count so
+            // the audio render thread never hits the lazy-allocation branch in
+            // processFFTFrame. energyCount == newSize/2 (half-spectrum bin count).
+            let newEnergyCount = newSize / 2
+            fftEnergyScratch = [Float](repeating: 0, count: newEnergyCount)
+            lcPeakScratch = [Float](repeating: 0, count: newEnergyCount)
 
             // Aktualisiere interne Werte
             fftSize = newSize
@@ -496,7 +560,11 @@ class AudioEngine: ObservableObject {
             fftLinearMagnitudesScratch.removeAll()
             fftDBMagnitudesScratch.removeAll()
             visualDBMagnitudesScratch.removeAll()
-            fftEnergyScratch.removeAll()
+
+            // AE-7: Pre-allocate energy scratch buffers.
+            let newEnergyCount = size.rawValue / 2
+            fftEnergyScratch = [Float](repeating: 0, count: newEnergyCount)
+            lcPeakScratch = [Float](repeating: 0, count: newEnergyCount)
 
             fftSize = size.rawValue
             currentBlockSize = size
@@ -695,7 +763,7 @@ class AudioEngine: ObservableObject {
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
 
         recordingStartTime = nil
-        audioFile = nil
+        closeAudioFileWriter()
         closeMeasurementWriter()
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .idle")
@@ -735,9 +803,20 @@ class AudioEngine: ObservableObject {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
-        self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
-        self.lastRecordingURL = tempURL
-        Logger.audioEngine.info("Recording file setup at: \(tempURL.lastPathComponent)")
+        do {
+            self.audioFileWriter = try RealtimeAudioFileWriter(
+                fileURL: tempURL,
+                format: recordingFormat,
+                settings: recordingFormat.settings,
+                frameCapacity: max(tapBlockSize, 4096)
+            )
+            self.lastRecordingURL = tempURL
+            Logger.audioEngine.info("Recording file setup at: \(tempURL.lastPathComponent)")
+        } catch {
+            self.audioFileWriter = nil
+            self.lastRecordingURL = nil
+            Logger.audioEngine.error("Recording file setup failed: \(error.localizedDescription)")
+        }
     }
 
     private func setupMeasurementDataFileIfNeeded() {
@@ -771,13 +850,25 @@ class AudioEngine: ObservableObject {
     }
 
     private func closeMeasurementWriter() {
-        guard let writer = measurementWriter else { return }
+        // Atomically swap nil so the audio thread sees nil before close() runs.
+        let writer = measurementWriterLock.withLock { old -> MeasurementDataWriter? in
+            let w = old; old = nil; return w
+        }
+        guard let writer else { return }
         do {
             try writer.close()
         } catch {
             Logger.audioEngine.error("Measurement writer close failed: \(error.localizedDescription)")
         }
-        measurementWriter = nil
+    }
+
+    private func closeAudioFileWriter() {
+        // Atomically swap nil into the lock so the audio thread sees nil immediately,
+        // then call close() outside the lock (close() may block briefly).
+        let writer = audioFileWriterLock.withLock { old -> RealtimeAudioFileWriter? in
+            let w = old; old = nil; return w
+        }
+        writer?.close()
     }
 
     func checkAvailableInputs() {
@@ -1080,12 +1171,23 @@ class AudioEngine: ObservableObject {
             // Setup recording file only if recording to file
             if isRecording {
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-                self.audioFile = try? AVAudioFile(forWriting: tempURL, settings: recordingFormat.settings)
-                self.lastRecordingURL = tempURL
-                Logger.audioEngine.info("Recording to file: \(tempURL.lastPathComponent)")
+                do {
+                    self.audioFileWriter = try RealtimeAudioFileWriter(
+                        fileURL: tempURL,
+                        format: recordingFormat,
+                        settings: recordingFormat.settings,
+                        frameCapacity: max(tapBlockSize, 4096)
+                    )
+                    self.lastRecordingURL = tempURL
+                    Logger.audioEngine.info("Recording to file: \(tempURL.lastPathComponent)")
+                } catch {
+                    self.audioFileWriter = nil
+                    self.lastRecordingURL = nil
+                    Logger.audioEngine.error("Recording file setup failed: \(error.localizedDescription)")
+                }
                 setupMeasurementDataFileIfNeeded()
             } else {
-                self.audioFile = nil
+                closeAudioFileWriter()
                 closeMeasurementWriter()
                 Logger.audioEngine.info("Live mode - no file recording")
             }
@@ -1196,9 +1298,12 @@ class AudioEngine: ObservableObject {
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         
-        // Write to file only if recording to file mode is active
-        if isRecordingToFile, let audioFile = audioFile {
-            try? audioFile.write(from: buffer)
+        // Write to file only if recording to file mode is active.
+        // Load the writer reference under the lock; the strong ref keeps it alive
+        // past the unlock even if the main thread nils it concurrently.
+        if audioThreadIsRecordingToFile.withLockUnchecked({ $0 }),
+           let writer = audioFileWriterLock.withLockUnchecked({ $0 }) {
+            writer.write(buffer)
         }
         
         // Extract samples and calculate stereo phase.
@@ -1268,17 +1373,24 @@ class AudioEngine: ObservableObject {
             hasLoggedSilence = true
         }
         
-        // Add to sample buffer
-        sampleBuffer.append(contentsOf: newSamples)
+        // Append + downstream sampleBuffer/sampleBufferOffset mutations are
+        // serialised against `applyFFTConfiguration` / `setBlockSize` /
+        // `setWindowFunction` (which also reset the buffer under
+        // `processingLock` on main). Without this guard a reconfigure
+        // during a tap callback races on Swift array storage. Lock width is
+        // kept to the array operations themselves; downstream FFT work
+        // already takes its own snapshots.
+        processingLock.withLockUnchecked {
+            sampleBuffer.append(contentsOf: newSamples)
+        }
 
         // Lese aktuelle FFT-Größe thread-sicher.
-        // `withLockUnchecked` skips Sendable enforcement (irrelevant for a
-        // plain `Int` read) and is the cheapest API surface for this call
-        // shape on the audio render thread.
         let currentFFTSize = processingLock.withLockUnchecked { fftSize }
 
         // Backlog (wie viel Audio noch in der Queue steckt)
-        let bufferedSamples = max(0, sampleBuffer.count - sampleBufferOffset)
+        let bufferedSamples = processingLock.withLockUnchecked {
+            max(0, sampleBuffer.count - sampleBufferOffset)
+        }
         let bufferedSeconds = Double(bufferedSamples) / processingSampleRate
         if bufferedSeconds > maxBufferedSeconds {
             maxBufferedSeconds = bufferedSeconds
@@ -1286,15 +1398,17 @@ class AudioEngine: ObservableObject {
         // Keep the visualization near real-time: if processing falls behind,
         // drop oldest queued samples instead of rendering stale history.
         // Never trim below one full FFT window (+ one hop), otherwise no frames can be processed.
-        let minRequiredBufferedSeconds = Double(currentFFTSize + max(1, scrollSpeed.rawValue)) / processingSampleRate
+        let hop = max(1, scrollSpeed.rawValue)
+        let minRequiredBufferedSeconds = Double(currentFFTSize + hop) / processingSampleRate
         let effectiveBacklogLimitSeconds = max(maxRealtimeBacklogSeconds, minRequiredBufferedSeconds)
         if bufferedSeconds > effectiveBacklogLimitSeconds {
             let targetBufferedSamples = Int(effectiveBacklogLimitSeconds * processingSampleRate)
             var samplesToDrop = bufferedSamples - targetBufferedSamples
             if samplesToDrop > 0 {
-                let hop = max(1, scrollSpeed.rawValue)
                 samplesToDrop = (samplesToDrop / hop) * hop
-                sampleBufferOffset += samplesToDrop
+                processingLock.withLockUnchecked {
+                    sampleBufferOffset += samplesToDrop
+                }
             }
         }
 
@@ -1304,38 +1418,46 @@ class AudioEngine: ObservableObject {
         // dead head of the array now so the underlying storage cannot grow
         // unbounded under sustained pressure.
         let absoluteCompactionThreshold = currentFFTSize * 4
-        if sampleBufferOffset > absoluteCompactionThreshold {
-            sampleBuffer.removeFirst(sampleBufferOffset)
-            sampleBufferOffset = 0
+        processingLock.withLockUnchecked {
+            if sampleBufferOffset > absoluteCompactionThreshold {
+                sampleBuffer.removeFirst(sampleBufferOffset)
+                sampleBufferOffset = 0
+            }
         }
 
-        // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst)
-        while sampleBuffer.count - sampleBufferOffset >= currentFFTSize {
-            if fftInputBuffer.count != currentFFTSize {
-                fftInputBuffer = [Float](repeating: 0, count: currentFFTSize)
-            }
-            sampleBuffer.withUnsafeBufferPointer { source in
-                fftInputBuffer.withUnsafeMutableBufferPointer { target in
-                    guard let sourceBase = source.baseAddress, let targetBase = target.baseAddress else { return }
-                    memcpy(
-                        targetBase,
-                        sourceBase.advanced(by: sampleBufferOffset),
-                        currentFFTSize * MemoryLayout<Float>.stride
-                    )
+        // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst).
+        // Lock spans the read+copy+offset advance; processFFTFrame runs outside
+        // the lock so we don't hold it across FFT/weighting work.
+        while true {
+            let frameReady: Bool = processingLock.withLockUnchecked {
+                guard sampleBuffer.count - sampleBufferOffset >= currentFFTSize else { return false }
+                if fftInputBuffer.count != currentFFTSize {
+                    fftInputBuffer = [Float](repeating: 0, count: currentFFTSize)
                 }
+                sampleBuffer.withUnsafeBufferPointer { source in
+                    fftInputBuffer.withUnsafeMutableBufferPointer { target in
+                        guard let sourceBase = source.baseAddress, let targetBase = target.baseAddress else { return }
+                        memcpy(
+                            targetBase,
+                            sourceBase.advanced(by: sampleBufferOffset),
+                            currentFFTSize * MemoryLayout<Float>.stride
+                        )
+                    }
+                }
+                sampleBufferOffset += hop
+                if sampleBufferOffset > currentFFTSize * 2 {
+                    sampleBuffer.removeFirst(sampleBufferOffset)
+                    sampleBufferOffset = 0
+                }
+                return true
             }
+            if !frameReady { break }
+
             let t0 = CFAbsoluteTimeGetCurrent()
             processFFTFrame(samples: fftInputBuffer, peakLevel: peakDB)
             let t1 = CFAbsoluteTimeGetCurrent()
             fftProcessTimeAccumMs += (t1 - t0) * 1000.0
             fftProcessCount += 1
-            sampleBufferOffset += scrollSpeed.rawValue
-
-            // Periodisch aufräumen wenn Offset zu groß wird (nur alle ~10 Iterationen)
-            if sampleBufferOffset > currentFFTSize * 2 {
-                sampleBuffer.removeFirst(sampleBufferOffset)
-                sampleBufferOffset = 0
-            }
         }
     }
     
@@ -1363,11 +1485,10 @@ class AudioEngine: ObservableObject {
             into: &visualDBMagnitudesScratch
         )
         
-        if enableVerboseLogs && debugPrintCounter % 240 == 0 {
-            let minMag = (fftDBMagnitudesScratch.min() ?? 0) + calibrationOffset
-            let maxMag = (fftDBMagnitudesScratch.max() ?? 0) + calibrationOffset
-            Logger.audioEngine.debug("FFT Processed (dB SPL): min=\(minMag, format: .fixed(precision: 1)), max=\(maxMag, format: .fixed(precision: 1))")
-        }
+        // AE-5: Logger calls are not real-time safe (acquire internal locks, may
+        // malloc on first category call). Periodic FFT-range logging removed from
+        // the audio render thread. Use os_signpost or Instruments if spectrum
+        // diagnostics are needed.
 
         // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
         var calOffset = calibrationOffset
@@ -1448,6 +1569,7 @@ class AudioEngine: ObservableObject {
                                   localWeightingProcessor.cWeightingGainsSq.count))
         if fftEnergyScratch.count != energyCount {
             fftEnergyScratch = [Float](repeating: 0, count: energyCount)
+            lcPeakScratch = [Float](repeating: 0, count: energyCount)
         }
         vDSP_vsq(fftLinearMagnitudesScratch, 1, &fftEnergyScratch, 1, vDSP_Length(energyCount))
 
@@ -1461,7 +1583,30 @@ class AudioEngine: ObservableObject {
         energyZ *= calibrationFactor
         energyA *= calibrationFactor
         energyC *= calibrationFactor
-        
+
+        // --- LCpeak (IEC 61672) ---
+        // LCpeak must be derived from the C-weighted signal, not from the raw
+        // broadband sample peak. We approximate the instantaneous peak of the
+        // C-weighted signal by finding the maximum per-bin C-weighted amplitude
+        // across the FFT frame and converting that to dB SPL.
+        //
+        // C-weighted amplitude for bin i = fftLinearMagnitudesScratch[i] * cGain[i]
+        // (amplitude-domain multiply; cGains are amplitude-domain linear factors).
+        //
+        // This is Approach A from the task spec (frequency-domain peak detector),
+        // chosen because cWeightingGains are already precomputed in the weighting
+        // processor and no IFFT or separate time-domain filter pass is required.
+        let cGains = localWeightingProcessor.getWeightingGains(for: .c)
+        let lcPeakCount = min(fftLinearMagnitudesScratch.count, cGains.count)
+        if lcPeakScratch.count != lcPeakCount {
+            lcPeakScratch = [Float](repeating: 0, count: lcPeakCount)
+        }
+        vDSP_vmul(fftLinearMagnitudesScratch, 1, cGains, 1, &lcPeakScratch, 1, vDSP_Length(lcPeakCount))
+        var cPeakLinear: Float = 0.0
+        vDSP_maxv(lcPeakScratch, 1, &cPeakLinear, vDSP_Length(lcPeakCount))
+        // 20·log10 (amplitude domain) → dBFS, then add calibration → dB SPL
+        let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + calibrationOffset
+
         // Update acoustic metrics
         let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
         spectrogramProcessor.hopDuration = dt
@@ -1479,16 +1624,25 @@ class AudioEngine: ObservableObject {
             energyZ: energyZ,
             energyA: energyA,
             energyC: energyC,
-            peakLevel: peakLevel,
+            peakLevel: lcPeak,
             dt: dt,
             recordingDuration: audioThreadRecordingDuration
         )
         
         let broadbandLevel = levels["LAF"] ?? -120.0
 
-        if isRecordingToFile && isMeasurementRecording {
-            setupMeasurementDataFileIfNeeded()
-            if let writer = measurementWriter {
+        // Writer lifecycle lives on main: `startAudioCapture` /
+        // `startRealRecording` set it up at recording start, and the
+        // `measurementRecordingSink` (RecordingCoordinator bridge) handles
+        // mid-session toggles. The per-frame call removed here did
+        // FileManager + writer allocation on the audio render thread —
+        // forbidden by the M15 real-time-safety contract.
+        // Read flags via audio-thread-safe mirrors (AE-3).
+        // Load the writer reference under the lock (AE-2).
+        let atIsRecording = audioThreadIsRecordingToFile.withLockUnchecked { $0 }
+        let atIsMeasurement = audioThreadIsMeasurementRecording.withLockUnchecked { $0 }
+        if atIsRecording && atIsMeasurement {
+            if let writer = measurementWriterLock.withLockUnchecked({ $0 }) {
                 let timestampSeconds: Float
                 if let startTime = recordingStartTime {
                     timestampSeconds = Float(Date().timeIntervalSince(startTime))
@@ -1507,15 +1661,13 @@ class AudioEngine: ObservableObject {
                         fullFFT: dbZ
                     )
                 } catch {
-                    Logger.audioEngine.error("Measurement frame write failed: \(error.localizedDescription)")
+                    // AE-5: Logger is not real-time safe. Store the error description
+                    // in an atomic cell; the main-thread updateUI block logs and clears it.
+                    lastWriteErrorLock.withLockUnchecked { $0 = error.localizedDescription }
                 }
             }
         }
         
-        if debugPrintCounter % 240 == 0 {
-            Logger.audioEngine.debug("Broadband Level: \(broadbandLevel, format: .fixed(precision: 1)) dB")
-        }
-
         logSpectrumDiagnosticsIfNeeded(
             fullFrequencies: localFFTProcessor.frequencies,
             fullMagnitudes: dbZ,
@@ -1556,14 +1708,13 @@ class AudioEngine: ObservableObject {
 
     private func requiredSpectralWeightingsForCurrentFrame() -> Set<FrequencyWeighting> {
         var weightings: Set<FrequencyWeighting> = [.z, frequencyWeighting]
-        if isRecordingToFile && isMeasurementRecording {
+        // Read via audio-thread-safe mirror locks (AE-3).
+        if audioThreadIsRecordingToFile.withLockUnchecked({ $0 })
+            && audioThreadIsMeasurementRecording.withLockUnchecked({ $0 }) {
             weightings.formUnion([.a, .c])
         }
 
-        widgetSpectralWeightingsLock.lock()
-        let widgetWeightings = widgetSpectralWeightingRequirements
-        widgetSpectralWeightingsLock.unlock()
-
+        let widgetWeightings = widgetSpectralWeightingsLock.withLockUnchecked { $0 }
         weightings.formUnion(widgetWeightings)
         return weightings
     }
@@ -1616,6 +1767,13 @@ class AudioEngine: ObservableObject {
                 }
             }
 
+            // AE-5: Drain any write error reported from the audio thread.
+            if let errDesc = self.lastWriteErrorLock.withLock({ old -> String? in
+                let v = old; old = nil; return v
+            }) {
+                Logger.audioEngine.error("Measurement frame write failed: \(errDesc)")
+            }
+
             // Update recording duration
             if let startTime = self.recordingStartTime {
                 self.recordingDuration = Date().timeIntervalSince(startTime)
@@ -1634,7 +1792,10 @@ class AudioEngine: ObservableObject {
             self.currentOctaveBandsA = octaveBandsA
             self.currentOctaveBandsC = octaveBandsC
             self.currentSpectrum = spectrum
-            self.currentPeakLevel = peakLevel
+            // Use the IEC 61672 LCpeak from the metrics dict (C-weighted peak,
+            // computed in processFFTFrame). Fall back to the raw sample peak only
+            // if the metrics dict is somehow missing the key.
+            self.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? peakLevel
             self.currentLevel = broadbandLevel
             self.onBandsUpdated?(octaveBandsZ, broadbandLevel)
 

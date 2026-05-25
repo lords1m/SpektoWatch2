@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>SpektoWatch2.ipa</key>
+	<array>
+		<dict>
+			<key>architectures</key>
+			<array>
+				<string>arm64</string>
+			</array>
+			<key>buildNumber</key>
+			<string>1</string>
+			<key>certificate</key>
+			<dict>
+				<key>SHA1</key>
+				<string>2D31EDC1DAFB2AA3714C746A105E73DD9E9254A5</string>
+				<key>dateExpires</key>
+				<string>23.05.27</string>
+				<key>type</key>
+				<string>Cloud Managed Apple Distribution</string>
+			</dict>
+			<key>embeddedBinaries</key>
+			<array>
+				<dict>
+					<key>architectures</key>
+					<array>
+						<string>arm64_32</string>
+						<string>arm64</string>
+					</array>
+					<key>buildNumber</key>
+					<string>1</string>
+					<key>certificate</key>
+					<dict>
+						<key>SHA1</key>
+						<string>2D31EDC1DAFB2AA3714C746A105E73DD9E9254A5</string>
+						<key>dateExpires</key>
+						<string>23.05.27</string>
+						<key>type</key>
+						<string>Cloud Managed Apple Distribution</string>
+					</dict>
+					<key>embeddedBinaries</key>
+					<array>
+						<dict>
+							<key>architectures</key>
+							<array>
+								<string>arm64_32</string>
+								<string>arm64</string>
+							</array>
+							<key>buildNumber</key>
+							<string>1</string>
+							<key>certificate</key>
+							<dict>
+								<key>SHA1</key>
+								<string>2D31EDC1DAFB2AA3714C746A105E73DD9E9254A5</string>
+								<key>dateExpires</key>
+								<string>23.05.27</string>
+								<key>type</key>
+								<string>Cloud Managed Apple Distribution</string>
+							</dict>
+							<key>entitlements</key>
+							<dict>
+								<key>application-identifier</key>
+								<string>L22A8M5245.BrandtAcoustics.SpektoWatch2.watchkitapp.complications</string>
+								<key>com.apple.developer.team-identifier</key>
+								<string>L22A8M5245</string>
+								<key>get-task-allow</key>
+								<false/>
+							</dict>
+							<key>name</key>
+							<string>SpektoWatch Complications.appex</string>
+							<key>profile</key>
+							<dict>
+								<key>UUID</key>
+								<string>e07efa69-4f74-4f24-a967-f561d61b765b</string>
+								<key>dateExpires</key>
+								<string>23.05.27</string>
+								<key>name</key>
+								<string>iOS Team Ad Hoc Provisioning Profile: BrandtAcoustics.SpektoWatch2.watchkitapp.complications</string>
+							</dict>
+							<key>team</key>
+							<dict>
+								<key>id</key>
+								<string>L22A8M5245</string>
+								<key>name</key>
+								<string>Samuel Brandt</string>
+							</dict>
+							<key>versionNumber</key>
+							<string>1.0</string>
+						</dict>
+					</array>
+					<key>entitlements</key>
+					<dict>
+						<key>application-identifier</key>
+						<string>L22A8M5245.BrandtAcoustics.SpektoWatch2.watchkitapp</string>
+						<key>com.apple.developer.team-identifier</key>
+						<string>L22A8M5245</string>
+						<key>get-task-allow</key>
+						<false/>
+					</dict>
+					<key>name</key>
+					<string>SpektoWatch Watch App.app</string>
+					<key>profile</key>
+					<dict>
+						<key>UUID</key>
+						<string>fd0d1da8-c954-4363-94b4-92018d7fde11</string>
+						<key>dateExpires</key>
+						<string>23.05.27</string>
+						<key>name</key>
+						<string>iOS Team Ad Hoc Provisioning Profile: BrandtAcoustics.SpektoWatch2.watchkitapp</string>
+					</dict>
+					<key>team</key>
+					<dict>
+						<key>id</key>
+						<string>L22A8M5245</string>
+						<key>name</key>
+						<string>Samuel Brandt</string>
+					</dict>
+					<key>versionNumber</key>
+					<string>1.0</string>
+				</dict>
+			</array>
+			<key>entitlements</key>
+			<dict>
+				<key>application-identifier</key>
+				<string>L22A8M5245.BrandtAcoustics.SpektoWatch2</string>
+				<key>com.apple.developer.team-identifier</key>
+				<string>L22A8M5245</string>
+				<key>get-task-allow</key>
+				<false/>
+			</dict>
+			<key>name</key>
+			<string>SpektoWatch2.app</string>
+			<key>profile</key>
+			<dict>
+				<key>UUID</key>
+				<string>2d020857-f6c6-47c6-a75d-80c7541ecd39</string>
+				<key>dateExpires</key>
+				<string>23.05.27</string>
+				<key>name</key>
+				<string>iOS Team Ad Hoc Provisioning Profile: BrandtAcoustics.SpektoWatch2</string>
+			</dict>
+			<key>team</key>
+			<dict>
+				<key>id</key>
+				<string>L22A8M5245</string>
+				<key>name</key>
+				<string>Samuel Brandt</string>
+			</dict>
+			<key>versionNumber</key>
+			<string>1.0</string>
+		</dict>
+	</array>
+</dict>
+</plist>

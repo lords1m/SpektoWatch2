@@ -5,7 +5,7 @@ import SwiftUI
 /// Embed in any Form — used by both `TweaksPanelView` (sheet) and
 /// `SpectrogramSettingsView` (main settings).
 struct DesignTweaksSections: View {
-    @AppStorage("design.theme")        private var themeRaw: String = ThemeMode.dark.rawValue
+    @AppStorage("design.theme")        private var themeRaw: String = ThemeMode.system.rawValue
     @AppStorage("design.canvasInLight") private var canvasInLightRaw: String = CanvasMode.light.rawValue
     @AppStorage("design.accent")       private var accentRaw: String = AccentChoice.phosphor.rawValue
     @AppStorage("design.density")      private var densityRaw: String = Density.standard.rawValue
@@ -112,7 +112,7 @@ struct DesignTokens {
 }
 
 struct DesignTokensReader<Content: View>: View {
-    @AppStorage("design.theme")         private var themeRaw: String = ThemeMode.dark.rawValue
+    @AppStorage("design.theme")         private var themeRaw: String = ThemeMode.system.rawValue
     @AppStorage("design.canvasInLight") private var canvasInLightRaw: String = CanvasMode.light.rawValue
     @AppStorage("design.accent")        private var accentRaw: String = AccentChoice.phosphor.rawValue
     @AppStorage("design.density")       private var densityRaw: String = Density.standard.rawValue
@@ -123,7 +123,7 @@ struct DesignTokensReader<Content: View>: View {
 
     var body: some View {
         let tokens = DesignTokens(
-            theme: ThemeMode(rawValue: themeRaw) ?? .dark,
+            theme: ThemeMode(rawValue: themeRaw) ?? .system,
             canvasInLight: CanvasMode(rawValue: canvasInLightRaw) ?? .light,
             accent: AccentChoice(rawValue: accentRaw) ?? .phosphor,
             density: Density(rawValue: densityRaw) ?? .standard,

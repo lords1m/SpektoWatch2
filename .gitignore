@@ -26,6 +26,7 @@ TestResults/
 *.xcresult/
 TestResults/
 TestResults.xcresult/
+Screenshots/
 # swift-snapshot-testing writes diff PNGs next to baselines on failure — ignore those.
 **/__Snapshots__/**/*.failure.png
 **/__Snapshots__/**/*.diff.png

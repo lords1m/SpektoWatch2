@@ -6,12 +6,13 @@ struct WatchLevelMeterView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
 
     private var isRecording: Bool { audioEngine.isRecording }
-    @State private var levelHistory: [Float] = []
+    private static let historyLength = 120
+    @State private var levelHistory = RingBuffer<Float>(capacity: WatchLevelMeterView.historyLength)
     @State private var unitLabel: String = "dB(Z)"
     @State private var latestSampleRate: Double = 44100.0
     @State private var latestMagnitudesCount: Int = 1024
 
-    private let historyLength = 120
+    private let historyLength = WatchLevelMeterView.historyLength
     private let minDB: Float = -120.0
     private let maxDB: Float = 0.0
 
@@ -20,13 +21,14 @@ struct WatchLevelMeterView: View {
             WatchAppBackground().ignoresSafeArea()
 
             Canvas { context, size in
-                guard levelHistory.count > 1 else { return }
+                let snapshot = levelHistory.inOrder()
+                guard snapshot.count > 1 else { return }
                 let width = size.width
                 let height = size.height
                 let step = width / CGFloat(max(historyLength - 1, 1))
 
                 var path = Path()
-                for (index, value) in levelHistory.enumerated() {
+                for (index, value) in snapshot.enumerated() {
                     let normalized = clamp((value - minDB) / (maxDB - minDB), 0, 1)
                     let x = CGFloat(index) * step
                     let y = height - CGFloat(normalized) * height
@@ -140,9 +142,6 @@ struct WatchLevelMeterView: View {
 
     private func appendLevel(from data: SpectrogramData) {
         levelHistory.append(data.broadbandLevel)
-        if levelHistory.count > historyLength {
-            levelHistory.removeFirst(levelHistory.count - historyLength)
-        }
         unitLabel = unitLabel(for: data)
         latestSampleRate = data.sampleRate
         latestMagnitudesCount = data.magnitudes.count

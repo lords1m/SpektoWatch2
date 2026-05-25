@@ -1,0 +1,2663 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "a0e872eaae794364dadfecad98fb885615242726",
+  "generatedAt": "2026-05-23T12:33:09.824Z",
+  "files": {
+    "Shared/AppGroup.swift": {
+      "filePath": "Shared/AppGroup.swift",
+      "contentHash": "9dd6c8e79ea9fccf116cadd32a5c0e3de29bda9385f6036e877e2267ed6bebfc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 38,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/Logger+Extensions.swift": {
+      "filePath": "Shared/Logger+Extensions.swift",
+      "contentHash": "32c913fe4202b00833a4a4374c8b3c574848ec6f4b1f49d6a7ebddf455a011ae",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/LoudnessCalculator.swift": {
+      "filePath": "Shared/LoudnessCalculator.swift",
+      "contentHash": "66be365eeea2e31a5a7a49b9e399169419f38f4b3f5431cd4a7c764e45bbe261",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 312,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/LoudnessCalculatorView.swift": {
+      "filePath": "Shared/LoudnessCalculatorView.swift",
+      "contentHash": "ef8e973f5fe635ad9bfa01935f112b1120a545afc6406838c2861f2998932f58",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 204,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/NotificationNames.swift": {
+      "filePath": "Shared/NotificationNames.swift",
+      "contentHash": "dc3b0bdf2b5192e7d16a4347b5674e158d69ed9186c610097f0f8c7d8671f0d5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 9,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/PersistenceKeys.swift": {
+      "filePath": "Shared/PersistenceKeys.swift",
+      "contentHash": "5a9966ac87ab673fd52026b7f54f2d4e3f2ea11b947047f6d962b5b903fa7471",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 127,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/RingBuffer.swift": {
+      "filePath": "Shared/RingBuffer.swift",
+      "contentHash": "407b8f3c9105d5566f61a19412efe760c89fb3f703712bae0987b8b6b851581c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 66,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/SpectrogramData.swift": {
+      "filePath": "Shared/SpectrogramData.swift",
+      "contentHash": "e137d1890f8a14141638fa5e7bb5330765512d1ccf3515de4bcd43d47cc2668d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 295,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/WatchAppState.swift": {
+      "filePath": "Shared/WatchAppState.swift",
+      "contentHash": "0a63ace00989a8a91e3bffeabba9d421e9e2005e9fe1143b48b74632a2f2d018",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 100,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/WatchConnectivityManager.swift": {
+      "filePath": "Shared/WatchConnectivityManager.swift",
+      "contentHash": "d865bb8a7f795ee21f5bf9cedd9d65a8459f335df17ee6ae82c4f1447c02bb21",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 377,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/WatchConnectivityProtocol.swift": {
+      "filePath": "Shared/WatchConnectivityProtocol.swift",
+      "contentHash": "3b91fb8877a3eb62a95251ffa500a8c2f30dac4c21f52c260d7c9db7de357628",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 144,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/WatchOperatingMode.swift": {
+      "filePath": "Shared/WatchOperatingMode.swift",
+      "contentHash": "355b25debfcbb9c1515a6a73a122a3e75a4fd90c165e67265565cf6ec04adfca",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 43,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/WatchValueMapping.swift": {
+      "filePath": "Shared/WatchValueMapping.swift",
+      "contentHash": "77a87293bce2b266c83adbc80d74cf945b3326c2a7b7c5572bb1555a07af46dd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 23,
+      "hasStructuralAnalysis": false
+    },
+    "Shared/WatchWidgetConfiguration.swift": {
+      "filePath": "Shared/WatchWidgetConfiguration.swift",
+      "contentHash": "c647031a9acc079fd1f65f8e76a9eb732f0918caaf607b5c16550728c8ba710b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 153,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/Info.plist": {
+      "filePath": "SpektoWatch Complications/Info.plist",
+      "contentHash": "f90553cbeb0d6466ef25b4fe92b130b62c9cde5a752f167275c9a30d6bd3ac08",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 30,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/SpektoWatchComplications.entitlements": {
+      "filePath": "SpektoWatch Complications/SpektoWatchComplications.entitlements",
+      "contentHash": "ca71be7462a22b733a35ec14ebc38a29cabf1328a16be0ce6b815912cf843e81",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/SpektoWatchComplications.swift": {
+      "filePath": "SpektoWatch Complications/SpektoWatchComplications.swift",
+      "contentHash": "7eab30da858dbb346a0a68a8bcecddee2266251c45f02be0cb6d5160e2fc9f4b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/WatchComplicationEntry.swift": {
+      "filePath": "SpektoWatch Complications/WatchComplicationEntry.swift",
+      "contentHash": "866ce3546454a613907a3421be293be4f8fb31719a0673289b32b85abdfc2269",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/WatchComplicationProvider.swift": {
+      "filePath": "SpektoWatch Complications/WatchComplicationProvider.swift",
+      "contentHash": "0812fe9d16f8fb3253431ffe029229a8f50fd01fea55a2ae203522e0fcca98dc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 60,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/WatchComplicationViews.swift": {
+      "filePath": "SpektoWatch Complications/WatchComplicationViews.swift",
+      "contentHash": "5c10bc4220c27449d4d248e326d61aa50c87e0b7fcbbac635fa7059e85abc7f3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 111,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Complications/WatchComplicationWidget.swift": {
+      "filePath": "SpektoWatch Complications/WatchComplicationWidget.swift",
+      "contentHash": "9964b90655af9e4e42e34b3345f2c3086c90f7e9a360e5192bd3213f0c01552e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 59,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/Assets.xcassets/AccentColor.colorset/Contents.json": {
+      "filePath": "SpektoWatch Watch App/Assets.xcassets/AccentColor.colorset/Contents.json",
+      "contentHash": "76cd98aead7f77cc0c38bcbea63af40533c3be9b9134e12cd9b65104e74af6e2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 39,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch Watch App/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+      "filePath": "SpektoWatch Watch App/Assets.xcassets/AppIcon.appiconset/Contents.json",
+      "contentHash": "ea024c2798278a0d714602390d5549cc35f2ab212905919038d2bb0f3736e65b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 15,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch Watch App/Assets.xcassets/Contents.json": {
+      "filePath": "SpektoWatch Watch App/Assets.xcassets/Contents.json",
+      "contentHash": "0fd49ba3c3585c709678e0046a821c3c60685ec7063720d30d3a3448be3a208b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch Watch App/Contents.json": {
+      "filePath": "SpektoWatch Watch App/Contents.json",
+      "contentHash": "96633982ae33f549720fe97e377e02220ae3c6709290a170473db9f8a19dcc35",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch Watch App/SpektoWatchApp.swift": {
+      "filePath": "SpektoWatch Watch App/SpektoWatchApp.swift",
+      "contentHash": "2613ebc9a80bccf08892a4062b3d56d7095a53864954db8a6447bbb015fb8436",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/SpektoWatchWatchApp.entitlements": {
+      "filePath": "SpektoWatch Watch App/SpektoWatchWatchApp.entitlements",
+      "contentHash": "ca71be7462a22b733a35ec14ebc38a29cabf1328a16be0ce6b815912cf843e81",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/Watch-Info.plist": {
+      "filePath": "SpektoWatch Watch App/Watch-Info.plist",
+      "contentHash": "645e347f04023cba4a0f20af0cd5684aafa0967ef1c4f0963585e2e174343c78",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 29,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchAudioEngine.swift": {
+      "filePath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "contentHash": "b6e9dc68386ee717587b5f9043843326f6e52b23db2b41aef83c71c37a817085",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 518,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchContentView.swift": {
+      "filePath": "SpektoWatch Watch App/WatchContentView.swift",
+      "contentHash": "6192f90d7f95556e3dfd600590bce23916499cbd5e3cde26f5f7ca8698a90b5b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 19,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchDashboardView.swift": {
+      "filePath": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "contentHash": "134e894d65e0a74c166075bddab6a2738c66d566b60558c2d58bce369dcb310c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 187,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchLevelMeterView.swift": {
+      "filePath": "SpektoWatch Watch App/WatchLevelMeterView.swift",
+      "contentHash": "2651965084f4dfd248ddbb2c9d088f91bf7795786650b311a42a3dd1f1e1aa07",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 193,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchModularFace.swift": {
+      "filePath": "SpektoWatch Watch App/WatchModularFace.swift",
+      "contentHash": "a11d52a6eac36807fcddf6deb9c9b0ba6f96498a2c16f2b91798964503f0ff2c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 167,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchPegelmesserFace.swift": {
+      "filePath": "SpektoWatch Watch App/WatchPegelmesserFace.swift",
+      "contentHash": "dfc49271bcf3ee8dce54b751fc3f6aa61843c14d88a6c55db56e95c9af0a3f84",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 159,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchRecordingSession.swift": {
+      "filePath": "SpektoWatch Watch App/WatchRecordingSession.swift",
+      "contentHash": "8163a16b8bf71de09be83406da7c31272ccf5ed7254ac8970688928bbbfa0e2f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 49,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchSpectrogramView.swift": {
+      "filePath": "SpektoWatch Watch App/WatchSpectrogramView.swift",
+      "contentHash": "58dfc8b67f79bce56346d36c6c3b1ed5ae7a667b05cc9ad52116bb97c28f451d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 355,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchTonegeneratorFace.swift": {
+      "filePath": "SpektoWatch Watch App/WatchTonegeneratorFace.swift",
+      "contentHash": "d0d2ee241799f442e8d6112eb172cb4523e37fdd6268a4e55577c3341418c5c8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 163,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchWidgets/WatchLevelMeterWidget.swift": {
+      "filePath": "SpektoWatch Watch App/WatchWidgets/WatchLevelMeterWidget.swift",
+      "contentHash": "4e9f2e303c5e86cde3bc0bcdb3037aa54316acb36ff48b0e0c8bf0c5b9bd88da",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 128,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchWidgets/WatchLoudnessWidget.swift": {
+      "filePath": "SpektoWatch Watch App/WatchWidgets/WatchLoudnessWidget.swift",
+      "contentHash": "bf775bdfc3fe0e07a78e9025970ada1cd0854a5ffe3dc449387427a8909886a9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 86,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchWidgets/WatchSingleValueWidget.swift": {
+      "filePath": "SpektoWatch Watch App/WatchWidgets/WatchSingleValueWidget.swift",
+      "contentHash": "942990d4a454be42eed9c2d640c6cc8936da8544cec87a4464cc24d172f0dba8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 70,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch Watch App/WatchWidgets/WatchSpectrogramWidget.swift": {
+      "filePath": "SpektoWatch Watch App/WatchWidgets/WatchSpectrogramWidget.swift",
+      "contentHash": "9129eff729a5f68c467fd6ebe731a7b522d7e5b1e52592fe8ad0beaaee327473",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 91,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch-Watch-App-Info.plist": {
+      "filePath": "SpektoWatch-Watch-App-Info.plist",
+      "contentHash": "97952b1e0d672177eed0d8d80e9aaa7ca8deb0c637281f01a9c3ceccccb598af",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 9,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2 2026-05-23 12-18-19/DistributionSummary.plist": {
+      "filePath": "SpektoWatch2 2026-05-23 12-18-19/DistributionSummary.plist",
+      "contentHash": "a70f0b2f4229dc242a6703e9253421f24f5e20e80c807b73be5cb294da184e44",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 156,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2 2026-05-23 12-18-19/ExportOptions.plist": {
+      "filePath": "SpektoWatch2 2026-05-23 12-18-19/ExportOptions.plist",
+      "contentHash": "0ba5808248530bd4c6e40bd11365538fa6e39b55180192ddd583a37852320554",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 19,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/project.pbxproj": {
+      "filePath": "SpektoWatch2.xcodeproj/project.pbxproj",
+      "contentHash": "f0c3c8b703a74d341fc0055caa9f2b873585152442f52f2e2fef019c0376c4b0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1291,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/project.xcworkspace/contents.xcworkspacedata": {
+      "filePath": "SpektoWatch2.xcodeproj/project.xcworkspace/contents.xcworkspacedata",
+      "contentHash": "7f3b00b5c3fdb45242d7b87e1e5c4e25d1fa8129a16c94295ecc4e8ea2235c5f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 8,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings": {
+      "filePath": "SpektoWatch2.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings",
+      "contentHash": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": {
+      "filePath": "SpektoWatch2.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+      "contentHash": "f436a42881af72b60511c13331d890608a6edab171ddc0abfef986217ed63abf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 43,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatch Watch App.xcscheme": {
+      "filePath": "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatch Watch App.xcscheme",
+      "contentHash": "fdf4a1e105228654a692d3d7d4a5711f60139445b5ff86b836e4a06d44c60b94",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 98,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatch2.xcscheme": {
+      "filePath": "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatch2.xcscheme",
+      "contentHash": "cf74b31ca294565d609e90d064c2a9517cc502344d4941d33f8ef735cee39a1e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 128,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatch2UITests.xcscheme": {
+      "filePath": "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatch2UITests.xcscheme",
+      "contentHash": "5ca5b0a82b7d0c7b410640422e63b62797da7871367571c2b2a15365594a7198",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 77,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatchTests.xcscheme": {
+      "filePath": "SpektoWatch2.xcodeproj/xcshareddata/xcschemes/SpektoWatchTests.xcscheme",
+      "contentHash": "5fa4e68e9db6fdaf6993221b9536e393b12e4fb5befb3194defb493517116222",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 55,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xctestplan": {
+      "filePath": "SpektoWatch2.xctestplan",
+      "contentHash": "336e45d08efb338b8516281b38f8de3c4c2011cf47d65bfc11bc972be8db0464",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 56,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ActivityView.swift": {
+      "filePath": "SpektoWatch2/ActivityView.swift",
+      "contentHash": "1ba231e20b10db21569f2fc7f5fdae8c11886de6f9b6886d51123805b9220fdf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/AppServices.swift": {
+      "filePath": "SpektoWatch2/AppServices.swift",
+      "contentHash": "14564465f45ce1006e2a6745770c67187cbe013d87a8427619449894331b0029",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 123,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Assets.xcassets/AccentColor.colorset/Contents.json": {
+      "filePath": "SpektoWatch2/Assets.xcassets/AccentColor.colorset/Contents.json",
+      "contentHash": "e7cbe80cc17efade52237f28783f6707ebb4d4bcca1b2a4e1cc26771843ae072",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 39,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch2/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+      "filePath": "SpektoWatch2/Assets.xcassets/AppIcon.appiconset/Contents.json",
+      "contentHash": "a8aa74c0dd7c3e44a0989083aa1be3ffbc62790cb895868962527ee311036cf5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 258,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch2/Assets.xcassets/Contents.json": {
+      "filePath": "SpektoWatch2/Assets.xcassets/Contents.json",
+      "contentHash": "0fd49ba3c3585c709678e0046a821c3c60685ec7063720d30d3a3448be3a208b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch2/AudioConfiguration.swift": {
+      "filePath": "SpektoWatch2/AudioConfiguration.swift",
+      "contentHash": "d4dfc7a9b028d72c1d20a88c515787dfe4aa31702470ef3fabde71fd278d3ccd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/AudioDataProvider.swift": {
+      "filePath": "SpektoWatch2/AudioDataProvider.swift",
+      "contentHash": "5fffce6df001baf177aac42c3287cad010348635a512cef5c37bd3d4e6d5b614",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 14,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/AudioEngine.swift": {
+      "filePath": "SpektoWatch2/AudioEngine.swift",
+      "contentHash": "b17e77367b46c2059d08705592bf8b16760dda94ed11e525305850818459d8c9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1796,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/AudioWidgets.swift": {
+      "filePath": "SpektoWatch2/AudioWidgets.swift",
+      "contentHash": "91ce400e6cf04d56ea62d04467390a46cefb8013e47c2c9079928e52e39b9aa5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 514,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/CSVExporter.swift": {
+      "filePath": "SpektoWatch2/CSVExporter.swift",
+      "contentHash": "59eac2582874ebc15217fa2f373f38fda8fe31e548a499185905bcd17b3a8f93",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 115,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/CalibrationProvider.swift": {
+      "filePath": "SpektoWatch2/CalibrationProvider.swift",
+      "contentHash": "9c7d77f45f9178c4be3f5942185bcd6e3f3370461d16af2edf2002ed3904a4d2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 138,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ChartRenderer.swift": {
+      "filePath": "SpektoWatch2/ChartRenderer.swift",
+      "contentHash": "258646928f5e53f68e549ccb810410f9c52e0d0aee1a118c8a681b602583274e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 128,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ColormapTexture.swift": {
+      "filePath": "SpektoWatch2/ColormapTexture.swift",
+      "contentHash": "8777f07d6ba040b2fa0ead94797363e42899972af2548c92053435127ad0b9ce",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 178,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ContentView.swift": {
+      "filePath": "SpektoWatch2/ContentView.swift",
+      "contentHash": "5a66e4397b50ce450a23d37f7f56202ac8ec8776a8e40135f6c787dbc6baf6f1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 40,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Contents.json": {
+      "filePath": "SpektoWatch2/Contents.json",
+      "contentHash": "96633982ae33f549720fe97e377e02220ae3c6709290a170473db9f8a19dcc35",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "SpektoWatch2/ControlBarState.swift": {
+      "filePath": "SpektoWatch2/ControlBarState.swift",
+      "contentHash": "674e79d860400e667072bf14d190d06b1a24cd3ec8203b8c52132976b5f27a0c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 43,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ControlBarView.swift": {
+      "filePath": "SpektoWatch2/ControlBarView.swift",
+      "contentHash": "86c70b69007f091d31667afa028a93afbef0ab65148b1a9624372129abeb60a9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 432,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/DashboardHeaderView.swift": {
+      "filePath": "SpektoWatch2/DashboardHeaderView.swift",
+      "contentHash": "72fe568d1ac42beb7c97d08ec270c7dbd59389615835a07e2929c4fd4bd00c87",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 99,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/DashboardManager.swift": {
+      "filePath": "SpektoWatch2/DashboardManager.swift",
+      "contentHash": "b4fe2954acbff194cc63bf91e6aa34dcc89bd5d56256621e27c433f71091cbfc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 345,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/DashboardViewModel.swift": {
+      "filePath": "SpektoWatch2/DashboardViewModel.swift",
+      "contentHash": "2a8c3e0e4386909b1b8240aaba4717812a5bf96e7dfcd46678f47d4432b5f7b3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 269,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/DesignTokens.swift": {
+      "filePath": "SpektoWatch2/DesignTokens.swift",
+      "contentHash": "21b187af0b2558fb7f250edd3679d48f4c89265bff763413e933acd7e28f6142",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 273,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/GlassStyle.swift": {
+      "filePath": "SpektoWatch2/GlassStyle.swift",
+      "contentHash": "dfc029df1fa3678e73543103a5fd1fb6a2095d0bba6031a554bd1bd633105e16",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 97,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/HighEndSpectrogramAdapter.swift": {
+      "filePath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "contentHash": "a89c9ff8f252dd6ce3acb7bd142b50a81b66e9e91d024bde5397b1edda5b2663",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1108,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/HighEndSpectrogramShaders.metal": {
+      "filePath": "SpektoWatch2/HighEndSpectrogramShaders.metal",
+      "contentHash": "7806b0b367388b51181026db9a84a5b7b53119338c685fcc4b5b00005c6688c7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 153,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/LAFGraphView.swift": {
+      "filePath": "SpektoWatch2/LAFGraphView.swift",
+      "contentHash": "99f98071b43721d65d9efac2cc651d72ec591ddb3a197a86806145038ea4c39f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 212,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/LAFGraphWidget.swift": {
+      "filePath": "SpektoWatch2/LAFGraphWidget.swift",
+      "contentHash": "27dcc0d59a49aa5406179ac96759fbd06498651ed467d07a5b1bb2b9cc23c19f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 119,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/LiveAcousticState.swift": {
+      "filePath": "SpektoWatch2/LiveAcousticState.swift",
+      "contentHash": "a75f5cae885b4b5575b4faed37b64c7bf8c4af84262fc8049dd2cbae2133638b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 62,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Managers/AcousticMetricsCalculator.swift": {
+      "filePath": "SpektoWatch2/Managers/AcousticMetricsCalculator.swift",
+      "contentHash": "aa2bb90ee7c92f836e457067ff61c3538effed3696cc060570ab84b678b6f6c8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 210,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Managers/BandstopFilterManager.swift": {
+      "filePath": "SpektoWatch2/Managers/BandstopFilterManager.swift",
+      "contentHash": "3a1b764a9f906170fa0d3df4304032ebfb964dbdb6b224b72c750c4d683ba0a8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 293,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Managers/SpectrumBandAggregator.swift": {
+      "filePath": "SpektoWatch2/Managers/SpectrumBandAggregator.swift",
+      "contentHash": "9554b1befb9142fd18d4283cc70828e99bdb2e0681258319e1172b55a6629002",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 221,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Managers/TestAudioGenerator.swift": {
+      "filePath": "SpektoWatch2/Managers/TestAudioGenerator.swift",
+      "contentHash": "ebde2113d4428a29303239baeacd6403bcf2f1ff9371309c7c9310e79aee7e66",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 218,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskerSuggestionEngine.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskerSuggestionEngine.swift",
+      "contentHash": "f0916bac800400863d40eb47b3623412a55948eee9550205309c7d4a0ce39f6f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 132,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskerType.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskerType.swift",
+      "contentHash": "2c526a4d405d6f8e44d6c360edde26360d327d722c0428fd6edba5470c3ab67d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 138,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingEngine.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingEngine.swift",
+      "contentHash": "4027e4b37c6f84daa99fccaa50e546e66cf87dbca606cccf4ec8ee0af01945a2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 248,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingEntryWidget.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingEntryWidget.swift",
+      "contentHash": "57b338fe26638516e5cb996759742f2499d09ab1dd86b6459a1c58cf77d877b7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 150,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingPreviewPlayer.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingPreviewPlayer.swift",
+      "contentHash": "1c60aed2884bb4a34e4c86460051aec61ec482ff49fc242a8c3564b30a1fed3a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 136,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingProfile.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingProfile.swift",
+      "contentHash": "0f829f3b184a4c008817f6cba8e0b7d6bbedf52f4ad0efdbc6f1c980ac57c896",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 62,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingProfileManager.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingProfileManager.swift",
+      "contentHash": "85eaeb37e16ca6c0e5d3b524617e5e86810a0d758bd68ff9f7a60e9585a4d8b3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 47,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingSpectrumView.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingSpectrumView.swift",
+      "contentHash": "9a7a1e6711d49638f95a5484fa38bb05ab0e8cbc66900fbc7fbf93937429f1d3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 171,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/MaskingSuggestionView.swift": {
+      "filePath": "SpektoWatch2/Masking/MaskingSuggestionView.swift",
+      "contentHash": "93e320ae1d0fca43569de87834abda921dd07908e532e50e1f23b8adeb0553d7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 325,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/NoiseGenerator.swift": {
+      "filePath": "SpektoWatch2/Masking/NoiseGenerator.swift",
+      "contentHash": "693c56a24d0dd893bcfedb62c63e029e39340bda9d68a66d6a41211f44673c62",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 94,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/SpectralNoveltyDetector.swift": {
+      "filePath": "SpektoWatch2/Masking/SpectralNoveltyDetector.swift",
+      "contentHash": "f87cd0050aa31ab473ebab322c1a166c09938def9bf8853b584cfc271d967cb6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 103,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/TriggerAcquisitionView.swift": {
+      "filePath": "SpektoWatch2/Masking/TriggerAcquisitionView.swift",
+      "contentHash": "211ea4d834706fc6edc45d47230867bd25adc6eee42146505ec0468ca9cb48dc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 382,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/TriggerSpectrum.swift": {
+      "filePath": "SpektoWatch2/Masking/TriggerSpectrum.swift",
+      "contentHash": "8b7ae840230d4ed0dc5ccbd5ed25dd17b4da18911c348e3f69f230337878a7ca",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 59,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Masking/TriggerSpectrumAccumulator.swift": {
+      "filePath": "SpektoWatch2/Masking/TriggerSpectrumAccumulator.swift",
+      "contentHash": "87636177b8ebfbe90168f74ce4ccc197c05540fa7446a0913fc1fece4b218023",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 206,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/MeasurementDataFormat.swift": {
+      "filePath": "SpektoWatch2/MeasurementDataFormat.swift",
+      "contentHash": "6a7779a1d4d49c227bc2169a6775403c63c24feba6f22385f78e7e421410f9ec",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 149,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/MeasurementDataReader.swift": {
+      "filePath": "SpektoWatch2/MeasurementDataReader.swift",
+      "contentHash": "269d195245cc0ba7b750f2768d65b718d0cc4709ecd07e7816b560a2eb28a5bb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 157,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/MeasurementDataWriter.swift": {
+      "filePath": "SpektoWatch2/MeasurementDataWriter.swift",
+      "contentHash": "20d4a8caef559d0273ee0443d384e679ab7d563729de033be50ebb1a2be29e9e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 198,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/MetalWidgetManager.swift": {
+      "filePath": "SpektoWatch2/MetalWidgetManager.swift",
+      "contentHash": "00d24f100877e872546a47784cf2dfdf61c06bd5e66da03f7723a182e62630bf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 22,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Models/BandstopFilter.swift": {
+      "filePath": "SpektoWatch2/Models/BandstopFilter.swift",
+      "contentHash": "0fa5ca747603f1d76799bf76dd5f32bdaefe871a0c79d06a55f11ad62536567f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 120,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Models/FFTConfiguration.swift": {
+      "filePath": "SpektoWatch2/Models/FFTConfiguration.swift",
+      "contentHash": "c6e88a994ade6abcce72bf772b14806d6a09b83e01bc49280f140a8f79ecd015",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 111,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Models/MeasurementMarker.swift": {
+      "filePath": "SpektoWatch2/Models/MeasurementMarker.swift",
+      "contentHash": "a365d440c810207e5648a6b9c19bd6945586ae204ab22719bb3d2cac04ee184a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Models/Recording.swift": {
+      "filePath": "SpektoWatch2/Models/Recording.swift",
+      "contentHash": "fcab7beec31f41016dd1a2701bf11bb7bb49671ec7c03b3dc43e35990bae1279",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 190,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ModularDashboardView.swift": {
+      "filePath": "SpektoWatch2/ModularDashboardView.swift",
+      "contentHash": "f5abc7adae739e5672119fdf4229f74c026e9b9106457f242074615fd14a3dbd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 481,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/PDFReportGenerator.swift": {
+      "filePath": "SpektoWatch2/PDFReportGenerator.swift",
+      "contentHash": "1c2c307392b0a083a913aa4cd86459e5d699f0ca52b70dd0968ee5d7ffb83ef5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 293,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/PlaybackSpectrogramView.swift": {
+      "filePath": "SpektoWatch2/PlaybackSpectrogramView.swift",
+      "contentHash": "57d6d843d47a8d0c844a36809412a735227e3d89388ce6fd97dd1f9c06796956",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 645,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/PresetCompositions.swift": {
+      "filePath": "SpektoWatch2/PresetCompositions.swift",
+      "contentHash": "29197c2db8fa7b49003014659696d6eef1598f33232b08886eb4f02d5321ace9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 59,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/PresetRailView.swift": {
+      "filePath": "SpektoWatch2/PresetRailView.swift",
+      "contentHash": "6a5153e15cada9b53633d79e562eab13cf2691f34c7e954095e5bffa30af46a9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 82,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Processing/FFTProcessor.swift": {
+      "filePath": "SpektoWatch2/Processing/FFTProcessor.swift",
+      "contentHash": "dda50e128a445402263894d20db60985727367733c22185c5e798e239d824a7a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 481,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Processing/FrequencyWeightingProcessor.swift": {
+      "filePath": "SpektoWatch2/Processing/FrequencyWeightingProcessor.swift",
+      "contentHash": "acc0912fb3d3817445b7ce9b6ae7bc2dba3066750d8b189a9b96cc3a2d6da78e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 163,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/RealtimeAudioFileWriter.swift": {
+      "filePath": "SpektoWatch2/RealtimeAudioFileWriter.swift",
+      "contentHash": "a8f137dbeb81fab72a6864e189094e1e08019a23ea33d5a5cf6ee221174a9823",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 132,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/RecordingCoordinator.swift": {
+      "filePath": "SpektoWatch2/RecordingCoordinator.swift",
+      "contentHash": "8175208c1e35a95bf77f8b1714444d2a4996a874b5d26b5af61de8e65851d49b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 38,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/RecordingManager.swift": {
+      "filePath": "SpektoWatch2/RecordingManager.swift",
+      "contentHash": "9f66d5ccfa45bab0e80ae505b951b6dbd8df7025054467d4024645d0dfd217ee",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 386,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ScientificChartSupport.swift": {
+      "filePath": "SpektoWatch2/ScientificChartSupport.swift",
+      "contentHash": "e431734d756ef2a0f673428439f77dafbb88f9157787703b5486aa5752dce483",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 62,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SingleValueWidget.swift": {
+      "filePath": "SpektoWatch2/SingleValueWidget.swift",
+      "contentHash": "284eaf3f55a1780fd4dabd2263905c8bb439b883b6a8e5097f1325d0260c086b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 160,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramCrosshairOverlay.swift": {
+      "filePath": "SpektoWatch2/SpectrogramCrosshairOverlay.swift",
+      "contentHash": "9060a0e0c1c886409640d7158e04683600648032d6ec42f08cf4809b169eed70",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 90,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramImageExporter.swift": {
+      "filePath": "SpektoWatch2/SpectrogramImageExporter.swift",
+      "contentHash": "53c2a788169cf10bba67736dbe18d635e60f5956f46c1cd41dbcd536d126a18d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 58,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramImageRenderer.swift": {
+      "filePath": "SpektoWatch2/SpectrogramImageRenderer.swift",
+      "contentHash": "50f7505cde0db0b557f3bf596bdac17ba47e04bca5e20953c6d3289e1337d999",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 203,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramProcessor.swift": {
+      "filePath": "SpektoWatch2/SpectrogramProcessor.swift",
+      "contentHash": "716215d54ca21fe36bcf1fe599e84e22104a077f6599ff3e16568fa5181ab27b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 733,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramSettingsView.swift": {
+      "filePath": "SpektoWatch2/SpectrogramSettingsView.swift",
+      "contentHash": "3b100ed1e1aff22a8d0829640cc9b52b36c0eba65b13c1a26a867d3c4b478083",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 225,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramView.swift": {
+      "filePath": "SpektoWatch2/SpectrogramView.swift",
+      "contentHash": "d8d59399b22a1426b06ceefbad8dcaff55d079d75d1017085225afead8bacca6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 34,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpectrogramWidget.swift": {
+      "filePath": "SpektoWatch2/SpectrogramWidget.swift",
+      "contentHash": "74fadb4ce851aef6f7877d0ce42111c448ea8157e40a4d6f5191bdc051da0fd9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 65,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpektoWatch2App.swift": {
+      "filePath": "SpektoWatch2/SpektoWatch2App.swift",
+      "contentHash": "7f15b977dcb236b8213f7c5b5aeb6e5e489c491874c9d91c6559cd85134d2c6e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 144,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpektoWatchError.swift": {
+      "filePath": "SpektoWatch2/SpektoWatchError.swift",
+      "contentHash": "c2921ec410420b74b237437d48c4ed738d087656f31838c89cb0651363210f8d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/SpektralanalyseLaborWidget.swift": {
+      "filePath": "SpektoWatch2/SpektralanalyseLaborWidget.swift",
+      "contentHash": "6e47e134a166c587189e906e15b598624de77507acee8ee2b6f9a247ddcc6592",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 418,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/StoredDataProvider.swift": {
+      "filePath": "SpektoWatch2/StoredDataProvider.swift",
+      "contentHash": "f9d8f57012105a84632063841787f606119957b9ac2a9b64fe0b7cc557dbc33e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 137,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/ToneGeneratorWidget.swift": {
+      "filePath": "SpektoWatch2/ToneGeneratorWidget.swift",
+      "contentHash": "766088f949e1183bfbb20c6e6ea6e9b1ba0ced30bddfd14e7acd3c82f893bf38",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 856,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/TweaksPanelView.swift": {
+      "filePath": "SpektoWatch2/TweaksPanelView.swift",
+      "contentHash": "207d4b0746e7ae36e67bc8c67090077e3fb73e36c2944d9d264e762217e98840",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 141,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/AdvancedAnalysisView.swift": {
+      "filePath": "SpektoWatch2/Views/AdvancedAnalysisView.swift",
+      "contentHash": "307219ecbc974947b601f55498b8c19f6b720ac45f146fd9a3173ed9ce537bab",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 761,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/AudioPlayerManager.swift": {
+      "filePath": "SpektoWatch2/Views/AudioPlayerManager.swift",
+      "contentHash": "84046c121ccb1d04644aa8049e1d410983a2f5ce2464000408ee374d625bbdc4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 172,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/BandstopDashboardWidget.swift": {
+      "filePath": "SpektoWatch2/Views/BandstopDashboardWidget.swift",
+      "contentHash": "baa3bb0c27b7905f4def992a75c28d5be5c1bcb00414fc9b318a97d84b154826",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 249,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/BandstopFilterView.swift": {
+      "filePath": "SpektoWatch2/Views/BandstopFilterView.swift",
+      "contentHash": "0c874ddf86395f8a1cd9839acc4582756646d22a2502c96774999227fdd8a119",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 523,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/BandstopOverlayView.swift": {
+      "filePath": "SpektoWatch2/Views/BandstopOverlayView.swift",
+      "contentHash": "3703c2195d1a12e21cb912f52c64f92b934ac4ee34c323ed90b163ca689c3688",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 141,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/PhotoPickerView.swift": {
+      "filePath": "SpektoWatch2/Views/PhotoPickerView.swift",
+      "contentHash": "a78e665b0536dd61f938443ad5d74c7c8531265db6c69a98d23be919ba2b8c58",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 40,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/RecordingDetailComponents.swift": {
+      "filePath": "SpektoWatch2/Views/RecordingDetailComponents.swift",
+      "contentHash": "0109a3d440813dacc3e2c58f9ec924c2d7585ca012932b24336f19a016765908",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 104,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/RecordingDetailView.swift": {
+      "filePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "contentHash": "c668c022995ffb1dd2a4cae66f51abf16500e406e3031caf555af42ad6ad9f3a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1202,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/Views/RecordingsListView.swift": {
+      "filePath": "SpektoWatch2/Views/RecordingsListView.swift",
+      "contentHash": "a05209c683c62252d57a5fc1344bc6df8b3f42294d5c2ae217fb3acf45466a53",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 592,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WatchConnectivityManager.swift": {
+      "filePath": "SpektoWatch2/WatchConnectivityManager.swift",
+      "contentHash": "24cc34abd875dd4689bab2ab546ebbe10bc4f949cb5082978bd5e9a75bd1872d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 355,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WatchDashboardSettingsView.swift": {
+      "filePath": "SpektoWatch2/WatchDashboardSettingsView.swift",
+      "contentHash": "ed89aff631384ffaa0fa45a3166c64eccd3641d8cb58ebeaa05ee2848762298b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 303,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WaterfallDataBuilder.swift": {
+      "filePath": "SpektoWatch2/WaterfallDataBuilder.swift",
+      "contentHash": "20739e341a0cb1b406278495fa29d20c1c2ee17875152d562a6fcd10cc8bcb15",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 156,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WaterfallView.swift": {
+      "filePath": "SpektoWatch2/WaterfallView.swift",
+      "contentHash": "159af199bd1266b389ab384cd0abf5f80fb03465583e3f826aac805a77b42af0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 960,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WidgetAnimations.swift": {
+      "filePath": "SpektoWatch2/WidgetAnimations.swift",
+      "contentHash": "4ed2b5dcf4505e1d0d4d0bcb83ccfe794e46975dd55c064a8334130da994b24b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 22,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WidgetCardView.swift": {
+      "filePath": "SpektoWatch2/WidgetCardView.swift",
+      "contentHash": "48656742c9ea9cc33ea570ccd46bfae7045d31e6c0da0991ee64649405cd5198",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 359,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WidgetConfiguration.swift": {
+      "filePath": "SpektoWatch2/WidgetConfiguration.swift",
+      "contentHash": "439fe90e99bd61766b2e62a5c5e0979d853352098ee488f71a5296196841d065",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 253,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WidgetPickerView.swift": {
+      "filePath": "SpektoWatch2/WidgetPickerView.swift",
+      "contentHash": "2778404ed5caa841ab83af95351964deca35cff964247da83c35d1de4d7f80fd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 66,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2/WidgetSettingsView.swift": {
+      "filePath": "SpektoWatch2/WidgetSettingsView.swift",
+      "contentHash": "a5c046fd94ca50d86957454acf1b8bfdb13332aa122756dbc20a3de029c4483d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 321,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/AudioEngineTests.swift": {
+      "filePath": "SpektoWatch2Tests/AudioEngineTests.swift",
+      "contentHash": "686c658d018ad4c35efacafda02f3105ce925662cb957c3ef3a631cabaeba67a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 438,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/CSVExporterTests.swift": {
+      "filePath": "SpektoWatch2Tests/CSVExporterTests.swift",
+      "contentHash": "bc06e86a03c217c31d9f606c89e03f8ebf1375ca323de3d23f2b7ac887382413",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 667,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/CalibrationProviderTests.swift": {
+      "filePath": "SpektoWatch2Tests/CalibrationProviderTests.swift",
+      "contentHash": "2d5a0e89a66f66655719b95c66e525afb63df26f222a7d5e5760998cdfcc10cb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 70,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/ControlBarViewTests.swift": {
+      "filePath": "SpektoWatch2Tests/ControlBarViewTests.swift",
+      "contentHash": "f833a72fe06ef4673f055dadc11bcf18f8764bb7e462baedb6836d7b24152b45",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 81,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/FFTProcessorTests.swift": {
+      "filePath": "SpektoWatch2Tests/FFTProcessorTests.swift",
+      "contentHash": "73f6094a7643945efd2efab4a16f1b005c36801f9d3ec9b3085f288e44e5cabb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 480,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/FrequencyWeightingTests.swift": {
+      "filePath": "SpektoWatch2Tests/FrequencyWeightingTests.swift",
+      "contentHash": "ca9668d44c1627fa4cfa3d3673d48e46ab6cc4b5d567137cde2d44254fd6f481",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 439,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/HighEndSpectrogramAdapterTests.swift": {
+      "filePath": "SpektoWatch2Tests/HighEndSpectrogramAdapterTests.swift",
+      "contentHash": "2bd8c370a0da2d4e5c5b435fb4bf7b832987981c2be4b6a88eb089b6ecc13e81",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 487,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/IntegrationTests.swift": {
+      "filePath": "SpektoWatch2Tests/IntegrationTests.swift",
+      "contentHash": "6b23e979e37c3418f9718575330efde3e71599f6260c1999826253c13ba3015f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 337,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/LoudnessCalculatorTests.swift": {
+      "filePath": "SpektoWatch2Tests/LoudnessCalculatorTests.swift",
+      "contentHash": "2d0d0b8fe66138534e2f6de93315ee11d29fdb1a12dab8f377e949c3b77fcb1a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 455,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/MeasurementDataIOTests.swift": {
+      "filePath": "SpektoWatch2Tests/MeasurementDataIOTests.swift",
+      "contentHash": "60db51fd2306b82dc220bba7c3cbe10d0451c6a8fdc9e1a48f06ef7e262e54ed",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 142,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/PDFReportGeneratorTests.swift": {
+      "filePath": "SpektoWatch2Tests/PDFReportGeneratorTests.swift",
+      "contentHash": "f17c7a58dfe0412744417a910a68f480ae8938f693f39750bba29b9b1e7053b2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 528,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/PDFReportSnapshotTests.swift": {
+      "filePath": "SpektoWatch2Tests/PDFReportSnapshotTests.swift",
+      "contentHash": "6040a35dd1ffe4658b90cfde45e942987bccdaba38ed8b86da1830b4ca04da22",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 166,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/PerformanceMetricsTests.swift": {
+      "filePath": "SpektoWatch2Tests/PerformanceMetricsTests.swift",
+      "contentHash": "86fbd62992fdbdd47a5717b6ee6d8d195131ebba5ab02fec3885ac7342bada26",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 116,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/PerformanceProfilingTests.swift": {
+      "filePath": "SpektoWatch2Tests/PerformanceProfilingTests.swift",
+      "contentHash": "f4da77abdd4fccd20c5d72aad278219fc05278438da5b9d13e8ae96c64262e00",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 481,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/RecordingManagerTests.swift": {
+      "filePath": "SpektoWatch2Tests/RecordingManagerTests.swift",
+      "contentHash": "d61c2184e87bce9fcf254fe611998740389f149fadcde2395eec7fcc799a1fd1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 438,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/SnapshotTestSupport.swift": {
+      "filePath": "SpektoWatch2Tests/SnapshotTestSupport.swift",
+      "contentHash": "1c403008602286ead08b201c841ab977f03f8f6645c49032c98223a0da97d04b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 211,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/SpectrogramImageExporterTests.swift": {
+      "filePath": "SpektoWatch2Tests/SpectrogramImageExporterTests.swift",
+      "contentHash": "b7700447668f6ed507b5ea0e0ed8ae83561097e18ac8aec5e8e3b00bf1eb1732",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 125,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/SpectrumBandAggregatorTests.swift": {
+      "filePath": "SpektoWatch2Tests/SpectrumBandAggregatorTests.swift",
+      "contentHash": "6e58269fbd20ab6eb419a869425b0310e032307f1791ba1678c73055e55991c7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 107,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/SpektoWatch2Tests.swift": {
+      "filePath": "SpektoWatch2Tests/SpektoWatch2Tests.swift",
+      "contentHash": "85469412440677f49254095b314a9242d900706ad5b80f403d0b5d2bd5af1a76",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/ToneGeneratorTests.swift": {
+      "filePath": "SpektoWatch2Tests/ToneGeneratorTests.swift",
+      "contentHash": "1c556add408ae31174b812f2541cc582a6e029c519a73e2bb8665f3c52af6a97",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 276,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/WatchAudioEngineTests.swift": {
+      "filePath": "SpektoWatch2Tests/WatchAudioEngineTests.swift",
+      "contentHash": "6b77fd41155133fa3fe9c5d3dc40555bfef7273ff44c83987c448712d18ccc3e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 447,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/WatchConnectivityTests.swift": {
+      "filePath": "SpektoWatch2Tests/WatchConnectivityTests.swift",
+      "contentHash": "e5a363a9b8a88a8a2ee0f6695ba7eed4fda47ca22993b936c80609e8d0082c1f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 374,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/WatchProtocolVersioningTests.swift": {
+      "filePath": "SpektoWatch2Tests/WatchProtocolVersioningTests.swift",
+      "contentHash": "7e603eca1b1ddd604ca33abfb9ff5e5feb40b37b62d4f84decf0a84a21f0bbb5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 133,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/WatchValueMappingTests.swift": {
+      "filePath": "SpektoWatch2Tests/WatchValueMappingTests.swift",
+      "contentHash": "bcbdb9af9d8fe048800d64833c20acd73d9c6a5edff3446ef06dd8c36b82df8e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 71,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/WaterfallDataBuilderTests.swift": {
+      "filePath": "SpektoWatch2Tests/WaterfallDataBuilderTests.swift",
+      "contentHash": "581a617b3a3a434aa92640a656534dbf87461fef2ca86a6568753d3dfe30c90b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 94,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2Tests/WidgetSizingMigrationTests.swift": {
+      "filePath": "SpektoWatch2Tests/WidgetSizingMigrationTests.swift",
+      "contentHash": "48b64adaa5f453d061fe896fe7d87429d96c37bf8e3233211b63f00b6f439c75",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 194,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2UITests/ScreenshotCatalogTests.swift": {
+      "filePath": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
+      "contentHash": "c8ac10e18c89e736df711ed036d0d6414381b9019293b1e634d7b7c5538f46e2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 206,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2UITests/SpektoWatch2UITests.swift": {
+      "filePath": "SpektoWatch2UITests/SpektoWatch2UITests.swift",
+      "contentHash": "61bb4b9496af02673ed107d6efd9154eb35af8c51b66c153a8ba31367588641f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 478,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2UITests/SpektoWatch2UITestsLaunchTests.swift": {
+      "filePath": "SpektoWatch2UITests/SpektoWatch2UITestsLaunchTests.swift",
+      "contentHash": "8cab733ab2113c6a6f43bb53632b6e336d37fb06b9530d2172c918b87aed6ecc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 34,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2UITests/WatchAppScreenshotTests.swift": {
+      "filePath": "SpektoWatch2UITests/WatchAppScreenshotTests.swift",
+      "contentHash": "a7c99c102a4ae05b3e0912fcc0534eca24eee9805973c97ebfca94734c492a64",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 142,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2_FullRun.xctestplan": {
+      "filePath": "SpektoWatch2_FullRun.xctestplan",
+      "contentHash": "ec5ea40096cee3ee4c410c33a19bc734f8e33844047a00a99ad7ca4e2300b9b8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 44,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatchTests/WatchAudioEngineTests.swift": {
+      "filePath": "SpektoWatchTests/WatchAudioEngineTests.swift",
+      "contentHash": "d4d28ed9661c5e01455ec89017c6c6097a296641b555da4fe20ec592b5b7444c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 172,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatchTests/WatchDataProtocolTests.swift": {
+      "filePath": "SpektoWatchTests/WatchDataProtocolTests.swift",
+      "contentHash": "3fbff10160a552dcdf5a75da9add93e6deda3d15ced735edd0b5db424403c7a9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 165,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatchTests/WatchFFTTests.swift": {
+      "filePath": "SpektoWatchTests/WatchFFTTests.swift",
+      "contentHash": "c5b2a399f10dccdb8df32a6c0ec51ce3e82f2228763345aeb41b049b29550e67",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 218,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatchTests/WatchValueMappingTests.swift": {
+      "filePath": "SpektoWatchTests/WatchValueMappingTests.swift",
+      "contentHash": "6062ca64843ae26a8373067fba5bcc2202ec62ad33a2235bacb3751e2fd88dd1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 170,
+      "hasStructuralAnalysis": false
+    },
+    "TestPlan.xctestplan": {
+      "filePath": "TestPlan.xctestplan",
+      "contentHash": "30e9d4bbcd8f150353c0c6636b0d839c8b925829782c4cc0de775ccc80e338a1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 25,
+      "hasStructuralAnalysis": false
+    },
+    "agent/manifest.yaml": {
+      "filePath": "agent/manifest.yaml",
+      "contentHash": "ba7c74ebfd9a62d9144aa31f0db8e8507db7228ecce7bbb218165750391c5a6e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 19,
+      "hasStructuralAnalysis": true
+    },
+    "agent/progress.yaml": {
+      "filePath": "agent/progress.yaml",
+      "contentHash": "18b41d56272a35cc0d3746136b9d8e2d691de5c72ece3a0e4462db4db128200b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 881,
+      "hasStructuralAnalysis": true
+    },
+    "agent/scripts/capture-screenshots.py": {
+      "filePath": "agent/scripts/capture-screenshots.py",
+      "contentHash": "4b06093616a1aafc23548fde72c71c7ad4b68d15c7eea242fe30222e2edf6c61",
+      "functions": [
+        {
+          "name": "log",
+          "params": [
+            "msg"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "repo_root",
+          "params": [],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "sanitize_filename",
+          "params": [
+            "name"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "xcrun",
+          "params": [
+            "args"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "run_xcodebuild",
+          "params": [
+            "project",
+            "scheme",
+            "destination",
+            "only_testing",
+            "derived_data",
+            "result_bundle"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "get_json",
+          "params": [
+            "xcresult",
+            "ref_id"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "export_attachment",
+          "params": [
+            "xcresult",
+            "payload_id",
+            "dest"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "walk_attachments",
+          "params": [
+            "node",
+            "callback"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "extract_screenshots",
+          "params": [
+            "xcresult",
+            "output_dir"
+          ],
+          "returnType": "list[Path]",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "write_index",
+          "params": [
+            "root",
+            "captures"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "capture_platform",
+          "params": [
+            "platform",
+            "scheme",
+            "destination",
+            "only_testing",
+            "skip_build"
+          ],
+          "returnType": "list[Path]",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 55
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Iterable",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "log",
+        "repo_root",
+        "sanitize_filename",
+        "xcrun",
+        "run_xcodebuild",
+        "get_json",
+        "export_attachment",
+        "walk_attachments",
+        "extract_screenshots",
+        "write_index",
+        "capture_platform",
+        "main"
+      ],
+      "totalLines": 326,
+      "hasStructuralAnalysis": true
+    },
+    "ci_scripts/ci_pre_xcodebuild.sh": {
+      "filePath": "ci_scripts/ci_pre_xcodebuild.sh",
+      "contentHash": "1fe2a7e48cf0c87bf9b95452bb75006d8f565b0cf7ef52f59f53840ed442c18d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    "design/render_plate.py": {
+      "filePath": "design/render_plate.py",
+      "contentHash": "0726f49612c80c55ff361a94090e74f55ec35774764a01e485f0aa289ed3654b",
+      "functions": [
+        {
+          "name": "_resolve",
+          "params": [
+            "preferred",
+            "fallbacks"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "synth_spectrogram",
+          "params": [
+            "seed"
+          ],
+          "exported": true,
+          "lineCount": 118
+        },
+        {
+          "name": "hline",
+          "params": [
+            "ax",
+            "x0",
+            "x1",
+            "y",
+            "color",
+            "lw",
+            "alpha",
+            "zorder"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "vtick",
+          "params": [
+            "ax",
+            "x",
+            "y0",
+            "y1",
+            "color",
+            "lw",
+            "zorder"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "htick",
+          "params": [
+            "ax",
+            "x0",
+            "x1",
+            "y",
+            "color",
+            "lw",
+            "zorder"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "compose",
+          "params": [
+            "out_pdf",
+            "out_png"
+          ],
+          "exported": true,
+          "lineCount": 236
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "glob",
+          "specifiers": [
+            "glob"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "matplotlib",
+          "specifiers": [
+            "matplotlib"
+          ]
+        },
+        {
+          "source": "matplotlib.pyplot",
+          "specifiers": [
+            "plt"
+          ]
+        },
+        {
+          "source": "matplotlib.font_manager",
+          "specifiers": [
+            "fm"
+          ]
+        },
+        {
+          "source": "matplotlib.colors",
+          "specifiers": [
+            "LinearSegmentedColormap"
+          ]
+        },
+        {
+          "source": "matplotlib.patches",
+          "specifiers": [
+            "Rectangle"
+          ]
+        },
+        {
+          "source": "scipy.ndimage",
+          "specifiers": [
+            "gaussian_filter"
+          ]
+        }
+      ],
+      "exports": [
+        "_resolve",
+        "synth_spectrogram",
+        "hline",
+        "vtick",
+        "htick",
+        "compose"
+      ],
+      "totalLines": 471,
+      "hasStructuralAnalysis": true
+    },
+    "design/render_plate_II.py": {
+      "filePath": "design/render_plate_II.py",
+      "contentHash": "fb6a97ae065110b87a681fe32a5bfc9e06d58f2f3cbf69770f16cbd0d6487cb1",
+      "functions": [
+        {
+          "name": "font",
+          "params": [
+            "name",
+            "size"
+          ],
+          "returnType": "ImageFont.FreeTypeFont",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "cmap_lookup",
+          "params": [
+            "values"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "make_background",
+          "params": [],
+          "returnType": "Image.Image",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "synth_spectrogram",
+          "params": [
+            "N_F",
+            "N_T",
+            "seed"
+          ],
+          "exported": true,
+          "lineCount": 75
+        },
+        {
+          "name": "render_spectrogram",
+          "params": [
+            "width",
+            "height"
+          ],
+          "returnType": "Image.Image",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "liquid_glass_card",
+          "params": [
+            "canvas",
+            "x",
+            "y",
+            "w",
+            "h",
+            "radius",
+            "blur",
+            "tint",
+            "edge_alpha",
+            "inner_glow",
+            "drop_shadow",
+            "shadow_blur",
+            "shadow_alpha"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 92
+        },
+        {
+          "name": "round_button",
+          "params": [
+            "canvas",
+            "cx",
+            "cy",
+            "r",
+            "fill",
+            "edge_alpha"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "text_anchor",
+          "params": [
+            "draw",
+            "xy",
+            "text",
+            "font",
+            "fill",
+            "anchor"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "build_iphone_panel",
+          "params": [
+            "spectrogram_img"
+          ],
+          "returnType": "Image.Image",
+          "exported": true,
+          "lineCount": 86
+        },
+        {
+          "name": "overlay_iphone_glass_panels",
+          "params": [
+            "screen"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 129
+        },
+        {
+          "name": "build_iphone",
+          "params": [
+            "spec_img"
+          ],
+          "returnType": "Image.Image",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "build_watch",
+          "params": [
+            "spec_img"
+          ],
+          "returnType": "Image.Image",
+          "exported": true,
+          "lineCount": 90
+        },
+        {
+          "name": "compose",
+          "params": [
+            "out_pdf",
+            "out_png"
+          ],
+          "exported": true,
+          "lineCount": 139
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "glob",
+          "specifiers": [
+            "glob"
+          ]
+        },
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "PIL",
+          "specifiers": [
+            "Image",
+            "ImageDraw",
+            "ImageFilter",
+            "ImageFont",
+            "ImageChops",
+            "ImageEnhance"
+          ]
+        },
+        {
+          "source": "scipy.ndimage",
+          "specifiers": [
+            "gaussian_filter"
+          ]
+        }
+      ],
+      "exports": [
+        "font",
+        "cmap_lookup",
+        "make_background",
+        "synth_spectrogram",
+        "render_spectrogram",
+        "liquid_glass_card",
+        "round_button",
+        "text_anchor",
+        "build_iphone_panel",
+        "overlay_iphone_glass_panels",
+        "build_iphone",
+        "build_watch",
+        "compose"
+      ],
+      "totalLines": 811,
+      "hasStructuralAnalysis": true
+    },
+    "design_handoff_spektowatch_redesign/SpektoWatch Redesign.html": {
+      "filePath": "design_handoff_spektowatch_redesign/SpektoWatch Redesign.html",
+      "contentHash": "717efe3994f184033cfafe35fe3e8c10228e400bb15e7a804f1117d0abd7553d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 56,
+      "hasStructuralAnalysis": false
+    },
+    "design_handoff_spektowatch_redesign/SpektoWatch Watch + Complications.html": {
+      "filePath": "design_handoff_spektowatch_redesign/SpektoWatch Watch + Complications.html",
+      "contentHash": "4965c6eeb8aa14e52ce2eee08dac72093fb0cff1fa3d8c516e8b37bbd82a2ed3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 563,
+      "hasStructuralAnalysis": false
+    },
+    "design_handoff_spektowatch_redesign/app-core.jsx": {
+      "filePath": "design_handoff_spektowatch_redesign/app-core.jsx",
+      "contentHash": "9895331650e05c8dbb10dbc4c0a2c0ad660eb765c9abebd37dc89a2acd196a95",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 434,
+      "hasStructuralAnalysis": true
+    },
+    "design_handoff_spektowatch_redesign/app.jsx": {
+      "filePath": "design_handoff_spektowatch_redesign/app.jsx",
+      "contentHash": "9adcc54a560eeebff9bea69750075cdae567974ee5d46da758c9ec6255427b81",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 191,
+      "hasStructuralAnalysis": true
+    },
+    "design_handoff_spektowatch_redesign/ios-frame.jsx": {
+      "filePath": "design_handoff_spektowatch_redesign/ios-frame.jsx",
+      "contentHash": "d67eb3ffe5627b46123f751ec6ae7c41dad03c3ef43f81ec11052969c74e39b3",
+      "functions": [
+        {
+          "name": "IOSStatusBar",
+          "params": [],
+          "exported": false,
+          "lineCount": 35
+        },
+        {
+          "name": "IOSGlassPill",
+          "params": [],
+          "exported": false,
+          "lineCount": 32
+        },
+        {
+          "name": "IOSNavBar",
+          "params": [],
+          "exported": false,
+          "lineCount": 44
+        },
+        {
+          "name": "IOSListRow",
+          "params": [],
+          "exported": false,
+          "lineCount": 34
+        },
+        {
+          "name": "IOSList",
+          "params": [],
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "IOSDevice",
+          "params": [],
+          "exported": false,
+          "lineCount": 41
+        },
+        {
+          "name": "IOSKeyboard",
+          "params": [],
+          "exported": false,
+          "lineCount": 100
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 339,
+      "hasStructuralAnalysis": true
+    },
+    "design_handoff_spektowatch_redesign/screens.jsx": {
+      "filePath": "design_handoff_spektowatch_redesign/screens.jsx",
+      "contentHash": "e7a421e8256683adfcb932b7bea5a84e853e3817ae00aa0a14a2528477fd845c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 721,
+      "hasStructuralAnalysis": true
+    },
+    "design_handoff_spektowatch_redesign/styles.css": {
+      "filePath": "design_handoff_spektowatch_redesign/styles.css",
+      "contentHash": "dd409b5a0a9c82aa852c8011fe533df33e9b2c9ef751ba7fa358f6ac0c271463",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 818,
+      "hasStructuralAnalysis": false
+    },
+    "design_handoff_spektowatch_redesign/tweaks-panel.jsx": {
+      "filePath": "design_handoff_spektowatch_redesign/tweaks-panel.jsx",
+      "contentHash": "22c052960f83ac314fa6170384f19bbdeefda516fdddc6a917a5a72797171d8d",
+      "functions": [
+        {
+          "name": "useTweaks",
+          "params": [
+            "defaults"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "TweaksPanel",
+          "params": [],
+          "exported": false,
+          "lineCount": 127
+        },
+        {
+          "name": "TweakSection",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "TweakRow",
+          "params": [],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "TweakSlider",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "TweakToggle",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "TweakRadio",
+          "params": [],
+          "exported": false,
+          "lineCount": 71
+        },
+        {
+          "name": "TweakSelect",
+          "params": [],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "TweakText",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "TweakNumber",
+          "params": [],
+          "exported": false,
+          "lineCount": 33
+        },
+        {
+          "name": "__twkIsLight",
+          "params": [
+            "hex"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "__TwkCheck",
+          "params": [],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "TweakColor",
+          "params": [],
+          "exported": false,
+          "lineCount": 42
+        },
+        {
+          "name": "TweakButton",
+          "params": [],
+          "exported": false,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 569,
+      "hasStructuralAnalysis": true
+    },
+    "run_tests.sh": {
+      "filePath": "run_tests.sh",
+      "contentHash": "3bb9b7c5d834f15c0dac25e27df5458589d7c8c08db9d977fa605b841f4ccfb0",
+      "functions": [
+        {
+          "name": "run_tests",
+          "params": [],
+          "exported": false,
+          "lineCount": 23
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 100,
+      "hasStructuralAnalysis": true
+    }
+  }
+}

@@ -37,7 +37,16 @@ struct Recording: Identifiable, Codable {
     
     // Pegel-Statistiken
     var laeqFast: Float  // LAF Mittelungspegel
-    var peakLevel: Float // Maximalpegel
+    /// Peak level in dB SPL stored at recording-stop time.
+    ///
+    /// **Semantic boundary (2026-05-24 / M15 task-7):**
+    /// Recordings stopped *before* this date store the raw broadband sample peak
+    /// plus calibration offset (not a C-weighted value, despite the "LCpeak" label
+    /// used in CSV/PDF exports). Recordings stopped *on or after* this date store
+    /// the IEC 61672 LCpeak: the peak instantaneous amplitude of the C-weighted
+    /// FFT spectrum, converted to dB SPL. No migration of old values is performed;
+    /// the stored value should be interpreted in light of the recording date.
+    var peakLevel: Float
     var minLevel: Float  // Minimalpegel
     
     // Optionale Metadaten
@@ -164,7 +173,14 @@ struct Recording: Identifiable, Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        // `id` is the only required field. Decoding it strictly (instead of
+        // silently substituting a fresh UUID when missing) prevents the
+        // class of bug where a corrupt or hand-edited metadata file mints
+        // a new ID on every reload — breaking `updateRecording`,
+        // `deleteRecordings`, and any external reference to the entry.
+        // `RecordingManager.loadRecordings` catches per-row decode errors
+        // so neighbouring valid entries still load.
+        id = try container.decode(UUID.self, forKey: .id)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Aufnahme"
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         startDate = try container.decodeIfPresent(Date.self, forKey: .startDate) ?? Date()

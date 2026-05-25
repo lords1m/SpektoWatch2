@@ -1,0 +1,48 @@
+# .understandignore - patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Lines below are suggestions - uncomment to activate.
+# Use ! prefix to force-include something excluded by defaults.
+#
+# Built-in defaults are always excluded unless negated:
+#   node_modules/, .git/, dist/, build/, obj/, *.lock, *.min.js, etc.
+
+# --- From .gitignore (uncomment to exclude) ---
+
+# .claude/
+# *.xcuserstate
+# xcuserdata/
+# .DerivedData/
+# *.hmap
+# *.ipa
+# *.dSYM.zip
+# *.dSYM
+# TestResults/
+# .DS_Store
+# .AppleDouble
+# .LSOverride
+# .build/
+# .swiftpm/
+# *.xcresult
+# **/__Snapshots__/**/*.failure.png
+# **/__Snapshots__/**/*.diff.png
+
+# --- Project-specific generated/exported artifacts ---
+
+# SpektoWatch2 2026-05-23 12-18-19/
+# Spectowatch Widget Screenshots /
+
+# --- Detected directories (uncomment to exclude) ---
+
+# SpektoWatch2Tests/
+# SpektoWatch2UITests/
+# SpektoWatchTests/
+# ci_scripts/
+# design/
+# design_handoff_spektowatch_redesign/
+# agent/
+
+# --- Test file patterns (uncomment to exclude) ---
+
+# *.test.*
+# *.spec.*
+# *.snap

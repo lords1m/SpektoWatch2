@@ -49,51 +49,17 @@ final class PDFReportGeneratorTests: XCTestCase {
     // MARK: - Basic PDF Generation Tests
     
     func testGenerateBasicPDFReport() throws {
-        // Start and stop recording to create valid data
-        let started = recordingManager.startRecording(audioEngine: audioEngine)
-        XCTAssertTrue(started, "Recording should start")
-        
-        // Wait briefly for recording
-        Thread.sleep(forTimeInterval: 0.5)
-        
-        let expectation = XCTestExpectation(description: "Stop recording")
-        var stoppedAudioURL: URL?
-        recordingManager.stopRecording(audioEngine: audioEngine) { audioURL in
-            stoppedAudioURL = audioURL
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 3.0)
-        
-        guard let audioURL = stoppedAudioURL else {
-            XCTFail("Should have stopped recording")
-            return
-        }
-        
-        // Create and add the recording
-        let stats = audioEngine.getRecordingStatistics()
-        let recording = Recording(
-            name: "Test Recording",
-            startDate: Date(),
-            duration: 0.5,
-            audioFileName: audioURL.path,
-            laeqFast: stats.laeqFast,
-            peakLevel: stats.peak,
-            minLevel: stats.min
-        )
+        let recording = createTestRecording()
         recordingManager.addRecording(recording)
-        
-        guard let savedRecording = recordingManager.recordings.first else {
+
+        guard let savedRecording = recordingManager.recordings.first(where: { $0.id == recording.id }) else {
             XCTFail("Should have saved recording")
             return
         }
-        
-        // Generate PDF
+
         let pdfURL = try pdfGenerator.generateReport(for: savedRecording, recordingManager: recordingManager)
-        
-        // Verify PDF exists
+
         XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path), "PDF file should exist")
-        
-        // Verify PDF is in temp directory
         XCTAssertTrue(pdfURL.path.contains("report_"), "PDF should have report_ prefix")
         XCTAssertTrue(pdfURL.pathExtension == "pdf", "File should be PDF")
     }
@@ -387,6 +353,67 @@ final class PDFReportGeneratorTests: XCTestCase {
         XCTAssertTrue(pageText.contains("angewendet"), "PDF should indicate offset was applied")
     }
 
+    func testPDFGenerationCancellationThrowsQuickly() async throws {
+        let recording = createTestRecording()
+        let audioURL = recordingManager.url(for: recording)
+        let measurementURL = try createTestMeasurementFile(frameCount: 10_000)
+
+        let task = Task.detached {
+            try PDFReportGenerator().generateReport(
+                for: recording,
+                audioURL: audioURL,
+                measurementURL: measurementURL,
+                photoURLs: []
+            )
+        }
+
+        let start = Date()
+        task.cancel()
+        await Task.yield()
+
+        do {
+            _ = try await task.value
+            XCTFail("PDF generation should throw CancellationError after cancellation.")
+        } catch is CancellationError {
+            XCTAssertLessThan(Date().timeIntervalSince(start), 0.5)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    // PE-2: a cancelled / failed PDF export must not leave the partially
+    // written report sitting in temporaryDirectory.
+    func testPDFGenerationCleansUpTempFileOnCancellation() async throws {
+        let recording = createTestRecording()
+        let audioURL = recordingManager.url(for: recording)
+        let measurementURL = try createTestMeasurementFile(frameCount: 5000)
+        let expectedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("report_\(recording.id.uuidString).pdf")
+        try? FileManager.default.removeItem(at: expectedURL)
+
+        let task = Task.detached {
+            try PDFReportGenerator().generateReport(
+                for: recording,
+                audioURL: audioURL,
+                measurementURL: measurementURL,
+                photoURLs: []
+            )
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled PDF generation should throw.")
+        } catch {
+            // Expected
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: expectedURL.path),
+            "Cancelled PDF export should not leave a temp file behind."
+        )
+    }
+
     // MARK: - Performance Tests
     
     func testPDFGenerationPerformance() throws {
@@ -487,23 +514,9 @@ final class PDFReportGeneratorTests: XCTestCase {
     }
     
     private func createDummyAudioFile(at url: URL) {
-        // Create minimal valid m4a file
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 44100.0,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 64000
-        ]
-        
-        do {
-            let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.record()
-            Thread.sleep(forTimeInterval: 0.1)
-            recorder.stop()
-        } catch {
-            // Fallback: create empty file
-            try? Data().write(to: url)
-        }
+        // Write an empty placeholder — the PDF generator only checks the URL
+        // exists; it doesn't decode the audio content in tests.
+        try? Data().write(to: url)
     }
     
     private func createDummyImage(at url: URL) {
@@ -522,6 +535,80 @@ final class PDFReportGeneratorTests: XCTestCase {
             // Fallback
             try? Data().write(to: url)
         }
+    }
+
+    private func createTestMeasurementFile(frameCount: Int) throws -> URL {
+        let tempURL = tempDirectory.appendingPathComponent("test_measurement_\(UUID().uuidString).spekto")
+        let writer = try MeasurementDataWriter(
+            fileURL: tempURL,
+            metricKeys: ["LAeq", "LAFmax", "LAFmin"],
+            sampleRate: 44100,
+            fps: 10,
+            fftBlockSize: 4096,
+            fftBinCount: 0,
+            maxPendingFrames: max(32, frameCount + 1)
+        )
+
+        let thirdOctaves = Array(repeating: Float(60.0), count: MeasurementDataFormat.thirdOctaveBandCount)
+        for index in 0..<frameCount {
+            try writer.writeFrame(
+                timestamp: Float(index) * 0.1,
+                metricValues: [65.0, 85.0, 45.0],
+                broadbandLevel: 65.0,
+                thirdOctaveZ: thirdOctaves,
+                thirdOctaveA: thirdOctaves,
+                thirdOctaveC: thirdOctaves,
+                fullFFT: []
+            )
+        }
+
+        try writer.close()
+        return tempURL
+    }
+
+    // MARK: - M15 task-6: Energy-correct dB averaging
+    //
+    // Time-averaging dB values in the log domain understates the true
+    // Leq for any signal with dynamic range. These tests pin the
+    // post-fix energy-mean convention so the bug can't silently come
+    // back via a refactor.
+
+    func testEnergyAverageDB_asymmetricFixtureMatchesEnergyMeanNotArithmetic() {
+        // dB1 = -20, dB2 = -80
+        // Arithmetic mean: (-20 + -80) / 2 = -50 dB  (the bug)
+        // Energy mean:    10·log10((10^-2 + 10^-8) / 2)
+        //              =  10·log10(0.005000005)
+        //              ≈ -23.01 dB
+        let avg = PDFReportGenerator.energyAverageDB([-20, -80])
+        XCTAssertEqual(avg, -23.01, accuracy: 0.05,
+                       "Energy average of -20 dB / -80 dB must round to ~-23 dB, got \(avg)")
+        XCTAssertGreaterThan(avg, -50,
+                             "Energy average must exceed the arithmetic mean (-50 dB) for an asymmetric fixture")
+    }
+
+    func testEnergyAverageDB_equalValuesAreIdempotent() {
+        // Identical dB values: energy mean equals arithmetic mean.
+        XCTAssertEqual(PDFReportGenerator.energyAverageDB([-60, -60, -60]), -60, accuracy: 1e-4)
+        XCTAssertEqual(PDFReportGenerator.energyAverageDB([0, 0]), 0, accuracy: 1e-4)
+    }
+
+    func testEnergyAverageDB_emptyInputReturnsFloor() {
+        XCTAssertEqual(PDFReportGenerator.energyAverageDB([], floorDB: -120), -120)
+    }
+
+    func testEnergyAverageDB_allFloorFramesStayAtFloor() {
+        // Three -120 dB sentinel frames: 10^-12 each, mean 10^-12,
+        // 10·log10(10^-12) = -120 dB — exactly the floor.
+        let avg = PDFReportGenerator.energyAverageDB([-120, -120, -120], floorDB: -120)
+        XCTAssertEqual(avg, -120, accuracy: 1e-3)
+    }
+
+    func testEnergyMeanDB_zeroDividerReturnsFloor() {
+        XCTAssertEqual(PDFReportGenerator.energyMeanDB(sum: 1.0, divider: 0, floorDB: -120), -120)
+    }
+
+    func testEnergyMeanDB_zeroSumReturnsFloor() {
+        XCTAssertEqual(PDFReportGenerator.energyMeanDB(sum: 0, divider: 5, floorDB: -120), -120)
     }
 }
 #endif

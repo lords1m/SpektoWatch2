@@ -1,0 +1,894 @@
+{
+  "keyComponents": [
+    {
+      "path": "SpektoWatch2/SpektoWatch2App.swift",
+      "summary": "iOS app entrypoint that builds AppServices, defers audio startup until after first render, injects environment services, and seeds/reset state for UI tests.",
+      "tags": ["ios", "entrypoint", "services", "ui-tests"]
+    },
+    {
+      "path": "SpektoWatch2/AppServices.swift",
+      "summary": "Main service graph for BandstopFilterManager, WatchConnectivityManager, RecordingManager, FFTConfiguration, MaskingProfileManager, AudioEngine, and MaskingEngine.",
+      "tags": ["ios", "dependency-injection", "audio", "masking"]
+    },
+    {
+      "path": "SpektoWatch2/AudioEngine.swift",
+      "summary": "Central iOS live-audio pipeline: AVAudioEngine capture or simulator data, FFT/weighting/metrics processing, live state publication, recording writers, wearable-source ingestion, and throttled watch updates.",
+      "tags": ["audio", "dsp", "recording", "watch-connectivity", "hot-path"]
+    },
+    {
+      "path": "SpektoWatch2/Processing/FFTProcessor.swift",
+      "summary": "Thread-safe Accelerate/vDSP FFT implementation with window functions, reconfiguration, reusable output buffers, dB conversion, and frequency-bin helpers.",
+      "tags": ["dsp", "fft", "accelerate", "performance"]
+    },
+    {
+      "path": "SpektoWatch2/Processing/FrequencyWeightingProcessor.swift",
+      "summary": "Immutable Sendable processor for IEC-style A, C, and Z frequency weighting curves, including precomputed dB and squared-gain arrays for vectorized audio metrics.",
+      "tags": ["dsp", "weighting", "iec-61672", "accelerate"]
+    },
+    {
+      "path": "SpektoWatch2/SpectrogramProcessor.swift",
+      "summary": "Post-FFT processor that applies bandstop attenuation, third-octave aggregation, binning, temporal smoothing, and diagnostics before UI/recording publication.",
+      "tags": ["spectrogram", "dsp", "bandstop", "third-octave"]
+    },
+    {
+      "path": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "summary": "Metal-backed live spectrogram MTKView and SwiftUI wrappers; consumes AudioEngine.spectrogramSubject, maps visual/mel bins into a texture ring buffer, and renders axes.",
+      "tags": ["spectrogram", "metal", "rendering", "swiftui"]
+    },
+    {
+      "path": "SpektoWatch2/HighEndSpectrogramShaders.metal",
+      "summary": "Metal shader functions used by the high-end spectrogram renderer for live/playback texture rendering and colormap sampling.",
+      "tags": ["spectrogram", "metal", "shader"]
+    },
+    {
+      "path": "SpektoWatch2/SpectrogramWidget.swift",
+      "summary": "Dashboard spectrogram widget that resolves per-widget settings and hosts HighEndSpectrogramAdapterWithAxes.",
+      "tags": ["dashboard", "widget", "spectrogram"]
+    },
+    {
+      "path": "SpektoWatch2/WaterfallDataBuilder.swift",
+      "summary": "Pure builder for downsampling spectrogram history into waterfall slices and frequency axes for playback/dashboard views.",
+      "tags": ["waterfall", "spectrogram", "playback", "testable"]
+    },
+    {
+      "path": "SpektoWatch2/ModularDashboardView.swift",
+      "summary": "Primary iOS dashboard shell with paged layouts, edit mode, drag/drop/reorder, widget cards, preset rail, settings, and control bar.",
+      "tags": ["dashboard", "swiftui", "widgets", "layout"]
+    },
+    {
+      "path": "SpektoWatch2/DashboardViewModel.swift",
+      "summary": "Dashboard coordinator that binds dashboard persistence, microphone-source selection, watch commands/data, and widget spectral-weighting requirements into AudioEngine.",
+      "tags": ["dashboard", "watch-connectivity", "audio", "view-model"]
+    },
+    {
+      "path": "SpektoWatch2/DashboardManager.swift",
+      "summary": "Persisted multi-layout dashboard manager with legacy migration, widget add/remove/resize/settings, presets, and screenshot catalog layouts.",
+      "tags": ["dashboard", "persistence", "widgets", "migration"]
+    },
+    {
+      "path": "SpektoWatch2/WidgetConfiguration.swift",
+      "summary": "Codable widget model, widget type catalog, discrete size migration/clamping rules, grid positions, and shared widget settings defaults.",
+      "tags": ["dashboard", "widgets", "codable", "migration"]
+    },
+    {
+      "path": "SpektoWatch2/WidgetCardView.swift",
+      "summary": "Reusable dashboard card chrome that routes each WidgetConfiguration to its concrete audio, chart, tone, lab, or masking widget and handles edit controls.",
+      "tags": ["dashboard", "widgets", "swiftui"]
+    },
+    {
+      "path": "SpektoWatch2/RecordingCoordinator.swift",
+      "summary": "Observable recording flags and duration extracted from AudioEngine while AudioEngine still owns the AVAudioEngine and writer lifecycle.",
+      "tags": ["recording", "state", "audio"]
+    },
+    {
+      "path": "SpektoWatch2/RealtimeAudioFileWriter.swift",
+      "summary": "Bounded asynchronous AVAudioFile writer that copies audio tap buffers into a pool and drains them on a utility queue.",
+      "tags": ["recording", "audio-io", "performance"]
+    },
+    {
+      "path": "SpektoWatch2/MeasurementDataFormat.swift",
+      "summary": "Binary .spekto schema, header/frame models, little-endian Data helpers, and cursor decoding utilities for measurement frames.",
+      "tags": ["recording", "measurement-data", "binary-format"]
+    },
+    {
+      "path": "SpektoWatch2/MeasurementDataWriter.swift",
+      "summary": "Bounded asynchronous writer for .spekto measurement frames containing timestamps, metrics, broadband level, third-octave tracks, and optional full FFT.",
+      "tags": ["recording", "measurement-data", "performance"]
+    },
+    {
+      "path": "SpektoWatch2/MeasurementDataReader.swift",
+      "summary": "Streaming reader for .spekto files with v1/v2 header support and typed frame decoding for playback and export paths.",
+      "tags": ["recording", "measurement-data", "playback", "export"]
+    },
+    {
+      "path": "SpektoWatch2/RecordingManager.swift",
+      "summary": "Recording metadata and file persistence manager with add/update/delete/duplicate/photo helpers and durable soft-delete sidecar recovery.",
+      "tags": ["recording", "persistence", "metadata", "durability"]
+    },
+    {
+      "path": "SpektoWatch2/Models/Recording.swift",
+      "summary": "Codable recording metadata model for stored audio, measurement sidecars, photos, tags, markers, calibration, FFT, and playback configuration.",
+      "tags": ["recording", "model", "codable"]
+    },
+    {
+      "path": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "summary": "Playback/detail UI for recordings; loads audio and .spekto data, renders analysis/waterfall/playback widgets, edits metadata/photos, and exposes PDF/CSV/PNG/raw-data export actions.",
+      "tags": ["recording", "playback", "export", "waterfall", "swiftui"]
+    },
+    {
+      "path": "SpektoWatch2/CSVExporter.swift",
+      "summary": "CSV and JSON export utilities over MeasurementDataReader frames, including metric filtering and Z/A/C third-octave columns.",
+      "tags": ["export", "measurement-data", "csv", "json"]
+    },
+    {
+      "path": "SpektoWatch2/PDFReportGenerator.swift",
+      "summary": "PDF report generator for recordings with metadata, charts, spectrogram imagery, configuration, notes, and photos.",
+      "tags": ["export", "pdf", "recording", "report"]
+    },
+    {
+      "path": "SpektoWatch2/SpectrogramImageRenderer.swift",
+      "summary": "Offline UIKit/AVFoundation/Accelerate spectrogram renderer used to turn recorded audio into a PNG-ready UIImage.",
+      "tags": ["export", "spectrogram", "offline-rendering"]
+    },
+    {
+      "path": "SpektoWatch2/SpectrogramImageExporter.swift",
+      "summary": "PNG export wrapper that validates recorded audio, invokes SpectrogramImageRenderer, and writes a temporary spectrogram image.",
+      "tags": ["export", "spectrogram", "png"]
+    },
+    {
+      "path": "SpektoWatch2/WatchConnectivityManager.swift",
+      "summary": "iOS-side WatchConnectivity manager for queued control messages, dashboard config, microphone source, frequency weighting, adaptive spectrogram sends, and incoming watch data.",
+      "tags": ["watch-connectivity", "ios", "protocol", "queueing"]
+    },
+    {
+      "path": "Shared/WatchConnectivityProtocol.swift",
+      "summary": "Shared message and binary packet contract for recording commands, gain/source/weighting/config messages, app state updates, and spectrogram payload dispatch.",
+      "tags": ["shared", "watch-connectivity", "protocol"]
+    },
+    {
+      "path": "Shared/SpectrogramData.swift",
+      "summary": "Shared spectrogram payload model with Z/A/C magnitudes, optional visual DCT/mel bins, metrics, sample rate, and versioned binary encoding.",
+      "tags": ["shared", "spectrogram", "watch-connectivity", "binary-format"]
+    },
+    {
+      "path": "Shared/WatchConnectivityManager.swift",
+      "summary": "Watch-side/shared connectivity implementation for watch-originated spectrogram sends, command/config receipt, app-group complication updates, and reachability tracking.",
+      "tags": ["watch-connectivity", "watchos", "complications", "shared"]
+    },
+    {
+      "path": "Shared/WatchWidgetConfiguration.swift",
+      "summary": "Shared watch dashboard widget types, single-value types, 4x4 widget configuration, default layout, and Codable persistence helpers.",
+      "tags": ["shared", "watch-app", "widgets", "configuration"]
+    },
+    {
+      "path": "Shared/WatchAppState.swift",
+      "summary": "Versioned JSON envelope for non-audio iOS-to-watch state such as preset, recording flag, accent, theme, and future tone state.",
+      "tags": ["shared", "watch-connectivity", "state", "versioning"]
+    },
+    {
+      "path": "Shared/RingBuffer.swift",
+      "summary": "Fixed-capacity FIFO buffer used by watch spectrogram views to avoid Array.removeFirst costs on repeated frame append.",
+      "tags": ["shared", "watch-app", "performance"]
+    },
+    {
+      "path": "SpektoWatch Watch App/SpektoWatchApp.swift",
+      "summary": "watchOS app entrypoint that wires WatchConnectivityManager and WatchAudioEngine into the watch UI and handles scene backgrounding.",
+      "tags": ["watch-app", "entrypoint", "audio"]
+    },
+    {
+      "path": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "summary": "watchOS audio engine with local microphone capture, Accelerate FFT/DCT display data, extended runtime session handling, companion/wearable mode switching, and processed spectrogram sends.",
+      "tags": ["watch-app", "audio", "dsp", "watch-connectivity"]
+    },
+    {
+      "path": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "summary": "watchOS modular dashboard that renders configured watch widgets and can start/stop wearable microphone sessions.",
+      "tags": ["watch-app", "dashboard", "widgets"]
+    },
+    {
+      "path": "SpektoWatch Watch App/WatchSpectrogramView.swift",
+      "summary": "Full-screen watch spectrogram face that consumes WatchAudioEngine.liveData, stores frames in RingBuffer, supports Digital Crown zoom, and starts/stops wearable recording.",
+      "tags": ["watch-app", "spectrogram", "canvas", "audio"]
+    },
+    {
+      "path": "SpektoWatch Watch App/WatchWidgets/WatchSpectrogramWidget.swift",
+      "summary": "Compact watch dashboard spectrogram widget that renders liveData frames with a fixed-capacity RingBuffer.",
+      "tags": ["watch-app", "widget", "spectrogram"]
+    },
+    {
+      "path": "SpektoWatch Watch App/WatchWidgets/WatchLevelMeterWidget.swift",
+      "summary": "Watch dashboard level widget that derives level and dB weighting label from WatchAudioEngine.liveData and connectivity state.",
+      "tags": ["watch-app", "widget", "level-meter"]
+    },
+    {
+      "path": "SpektoWatch Complications/SpektoWatchComplications.swift",
+      "summary": "WidgetKit bundle entrypoint that exposes circular, corner, rectangular, and inline level complications.",
+      "tags": ["complications", "widgetkit", "entrypoint"]
+    },
+    {
+      "path": "SpektoWatch Complications/WatchComplicationProvider.swift",
+      "summary": "Timeline provider that reads the latest live level and weighting from the App Group defaults and relies on explicit timeline reloads.",
+      "tags": ["complications", "widgetkit", "app-group"]
+    },
+    {
+      "path": "SpektoWatch Complications/WatchComplicationViews.swift",
+      "summary": "WidgetKit complication views for circular, corner, rectangular, and inline watch families.",
+      "tags": ["complications", "widgetkit", "swiftui"]
+    },
+    {
+      "path": "Shared/AppGroup.swift",
+      "summary": "Shared App Group identifier and complication defaults keys intended to bridge watch app state into the WidgetKit complication extension.",
+      "tags": ["shared", "complications", "app-group"]
+    },
+    {
+      "path": "SpektoWatch2Tests/AudioEngineTests.swift",
+      "summary": "Unit and performance tests for AudioEngine defaults, FFT/weighting controls, external audio sample rate, optional spectral tracks, wearable live mode, watch spectrogram ingestion, and level-history bounds.",
+      "tags": ["tests", "audio", "watch-connectivity", "dsp"]
+    },
+    {
+      "path": "SpektoWatch2Tests/FFTProcessorTests.swift",
+      "summary": "FFT/windowing tests for function generation, FFT reconfiguration, sine/silence behavior, dB conversion, reusable output APIs, bin mapping, diagnostics, and mel support.",
+      "tags": ["tests", "fft", "dsp", "spectrogram"]
+    },
+    {
+      "path": "SpektoWatch2Tests/MeasurementDataIOTests.swift",
+      "summary": "Roundtrip, backpressure, full-FFT, and legacy v1 compatibility tests for .spekto writer/reader behavior.",
+      "tags": ["tests", "recording", "measurement-data"]
+    },
+    {
+      "path": "SpektoWatch2Tests/RecordingManagerTests.swift",
+      "summary": "RecordingManager tests for lifecycle, directory creation, metadata save/load behavior, URLs, and file deletion.",
+      "tags": ["tests", "recording", "persistence"]
+    },
+    {
+      "path": "SpektoWatch2Tests/RecordingPersistenceDurabilityTests.swift",
+      "summary": "Durability tests for soft-delete sidecar recovery/commit, corrupt sidecar handling, writer init failure, and strict Recording id decode.",
+      "tags": ["tests", "recording", "durability"]
+    },
+    {
+      "path": "SpektoWatch2Tests/WatchConnectivityTests.swift",
+      "summary": "Protocol tests for SpectrogramData binary serialization, message factories, packet headers, adaptive freshness constants, invalid data, and queue simulation.",
+      "tags": ["tests", "watch-connectivity", "protocol"]
+    },
+    {
+      "path": "SpektoWatch2Tests/HighEndSpectrogramAdapterTests.swift",
+      "summary": "Metal spectrogram adapter tests for initialization, texture update inputs, settings setters, reset, axis metrics, and Metal availability skips.",
+      "tags": ["tests", "spectrogram", "metal", "rendering"]
+    },
+    {
+      "path": "SpektoWatchTests/WatchAudioEngineTests.swift",
+      "summary": "Watch-target tests for WatchAudioEngine initial state, gain handling, notification guards, main-thread publication, and deinit safety.",
+      "tags": ["tests", "watch-app", "audio"]
+    },
+    {
+      "path": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
+      "summary": "XCUI screenshot catalog that walks dashboard edit/settings/picker, recordings list/detail, layouts menu/dialog, and empty dashboard states with seeded data.",
+      "tags": ["tests", "ui", "dashboard", "recording"]
+    },
+    {
+      "path": "SpektoWatch2UITests/WatchAppScreenshotTests.swift",
+      "summary": "Watch UI screenshot tests covering dashboard and spectrogram views when a watch simulator is available.",
+      "tags": ["tests", "ui", "watch-app", "screenshots"]
+    }
+  ],
+  "relationships": [
+    {
+      "sourcePath": "SpektoWatch2/SpektoWatch2App.swift",
+      "targetPath": "SpektoWatch2/AppServices.swift",
+      "type": "depends_on",
+      "reason": "The app entrypoint owns AppServices as its StateObject and calls startAudio after first appearance."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AppServices.swift",
+      "targetPath": "SpektoWatch2/AudioEngine.swift",
+      "type": "configures",
+      "reason": "AppServices constructs AudioEngine after Metal prewarm and applies the shared FFTConfiguration."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AppServices.swift",
+      "targetPath": "SpektoWatch2/Masking/MaskingEngine.swift",
+      "type": "configures",
+      "reason": "AppServices creates MaskingEngine with the same AudioEngine once audio startup completes."
+    },
+    {
+      "sourcePath": "SpektoWatch2/ContentView.swift",
+      "targetPath": "SpektoWatch2/ModularDashboardView.swift",
+      "type": "depends_on",
+      "reason": "ContentView hosts ModularDashboardView as the primary app surface."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/Processing/FFTProcessor.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine snapshots FFTProcessor on the processing lock and uses it for FFT magnitude and dB conversion."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/Processing/FrequencyWeightingProcessor.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine uses FrequencyWeightingProcessor for A/C spectral tracks and energy accumulation."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/SpectrogramProcessor.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine passes Z/A/C dB arrays through SpectrogramProcessor for filtering, aggregation, binning, and smoothing."
+    },
+    {
+      "sourcePath": "SpektoWatch2/SpectrogramProcessor.swift",
+      "targetPath": "SpektoWatch2/Managers/BandstopFilterManager.swift",
+      "type": "depends_on",
+      "reason": "SpectrogramProcessor reads enabled bandstop filters to attenuate FFT bins before aggregation."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/Managers/AcousticMetricsCalculator.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine sends weighted energies and peak levels into AcousticMetricsCalculator for live and recorded metrics."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/Managers/SpectrumBandAggregator.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine and SpectrogramProcessor use the canonical third-octave band model for display bands."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/RecordingCoordinator.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine forwards recording flags and duration through RecordingCoordinator while retaining capture control."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/RealtimeAudioFileWriter.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine uses RealtimeAudioFileWriter from the audio tap when recording to an audio file."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataWriter.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine writes per-frame metrics, third-octave bands, and full FFT snapshots to .spekto files."
+    },
+    {
+      "sourcePath": "SpektoWatch2/MeasurementDataWriter.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataFormat.swift",
+      "type": "depends_on",
+      "reason": "The writer uses MeasurementDataFormat constants and Data append helpers for the binary header and frame layout."
+    },
+    {
+      "sourcePath": "SpektoWatch2/MeasurementDataReader.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataFormat.swift",
+      "type": "depends_on",
+      "reason": "The reader validates magic/version/header fields and decodes frames using MeasurementDataFormat and MeasurementDataCursor."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine packages each processed frame as SpectrogramData for UI renderers and watch transfer."
+    },
+    {
+      "sourcePath": "SpektoWatch2/AudioEngine.swift",
+      "targetPath": "SpektoWatch2/WatchConnectivityManager.swift",
+      "type": "depends_on",
+      "reason": "AudioEngine sends throttled spectrogram packets and weighting selections through the iOS WatchConnectivityManager."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WatchConnectivityManager.swift",
+      "targetPath": "Shared/WatchConnectivityProtocol.swift",
+      "type": "depends_on",
+      "reason": "The iOS manager uses shared message builders, parsers, packet wrapping, and adaptive send interval constants."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WatchConnectivityManager.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "depends_on",
+      "reason": "The iOS manager sends and receives binary SpectrogramData payloads."
+    },
+    {
+      "sourcePath": "Shared/WatchConnectivityManager.swift",
+      "targetPath": "Shared/WatchConnectivityProtocol.swift",
+      "type": "depends_on",
+      "reason": "The watch/shared manager uses the same protocol contract for commands, config, and binary spectrogram packets."
+    },
+    {
+      "sourcePath": "Shared/WatchConnectivityProtocol.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "depends_on",
+      "reason": "Spectrogram packets wrap SpectrogramData.toBinaryData and decode with SpectrogramData.fromBinaryData."
+    },
+    {
+      "sourcePath": "Shared/WatchConnectivityProtocol.swift",
+      "targetPath": "Shared/WatchAppState.swift",
+      "type": "depends_on",
+      "reason": "The appStateUpdate message carries a JSON-encoded WatchAppState payload."
+    },
+    {
+      "sourcePath": "SpektoWatch2/DashboardViewModel.swift",
+      "targetPath": "SpektoWatch2/AudioEngine.swift",
+      "type": "depends_on",
+      "reason": "DashboardViewModel starts/stops iPhone or wearable live modes and feeds incoming watch spectrogram packets into AudioEngine."
+    },
+    {
+      "sourcePath": "SpektoWatch2/DashboardViewModel.swift",
+      "targetPath": "SpektoWatch2/WatchConnectivityManager.swift",
+      "type": "depends_on",
+      "reason": "DashboardViewModel observes reachability, selected source, spectrogramData, and watch recording notifications from the connectivity manager."
+    },
+    {
+      "sourcePath": "SpektoWatch2/DashboardViewModel.swift",
+      "targetPath": "SpektoWatch2/DashboardManager.swift",
+      "type": "depends_on",
+      "reason": "DashboardViewModel owns DashboardManager and forwards its changes to the dashboard view."
+    },
+    {
+      "sourcePath": "SpektoWatch2/DashboardManager.swift",
+      "targetPath": "SpektoWatch2/WidgetConfiguration.swift",
+      "type": "depends_on",
+      "reason": "Dashboard layouts persist arrays of WidgetConfiguration and use its size range/default-size rules."
+    },
+    {
+      "sourcePath": "SpektoWatch2/ModularDashboardView.swift",
+      "targetPath": "SpektoWatch2/DashboardViewModel.swift",
+      "type": "depends_on",
+      "reason": "ModularDashboardView owns DashboardViewModel and binds its settings, layout, edit, and picker state."
+    },
+    {
+      "sourcePath": "SpektoWatch2/ModularDashboardView.swift",
+      "targetPath": "SpektoWatch2/WidgetCardView.swift",
+      "type": "depends_on",
+      "reason": "The dashboard grid renders each WidgetConfiguration through WidgetCardView."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WidgetCardView.swift",
+      "targetPath": "SpektoWatch2/SpectrogramWidget.swift",
+      "type": "depends_on",
+      "reason": "WidgetCardView routes spectrogram widgets to SpectrogramWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WidgetCardView.swift",
+      "targetPath": "SpektoWatch2/WaterfallView.swift",
+      "type": "depends_on",
+      "reason": "WidgetCardView routes waterfall widgets to WaterfallWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WidgetCardView.swift",
+      "targetPath": "SpektoWatch2/AudioWidgets.swift",
+      "type": "depends_on",
+      "reason": "WidgetCardView routes frequency, level, octave, and phase widget types into AudioWidgets views."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WidgetCardView.swift",
+      "targetPath": "SpektoWatch2/SingleValueWidget.swift",
+      "type": "depends_on",
+      "reason": "WidgetCardView routes single-value widgets to SingleValueWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WidgetCardView.swift",
+      "targetPath": "SpektoWatch2/ToneGeneratorWidget.swift",
+      "type": "depends_on",
+      "reason": "WidgetCardView routes tone-generator widgets to ToneGeneratorWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WidgetCardView.swift",
+      "targetPath": "SpektoWatch2/Masking/MaskingEntryWidget.swift",
+      "type": "depends_on",
+      "reason": "WidgetCardView routes masking widgets to MaskingEntryWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch2/SpectrogramWidget.swift",
+      "targetPath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "type": "depends_on",
+      "reason": "SpectrogramWidget hosts HighEndSpectrogramAdapterWithAxes with widget-specific colormap/time/weighting settings."
+    },
+    {
+      "sourcePath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "targetPath": "SpektoWatch2/AudioEngine.swift",
+      "type": "depends_on",
+      "reason": "The SwiftUI wrapper subscribes to AudioEngine.spectrogramSubject instead of @Published currentSpectrogramData for full-rate rendering."
+    },
+    {
+      "sourcePath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "targetPath": "SpektoWatch2/HighEndSpectrogramShaders.metal",
+      "type": "depends_on",
+      "reason": "HighEndSpectrogramAdapter creates a render pipeline using spectrogramVertex and liveSpectrogramFragment shader functions."
+    },
+    {
+      "sourcePath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "targetPath": "SpektoWatch2/ColormapTexture.swift",
+      "type": "depends_on",
+      "reason": "The adapter builds and caches 1D LUT textures through ColormapTexture."
+    },
+    {
+      "sourcePath": "SpektoWatch2/WaterfallView.swift",
+      "targetPath": "SpektoWatch2/WaterfallDataBuilder.swift",
+      "type": "depends_on",
+      "reason": "Waterfall UI uses WaterfallDataBuilder outputs for slice/frequency datasets."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/RecordingManager.swift",
+      "type": "depends_on",
+      "reason": "RecordingDetailView reads recording files, measurement URLs, photos, and metadata updates through RecordingManager."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/Views/AudioPlayerManager.swift",
+      "type": "depends_on",
+      "reason": "RecordingDetailView uses AudioPlayerManager to play audio and feed playback samples into a visualization AudioEngine."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/AudioEngine.swift",
+      "type": "depends_on",
+      "reason": "RecordingDetailView owns a visualization AudioEngine for playback spectrogram/widgets via processExternalAudio."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataReader.swift",
+      "type": "depends_on",
+      "reason": "RecordingDetailView loads .spekto measurement data for analysis, exports, and playback providers."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/CSVExporter.swift",
+      "type": "depends_on",
+      "reason": "The CSV export action creates a MeasurementDataReader and passes it to CSVExporter."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/PDFReportGenerator.swift",
+      "type": "depends_on",
+      "reason": "The PDF export action delegates report generation to PDFReportGenerator."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/SpectrogramImageExporter.swift",
+      "type": "depends_on",
+      "reason": "The spectrogram image export action invokes SpectrogramImageExporter on a background queue."
+    },
+    {
+      "sourcePath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "targetPath": "SpektoWatch2/WaterfallDataBuilder.swift",
+      "type": "depends_on",
+      "reason": "RecordingDetailView rebuilds waterfall datasets from playback spectrogram history with WaterfallDataBuilder."
+    },
+    {
+      "sourcePath": "SpektoWatch2/CSVExporter.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataReader.swift",
+      "type": "depends_on",
+      "reason": "CSVExporter streams frames from MeasurementDataReader and formats selected metrics and third-octave bands."
+    },
+    {
+      "sourcePath": "SpektoWatch2/PDFReportGenerator.swift",
+      "targetPath": "SpektoWatch2/RecordingManager.swift",
+      "type": "depends_on",
+      "reason": "PDF report generation resolves recording audio, photos, and measurement sidecars through RecordingManager."
+    },
+    {
+      "sourcePath": "SpektoWatch2/SpectrogramImageExporter.swift",
+      "targetPath": "SpektoWatch2/SpectrogramImageRenderer.swift",
+      "type": "depends_on",
+      "reason": "SpectrogramImageExporter delegates image computation to SpectrogramImageRenderer before writing PNG data."
+    },
+    {
+      "sourcePath": "SpektoWatch2/RecordingManager.swift",
+      "targetPath": "SpektoWatch2/Models/Recording.swift",
+      "type": "depends_on",
+      "reason": "RecordingManager persists, mutates, duplicates, and deletes Recording metadata entries."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/SpektoWatchApp.swift",
+      "targetPath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "type": "configures",
+      "reason": "The watch app entrypoint constructs WatchAudioEngine with its WatchConnectivityManager dependency."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/SpektoWatchApp.swift",
+      "targetPath": "Shared/WatchConnectivityManager.swift",
+      "type": "configures",
+      "reason": "The watch app entrypoint creates and injects the watch/shared WatchConnectivityManager."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchContentView.swift",
+      "targetPath": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "type": "depends_on",
+      "reason": "The watch root TabView includes the modular dashboard face."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchContentView.swift",
+      "targetPath": "SpektoWatch Watch App/WatchSpectrogramView.swift",
+      "type": "depends_on",
+      "reason": "The watch root TabView includes the full-screen spectrogram face."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "targetPath": "Shared/WatchConnectivityManager.swift",
+      "type": "depends_on",
+      "reason": "WatchAudioEngine observes phone-pushed spectrogram data and sends watch-originated spectrogram packets through the connectivity manager."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "depends_on",
+      "reason": "WatchAudioEngine creates SpectrogramData from its local FFT/DCT outputs and exposes it as liveData."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "targetPath": "Shared/WatchOperatingMode.swift",
+      "type": "depends_on",
+      "reason": "WatchAudioEngine uses WatchOperatingMode to choose companion versus wearable microphone liveData ownership."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "targetPath": "Shared/WatchWidgetConfiguration.swift",
+      "type": "depends_on",
+      "reason": "WatchDashboardView loads WatchDashboardConfig and routes each WatchWidgetConfig to a concrete watch widget."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "targetPath": "SpektoWatch Watch App/WatchWidgets/WatchSpectrogramWidget.swift",
+      "type": "depends_on",
+      "reason": "The watch dashboard renders configured spectrogram cells through WatchSpectrogramWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "targetPath": "SpektoWatch Watch App/WatchWidgets/WatchLevelMeterWidget.swift",
+      "type": "depends_on",
+      "reason": "The watch dashboard renders configured level-meter cells through WatchLevelMeterWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchSpectrogramView.swift",
+      "targetPath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "type": "depends_on",
+      "reason": "The full-screen watch spectrogram consumes WatchAudioEngine.liveData and start/stop methods."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchSpectrogramView.swift",
+      "targetPath": "Shared/RingBuffer.swift",
+      "type": "depends_on",
+      "reason": "WatchSpectrogramView stores recent spectrogram frames in a fixed-capacity RingBuffer."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchWidgets/WatchSpectrogramWidget.swift",
+      "targetPath": "Shared/RingBuffer.swift",
+      "type": "depends_on",
+      "reason": "The compact watch spectrogram widget uses RingBuffer for O(1) frame append/drop behavior."
+    },
+    {
+      "sourcePath": "SpektoWatch Watch App/WatchWidgets/WatchLevelMeterWidget.swift",
+      "targetPath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "type": "depends_on",
+      "reason": "The level widget derives its numeric level from WatchAudioEngine.liveData."
+    },
+    {
+      "sourcePath": "SpektoWatch Complications/SpektoWatchComplications.swift",
+      "targetPath": "SpektoWatch Complications/WatchComplicationWidget.swift",
+      "type": "configures",
+      "reason": "The WidgetBundle exposes the individual level complication widgets defined in WatchComplicationWidget."
+    },
+    {
+      "sourcePath": "SpektoWatch Complications/WatchComplicationWidget.swift",
+      "targetPath": "SpektoWatch Complications/WatchComplicationProvider.swift",
+      "type": "depends_on",
+      "reason": "Each complication widget uses WatchComplicationProvider as its StaticConfiguration timeline provider."
+    },
+    {
+      "sourcePath": "SpektoWatch Complications/WatchComplicationWidget.swift",
+      "targetPath": "SpektoWatch Complications/WatchComplicationViews.swift",
+      "type": "depends_on",
+      "reason": "Each WidgetKit family renders one of the complication views."
+    },
+    {
+      "sourcePath": "SpektoWatch Complications/WatchComplicationProvider.swift",
+      "targetPath": "SpektoWatch Complications/WatchComplicationEntry.swift",
+      "type": "depends_on",
+      "reason": "The provider creates WatchComplicationEntry snapshots and timelines."
+    },
+    {
+      "sourcePath": "Shared/WatchConnectivityManager.swift",
+      "targetPath": "Shared/AppGroup.swift",
+      "type": "depends_on",
+      "reason": "On watchOS the connectivity manager writes live level and weighting into AppGroup defaults for complications."
+    },
+    {
+      "sourcePath": "SpektoWatch Complications/WatchComplicationProvider.swift",
+      "targetPath": "Shared/AppGroup.swift",
+      "type": "related",
+      "reason": "The provider duplicates the App Group identifier and keys because Shared/AppGroup.swift is not currently compiled into the complication target."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/AudioEngineTests.swift",
+      "targetPath": "SpektoWatch2/AudioEngine.swift",
+      "type": "tested_by",
+      "reason": "AudioEngineTests cover initialization, controls, external audio, wearable mode, spectrogram ingestion, and history bounding."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/FFTProcessorTests.swift",
+      "targetPath": "SpektoWatch2/Processing/FFTProcessor.swift",
+      "type": "tested_by",
+      "reason": "FFTProcessorTests exercise windowing, reconfiguration, FFT outputs, dB conversion, and frequency-bin helpers."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/FFTProcessorTests.swift",
+      "targetPath": "SpektoWatch2/SpectrogramProcessor.swift",
+      "type": "tested_by",
+      "reason": "FFTProcessorTests include diagnostic coverage for sparse and dense third-octave band detection."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/FrequencyWeightingTests.swift",
+      "targetPath": "SpektoWatch2/Processing/FrequencyWeightingProcessor.swift",
+      "type": "tested_by",
+      "reason": "FrequencyWeightingTests validate A and C weighting values at standard frequencies."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/HighEndSpectrogramAdapterTests.swift",
+      "targetPath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
+      "type": "tested_by",
+      "reason": "HighEndSpectrogramAdapterTests cover Metal setup, FFT updates, configuration setters, reset, and axis metrics."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/MeasurementDataIOTests.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataWriter.swift",
+      "type": "tested_by",
+      "reason": "MeasurementDataIOTests cover writer roundtrip, backpressure drops, and full-FFT frame support."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/MeasurementDataIOTests.swift",
+      "targetPath": "SpektoWatch2/MeasurementDataReader.swift",
+      "type": "tested_by",
+      "reason": "MeasurementDataIOTests read back generated .spekto files and validate legacy v1 decoding."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/RecordingManagerTests.swift",
+      "targetPath": "SpektoWatch2/RecordingManager.swift",
+      "type": "tested_by",
+      "reason": "RecordingManagerTests exercise lifecycle, metadata, URL, and deletion behavior."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/RecordingPersistenceDurabilityTests.swift",
+      "targetPath": "SpektoWatch2/RecordingManager.swift",
+      "type": "tested_by",
+      "reason": "Durability tests validate soft-delete sidecar restore/commit and corrupt sidecar handling."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/RecordingPersistenceDurabilityTests.swift",
+      "targetPath": "SpektoWatch2/Models/Recording.swift",
+      "type": "tested_by",
+      "reason": "Durability tests verify that Recording decoding rejects entries missing an id and manager load skips invalid rows."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WatchConnectivityTests.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "tested_by",
+      "reason": "WatchConnectivityTests validate SpectrogramData binary serialization, invalid payload handling, and performance."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WatchConnectivityTests.swift",
+      "targetPath": "Shared/WatchConnectivityProtocol.swift",
+      "type": "tested_by",
+      "reason": "WatchConnectivityTests validate packet headers, message factories, parsers, and freshness interval constants."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WatchProtocolVersioningTests.swift",
+      "targetPath": "Shared/WatchAppState.swift",
+      "type": "tested_by",
+      "reason": "WatchProtocolVersioningTests cover WatchAppState roundtrip and schema-version rejection."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WatchProtocolVersioningTests.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "tested_by",
+      "reason": "WatchProtocolVersioningTests verify the SpectrogramData schema version byte and unknown-version rejection."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WidgetSizingMigrationTests.swift",
+      "targetPath": "SpektoWatch2/WidgetConfiguration.swift",
+      "type": "tested_by",
+      "reason": "WidgetSizingMigrationTests cover legacy Double row decoding, per-type size clamping, and JSON roundtrip."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WidgetSizingMigrationTests.swift",
+      "targetPath": "SpektoWatch2/DashboardManager.swift",
+      "type": "tested_by",
+      "reason": "WidgetSizingMigrationTests verify screenshot preset layout creation across visible widget types."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/WaterfallDataBuilderTests.swift",
+      "targetPath": "SpektoWatch2/WaterfallDataBuilder.swift",
+      "type": "tested_by",
+      "reason": "WaterfallDataBuilderTests cover empty input, slice/frequency limits, source axes, and min/max preservation."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/CSVExporterTests.swift",
+      "targetPath": "SpektoWatch2/CSVExporter.swift",
+      "type": "tested_by",
+      "reason": "CSVExporterTests validate headers, separators, selected metric filtering, third-octave columns, and data row output."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/PDFReportGeneratorTests.swift",
+      "targetPath": "SpektoWatch2/PDFReportGenerator.swift",
+      "type": "tested_by",
+      "reason": "PDFReportGeneratorTests exercise report generation paths for recordings."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/SpectrogramImageExporterTests.swift",
+      "targetPath": "SpektoWatch2/SpectrogramImageRenderer.swift",
+      "type": "tested_by",
+      "reason": "SpectrogramImageExporterTests validate renderer dimensions, non-empty image output, and unreadable-file errors."
+    },
+    {
+      "sourcePath": "SpektoWatch2Tests/SpectrogramImageExporterTests.swift",
+      "targetPath": "SpektoWatch2/SpectrogramImageExporter.swift",
+      "type": "tested_by",
+      "reason": "SpectrogramImageExporterTests validate PNG file output, naming, missing-audio errors, and error descriptions."
+    },
+    {
+      "sourcePath": "SpektoWatchTests/WatchAudioEngineTests.swift",
+      "targetPath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "type": "tested_by",
+      "reason": "WatchAudioEngineTests cover watch audio state, gain notifications, notification guards, publishing, and deinit safety."
+    },
+    {
+      "sourcePath": "SpektoWatchTests/WatchDataProtocolTests.swift",
+      "targetPath": "Shared/SpectrogramData.swift",
+      "type": "tested_by",
+      "reason": "WatchDataProtocolTests validate watch-side SpectrogramData payload roundtrip and the Data.dropFirst slice regression."
+    },
+    {
+      "sourcePath": "SpektoWatchTests/WatchValueMappingTests.swift",
+      "targetPath": "Shared/WatchValueMapping.swift",
+      "type": "tested_by",
+      "reason": "WatchValueMappingTests cover mapping watch single-value widget types to SpectrogramData metrics."
+    },
+    {
+      "sourcePath": "SpektoWatchTests/WatchFFTTests.swift",
+      "targetPath": "SpektoWatch Watch App/WatchAudioEngine.swift",
+      "type": "tested_by",
+      "reason": "WatchFFTTests mirror the private watch FFT algorithm to validate peak detection, output shape, and finite values."
+    },
+    {
+      "sourcePath": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
+      "targetPath": "SpektoWatch2/ModularDashboardView.swift",
+      "type": "tested_by",
+      "reason": "ScreenshotCatalogTests walk dashboard default/edit/settings/picker/layout states using accessibility identifiers."
+    },
+    {
+      "sourcePath": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
+      "targetPath": "SpektoWatch2/Views/RecordingDetailView.swift",
+      "type": "tested_by",
+      "reason": "ScreenshotCatalogTests open seeded recordings and capture recording list/detail screens."
+    },
+    {
+      "sourcePath": "SpektoWatch2UITests/WatchAppScreenshotTests.swift",
+      "targetPath": "SpektoWatch Watch App/WatchDashboardView.swift",
+      "type": "tested_by",
+      "reason": "WatchAppScreenshotTests capture the watch dashboard when a watch UI test environment is available."
+    },
+    {
+      "sourcePath": "SpektoWatch2UITests/WatchAppScreenshotTests.swift",
+      "targetPath": "SpektoWatch Watch App/WatchSpectrogramView.swift",
+      "type": "tested_by",
+      "reason": "WatchAppScreenshotTests capture the watch spectrogram view when a watch UI test environment is available."
+    },
+    {
+      "sourcePath": "SpektoWatch2.xctestplan",
+      "targetPath": "SpektoWatch2Tests/AudioEngineTests.swift",
+      "type": "configures",
+      "reason": "The main Xcode test plan participates in selecting the app test targets and their Swift test files."
+    },
+    {
+      "sourcePath": "SpektoWatch2_FullRun.xctestplan",
+      "targetPath": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
+      "type": "configures",
+      "reason": "The full-run test plan is part of the UI/screenshot validation workflow."
+    }
+  ],
+  "warnings": [
+    "Working tree has pre-existing modified Swift files and untracked artifacts; this task only writes .understand-anything/intermediate/subagent-relationships.json.",
+    "There are two WatchConnectivityManager.swift files: SpektoWatch2/WatchConnectivityManager.swift and Shared/WatchConnectivityManager.swift. They are target-specific but share overlapping responsibilities, so target membership should be checked before deduplication.",
+    "SpektoWatch Complications/WatchComplicationProvider.swift duplicates App Group constants because Shared/AppGroup.swift is not currently compiled into the complication target.",
+    "Several tests document skipped or environment-dependent coverage, especially AudioEngine reconfiguration, Metal availability, watchOS microphone/simulator behavior, watch screenshots, and snapshot baselines."
+  ]
+}

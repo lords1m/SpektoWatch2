@@ -20,6 +20,24 @@ Usage:
                                                               # from the last
                                                               # result bundle
 
+Local one-command recipe (run on a working dev machine or CI):
+
+  xcodebuild test \\
+    -scheme SpektoWatch2 \\
+    -destination 'platform=iOS Simulator,name=iPhone 15' \\
+    -resultBundlePath ./TestResults/local.xcresult \\
+    -only-testing:SpektoWatch2UITests
+  python3 agent/scripts/capture-screenshots.py --skip-build
+
+Or to extract from an existing .xcresult directly:
+
+  python3 agent/scripts/capture-screenshots.py \\
+    --xcresult ./TestResults/local.xcresult \\
+    --output   ./TestResults/Screenshots
+
+Unit tests (no Xcode required):
+  python3 -m unittest agent/scripts/test_capture_screenshots.py
+
 Requires:
   * macOS with Xcode + at least one matching simulator runtime installed.
   * Python 3.9+ (only stdlib used).
@@ -68,6 +86,39 @@ def repo_root() -> Path:
 def sanitize_filename(name: str) -> str:
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
     return "".join(c if c in allowed else "_" for c in name).strip("_") or "screenshot"
+
+
+# ACP M18-task-5: xcresulttool output shape changed across Xcode versions.
+# Legacy format wraps arrays as {"_values": [...]}; newer format uses a
+# plain list.  _as_list() normalises both so callers are format-agnostic.
+def _as_list(node) -> list:
+    """Return the list contained in *node* regardless of xcresulttool format.
+
+    * Legacy format: ``{"_values": [...], ...}``
+    * Modern format: ``[...]``
+    * Anything else (None, scalar, malformed): ``[]``
+    """
+    if isinstance(node, list):
+        return node
+    if isinstance(node, dict):
+        values = node.get("_values", [])
+        return values if isinstance(values, list) else []
+    return []
+
+
+def _str_value(node) -> Optional[str]:
+    """Return the string contained in *node* regardless of xcresulttool format.
+
+    * Legacy format: ``{"_value": "..."}``
+    * Modern format: plain string
+    * Anything else: ``None``
+    """
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        v = node.get("_value")
+        return v if isinstance(v, str) else None
+    return None
 
 
 def xcrun(args: list[str]) -> str:
@@ -141,10 +192,9 @@ def walk_attachments(node, callback) -> None:
     """Walk every dict/list in the JSON tree, invoking ``callback`` for any
     node containing an ``attachments`` field."""
     if isinstance(node, dict):
-        attachments = node.get("attachments", {})
-        if isinstance(attachments, dict):
-            values = attachments.get("_values", [])
-            for entry in values:
+        attachments = node.get("attachments")
+        if attachments is not None:
+            for entry in _as_list(attachments):
                 callback(entry)
         for value in node.values():
             walk_attachments(value, callback)
@@ -156,24 +206,26 @@ def walk_attachments(node, callback) -> None:
 def extract_screenshots(xcresult: Path, output_dir: Path) -> list[Path]:
     """Return the list of PNG paths written into ``output_dir``."""
     info = get_json(xcresult)
-    actions = info.get("actions", {}).get("_values", [])
+    actions = _as_list(info.get("actions", []))
     written: list[Path] = []
 
     for action in actions:
-        tests_ref = (
-            action.get("actionResult", {})
-            .get("testsRef", {})
-            .get("id", {})
-            .get("_value")
-        )
+        action_result = action.get("actionResult", {}) if isinstance(action, dict) else {}
+        tests_ref_node = action_result.get("testsRef", {}) if isinstance(action_result, dict) else {}
+        id_node = tests_ref_node.get("id", {}) if isinstance(tests_ref_node, dict) else {}
+        tests_ref = _str_value(id_node)
         if not tests_ref:
             continue
         tests = get_json(xcresult, tests_ref)
 
         def on_attachment(entry):
-            name_raw = entry.get("name", {}).get("_value")
-            uti = entry.get("uniformTypeIdentifier", {}).get("_value", "")
-            payload_id = entry.get("payloadRef", {}).get("id", {}).get("_value")
+            if not isinstance(entry, dict):
+                return
+            name_raw = _str_value(entry.get("name", {}))
+            uti = _str_value(entry.get("uniformTypeIdentifier", {})) or ""
+            payload_ref = entry.get("payloadRef", {})
+            payload_id_node = payload_ref.get("id", {}) if isinstance(payload_ref, dict) else {}
+            payload_id = _str_value(payload_id_node)
             if not name_raw or not payload_id:
                 return
             # Only export PNG screenshots, ignore other attachment types.
@@ -292,7 +344,29 @@ def main() -> int:
         action="store_true",
         help="Skip xcodebuild and only re-extract from the last result bundle.",
     )
+    parser.add_argument(
+        "--xcresult",
+        default=None,
+        help="Extract screenshots directly from this .xcresult path (skips build).",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Output directory for extracted screenshots (used with --xcresult).",
+    )
     args = parser.parse_args()
+
+    # Direct extraction mode: bypass the full orchestration.
+    if args.xcresult:
+        xcresult = Path(args.xcresult)
+        out = Path(args.output) if args.output else xcresult.parent / "Screenshots"
+        out.mkdir(parents=True, exist_ok=True)
+        written = extract_screenshots(xcresult, out)
+        if not written:
+            log("⚠️  No screenshots found in the xcresult bundle.")
+            return 1
+        log(f"\n✓ Extracted {len(written)} screenshots to {out}")
+        return 0
 
     captures: dict[str, list[Path]] = {}
 

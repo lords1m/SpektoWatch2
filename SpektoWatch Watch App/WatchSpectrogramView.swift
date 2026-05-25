@@ -38,11 +38,12 @@ struct WatchSpectrogramView: View {
                         let chunkSize = max(1, effectiveCount / displayBins)
 
                         for f in 0..<displayBins {
-                            let start = f * chunkSize
-                            let end = min(start + chunkSize, effectiveCount)
-                            let mag = (start < end && start < magnitudes.count)
-                                ? (magnitudes[start..<min(end, magnitudes.count)].max() ?? minDB)
-                                : minDB
+                            let mag = displayMagnitude(
+                                for: f,
+                                in: magnitudes,
+                                effectiveCount: effectiveCount,
+                                chunkSize: chunkSize
+                            )
                             let normalized = (mag - minDB) / (maxDB - minDB)
 
                             if normalized > 0.05 {
@@ -134,10 +135,14 @@ struct WatchSpectrogramView: View {
         max(64, latestMagnitudesCount * 2)
     }
 
-    private func timeString(from date: Date) -> String {
+    private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
-        return f.string(from: date)
+        return f
+    }()
+
+    private func timeString(from date: Date) -> String {
+        Self.timeFormatter.string(from: date)
     }
 
     private var recordButton: some View {
@@ -187,7 +192,31 @@ struct WatchSpectrogramView: View {
         frames.append(visualMagnitudes)
         latestFrequencies = data.visualFrequencies ?? data.frequencies
         latestSampleRate = data.sampleRate
-        latestMagnitudesCount = visualMagnitudes.count
+        latestMagnitudesCount = data.magnitudes.count
+    }
+
+    private func displayMagnitude(
+        for bin: Int,
+        in magnitudes: [Float],
+        effectiveCount: Int,
+        chunkSize: Int
+    ) -> Float {
+        guard !magnitudes.isEmpty else { return minDB }
+        if magnitudes.count == displayBins, bin < magnitudes.count {
+            return magnitudes[bin]
+        }
+
+        let start = bin * chunkSize
+        let end = min(start + chunkSize, effectiveCount, magnitudes.count)
+        guard start < end else { return minDB }
+
+        var peak = magnitudes[start]
+        if end > start + 1 {
+            for index in (start + 1)..<end {
+                peak = max(peak, magnitudes[index])
+            }
+        }
+        return peak
     }
 
     /// Tatsächlich angezeigte Max-Frequenz unter Berücksichtigung des Zoom-Levels

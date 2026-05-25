@@ -12,6 +12,13 @@ struct RecordingDetailView: View {
         var id: String { rawValue }
     }
 
+    private enum ExportKind: String {
+        case csv = "CSV"
+        case pdf = "PDF"
+    }
+
+    private static let maxStoredSpectrogramOverviewFrames = 1_800
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var recordingManager: RecordingManager
 
@@ -34,6 +41,8 @@ struct RecordingDetailView: View {
     /// recording would keep CPU pegged after the user navigates away, and the
     /// completion handler would mutate state on a view that's no longer visible.
     @State private var spectrogramLoadTask: Task<Void, Never>?
+    @State private var weightingTask: Task<Void, Never>?
+    @State private var spectrogramExportTask: Task<Void, Never>?
     @State private var selectedMetrics: Set<String> = []
     @State private var analysisStartTime: TimeInterval = 0
     @State private var analysisEndTime: TimeInterval = 0
@@ -49,6 +58,9 @@ struct RecordingDetailView: View {
     @State private var showShareSheet = false
     @State private var showPhotoPicker = false
     @State private var shareItems: [Any] = []
+    @State private var exportTask: Task<Void, Never>?
+    @State private var activeExportKind: ExportKind?
+    @State private var exportAlertTitle = "Export fehlgeschlagen"
     @State private var isExportingSpectrogram = false
     @State private var spectrogramExportError: String?
     @State private var showSpectrogramExportError = false
@@ -96,6 +108,7 @@ struct RecordingDetailView: View {
                         } label: {
                             Label("PDF erstellen", systemImage: "doc.richtext")
                         }
+                        .disabled(activeExportKind != nil)
 
                         Button {
                             exportSpectrogramImage()
@@ -128,10 +141,18 @@ struct RecordingDetailView: View {
         .sheet(isPresented: $showShareSheet) {
             ActivityView(activityItems: shareItems)
         }
-        .alert("Export fehlgeschlagen", isPresented: $showSpectrogramExportError) {
+        .alert(exportAlertTitle, isPresented: $showSpectrogramExportError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(spectrogramExportError ?? "Unbekannter Fehler")
+        }
+        .overlay {
+            if let activeExportKind {
+                ExportProgressOverlay(
+                    title: "\(activeExportKind.rawValue) wird erstellt",
+                    cancel: cancelActiveExport
+                )
+            }
         }
         .onAppear {
             reloadRecordingState()
@@ -161,6 +182,13 @@ struct RecordingDetailView: View {
             storedDataProvider?.pause()
             spectrogramLoadTask?.cancel()
             spectrogramLoadTask = nil
+            weightingTask?.cancel()
+            weightingTask = nil
+            spectrogramExportTask?.cancel()
+            spectrogramExportTask = nil
+            exportTask?.cancel()
+            exportTask = nil
+            activeExportKind = nil
         }
         .onChange(of: playbackWeighting) { _, newValue in
             applyPlaybackWeighting(newValue)
@@ -205,7 +233,9 @@ struct RecordingDetailView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
                 ExportActionButton(
                     title: "PDF",
-                    systemImage: "doc.richtext"
+                    systemImage: activeExportKind == .pdf ? "hourglass" : "doc.richtext",
+                    isLoading: activeExportKind == .pdf,
+                    isDisabled: activeExportKind == .csv
                 ) { createPDFReport() }
 
                 ExportActionButton(
@@ -224,9 +254,10 @@ struct RecordingDetailView: View {
 
                 ExportActionButton(
                     title: "CSV",
-                    systemImage: "tablecells",
-                    isDisabled: !hasMeasurementData,
-                    disabledHint: "Keine Messdaten"
+                    systemImage: activeExportKind == .csv ? "hourglass" : "tablecells",
+                    isLoading: activeExportKind == .csv,
+                    isDisabled: !hasMeasurementData || activeExportKind == .pdf,
+                    disabledHint: hasMeasurementData ? nil : "Keine Messdaten"
                 ) { createCSVExport() }
 
                 ExportActionButton(
@@ -612,7 +643,7 @@ struct RecordingDetailView: View {
         .padding()
         .glassCard(cornerRadius: 14)
         .sheet(isPresented: $showPhotoPicker) {
-            PhotoPickerView { imageData in
+            PhotoPickerView(isPresented: $showPhotoPicker) { imageData in
                 guard let data = imageData else { return }
                 if let fileName = try? recordingManager.savePhoto(data, recordingID: recording.id) {
                     recording.photoFileNames.append(fileName)
@@ -751,16 +782,26 @@ struct RecordingDetailView: View {
                 Button {
                     createCSVExport()
                 } label: {
-                    Label("CSV", systemImage: "tablecells").frame(maxWidth: .infinity, alignment: .leading)
+                    if activeExportKind == .csv {
+                        Label("CSV...", systemImage: "hourglass").frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Label("CSV", systemImage: "tablecells").frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(activeExportKind != nil)
 
                 Button {
                     createPDFReport()
                 } label: {
-                    Label("PDF", systemImage: "doc.richtext").frame(maxWidth: .infinity, alignment: .leading)
+                    if activeExportKind == .pdf {
+                        Label("PDF...", systemImage: "hourglass").frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Label("PDF", systemImage: "doc.richtext").frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .buttonStyle(.bordered)
+                .disabled(activeExportKind != nil)
 
                 Button {
                     exportSpectrogramImage()
@@ -846,20 +887,16 @@ struct RecordingDetailView: View {
             return
         }
 
-        let audioURL = recordingManager.url(for: recording)
-        let calibrationOffset = recording.calibrationOffset
+        let maxOverviewFrames = Self.maxStoredSpectrogramOverviewFrames
         isLoadingSpectrogram = true
         spectrogramLoadTask = Task.detached(priority: .userInitiated) {
-            // StoredDataProvider.init runs the full-file bootstrap synchronously.
-            // For a long recording this can be hundreds of MB / many seconds, so
-            // it must not happen on the main actor.
-            let result = Result { () -> (StoredDataProvider, [[Float]]) in
+            let result: Result<(StoredDataProvider, [[Float]]), Error>
+            do {
                 let provider = try StoredDataProvider(fileURL: measurementURL)
-                let visualHistory = (try? computeSpectrogramHistoryStreaming(
-                    url: audioURL,
-                    calibrationOffset: calibrationOffset
-                )) ?? provider.spectrogramHistory
-                return (provider, visualHistory)
+                let window = try await provider.spectrogramOverview(maxFrameCount: maxOverviewFrames)
+                result = .success((provider, window.bins))
+            } catch {
+                result = .failure(error)
             }
             if Task.isCancelled { return }
             await MainActor.run {
@@ -915,44 +952,125 @@ struct RecordingDetailView: View {
     }
 
     private func createCSVExport() {
-        guard let measurementURL = recordingManager.measurementURL(for: recording) else { return }
-        do {
-            let reader = try MeasurementDataReader(fileURL: measurementURL)
-            let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(recording.id.uuidString)_analyse.csv")
-            let metrics = selectedMetrics.isEmpty ? reader.header.metricKeys : Array(selectedMetrics)
-            try CSVExporter().export(reader: reader, to: outputURL, selectedMetrics: metrics, includeThirdOctaves: true)
-            shareItems = [outputURL]
-            showShareSheet = true
-        } catch {
-            print("[RecordingDetailView] CSV export failed: \(error)")
+        guard activeExportKind == nil else { return }
+        guard let measurementURL = recordingManager.measurementURL(for: recording) else {
+            showExportError(title: "Export fehlgeschlagen", message: "Keine Messdaten vorhanden.")
+            return
+        }
+
+        let recordingID = recording.id.uuidString
+        let selectedMetricsSnapshot = selectedMetrics
+        activeExportKind = .csv
+        exportTask = Task.detached(priority: .userInitiated) {
+            do {
+                let reader = try MeasurementDataReader(fileURL: measurementURL)
+                let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(recordingID)_analyse.csv")
+                let metrics = selectedMetricsSnapshot.isEmpty
+                    ? reader.header.metricKeys
+                    : reader.header.metricKeys.filter { selectedMetricsSnapshot.contains($0) }
+                try CSVExporter().export(reader: reader, to: outputURL, selectedMetrics: metrics, includeThirdOctaves: true)
+                try Task.checkCancellation()
+                await MainActor.run {
+                    finishSuccessfulExport(outputURL)
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    finishCancelledExport()
+                }
+            } catch {
+                await MainActor.run {
+                    showExportError(title: "Export fehlgeschlagen", message: error.localizedDescription)
+                    finishExport()
+                }
+            }
         }
     }
 
     private func createPDFReport() {
-        do {
-            let pdfURL = try PDFReportGenerator().generateReport(for: recording, recordingManager: recordingManager)
-            shareItems = [pdfURL]
-            showShareSheet = true
-        } catch {
-            print("[RecordingDetailView] PDF generation failed: \(error)")
+        guard activeExportKind == nil else { return }
+
+        let recordingSnapshot = recording
+        let audioURL = recordingManager.url(for: recording)
+        let measurementURL = recordingManager.measurementURL(for: recording)
+        let photoURLs = recording.photoFileNames.map { recordingManager.getPhotoURL(fileName: $0) }
+
+        activeExportKind = .pdf
+        exportTask = Task.detached(priority: .userInitiated) {
+            do {
+                let pdfURL = try PDFReportGenerator().generateReport(
+                    for: recordingSnapshot,
+                    audioURL: audioURL,
+                    measurementURL: measurementURL,
+                    photoURLs: photoURLs
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    finishSuccessfulExport(pdfURL)
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    finishCancelledExport()
+                }
+            } catch {
+                await MainActor.run {
+                    showExportError(title: "Export fehlgeschlagen", message: error.localizedDescription)
+                    finishExport()
+                }
+            }
         }
     }
 
+    private func cancelActiveExport() {
+        exportTask?.cancel()
+        activeExportKind = nil
+    }
+
+    private func finishSuccessfulExport(_ url: URL) {
+        guard activeExportKind != nil else { return }
+        shareItems = [url]
+        showShareSheet = true
+        finishExport()
+    }
+
+    private func finishCancelledExport() {
+        let shouldShowAlert = activeExportKind != nil
+        finishExport()
+        if shouldShowAlert {
+            showExportError(title: "Export abgebrochen", message: "Der laufende Export wurde abgebrochen.")
+        }
+    }
+
+    private func finishExport() {
+        activeExportKind = nil
+        exportTask = nil
+    }
+
+    private func showExportError(title: String, message: String) {
+        exportAlertTitle = title
+        spectrogramExportError = message
+        showSpectrogramExportError = true
+    }
+
     private func exportSpectrogramImage() {
+        spectrogramExportTask?.cancel()
         let audioURL = recordingManager.url(for: recording)
         let recordingID = recording.id.uuidString
         isExportingSpectrogram = true
-        DispatchQueue.global(qos: .userInitiated).async {
+        spectrogramExportTask = Task.detached(priority: .userInitiated) {
             let result = Result { try SpectrogramImageExporter().export(audioURL: audioURL, recordingID: recordingID) }
-            DispatchQueue.main.async {
-                self.isExportingSpectrogram = false
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard !Task.isCancelled else {
+                    isExportingSpectrogram = false
+                    return
+                }
+                isExportingSpectrogram = false
                 switch result {
                 case .success(let url):
-                    self.shareItems = [url]
-                    self.showShareSheet = true
+                    shareItems = [url]
+                    showShareSheet = true
                 case .failure(let error):
-                    self.spectrogramExportError = error.localizedDescription
-                    self.showSpectrogramExportError = true
+                    showExportError(title: "Export fehlgeschlagen", message: error.localizedDescription)
                 }
             }
         }
@@ -991,7 +1109,7 @@ struct RecordingDetailView: View {
         let sourceFrequencies = WaterfallDataBuilder.sourceFrequencies(
             binCount: firstColumn.count,
             sampleRate: storedDataProvider?.sampleRate ?? recording.sampleRate,
-            storedProviderHasFullFFT: false
+            storedProviderHasFullFFT: storedDataProvider?.hasFullFFT == true && firstColumn.count == storedDataProvider?.fftBinCount
         )
 
         waterfallDataSet = WaterfallDataBuilder.build(
@@ -1104,7 +1222,8 @@ struct RecordingDetailView: View {
         let frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
         let source = rawSpectrogramHistory
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        weightingTask?.cancel()
+        weightingTask = Task.detached(priority: .userInitiated) {
             var weightedHistory: [[Float]] = []
             weightedHistory.reserveCapacity(source.count)
             for column in source {
@@ -1112,10 +1231,12 @@ struct RecordingDetailView: View {
                     processor.applyWeighting(to: column, frequencies: frequencies, weighting: weighting)
                 )
             }
-            DispatchQueue.main.async {
-                self.weightedSpectrogramCache[weighting] = weightedHistory
-                if self.playbackWeighting == weighting {
-                    self.spectrogramHistory = weightedHistory
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                weightedSpectrogramCache[weighting] = weightedHistory
+                if playbackWeighting == weighting {
+                    spectrogramHistory = weightedHistory
                 }
             }
         }
@@ -1133,21 +1254,27 @@ struct RecordingDetailView: View {
     }
 
     private func promoteSpectrogramResolutionThenApply(_ weighting: FrequencyWeighting) {
+        spectrogramLoadTask?.cancel()
         isPromotingSpectrogramResolution = true
         let audioURL = recordingManager.url(for: recording)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let history = try computeSpectrogramHistoryStreaming(url: audioURL, calibrationOffset: recording.calibrationOffset)
-                DispatchQueue.main.async {
-                    self.rawSpectrogramHistory = history
-                    self.weightedSpectrogramCache.removeAll()
-                    self.isPromotingSpectrogramResolution = false
-                    self.applyPlaybackWeighting(weighting)
+        let calibrationOffset = recording.calibrationOffset
+        spectrogramLoadTask = Task.detached(priority: .userInitiated) {
+            let result = Result { try computeSpectrogramHistoryStreaming(url: audioURL, calibrationOffset: calibrationOffset) }
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard !Task.isCancelled else {
+                    isPromotingSpectrogramResolution = false
+                    return
                 }
-            } catch {
-                DispatchQueue.main.async {
-                    self.isPromotingSpectrogramResolution = false
-                    self.spectrogramHistory = self.rawSpectrogramHistory
+                switch result {
+                case .success(let history):
+                    rawSpectrogramHistory = history
+                    weightedSpectrogramCache.removeAll()
+                    isPromotingSpectrogramResolution = false
+                    applyPlaybackWeighting(weighting)
+                case .failure:
+                    isPromotingSpectrogramResolution = false
+                    spectrogramHistory = rawSpectrogramHistory
                 }
             }
         }
@@ -1162,6 +1289,36 @@ struct RecordingDetailView: View {
 //
 // The private ExportActionButton stays in this file because it's only
 // used by RecordingDetailView.
+
+// MARK: - ExportProgressOverlay
+
+private struct ExportProgressOverlay: View {
+    let title: String
+    let cancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.22)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.large)
+
+                Text(title)
+                    .font(.headline)
+
+                Button(role: .cancel, action: cancel) {
+                    Label("Abbrechen", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(22)
+            .frame(maxWidth: 280)
+            .glassCard(cornerRadius: 14)
+        }
+    }
+}
 
 // MARK: - ExportActionButton
 

@@ -115,16 +115,22 @@ final class MeasurementDataWriter {
 
         let handle = fileHandle
         writeQueue.async {
-            frameBuffer.values.withUnsafeBytes { ptr in
-                handle.write(Data(ptr))
+            let data = frameBuffer.values.withUnsafeBytes { Data($0) }
+            do {
+                try handle.write(contentsOf: data)
+                // Increment the persisted frame count only AFTER the bytes have
+                // been handed to the file handle. Crashing between increment and
+                // write would leave the header claiming more frames than the file
+                // actually holds; the reader would then seek past EOF and throw.
+                // `frameCount` is otherwise touched only from `updateFrameCount`
+                // (called from `close`, which drains this queue first).
+                self.frameCount += 1
+            } catch {
+                // Disk failure (e.g. disk full): do not advance frameCount; record
+                // the drop so the header's frame count stays consistent with bytes.
+                NSLog("MeasurementDataWriter: frame write failed: %@", String(describing: error))
+                _ = self.recordDroppedFrame()
             }
-            // Increment the persisted frame count only AFTER the bytes have
-            // been handed to the file handle. Crashing between increment and
-            // write would leave the header claiming more frames than the file
-            // actually holds; the reader would then seek past EOF and throw.
-            // `frameCount` is otherwise touched only from `updateFrameCount`
-            // (called from `close`, which drains this queue first).
-            self.frameCount += 1
             self.releaseFrameBufferIndex(bufferIndex)
         }
     }
@@ -165,14 +171,14 @@ final class MeasurementDataWriter {
             header.append(utf8.prefix(Int(length)))
         }
 
-        fileHandle.write(header)
+        try fileHandle.write(contentsOf: header)
     }
 
     private func updateFrameCount() throws {
         try fileHandle.seek(toOffset: UInt64(MeasurementDataFormat.frameCountOffset))
         var countData = Data()
         countData.appendUInt64LE(frameCount)
-        fileHandle.write(countData)
+        try fileHandle.write(contentsOf: countData)
     }
 
     private func acquireFrameBufferIndex() -> Int? {

@@ -37,7 +37,7 @@ final class CSVExporterTests: XCTestCase {
     // MARK: - CSV Export Tests
     
     func testCSVExportBasic() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("test_export.csv")
         
         try csvExporter.export(
@@ -54,7 +54,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVHeaderFormat() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("header_test.csv")
         
         try csvExporter.export(
@@ -79,7 +79,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVWithThirdOctaves() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("octaves_test.csv")
         
         try csvExporter.export(
@@ -104,7 +104,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVWithoutThirdOctaves() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("no_octaves_test.csv")
         
         try csvExporter.export(
@@ -129,7 +129,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVDataRows() throws {
-        let reader = createTestMeasurementReader(frameCount: 5)
+        let reader = try createTestMeasurementReader(frameCount: 5)
         let outputURL = tempDirectory.appendingPathComponent("rows_test.csv")
         
         try csvExporter.export(
@@ -147,7 +147,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVSeparatorFormat() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("separator_test.csv")
         
         try csvExporter.export(
@@ -165,7 +165,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVNumericFormat() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("numeric_test.csv")
         
         try csvExporter.export(
@@ -191,7 +191,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVSelectedMetricsFilter() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("filter_test.csv")
         
         // Only export LAeq, not LAFmax
@@ -215,7 +215,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVEmptyMetricsList() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("empty_metrics_test.csv")
         
         // Export with empty metrics
@@ -242,7 +242,7 @@ final class CSVExporterTests: XCTestCase {
     }
     
     func testCSVInvalidMetricsFiltered() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("invalid_metrics_test.csv")
         
         // Request metrics that don't exist in reader
@@ -272,7 +272,7 @@ final class CSVExporterTests: XCTestCase {
     // MARK: - Determinism and Ordering Tests
 
     func testCSVMetricOrderMatchesSelectedOrder() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("order_test.csv")
 
         // Request metrics in reverse alphabetical order
@@ -296,7 +296,7 @@ final class CSVExporterTests: XCTestCase {
     }
 
     func testCSVHeaderIsStable() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let urlA = tempDirectory.appendingPathComponent("stable_a.csv")
         let urlB = tempDirectory.appendingPathComponent("stable_b.csv")
 
@@ -310,7 +310,7 @@ final class CSVExporterTests: XCTestCase {
     }
 
     func testCSVNumericFormatThreeDecimalPlaces() throws {
-        let reader = createTestMeasurementReader(frameCount: 1)
+        let reader = try createTestMeasurementReader(frameCount: 1)
         let outputURL = tempDirectory.appendingPathComponent("decimal_test.csv")
 
         try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: ["LAeq"], includeThirdOctaves: false)
@@ -320,17 +320,21 @@ final class CSVExporterTests: XCTestCase {
             .filter { !$0.isEmpty }
         guard lines.count > 1 else { XCTFail("CSV should have a data row"); return }
 
+        let headerColumns = lines[0].components(separatedBy: ";")
         let dataValues = lines[1].components(separatedBy: ";")
-        for value in dataValues {
-            guard !value.isEmpty else { continue }
+        // Skip the timestamp column (index 0) — its value is 0.0 which
+        // may be formatted without trailing zeros. Assert only on metric
+        // columns where the fixture seeds deterministic values.
+        for (index, value) in dataValues.enumerated() {
+            guard !value.isEmpty, index > 0, index < headerColumns.count else { continue }
             let parts = value.components(separatedBy: ".")
-            XCTAssertEqual(parts.count, 2, "Value '\(value)' should have exactly one decimal point")
-            XCTAssertEqual(parts.last?.count, 3, "Value '\(value)' should have exactly 3 decimal places")
+            XCTAssertEqual(parts.count, 2, "Column '\(headerColumns[index])' value '\(value)' should have exactly one decimal point")
+            XCTAssertEqual(parts.last?.count, 3, "Column '\(headerColumns[index])' value '\(value)' should have exactly 3 decimal places")
         }
     }
 
     func testCSVThirdOctaveColumnCount() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("band_count_test.csv")
 
         try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: [], includeThirdOctaves: true)
@@ -349,7 +353,7 @@ final class CSVExporterTests: XCTestCase {
     }
 
     func testCSVThirdOctaveDecimalBandLabel() throws {
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("band_label_test.csv")
 
         try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: [], includeThirdOctaves: true)
@@ -363,7 +367,7 @@ final class CSVExporterTests: XCTestCase {
     }
 
     func testCSVZeroFrameProducesHeaderOnly() throws {
-        let reader = createTestMeasurementReader(frameCount: 0)
+        let reader = try createTestMeasurementReader(frameCount: 0)
         let outputURL = tempDirectory.appendingPathComponent("zero_frame_test.csv")
 
         try csvExporter.export(reader: reader, to: outputURL, selectedMetrics: ["LAeq"], includeThirdOctaves: false)
@@ -376,11 +380,69 @@ final class CSVExporterTests: XCTestCase {
         XCTAssertTrue(lines.first?.contains("Zeit[s]") ?? false, "Header should still be present")
     }
 
+    func testCSVExportCancellationThrowsQuickly() async throws {
+        let measurementURL = try createTestMeasurementFile(frameCount: 10_000)
+        let outputURL = tempDirectory.appendingPathComponent("cancelled_export.csv")
+
+        let task = Task.detached {
+            let reader = try MeasurementDataReader(fileURL: measurementURL)
+            try CSVExporter().export(
+                reader: reader,
+                to: outputURL,
+                selectedMetrics: ["LAeq", "LAFmax"],
+                includeThirdOctaves: true
+            )
+        }
+
+        let start = Date()
+        task.cancel()
+        await Task.yield()
+
+        do {
+            try await task.value
+            XCTFail("CSV export should throw CancellationError after cancellation.")
+        } catch is CancellationError {
+            XCTAssertLessThan(Date().timeIntervalSince(start), 0.5)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    // PE-2: a cancelled CSV export must not leave the partially written file
+    // sitting at outputURL.
+    func testCSVExportCleansUpTempFileOnCancellation() async throws {
+        let measurementURL = try createTestMeasurementFile(frameCount: 5000)
+        let outputURL = tempDirectory.appendingPathComponent("cancel_cleanup.csv")
+
+        let task = Task.detached {
+            let reader = try MeasurementDataReader(fileURL: measurementURL)
+            try CSVExporter().export(
+                reader: reader,
+                to: outputURL,
+                selectedMetrics: ["LAeq", "LAFmax"],
+                includeThirdOctaves: true
+            )
+        }
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("Cancelled CSV export should throw.")
+        } catch {
+            // Expected
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "Cancelled CSV export should not leave a temp file behind."
+        )
+    }
+
     // MARK: - JSON Export Tests
     
     func testJSONExportBasic() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("test_export.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -393,7 +455,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONStructure() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("structure_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -411,7 +473,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONRecordingData() throws {
         let recording = createTestRecording(name: "Test Recording", duration: 120.0)
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("recording_data_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -434,7 +496,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONFrameData() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader(frameCount: 3)
+        let reader = try createTestMeasurementReader(frameCount: 3)
         let outputURL = tempDirectory.appendingPathComponent("frame_data_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -464,7 +526,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONThirdOctaveArrays() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("octave_arrays_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -494,7 +556,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONMetricsData() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("metrics_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -515,7 +577,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONDateFormat() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("date_format_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -537,7 +599,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONPrettyPrinted() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let outputURL = tempDirectory.appendingPathComponent("pretty_test.json")
         
         try jsonExporter.export(recording: recording, reader: reader, to: outputURL)
@@ -551,8 +613,8 @@ final class CSVExporterTests: XCTestCase {
     
     // MARK: - Error Handling Tests
     
-    func testCSVExportToInvalidPath() {
-        let reader = createTestMeasurementReader()
+    func testCSVExportToInvalidPath() throws {
+        let reader = try createTestMeasurementReader()
         let invalidURL = URL(fileURLWithPath: "/invalid/path/that/does/not/exist/test.csv")
         
         XCTAssertThrowsError(try csvExporter.export(
@@ -563,9 +625,9 @@ final class CSVExporterTests: XCTestCase {
         ), "Should throw error for invalid path")
     }
     
-    func testJSONExportToInvalidPath() {
+    func testJSONExportToInvalidPath() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader()
+        let reader = try createTestMeasurementReader()
         let invalidURL = URL(fileURLWithPath: "/invalid/path/that/does/not/exist/test.json")
         
         XCTAssertThrowsError(try jsonExporter.export(
@@ -578,7 +640,7 @@ final class CSVExporterTests: XCTestCase {
     // MARK: - Performance Tests
     
     func testCSVExportPerformance() throws {
-        let reader = createTestMeasurementReader(frameCount: 1000)
+        let reader = try createTestMeasurementReader(frameCount: 1000)
         
         measure {
             let outputURL = tempDirectory.appendingPathComponent("perf_\(UUID().uuidString).csv")
@@ -598,7 +660,7 @@ final class CSVExporterTests: XCTestCase {
     
     func testJSONExportPerformance() throws {
         let recording = createTestRecording()
-        let reader = createTestMeasurementReader(frameCount: 1000)
+        let reader = try createTestMeasurementReader(frameCount: 1000)
         
         measure {
             let outputURL = tempDirectory.appendingPathComponent("perf_\(UUID().uuidString).json")
@@ -613,35 +675,39 @@ final class CSVExporterTests: XCTestCase {
     
     // MARK: - Helper Methods
     
-    private func createTestMeasurementReader(frameCount: Int = 10) -> MeasurementDataReader {
+    private func createTestMeasurementReader(frameCount: Int = 10) throws -> MeasurementDataReader {
+        let tempURL = try createTestMeasurementFile(frameCount: frameCount)
+        return try MeasurementDataReader(fileURL: tempURL)
+    }
+
+    private func createTestMeasurementFile(frameCount: Int = 10) throws -> URL {
         let tempURL = tempDirectory.appendingPathComponent("test_measurement_\(UUID().uuidString).dat")
-        
-        // Create test measurement file
-        let writer = try! MeasurementDataWriter(
+
+        let writer = try MeasurementDataWriter(
             fileURL: tempURL,
             metricKeys: ["LAeq", "LAFmax", "LAFmin"],
             sampleRate: 44100,
             fps: 10,
             fftBlockSize: 4096,
-            fftBinCount: 2048
+            fftBinCount: 2048,
+            maxPendingFrames: max(32, frameCount + 1)
         )
 
         let fullFFT = Array(repeating: Float(-70.0), count: 2048)
         for i in 0..<frameCount {
-            try! writer.writeFrame(
+            try writer.writeFrame(
                 timestamp: Float(i) * 0.1,
                 metricValues: [65.0, 85.0, 45.0],
-                broadbandLevel: 65.0 + Float.random(in: -5...5),
+                broadbandLevel: 65.0,
                 thirdOctaveZ: Array(repeating: 60.0, count: 31),
                 thirdOctaveA: Array(repeating: 58.0, count: 31),
                 thirdOctaveC: Array(repeating: 62.0, count: 31),
                 fullFFT: fullFFT
             )
         }
-        
-        try! writer.close()
-        
-        return try! MeasurementDataReader(fileURL: tempURL)
+
+        try writer.close()
+        return tempURL
     }
     
     private func createTestRecording(

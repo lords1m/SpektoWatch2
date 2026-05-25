@@ -35,8 +35,19 @@ final class PDFReportGenerator {
         measurementURL: URL?,
         photoURLs: [URL]
     ) throws -> URL {
+        try Task.checkCancellation()
+
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("report_\(recording.id.uuidString).pdf")
         let pageRect = CGRect(x: 0, y: 0, width: 595, height: 842) // A4 @72dpi
+
+        // PE-2: remove the partially-written temp PDF on cancellation or any
+        // throw past this point so /tmp doesn't accumulate orphan reports.
+        var exportSucceeded = false
+        defer {
+            if !exportSucceeded {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+        }
 
         let measurementReader: MeasurementDataReader? = {
             guard let url = measurementURL,
@@ -45,6 +56,7 @@ final class PDFReportGenerator {
         }()
         let lineValues = try loadBroadbandValues(reader: measurementReader)
         let bands = try loadAverageThirdOctaves(reader: measurementReader)
+        try Task.checkCancellation()
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
         try renderer.writePDF(to: outputURL) { context in
@@ -106,6 +118,7 @@ final class PDFReportGenerator {
             }
         }
 
+        exportSucceeded = true
         return outputURL
     }
 
@@ -252,6 +265,9 @@ final class PDFReportGenerator {
         var values: [Float] = []
         values.reserveCapacity(reader.frameCount)
         for index in 0..<reader.frameCount {
+            if index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
             values.append(try reader.readFrame(at: index).broadbandLevel)
         }
         return values
@@ -259,6 +275,19 @@ final class PDFReportGenerator {
 
     private var recordingFallbackValue: Float { -120.0 }
 
+    /// Returns per-band time-averaged third-octave levels in dB.
+    ///
+    /// M15 task-6: averaging happens in the linear-power domain
+    /// (`10^(dB/10)`), then converts back via `10·log10(mean)` —
+    /// energy-correct Leq per band. The previous implementation summed
+    /// dB values arithmetically and divided by frame count, which
+    /// understates the time-average for signals with dynamic range
+    /// (e.g. a `−20` dB / `−80` dB two-frame fixture: arithmetic mean
+    /// `−50` dB, energy mean ≈ `−23` dB).
+    ///
+    /// A missing band sample (sentinel `-120` dB, ~1e-12 linear power)
+    /// contributes effectively zero to the linear sum and stays a
+    /// floor in the average.
     private func loadAverageThirdOctaves(reader: MeasurementDataReader?) throws -> (z: [Float], a: [Float], c: [Float]) {
         let count = MeasurementDataFormat.thirdOctaveBandCount
         guard let reader, reader.frameCount > 0 else {
@@ -266,26 +295,64 @@ final class PDFReportGenerator {
             return (empty, empty, empty)
         }
 
-        var z = [Float](repeating: 0, count: count)
-        var a = [Float](repeating: 0, count: count)
-        var c = [Float](repeating: 0, count: count)
+        // Accumulate in Double-precision linear power; dB values can span
+        // ~10 orders of magnitude per band, more than single-precision can
+        // hold across thousands of frames without dropping the floor.
+        var zPower = [Double](repeating: 0, count: count)
+        var aPower = [Double](repeating: 0, count: count)
+        var cPower = [Double](repeating: 0, count: count)
 
         for index in 0..<reader.frameCount {
+            if index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
             let frame = try reader.readFrame(at: index)
             for i in 0..<count {
-                z[i] += frame.thirdOctaveZ[i]
-                a[i] += frame.thirdOctaveA[i]
-                c[i] += frame.thirdOctaveC[i]
+                zPower[i] += pow(10.0, Double(frame.thirdOctaveZ[i]) / 10.0)
+                aPower[i] += pow(10.0, Double(frame.thirdOctaveA[i]) / 10.0)
+                cPower[i] += pow(10.0, Double(frame.thirdOctaveC[i]) / 10.0)
             }
         }
 
-        let divider = Float(reader.frameCount)
+        let divider = Double(reader.frameCount)
+        let floorDB: Float = -120.0
+        var z = [Float](repeating: 0, count: count)
+        var a = [Float](repeating: 0, count: count)
+        var c = [Float](repeating: 0, count: count)
         for i in 0..<count {
-            z[i] /= divider
-            a[i] /= divider
-            c[i] /= divider
+            z[i] = energyMeanDB(sum: zPower[i], divider: divider, floorDB: floorDB)
+            a[i] = energyMeanDB(sum: aPower[i], divider: divider, floorDB: floorDB)
+            c[i] = energyMeanDB(sum: cPower[i], divider: divider, floorDB: floorDB)
         }
         return (z, a, c)
+    }
+
+    /// Converts a linear-power running sum into a time-averaged dB level.
+    /// Clamps to `floorDB` when the mean is non-positive (entirely sentinel
+    /// frames) so the output stays a meaningful floor instead of `-inf`.
+    private func energyMeanDB(sum: Double, divider: Double, floorDB: Float) -> Float {
+        Self.energyMeanDB(sum: sum, divider: divider, floorDB: floorDB)
+    }
+
+    /// Test-visible energy-mean helper. Same math as the instance method;
+    /// kept static so unit tests can drive it without standing up a full
+    /// reader / writer fixture.
+    static func energyMeanDB(sum: Double, divider: Double, floorDB: Float) -> Float {
+        guard divider > 0 else { return floorDB }
+        let mean = sum / divider
+        guard mean > 0 else { return floorDB }
+        return Float(10.0 * log10(mean))
+    }
+
+    /// Energy-average a sequence of dB values: dB → linear power → mean
+    /// → dB. Returns `floorDB` for an empty input.
+    static func energyAverageDB(_ dBValues: [Float], floorDB: Float = -120.0) -> Float {
+        guard !dBValues.isEmpty else { return floorDB }
+        var sum = 0.0
+        for dB in dBValues {
+            sum += pow(10.0, Double(dB) / 10.0)
+        }
+        return energyMeanDB(sum: sum, divider: Double(dBValues.count), floorDB: floorDB)
     }
 
 }

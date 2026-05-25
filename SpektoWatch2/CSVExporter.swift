@@ -19,6 +19,21 @@ final class CSVExporter {
         stream.open()
         defer { stream.close() }
 
+        // PE-2: remove the partially-written CSV on cancellation or any throw
+        // past stream-open so /tmp doesn't accumulate orphan exports.
+        var exportSucceeded = false
+        defer {
+            if !exportSucceeded {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+        }
+
+        // PE-3: CSV uses `;` field separator and `.` decimal (C locale).
+        // Decision recorded 2026-05-24 (M15 task-10): keep C-locale numeric
+        // format for unambiguous round-trip with tooling that consumes the
+        // file (R, Python, MATLAB). Excel-DE imports via the semicolon
+        // delimiter without locale conversion of the values themselves.
+
         let metrics = selectedMetrics.filter { reader.header.metricKeys.contains($0) }
         var header = ["Zeit[s]"] + metrics + ["Breitband[dB]"]
         if includeThirdOctaves {
@@ -29,6 +44,9 @@ final class CSVExporter {
         try writeLine(header.joined(separator: ";"), to: stream)
 
         for index in 0..<reader.frameCount {
+            if index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
             let frame = try reader.readFrame(at: index)
             var values: [String] = [Self.format(frame.timestamp)]
             for key in metrics {
@@ -45,6 +63,8 @@ final class CSVExporter {
 
             try writeLine(values.joined(separator: ";"), to: stream)
         }
+
+        exportSucceeded = true
     }
 
     private func writeLine(_ line: String, to stream: OutputStream) throws {
@@ -111,4 +131,3 @@ final class JSONMeasurementExporter {
         try data.write(to: outputURL, options: .atomic)
     }
 }
-

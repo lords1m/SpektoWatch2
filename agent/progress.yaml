@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: in_progress
   started: "2026-05-12"
-  current_milestone: M14
+  current_milestone: M18
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
@@ -245,6 +245,110 @@ milestones:
       remain backlog. First actionable task: task-1-app-services-
       injection (small, foundational, enables test scaffolding).
     file: agent/milestones/milestone-13-architecture-hygiene.md
+
+  M15:
+    name: Critical Stability & Correctness Fixes
+    status: completed
+    priority: high
+    progress: 100
+    started: "2026-05-23"
+    completed: "2026-05-24"
+    estimated_weeks: "2"
+    tasks_completed: 10
+    tasks_total: 10
+    notes: >
+      Planned 2026-05-23 from the initial code-review sweep. Full 5-subagent
+      review completed 2026-05-24 (report: agent/reports/2026-05-24-code-review-
+      synthesis.md) — 8 Critical findings surfaced, 7 new items added to M15
+      scope. Tasks 1-9 completed 2026-05-24; task-9 acceptance handoff at
+      agent/reports/2026-05-24-milestone-15-acceptance.md. Only task-10 (PE-1
+      …PE-4) remains. Binary acceptance outcomes: (1) no data loss on soft-delete kill
+      window, (2) zero NSLock/file-I/O/unguarded mutations on the audio render
+      thread — expanded to cover AcousticMetricsCalculator lock (AE-1),
+      measurementWriter/audioFileWriter race (AE-2), RecordingCoordinator
+      @Published flags race (AE-3), malloc on audio thread (AE-4, AE-7), Logger
+      on audio thread (AE-5), histogram ceiling (AE-6), (3) watch and iOS within
+      ±0.5 dB calibrated SPL, (4) long recordings export without blocking or
+      OOMing, (5) PDF energy-correct dB averaging, (6) LCpeak from C-weighted
+      spectrum, (7) MeasurementDataReader.readFrame integer overflow fixed
+      (PE-1), (8) export temp-file cleanup and CSV locale (PE-2/PE-3/PE-4).
+      task-8 scope expanded to include AE-1–AE-7. New task-10 covers PE-1–PE-4.
+      Routing: M16 (WA-1–WA-6), M17 (UI-1–UI-7), M18 (TT-2–TT-9).
+      Immediate manual action: wire 3 new test files into Xcode target (TT-1).
+    file: agent/milestones/milestone-15-critical-stability-correctness.md
+
+  M16:
+    name: Watch Connectivity Hardening
+    status: completed
+    priority: medium
+    progress: 100
+    started: "2026-05-25"
+    completed: "2026-05-25"
+    estimated_weeks: "1"
+    tasks_completed: 6
+    tasks_total: 6
+    notes: >
+      Completed 2026-05-25. All 6 tasks closed: WA-1 Critical (delegate
+      main hop), WA-2 High (corner complication reload), WA-3 High
+      (sendWithRetry thread safety), WA-4+WA-5 Medium (RingBuffer +
+      static DateFormatter), WA-6 Low (schema version logging).
+      Handoff: agent/reports/2026-05-25-milestone-16-acceptance.md.
+      Hardware acceptance pending for all 5 outcomes.
+    file: agent/milestones/milestone-16-watch-connectivity-hardening.md
+
+  M17:
+    name: SwiftUI Lifecycle & Performance
+    status: completed
+    priority: medium
+    progress: 100
+    started: "2026-05-25"
+    completed: "2026-05-25"
+    estimated_weeks: "2"
+    tasks_completed: 8
+    tasks_total: 8
+    notes: >
+      Completed 2026-05-25. All 7 UI findings closed code-side: UI-1
+      Critical (AudioPlayerManager [weak self] in scheduleSegment
+      completion), UI-2 High (promoteSpectrogramResolutionThenApply
+      → Task.detached + spectrogramLoadTask), UI-3 High
+      (applyPlaybackWeighting → Task.detached + weightingTask),
+      UI-4 High (exportSpectrogramImage → Task.detached +
+      spectrogramExportTask), UI-5 Medium (cancelActiveExport clears
+      activeExportKind synchronously), UI-6 Medium (PhotoPickerView
+      isPresented binding reset), UI-7 Medium (DashboardViewModel
+      dashboardManager @Published → let + @ObservedObject in
+      ModularDashboardView). iOS BUILD SUCCEEDED. Handoff:
+      agent/reports/2026-05-25-milestone-17-acceptance.md. Hardware
+      acceptance (UI-1…UI-7 on-device scenarios) still pending.
+    file: agent/milestones/milestone-17-swiftui-lifecycle-performance.md
+
+  M18:
+    name: Test & Tooling Debt + UI Screenshot Coverage
+    status: completed
+    priority: medium
+    progress: 100
+    started: "2026-05-25"
+    completed: "2026-05-25"
+    estimated_weeks: "1.5"
+    tasks_completed: 9
+    tasks_total: 9
+    notes: >
+      Completed 2026-05-25. All 9 tasks closed code-side. Track A:
+      cancellation races fixed (Task.yield + 10K frames + catch fallback);
+      fixture try! removed, Float.random replaced, metadata backup moved
+      to setUp/tearDown, testBootstrap* renamed; PDFReportGenerator Thread.sleep
+      removed (uses createTestRecording directly), performVisualDCTMirror
+      added; acp-validate now globs all milestones + cross-references
+      progress.yaml file: entries; capture-screenshots.py handles both
+      xcresulttool formats with _as_list/_str_value, 21 unit tests pass.
+      Track B: UITestScreenshot.swift shared helper (capture/settle/sanitize
+      + failure auto-screenshot in tearDown); 3 new UI test files
+      (RecordingFlow/Export/WeightingPicker); README + ci_post_xcodebuild.sh
+      (extracts PNGs from xcresult, warns on 0 screenshots).
+      Hardware acceptance: one Xcode Cloud run with UI tests enabled
+      (gated on user-triggered workflow). Acceptance report:
+      agent/reports/2026-05-25-milestone-18-acceptance.md.
+    file: agent/milestones/milestone-18-test-tooling-debt.md
 
   M12:
     name: Liquid Glass Redesign
@@ -628,6 +732,47 @@ tasks:
     - { id: task-9-acceptance,                    name: "Acceptance",                                  status: pending, file: agent/tasks/milestone-14-performance-centralization/task-9-acceptance.md }
     - { id: task-10-dct-visual-path,              name: "DCT visual path, FFT measurement path",       status: completed, file: agent/tasks/milestone-14-performance-centralization/task-10-dct-visual-path.md, notes: "Completed 2026-05-22. SpectrogramData gained optional visualFrequencies/visualMagnitudes; AudioEngine and WatchAudioEngine compute visual DCT-II payloads alongside FFT measurement data; live spectrogram, waterfall, watch visual surfaces, recording-detail visual playback, and PNG export prefer DCT visual arrays. Measurement metrics, weighting, and stored measurement semantics remain FFT-based. Focused Xcode test run passed: 56 tests, 0 failures." }
 
+  M15:
+    - { id: task-1-recording-persistence-durability, name: "Recording persistence durability",         status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-1-recording-persistence-durability.md, notes: "Completed 2026-05-24 via two parallel subagents. Sub-1 (soft-delete sidecar) + Sub-3 (strict UUID decode) had already landed in prior sessions. Sub-2 landed: MeasurementDataWriter writeHeader/updateFrameCount now use try fileHandle.write(contentsOf:); async frame-write path catches errors and records drops instead of advancing frameCount; init now throws on header-write failure. New SpektoWatch2Tests/RecordingPersistenceDurabilityTests.swift (5 XCTest cases) covers sidecar round-trip, sidecar-on-commit cleanup, corrupt sidecar tolerance, throwing-header init, and strict-UUID per-row skip. Hardware smoke (force-quit during undo window) + manual Xcode target wiring for the new test file remain." }
+    - { id: task-2-audio-thread-realtime-safety,     name: "Audio-thread real-time safety",            status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-2-audio-thread-realtime-safety.md, notes: "Completed 2026-05-24. Sub-1: deleted per-frame setupMeasurementDataFileIfNeeded() from processFFTFrame; writer lifecycle is fully main-side (startAudioCapture / startRealRecording / measurementRecordingSink). Sub-2: widgetSpectralWeightingsLock migrated NSLock → OSAllocatedUnfairLock<Set<FrequencyWeighting>> with withLockUnchecked on the audio-read path and withLock on the main setter. Sub-3: sampleBuffer append + drop/offset/compaction + per-loop-iteration read+copy+offset advance now wrapped under processingLock.withLockUnchecked in processSamples; processFFTFrame runs outside the lock. Negative grep: zero NSLock declarations and zero FileManager/UserDefaults calls reachable from processFFTFrame in AudioEngine.swift. Hardware stress test (window-size toggle under live recording) deferred to handoff." }
+    - { id: task-3-watch-dsp-calibration-parity,     name: "Watch DSP calibration parity",             status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-3-watch-dsp-calibration-parity.md, notes: "Completed 2026-05-24. Sub-1: WatchAudioEngine.performFFT migrated zop → zrop with vDSP_ctoz deinterleave (matches Processing/FFTProcessor.swift); buffers resized to N/2 split-complex pairs plus an N-length windowedSamples scratch. Sub-2: performVisualDCT replaced vDSP_vdbcon(..., 1) with explicit vDSP_vclip + vvlog10f + ×20 (amplitude-domain 20·log10, matches iOS code shape). Sub-3: new SpektoWatch2Tests/WatchDSPParityTests.swift reproduces the watch post-fix pipeline in-test (watch target not importable from iOS tests) and asserts 1 kHz bin parity within 0.5 dB plus regression guards against the old zop+2/N combination and the wrong log convention. Grep negative: zero remaining vDSP_DFT_zop_CreateSetup in watch target. Hardware ±0.5 dB acceptance + the ~12 dB level jump for existing watch-only recordings still need a paired-device pass." }
+    - { id: task-4-export-off-main,                  name: "PDF + CSV export off main with cancel",    status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-4-export-off-main.md, notes: "Completed 2026-05-24. RecordingDetailView now pre-resolves RecordingManager URLs on main and runs PDF + CSV generation in Task.detached with one active export task, a progress overlay, and an Abbrechen action. PDFReportGenerator and CSVExporter check Task cancellation every 256 frames; PDF also checks before/after measurement loading. New focused tests cover immediate cancellation for CSV and PDF exports. iOS simulator build passed; targeted direct xcodebuild test-without-building passed after the first XcodeBuildMCP test_sim call timed out at the tool layer post-build." }
+    - { id: task-5-streaming-stored-data-provider,   name: "Streaming StoredDataProvider",             status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-5-streaming-stored-data-provider.md, notes: "Completed 2026-05-24. StoredDataProvider no longer exposes/eagerly fills spectrogramHistory; bootstrap and scrub use MeasurementDataReader.readFrameSummary(at:) so full FFT payload bytes are skipped for levelHistory/metricRows. Added SpectrogramFrameWindow plus disk-backed spectrogramFrames(in:) and bounded spectrogramOverview(maxFrameCount:) APIs with cancellation checks. RecordingDetailView now loads a capped stored overview (1800 frames) for existing playback/waterfall UI instead of retaining every stored FFT frame. New StoredDataProviderTests cover eager small-data bootstrap, disk window reads, overview downsampling, and cancellation propagation. iOS build + focused tests passed." }
+    - { id: task-6-pdf-energy-correct-averaging,     name: "PDF energy-correct dB averaging",          status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-6-pdf-energy-correct-averaging.md, notes: "Completed 2026-05-24. PDFReportGenerator.loadAverageThirdOctaves now averages per-band Z/A/C levels in the linear-power domain (Double accumulator), converting back via 10·log10 with a -120 dB sentinel floor. Two static helpers (energyMeanDB, energyAverageDB) expose the math for tests. New PDFReportGeneratorTests cover the spec's -20/-80 asymmetric fixture (≈-23 dB energy mean, not the -50 dB arithmetic mean), idempotent identical-value mean, empty/floor handling, and zero-divider/zero-sum guards. Audit of other dB-averaging sites (loadBroadbandValues, RecordingDetailView, AudioEngine LAeq, WatchAudioEngine.lafEnergy) confirmed energy-correct; masking sites flagged but out of M15 scope. Snapshot baselines may need refresh on next Xcode Cloud RECORD_SNAPSHOTS=YES run for fixtures with dynamic range." }
+    - { id: task-7-lcpeak-c-weighted,                name: "LCpeak from the C-weighted spectrum",      status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-7-lcpeak-c-weighted.md, notes: "Completed 2026-05-24. AudioEngine.processFFTFrame now computes LCpeak via Approach A (frequency-domain C-weighted peak detector): vDSP_vmul of FFT amplitude bins × cWeightingGains → vDSP_maxv → 20·log10 + calibrationOffset. lcPeakScratch pre-allocated alongside fftEnergyScratch. updateUI reads currentPeakLevel from spectrogramData.levels['LCpeak'] instead of raw broadband peak. Consumer audit: ControlBarView, SingleValueWidget, PDFReportGenerator, WidgetSettingsView all read from levels dict — no changes needed. Semantic boundary documented in Recording.swift peakLevel property doc-comment. New LCpeakComputationTests.swift (5 tests): 1 kHz parity within 1 dB, 31.5 Hz attenuation 1.5–6 dB, 20 Hz larger attenuation, all-zero floor, multi-tone dominant bin. Hardware acceptance: equal-RMS 1 kHz vs 31.5 Hz tones should differ by ~3 dB LCpeak (was identical pre-fix)." }
+    - { id: task-8-acoustic-metrics-thread-safety,   name: "AcousticMetricsCalculator thread safety",  status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-8-acoustic-metrics-thread-safety.md, notes: "Completed 2026-05-24. OSAllocatedUnfairLock added around energy accumulators + histogram so reset() (main) does not race updateMetrics() (audio thread). Scope expanded to AE-1…AE-7 from 2026-05-24 review; AE-4 (malloc on audio thread in updateProcessingSampleRateIfNeeded) deferred to backlog — only triggers on sample-rate change, not steady-state recording. New AcousticMetricsCalculatorTests.swift covers the race + histogram ceiling cases. Pending Xcode target membership (TT-1)." }
+    - { id: task-9-acceptance,                       name: "Acceptance",                               status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-9-acceptance.md, notes: "Completed 2026-05-24. Source synthesis at agent/reports/2026-05-24-code-review-synthesis.md (already on disk). Handoff report agent/reports/2026-05-24-milestone-15-acceptance.md covers per-task verdicts (tasks 1-8 ✅, hardware gated on outcomes 3+4), binary-outcome coverage, hardware smoke-test checklist, manual action TT-1 (target membership for 5 new test files), and deferred items (AE-4 backlog, PE-1…PE-4 → task-10). M15 NOT marked complete: task-10 still pending." }
+    - { id: task-10-persistence-export-edges,        name: "PE-1…PE-4 persistence / export edges",     status: completed, file: agent/tasks/milestone-15-critical-stability-correctness/task-10-persistence-export-edges.md, notes: "Completed 2026-05-24. PE-1: MeasurementDataReader.readFrame offset now via UInt64.multipliedReportingOverflow + addingReportingOverflow, throws invalidFrameIndex on either overflow; negative frameSize guarded. PE-2: PDFReportGenerator.generateReport + CSVExporter.export use exportSucceeded flag + defer removeItem so cancelled / failed exports do not orphan temp files. Regression tests added (testPDFGenerationCleansUpTempFileOnCancellation, testCSVExportCleansUpTempFileOnCancellation). PE-3: decision keep C-locale + `;` delimiter unchanged — round-trip with R/Python/MATLAB tooling outweighs Excel-DE locale convenience; rationale recorded inline in CSVExporter + task file. PE-4: FD audit clean — Reader/Writer close in deinit, CSV closes OutputStream via defer, JSON uses Data.write, PDF reader is a let-local. No leak surface found." }
+
+  M16:
+    - { id: task-1-extended-runtime-delegate-main, name: "Extended runtime delegate on main",      status: completed, file: agent/tasks/milestone-16-watch-connectivity-hardening/task-1-extended-runtime-delegate-main.md, notes: "Completed 2026-05-25. Both WKExtendedRuntimeSession delegate methods wrapped in DispatchQueue.main.async { [weak self] in ... }; session = nil moved inside async block. stopRecording() gained dispatchPrecondition(.onQueue(.main)) and its inner main.async flattened to direct calls. Notification call sites already post on main (verified). Watch BUILD SUCCEEDED." }
+    - { id: task-2-corner-complication-reload,     name: "Corner complication reload",             status: completed, file: agent/tasks/milestone-16-watch-connectivity-hardening/task-2-corner-complication-reload.md, notes: "Completed 2026-05-25. SpektoWatchLevelCorner added to complicationWidgetKinds in both Shared and iOS WatchConnectivityManager. Both WidgetCenter.reloadTimelines sites iterate the array — no per-kind hardcoding. Kind string verified against LevelCornerWidget.kind. iOS BUILD SUCCEEDED." }
+    - { id: task-3-send-with-retry-thread-safety,  name: "sendWithRetry thread safety",            status: completed, file: agent/tasks/milestone-16-watch-connectivity-hardening/task-3-send-with-retry-thread-safety.md, notes: "Completed 2026-05-25. sendWithRetry body wrapped in DispatchQueue.main.async; dispatchPrecondition added to processQueue + handleMessageError. AudioEngine.didSet call site safe. Watch-side has no sendWithRetry. iOS BUILD SUCCEEDED." }
+    - { id: task-4-watch-view-perf,                name: "Watch view perf (RingBuffer + DateFormatter)", status: completed, file: agent/tasks/milestone-16-watch-connectivity-hardening/task-4-watch-view-perf.md, notes: "Completed 2026-05-25. WatchLevelMeterView levelHistory: [Float] → RingBuffer<Float>; appendLevel removeFirst dropped; draw path uses inOrder() snapshot. WatchSpectrogramView DateFormatter promoted to private static let. Watch BUILD SUCCEEDED." }
+    - { id: task-5-schema-version-logging,         name: "Schema version logging",                 status: completed, file: agent/tasks/milestone-16-watch-connectivity-hardening/task-5-schema-version-logging.md, notes: "Completed 2026-05-25. print added to SpectrogramData.fromBinaryData and WatchAppState.decode version-rejection branches. iOS BUILD SUCCEEDED." }
+    - { id: task-6-acceptance,                     name: "Acceptance",                             status: completed, file: agent/tasks/milestone-16-watch-connectivity-hardening/task-6-acceptance.md, notes: "Completed 2026-05-25. All 5 binary outcomes confirmed. Handoff report: agent/reports/2026-05-25-milestone-16-acceptance.md. Hardware pass pending for WA-1–WA-5." }
+
+  M17:
+    - { id: task-1-audio-player-weak-self,             name: "AudioPlayer weak self in scheduleSegment",          status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-1-audio-player-weak-self.md, notes: "Completed 2026-05-25. [weak self] + double guard in scheduleSegment completion. BUILD SUCCEEDED." }
+    - { id: task-2-promote-spectrogram-resolution-task, name: "promoteSpectrogramResolution as Task",             status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-2-promote-spectrogram-resolution-task.md, notes: "Completed 2026-05-25. Reuses spectrogramLoadTask handle; Task.isCancelled guards before MainActor.run. BUILD SUCCEEDED." }
+    - { id: task-3-apply-playback-weighting-task,      name: "applyPlaybackWeighting as Task",                    status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-3-apply-playback-weighting-task.md, notes: "Completed 2026-05-25. New @State weightingTask; cancel on rapid picker change + onDisappear. BUILD SUCCEEDED." }
+    - { id: task-4-export-spectrogram-image-task,      name: "exportSpectrogramImage as Task",                    status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-4-export-spectrogram-image-task.md, notes: "Completed 2026-05-25. New @State spectrogramExportTask; cancelled in onDisappear; Task.isCancelled guards showShareSheet. BUILD SUCCEEDED." }
+    - { id: task-5-export-overlay-immediate-clear,     name: "Export overlay immediate clear",                    status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-5-export-overlay-immediate-clear.md, notes: "Completed 2026-05-25. cancelActiveExport() sets activeExportKind = nil synchronously. BUILD SUCCEEDED." }
+    - { id: task-6-photo-picker-binding-reset,         name: "PhotoPicker isPresented reset",                     status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-6-photo-picker-binding-reset.md, notes: "Completed 2026-05-25. isPresented: Binding<Bool> threaded to Coordinator; set to false in didFinishPicking. BUILD SUCCEEDED." }
+    - { id: task-7-dashboard-view-model-flatten,       name: "Flatten DashboardViewModel nested ObservableObject", status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-7-dashboard-view-model-flatten.md, notes: "Completed 2026-05-25. @Published var → let; forwarding sink removed; DashboardManager injected; ModularDashboardView adds @ObservedObject. BUILD SUCCEEDED." }
+    - { id: task-8-acceptance,                         name: "Acceptance",                                        status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-8-acceptance.md, notes: "Completed 2026-05-25. All 5 binary outcomes confirmed. Handoff: agent/reports/2026-05-25-milestone-17-acceptance.md. Hardware scenarios pending." }
+
+  M18:
+    - { id: task-1-cancellation-race-fix,         name: "Cancellation test race fix (TT-2 + TT-3)",                status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-1-cancellation-race-fix.md, notes: "Task.yield() + 10K-frame fixtures + catch fallback in PDF/CSV/StoredData cancellation tests." }
+    - { id: task-2-test-hygiene,                  name: "Test fixture + teardown hygiene (TT-4/7/8 + gaps 3,4)",   status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-2-test-hygiene.md, notes: "try! → throws in fixture helpers; Float.random replaced with 65.0; testBootstrap renamed; metadata backup/restore in setUp/tearDown; testBootstrapLazyFFTForZeroBinCount added." }
+    - { id: task-3-pdf-no-sleep-watch-coverage,   name: "PDF no Thread.sleep + watch performVisualDCT (TT-9+gap5)", status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-3-pdf-no-sleep-watch-coverage.md, notes: "testGenerateBasicPDFReport uses createTestRecording() directly; createDummyAudioFile uses empty Data placeholder; performVisualDCTMirror guard test added." }
+    - { id: task-4-acp-validate-expand,           name: "acp-validate M6-M17 (TT-5 + gap 1)",                      status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-4-acp-validate-expand.md, notes: "Glob checks every milestone dir; progress.yaml file: cross-reference detects deleted task files. Smoke-tested." }
+    - { id: task-5-screenshots-py-robustness,     name: "capture-screenshots.py robustness (TT-6 + gap 2)",        status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-5-screenshots-py-robustness.md, notes: "_as_list/_str_value helpers; --xcresult/--output CLI flags; test_capture_screenshots.py 21 tests pass." }
+    - { id: task-6-shared-screenshot-helper,      name: "Shared UITestScreenshot helper",                          status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-6-shared-screenshot-helper.md, notes: "UITestScreenshot.swift extension; device+iOS tag; failure auto-screenshot in tearDown; ScreenshotCatalogTests migrated." }
+    - { id: task-7-expand-ui-test-screenshots,    name: "Expand UI test screenshot coverage",                      status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-7-expand-ui-test-screenshots.md, notes: "RecordingFlowScreenshotTests (~5 shots), ExportFlowScreenshotTests (~6 shots), WeightingPickerScreenshotTests (~4 shots). README added." }
+    - { id: task-8-xcode-cloud-screenshot-artifacts, name: "Xcode Cloud screenshot artifact pipeline",             status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-8-xcode-cloud-screenshot-artifacts.md, notes: "ci_post_xcodebuild.sh extracts PNGs; warns on 0 count; .gitignore covers Screenshots/." }
+    - { id: task-9-acceptance,                    name: "Acceptance",                                              status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-9-acceptance.md, notes: "Acceptance report at agent/reports/2026-05-25-milestone-18-acceptance.md. All negative checks pass. Cloud run gated on user action." }
+
   M13:
     - { id: task-1-app-services-injection,        name: "AppServices injection layer",                status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md, notes: "Code-side landed 2026-05-21. New AppServices.swift (@MainActor ObservableObject) owns the 5 eager managers + deferred AudioEngine/MaskingEngine via startAudio(). Convenience init() + testFixture(...) static factory. SpektoWatch2App uses one @StateObject AppServices instead of 5 individual @StateObjects + 1 AudioEngineContainer. Body still calls 8 .environmentObject(...) (consumer migration explicitly deferred to a future task; scope here was producer-side only). Old AudioEngineContainer private type removed. iOS build green. Tests not migrated to testFixture (deferred — drop-in pattern across 5+ test files; do alongside M13 task-3/-4 AudioEngine extracts). Hardware acceptance gated on M13 task-9." }
     - { id: task-2-recording-detail-split,        name: "Split RecordingDetailView",                  status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md, notes: "Phase 1 landed 2026-05-21: 3 standalone helpers extracted — Views/RecordingDetailComponents.swift (MiniLineChart + StatRow, 96 LOC), Views/AudioPlayerManager.swift (161 LOC), Views/PhotoPickerView.swift (39 LOC). RecordingDetailView.swift dropped 1496→1211 LOC (-285). Phase 2 (per-tab card split into RecordingPlaybackSection / Markers / Export / Notes / Metadata) deferred — requires a shared RecordingDetailViewModel for the 29+ @State graph that spans all tabs; high regression risk without hardware pass. Recommended timing: after M13 task-4 (LiveAcousticState) so the VM can consume the new live-state pattern. iOS build green." }
@@ -801,10 +946,10 @@ tasks:
         #8 OKLCH→sRGB drift (low-impact). iOS + watch builds green.
         Hardware visual pass gated on task-6.
 
-updated_at: 2026-05-23
-current_milestone: M14
-current_task: task-1-quick-wins
-last_proceed: 2026-05-22
+updated_at: 2026-05-25
+current_milestone: M12
+current_task: task-2-widget-card-headers
+last_proceed: 2026-05-25
 parked:
   - milestone: M8
     task: task-2-acceptance
@@ -822,6 +967,10 @@ parked:
     task: task-9-acceptance
     reason: code-side acceptance complete; promotion gated on hardware behavior parity + Instruments re-render comparison
 recent_reports:
+  - agent/reports/2026-05-25-milestone-18-acceptance.md
+  - agent/reports/2026-05-25-milestone-17-acceptance.md
+  - agent/reports/2026-05-25-milestone-16-acceptance.md
+  - agent/reports/2026-05-24-code-review-synthesis.md
   - agent/reports/2026-05-21-spectrogram-quickwins.md
   - agent/reports/2026-05-21-widget-screenshot-review.md
   - agent/reports/2026-05-21-milestone-12-phase-1.md
@@ -831,37 +980,43 @@ recent_reports:
   - agent/reports/2026-05-21-performance-centralization-audit.md
 active_context:
   summary: >
-    M1–M6 complete. M7 (Xcode Cloud Snapshot Testing) opened 2026-05-20.
-    Session 2026-05-20 landed: swift-snapshot-testing package added to
-    SpektoWatch2Tests (user-confirmed via Xcode UI); __Snapshots__ added
-    as a blue folder reference with target membership = SpektoWatch2Tests;
-    a placeholder README.txt inside PDFReportSnapshotTests/ so Xcode treats
-    the folder reference as a non-empty resource; SpektoWatch2.xctestplan
-    pinned with language=en, region=US, userInterfaceStyle=light, TZ=UTC
-    env var (parallelization already off); .gitignore extended for
-    *.xcresult, TestResults/, and snapshot-testing failure-diff PNGs;
-    ~130 MB of historically tracked TestResults/ staged for untracking via
-    git rm -r --cached (93 files). Task-2 fixture code landed: all four
-    PDFReportSnapshotTests helpers implemented with a frozen 2026-01-01
-    Recording routed through PDFReportGenerator's production entry point.
+    M1–M6, M15, M16, M17, M18 complete code-side. M18 (Test & Tooling Debt)
+    closed 2026-05-25: all 9 tasks done. Highlights: cancellation races fixed
+    (Task.yield + 10K fixtures); fixture try! removed, Float.random replaced,
+    metadata backup moved to setUp/tearDown; PDF test no longer blocks main
+    thread; acp-validate covers M1–M18 via glob + progress.yaml cross-ref;
+    capture-screenshots.py handles both xcresulttool formats with 21 unit tests;
+    UITestScreenshot.swift shared helper with failure auto-capture; 3 new UI
+    test files (RecordingFlow/Export/WeightingPicker); ci_post_xcodebuild.sh
+    extracts PNGs for Xcode Cloud artifacts. Handoff:
+    agent/reports/2026-05-25-milestone-18-acceptance.md.
   next_action: >
-    Active focus: M14 task-1-quick-wins (Quick wins R6+R7+R8+R9 from the
-    performance-centralization audit). M14 task-10 (DCT visual path)
-    landed opportunistically 2026-05-22; the remaining 8 tasks (task-1
-    through task-9) are pending. Start with task-1-quick-wins per
-    agent/tasks/milestone-14-performance-centralization/task-1-quick-wins.md.
-    Parked / gated tracks (do not pick up without unblock):
-    - M8 task-2 acceptance: gated on hardware/Xcode Cloud validation of
-      fresh-dashboard defaults, legacy-dashboard clamp, and drag-and-drop
-      reorder. On unblock, write agent/reports/2026-05-21-milestone-8-acceptance.md.
-    - M7 task-2: gated on Xcode Cloud RECORD_SNAPSHOTS=YES baseline run.
-    - M9 task-11, M12 task-4, M13 task-9: code-side complete; promotion
-      gated on hardware screenshot/behavior verification.
-    - M11 (Tone Generator Piano Input): low-priority backlog; do not
-      start until the M9 tone-generator render-thread NSLock blocker
-      (now M11 task-1) is addressed.
-    M12 (Liquid Glass Redesign) remains in progress on branch
-    `redesign/liquid-glass` with task-6 hardware acceptance pending.
+    M18 completed 2026-05-25. Active open work: M12 (Liquid Glass Redesign,
+    task-2-widget-card-headers onward) and M13 (Architecture Hygiene,
+    task-9-acceptance code-side complete, hardware gated).
+
+    Hardware acceptance still open for:
+    - M15 outcomes 3 (calibration parity ±0.5 dB) and 4 (long-recording
+      export wall-clock + 200 MB ceiling).
+    - M16 outcomes 1–5 (WA-1 delegate thread race, WA-2 corner complication,
+      WA-3 sendWithRetry, WA-4 RingBuffer, WA-5 DateFormatter).
+    - M17 UI-1…UI-7 on-device scenarios (AVAudio no-warning on dismiss,
+    - M18 Cloud run: one Xcode Cloud workflow with SpektoWatch2UITests enabled.
+      Task cancellation before mutation, overlay-clear latency, picker
+      re-presentation, dashboard binding propagation).
+
+    Immediate manual action required (not code-side): add
+    AcousticMetricsCalculatorTests.swift,
+    RecordingPersistenceDurabilityTests.swift, WatchDSPParityTests.swift,
+    StoredDataProviderTests.swift, and LCpeakComputationTests.swift
+    to SpektoWatch2Tests target membership in Xcode (TT-1 Critical).
+
+    Parked / gated tracks:
+    - M8 task-2 acceptance: gated on hardware/Xcode Cloud validation.
+    - M7 task-2: gated on Xcode Cloud RECORD_SNAPSHOTS=YES baseline.
+    - M9 task-11, M12 task-4, M13 task-9: code-side complete; gated
+      on hardware screenshot/behavior verification.
+    - M11 (Tone Generator Piano Input): low-priority backlog.
 known_constraints:
   - Watch complication manual acceptance still requires Apple Watch hardware or
     an interactive paired simulator session.

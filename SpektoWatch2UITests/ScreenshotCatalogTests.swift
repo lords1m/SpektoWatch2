@@ -4,7 +4,6 @@ final class ScreenshotCatalogTests: XCTestCase {
     private var app: XCUIApplication!
     private let launchWait: TimeInterval = 60
     private let viewWait: TimeInterval = 12
-    private let settleDelay: TimeInterval = 0.7
     private let permissionButtonLabels = [
         "Allow",
         "Allow Once",
@@ -147,29 +146,8 @@ final class ScreenshotCatalogTests: XCTestCase {
         _ = handleSystemAlertsIfNeeded(timeout: 0.2)
     }
 
-    private func capture(_ name: String) {
-        settle()
-
-        let screenshot = XCUIScreen.main.screenshot()
-        let deviceName = ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]
-            ?? ProcessInfo.processInfo.environment["DEVICE_NAME"]
-            ?? "Device"
-        let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "\(deviceName)-\(name)"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScreenshotCatalog", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let fileURL = directory.appendingPathComponent("\(sanitizeFilename(deviceName))-\(sanitizeFilename(name)).png")
-        try? screenshot.pngRepresentation.write(to: fileURL)
-        print("[UITest] Screenshot saved: \(fileURL.path)")
-    }
-
-    private func settle() {
-        RunLoop.current.run(until: Date().addingTimeInterval(settleDelay))
-    }
+    // capture(_:), settle(_:), and sanitizeFilename(_:) are provided by
+    // UITestScreenshot.swift as XCTestCase extensions.
 
     @discardableResult
     private func handleSystemAlertsIfNeeded(timeout: TimeInterval = 2.5) -> Bool {
@@ -198,8 +176,4 @@ final class ScreenshotCatalogTests: XCTestCase {
         return false
     }
 
-    private func sanitizeFilename(_ value: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        return value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }.reduce("") { $0 + String($1) }
-    }
 }

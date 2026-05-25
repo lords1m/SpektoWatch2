@@ -204,6 +204,7 @@ public struct SpectrogramData: Codable {
         let version = data[data.startIndex]
         guard version == SpectrogramData.currentSchemaVersion else {
             // Future: when we ship a v2 layout, dispatch here.
+            print("[SpectrogramData] Unknown schema version \(version); expected \(SpectrogramData.currentSchemaVersion) — dropping payload")
             return nil
         }
         offset = 1

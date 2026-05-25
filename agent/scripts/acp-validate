@@ -24,35 +24,6 @@ agent/commands/acp.clarification-create.md
 agent/commands/acp.clarification-address.md
 agent/commands/acp.design-create.md
 agent/commands/acp.plan.md
-agent/milestones/milestone-1-acp-bootstrap.md
-agent/milestones/milestone-2-performance-stabilization-watch-architecture.md
-agent/milestones/milestone-3-dashboard-and-recording-polish.md
-agent/milestones/milestone-4-export-and-reporting.md
-agent/milestones/milestone-5-watch-complications.md
-agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls.md
-agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility.md
-agent/tasks/milestone-3-dashboard-and-recording-polish/task-1-compile-gate.md
-agent/tasks/milestone-3-dashboard-and-recording-polish/task-2-layout-rename.md
-agent/tasks/milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit.md
-agent/tasks/milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment.md
-agent/tasks/milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests.md
-agent/tasks/milestone-3-dashboard-and-recording-polish/task-6-acceptance.md
-agent/tasks/milestone-4-export-and-reporting/task-1-export-baseline-audit.md
-agent/tasks/milestone-4-export-and-reporting/task-2-pdf-report-baseline.md
-agent/tasks/milestone-4-export-and-reporting/task-3-csv-export-hardening.md
-agent/tasks/milestone-4-export-and-reporting/task-4-spectrogram-image-export.md
-agent/tasks/milestone-4-export-and-reporting/task-5-recording-detail-export-ui.md
-agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md
-agent/tasks/milestone-5-watch-complications/task-1-complication-source-files.md
-agent/tasks/milestone-5-watch-complications/task-2-xcode-target.md
-agent/tasks/milestone-5-watch-complications/task-3-live-data-integration.md
-agent/tasks/milestone-5-watch-complications/task-4-acceptance.md
 agent/patterns/swiftui-audio-pipeline.md
 '
 
@@ -63,13 +34,58 @@ for path in $required; do
   fi
 done
 
-if [ "$missing" -ne 0 ]; then
-  exit 1
+# --- Glob check: every milestone and its task directory must exist ---
+for milestone_file in "$root"/agent/milestones/milestone-*.md; do
+  [ -f "$milestone_file" ] || continue
+  milestone_name="$(basename "$milestone_file" .md)"
+  task_dir="$root/agent/tasks/$milestone_name"
+
+  if [ ! -d "$task_dir" ]; then
+    echo "missing task directory: agent/tasks/$milestone_name"
+    missing=1
+  fi
+done
+
+# --- Cross-reference check: every `file:` entry in progress.yaml must exist ---
+# Only match file: values that look like repo paths (start with "agent/" or "AGENT").
+# Both block-style and flow-style YAML are handled.
+awk '
+  # Block style: leading whitespace then "file: agent/..."
+  /^[[:space:]]*file:[[:space:]]*(agent\/|AGENT)/ {
+    sub(/^[[:space:]]*file:[[:space:]]*/, "")
+    sub(/[[:space:]]*$/, "")
+    if (length > 0) print
+    next
+  }
+  # Flow style: "file: agent/..." inside a { } line
+  /file:[[:space:]]*(agent\/|AGENT)/ {
+    line = $0
+    while (match(line, /file:[[:space:]]+(agent\/|AGENT)[^,} ]*/)) {
+      chunk = substr(line, RSTART, RLENGTH)
+      sub(/^file:[[:space:]]+/, "", chunk)
+      gsub(/[[:space:]]+$/, "", chunk)
+      if (length(chunk) > 0) print chunk
+      line = substr(line, RSTART + RLENGTH)
+    }
+  }
+' "$root/agent/progress.yaml" | sort -u | while IFS= read -r relpath; do
+  if [ -n "$relpath" ] && [ ! -f "$root/$relpath" ]; then
+    echo "progress.yaml references missing file: $relpath"
+    # Signal failure via a temp flag file (subshell can't set outer var)
+    touch "$root/.acp-validate-missing-$$"
+  fi
+done
+
+if [ -f "$root/.acp-validate-missing-$$" ]; then
+  rm -f "$root/.acp-validate-missing-$$"
+  missing=1
 fi
 
-current_milestone="$(awk -F': ' '/^current_milestone:/ { print $2 }' "$root/agent/progress.yaml")"
+# --- Pointer-resolution check for current task ---
+current_milestone_yaml="$(awk -F': ' '/^current_milestone:/ { print $2 }' "$root/agent/progress.yaml")"
 current_task="$(awk -F': ' '/^current_task:/ { print $2 }' "$root/agent/progress.yaml")"
-if [ -z "$current_milestone" ]; then
+
+if [ -z "$current_milestone_yaml" ]; then
   echo "missing current_milestone in agent/progress.yaml"
   exit 1
 fi
@@ -78,27 +94,35 @@ if [ -z "$current_task" ]; then
   exit 1
 fi
 
-case "$current_milestone" in
-  M1) task_dir="agent/tasks/milestone-1-acp-bootstrap" ;;
-  M2) task_dir="agent/tasks/milestone-2-performance-stabilization-watch-architecture" ;;
-  M3) task_dir="agent/tasks/milestone-3-dashboard-and-recording-polish" ;;
-  M4) task_dir="agent/tasks/milestone-4-export-and-reporting" ;;
-  M5) task_dir="agent/tasks/milestone-5-watch-complications" ;;
-  M6) task_dir="agent/tasks/milestone-6-code-audit-remediation" ;;
-  M7) task_dir="agent/tasks/milestone-7-xcode-cloud-snapshot-testing" ;;
-  M8) task_dir="agent/tasks/milestone-8-widget-sizing-refactor" ;;
-  M9) task_dir="agent/tasks/milestone-9-widget-audit" ;;
+case "$current_milestone_yaml" in
+  M1)  task_dir="agent/tasks/milestone-1-acp-bootstrap" ;;
+  M2)  task_dir="agent/tasks/milestone-2-performance-stabilization-watch-architecture" ;;
+  M3)  task_dir="agent/tasks/milestone-3-dashboard-and-recording-polish" ;;
+  M4)  task_dir="agent/tasks/milestone-4-export-and-reporting" ;;
+  M5)  task_dir="agent/tasks/milestone-5-watch-complications" ;;
+  M6)  task_dir="agent/tasks/milestone-6-code-audit-remediation" ;;
+  M7)  task_dir="agent/tasks/milestone-7-xcode-cloud-snapshot-testing" ;;
+  M8)  task_dir="agent/tasks/milestone-8-widget-sizing-refactor" ;;
+  M9)  task_dir="agent/tasks/milestone-9-widget-audit" ;;
   M10) task_dir="agent/tasks/milestone-10-ios-standalone-widgets" ;;
   M11) task_dir="agent/tasks/milestone-11-tone-generator-piano-input" ;;
   M12) task_dir="agent/tasks/milestone-12-liquid-glass-redesign" ;;
   M13) task_dir="agent/tasks/milestone-13-architecture-hygiene" ;;
   M14) task_dir="agent/tasks/milestone-14-performance-centralization" ;;
-  *) task_dir="agent/tasks/$current_milestone" ;;
+  M15) task_dir="agent/tasks/milestone-15-critical-stability-correctness" ;;
+  M16) task_dir="agent/tasks/milestone-16-watch-connectivity-hardening" ;;
+  M17) task_dir="agent/tasks/milestone-17-swiftui-lifecycle-performance" ;;
+  M18) task_dir="agent/tasks/milestone-18-test-tooling-debt" ;;
+  *)   task_dir="agent/tasks/$current_milestone_yaml" ;;
 esac
 
 task_path="$root/$task_dir/$current_task.md"
 if [ ! -f "$task_path" ]; then
   echo "current_task does not resolve: $current_task"
+  exit 1
+fi
+
+if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 

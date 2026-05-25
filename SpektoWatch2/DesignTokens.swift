@@ -6,10 +6,29 @@ import SwiftUI
 // All persisted via @AppStorage so they survive app launches.
 
 enum ThemeMode: String, CaseIterable, Identifiable {
-    case dark, light
+    /// Follow the system appearance (iOS/iPadOS Dark Mode toggle in
+    /// Control Center or Settings → Display & Brightness). This is the
+    /// default — explicit `.dark` / `.light` only override when the
+    /// user picks one in the Tweaks panel.
+    case system, dark, light
     var id: String { rawValue }
-    var label: String { self == .dark ? "Dark" : "Light" }
-    var colorScheme: ColorScheme { self == .dark ? .dark : .light }
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .dark:   return "Dark"
+        case .light:  return "Light"
+        }
+    }
+    /// Returns `nil` for `.system` so `.preferredColorScheme(_:)`
+    /// removes the SwiftUI override and lets `UIUserInterfaceStyle`
+    /// flow through.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .dark:   return .dark
+        case .light:  return .light
+        }
+    }
 }
 
 enum CanvasMode: String, CaseIterable, Identifiable {

@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import Combine
+import OSLog
 
 @MainActor
 final class RecordingManager: NSObject, ObservableObject {
@@ -28,9 +29,20 @@ final class RecordingManager: NSObject, ObservableObject {
         recordingsDirectory.appendingPathComponent("recordings_metadata_v2.json")
     }
 
+    /// Sidecar file used by the soft-delete machinery so a process death
+    /// during the 5-second undo window can't orphan audio files. Written
+    /// inside `softDeleteRecordings` (BEFORE the metadata save, so a
+    /// crash between the two leaves the recordings recoverable on the
+    /// next launch). Removed by `commitPendingSoftDeletes` and
+    /// `undoLastSoftDelete`.
+    private var pendingSoftDeleteSidecarURL: URL {
+        recordingsDirectory.appendingPathComponent("recordings_pending_soft_delete.json")
+    }
+
     override init() {
         super.init()
         loadRecordings()
+        restorePendingSoftDeletesFromSidecarIfNeeded()
     }
 
     func startRecording(audioEngine: AudioEngine) -> Bool {
@@ -139,9 +151,16 @@ final class RecordingManager: NSObject, ObservableObject {
         commitPendingSoftDeletes()
 
         let toDelete = recordings.filter { ids.contains($0.id) }
+        guard !toDelete.isEmpty else { return }
+
         for recording in toDelete {
             pendingSoftDeletes[recording.id] = recording
         }
+        // Write the sidecar BEFORE removing entries from the metadata file.
+        // If the app dies between the two writes, the sidecar still
+        // references recordings that are also present in the metadata —
+        // restoration on next launch is idempotent.
+        writePendingSoftDeleteSidecar(toDelete)
         recordings.removeAll { ids.contains($0.id) }
         saveRecordings()
     }
@@ -152,6 +171,7 @@ final class RecordingManager: NSObject, ObservableObject {
         guard !pendingSoftDeletes.isEmpty else { return }
         let restored = Array(pendingSoftDeletes.values)
         pendingSoftDeletes.removeAll()
+        clearPendingSoftDeleteSidecar()
         recordings.append(contentsOf: restored)
         recordings.sort { $0.startDate > $1.startDate }
         saveRecordings()
@@ -164,6 +184,83 @@ final class RecordingManager: NSObject, ObservableObject {
             removeFiles(for: recording)
         }
         pendingSoftDeletes.removeAll()
+        clearPendingSoftDeleteSidecar()
+    }
+
+    // MARK: - Soft-delete sidecar persistence
+
+    /// On-disk envelope for the soft-delete sidecar. The timestamp is
+    /// recorded for future use (e.g. age-based auto-commit) but the
+    /// current recovery policy is conservative: any sidecar found on
+    /// launch restores its contents unconditionally. The user can re-
+    /// initiate the deletion if that's still what they want.
+    private struct PendingSoftDeleteSidecar: Codable {
+        let timestamp: Date
+        let recordings: [Recording]
+    }
+
+    private func writePendingSoftDeleteSidecar(_ entries: [Recording]) {
+        guard !entries.isEmpty else {
+            clearPendingSoftDeleteSidecar()
+            return
+        }
+        let sidecar = PendingSoftDeleteSidecar(timestamp: Date(), recordings: entries)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(sidecar)
+            try data.write(to: pendingSoftDeleteSidecarURL, options: .atomic)
+        } catch {
+            Logger.recording.error("Failed to write pending-soft-delete sidecar: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func clearPendingSoftDeleteSidecar() {
+        let url = pendingSoftDeleteSidecarURL
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            Logger.recording.error("Failed to clear pending-soft-delete sidecar: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Called from `init` after `loadRecordings`. If a sidecar exists,
+    /// the previous session was killed during a soft-delete undo
+    /// window — restore the entries into the visible list and clear
+    /// the sidecar. Files were never removed (the timer that would
+    /// have called `removeFiles(for:)` never fired), so the
+    /// restoration is complete: no audio / measurement / photo
+    /// hand-cleanup needed.
+    private func restorePendingSoftDeletesFromSidecarIfNeeded() {
+        let url = pendingSoftDeleteSidecarURL
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let sidecar = try decoder.decode(PendingSoftDeleteSidecar.self, from: data)
+
+            // Dedupe by id — sidecar and metadata can overlap if the
+            // crash happened between the two writes inside
+            // `softDeleteRecordings`.
+            let existingIDs = Set(recordings.map { $0.id })
+            let toRestore = sidecar.recordings.filter { !existingIDs.contains($0.id) }
+            if !toRestore.isEmpty {
+                recordings.append(contentsOf: toRestore)
+                recordings.sort { $0.startDate > $1.startDate }
+                saveRecordings()
+            }
+            try fileManager.removeItem(at: url)
+            Logger.recording.info("Restored \(toRestore.count) soft-deleted recording(s) from sidecar")
+        } catch {
+            // Corrupt sidecar — log and drop so it doesn't block future
+            // loads. The recordings it referenced (if any) are already
+            // gone from the metadata; the audio files on disk become
+            // orphaned, but the manager remains in a consistent state.
+            Logger.recording.error("Discarding corrupt pending-soft-delete sidecar: \(error.localizedDescription, privacy: .public)")
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     /// Whether there is a pending soft-deleted batch that can still be
@@ -377,9 +474,31 @@ final class RecordingManager: NSObject, ObservableObject {
             let data = try Data(contentsOf: metadataURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            recordings = try decoder.decode([Recording].self, from: data)
+            // Per-row tolerant decode: a single corrupt entry (e.g. a
+            // missing `id` field after the strict-decode change in
+            // `Recording.init(from:)`) used to abort the entire load.
+            // The wrapper isolates each entry so neighbours still
+            // parse.
+            let entries = try decoder.decode([FailableRecording].self, from: data)
+            let loaded = entries.compactMap { $0.value }
+            let dropped = entries.count - loaded.count
+            recordings = loaded
+            if dropped > 0 {
+                Logger.recording.warning("Skipped \(dropped) malformed recording metadata entr\(dropped == 1 ? "y" : "ies")")
+            }
         } catch {
             print("[RecordingManager] Metadata load failed: \(error)")
         }
+    }
+}
+
+/// Decodable wrapper that swallows per-row decode failures so
+/// `RecordingManager.loadRecordings` can recover the maximum number
+/// of valid entries from a partially-corrupt metadata file.
+private struct FailableRecording: Decodable {
+    let value: Recording?
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        value = try? container.decode(Recording.self)
     }
 }

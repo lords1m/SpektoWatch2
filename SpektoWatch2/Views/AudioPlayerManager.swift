@@ -86,9 +86,10 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
         let remainingFrames = AVAudioFrameCount(file.length - seekFrame)
         if remainingFrames > 0 {
-            playerNode.scheduleSegment(file, startingFrame: seekFrame, frameCount: remainingFrames, at: nil) {
-                DispatchQueue.main.async {
-                    if self.isPlaying { self.stop() }
+            playerNode.scheduleSegment(file, startingFrame: seekFrame, frameCount: remainingFrames, at: nil) { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.isPlaying else { return }
+                    self.stop()
                 }
             }
         }

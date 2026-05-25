@@ -20,17 +20,24 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
     // Lokale FFT Konfiguration (Abgespeckt für Watch)
     private let fftSize: Int = 2048
+    // M15 task-3: real-optimized DFT (matches `Processing/FFTProcessor.swift`
+    // on iOS). The previous `vDSP_DFT_zop_CreateSetup` setup produced a full
+    // complex spectrum with `2/N` normalization — that scale is only valid
+    // for `zrop` (half-spectrum), so bins were ~6 dB hot. zrop also halves
+    // the buffer footprint.
     private let fftSetup: vDSP_DFT_Setup
-    private var realIn: [Float]
-    private var imagIn: [Float]
-    private var realOut: [Float]
-    private var imagOut: [Float]
+    private var windowedSamples: [Float]      // N-length windowed real signal
+    private var splitRealIn: [Float]          // N/2 — even-indexed samples
+    private var splitImagIn: [Float]          // N/2 — odd-indexed samples
+    private var realOut: [Float]              // N/2
+    private var imagOut: [Float]              // N/2
     private var window: [Float]
     private var fftMagnitudes: [Float]
     private let visualDCT: vDSP.DCT
     private var visualWindowedSamples: [Float]
     private var visualCoefficients: [Float]
     private var visualMagnitudes: [Float]
+    private var displayVisualMagnitudes: [Float]
     #if DEBUG
     private var debugFrameCount = 0
     #endif
@@ -39,7 +46,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate)
     // and a scratch buffer for converting magnitude-dB to linear power for energy summation.
     private let binFrequencies: [Float]
-    private let visualFrequencies: [Float]
+    private let displayVisualFrequencies: [Float]
     private var linearPowerScratch: [Float]
 
     // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
@@ -67,13 +74,14 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var pendingLiveData: SpectrogramData?
     private var isLiveDataFlushScheduled = false
     private static let liveDataFlushInterval: TimeInterval = 0.2  // 5 Hz
+    private static let displayVisualBinCount = 40
 
     init(connectivityManager: WatchConnectivityManager) {
         self.connectivityManager = connectivityManager
         audioEngine = AVAudioEngine()
         
         // FFT Setup initialisieren
-        guard let setup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), vDSP_DFT_Direction.FORWARD) else {
+        guard let setup = vDSP_DFT_zrop_CreateSetup(nil, vDSP_Length(fftSize), vDSP_DFT_Direction.FORWARD) else {
             fatalError("Failed to create FFT setup")
         }
         fftSetup = setup
@@ -81,16 +89,18 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             fatalError("Failed to create DCT setup")
         }
         visualDCT = dct
-        
-        realIn = [Float](repeating: 0, count: fftSize)
-        imagIn = [Float](repeating: 0, count: fftSize)
-        realOut = [Float](repeating: 0, count: fftSize)
-        imagOut = [Float](repeating: 0, count: fftSize)
+
+        windowedSamples = [Float](repeating: 0, count: fftSize)
+        splitRealIn = [Float](repeating: 0, count: fftSize / 2)
+        splitImagIn = [Float](repeating: 0, count: fftSize / 2)
+        realOut = [Float](repeating: 0, count: fftSize / 2)
+        imagOut = [Float](repeating: 0, count: fftSize / 2)
         window = [Float](repeating: 0, count: fftSize)
         fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
         visualWindowedSamples = [Float](repeating: 0, count: fftSize)
         visualCoefficients = [Float](repeating: 0, count: fftSize)
         visualMagnitudes = [Float](repeating: 0, count: fftSize)
+        displayVisualMagnitudes = [Float](repeating: -180.0, count: Self.displayVisualBinCount)
         fftInputScratch = [Float](repeating: 0, count: fftSize)
         linearPowerScratch = [Float](repeating: 0, count: fftSize / 2)
 
@@ -103,8 +113,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         for i in 0..<binCount { freqs[i] = Float(i) * binWidth }
         binFrequencies = freqs
         let nyquist = Float(sampleRate / 2.0)
-        let visualBinCount = fftSize
-        visualFrequencies = (0..<visualBinCount).map { Float($0) * nyquist / Float(max(visualBinCount - 1, 1)) }
+        displayVisualFrequencies = Self.makeDisplayFrequencies(count: Self.displayVisualBinCount, nyquist: nyquist)
 
         super.init()
 
@@ -211,6 +220,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     func stopRecording() {
+        dispatchPrecondition(condition: .onQueue(.main))
         print("[WatchAudioEngine] Stopping...")
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
@@ -218,12 +228,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         session?.invalidate()
         session = nil
 
-        DispatchQueue.main.async {
-            self.isRecording = false
-            // Hand the microphone back to the phone — re-enter companion mode
-            // and resubscribe to phone spectrogram updates.
-            self.transition(to: .companion)
-        }
+        isRecording = false
+        // Hand the microphone back to the phone — re-enter companion mode
+        // and resubscribe to phone spectrogram updates.
+        transition(to: .companion)
         print("[WatchAudioEngine] Stopped")
     }
 
@@ -333,8 +341,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // `binFrequencies` is a single immutable property — no per-frame rebuild.
         let data = SpectrogramData(frequencies: binFrequencies,
                                    magnitudes: fftMagnitudes,
-                                   visualFrequencies: visualFrequencies,
-                                   visualMagnitudes: visualMagnitudes,
+                                   visualFrequencies: displayVisualFrequencies,
+                                   visualMagnitudes: displayVisualMagnitudes,
                                    broadbandLevel: level,
                                    sampleRate: sampleRate)
 
@@ -377,30 +385,41 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
     
     private func performFFT(_ samples: [Float]) {
-        // Windowing
-        vDSP_vmul(samples, 1, window, 1, &realIn, 1, vDSP_Length(fftSize))
-        vDSP_vclr(&imagIn, 1, vDSP_Length(fftSize))
-        
+        // Windowing into the N-length real signal buffer
+        vDSP_vmul(samples, 1, window, 1, &windowedSamples, 1, vDSP_Length(fftSize))
+
+        // De-interleave windowed samples into split-complex input
+        // (even samples → real, odd samples → imag) — same pattern as
+        // Processing/FFTProcessor.swift. zrop expects N/2 split-complex pairs.
+        windowedSamples.withUnsafeBytes { rawBuf in
+            let complexPtr = rawBuf.bindMemory(to: DSPComplex.self).baseAddress!
+            splitRealIn.withUnsafeMutableBufferPointer { realBuf in
+                splitImagIn.withUnsafeMutableBufferPointer { imagBuf in
+                    var splitDst = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
+                    vDSP_ctoz(complexPtr, 2, &splitDst, 1, vDSP_Length(fftSize / 2))
+                }
+            }
+        }
+
         // FFT
-        vDSP_DFT_Execute(fftSetup, realIn, imagIn, &realOut, &imagOut)
-        
-        // Magnitude & dB
+        vDSP_DFT_Execute(fftSetup, splitRealIn, splitImagIn, &realOut, &imagOut)
+
+        // Magnitude (N/2 bins) — split-complex absolute value
         realOut.withUnsafeMutableBufferPointer { realPtr in
             imagOut.withUnsafeMutableBufferPointer { imagPtr in
                 var complex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
                 vDSP_zvabs(&complex, 1, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
             }
         }
-        
-        // FIX: Normalisierung (2/N) um korrekte Amplitude zu erhalten
-        // Ohne das sind die Werte um Faktor 2048 zu hoch (~ +66 dB), was zum türkisen Bild führt
+
+        // Normalisierung (2/N) — correct for vDSP_DFT_zrop's half-spectrum output.
         var scale: Float = 2.0 / Float(fftSize)
         vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
-        
+
         // Epsilon addieren um log(0) = -inf zu vermeiden
         var epsilon: Float = 1e-9
         vDSP_vsadd(fftMagnitudes, 1, &epsilon, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
-        
+
         var ref: Float = 1.0
         vDSP_vdbcon(fftMagnitudes, 1, &ref, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count), 1)
         
@@ -437,23 +456,61 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         var scale: Float = 2.0 / Float(fftSize)
         vDSP_vsmul(visualMagnitudes, 1, &scale, &visualMagnitudes, 1, vDSP_Length(fftSize))
 
-        var epsilon: Float = 1e-9
-        vDSP_vsadd(visualMagnitudes, 1, &epsilon, &visualMagnitudes, 1, vDSP_Length(fftSize))
+        // M15 task-3: explicit 20·log10 (amplitude convention) — DCT-II
+        // coefficients are amplitude-domain values. Previously this used
+        // `vDSP_vdbcon(..., 1)`; the explicit sequence matches the iOS
+        // `VisualSpectrogramProcessor` code shape and is harder to misread.
+        var lo: Float = 1e-10
+        var hi: Float = .greatestFiniteMagnitude
+        vDSP_vclip(visualMagnitudes, 1, &lo, &hi, &visualMagnitudes, 1, vDSP_Length(fftSize))
+        var n = Int32(fftSize)
+        vvlog10f(&visualMagnitudes, visualMagnitudes, &n)
+        var twenty: Float = 20.0
+        vDSP_vsmul(visualMagnitudes, 1, &twenty, &visualMagnitudes, 1, vDSP_Length(fftSize))
 
-        var ref: Float = 1.0
-        vDSP_vdbcon(visualMagnitudes, 1, &ref, &visualMagnitudes, 1, vDSP_Length(fftSize), 1)
+        downsampleForDisplay(source: visualMagnitudes, into: &displayVisualMagnitudes)
+    }
+
+    private static func makeDisplayFrequencies(count: Int, nyquist: Float) -> [Float] {
+        guard count > 1 else { return [0] }
+        return (0..<count).map { index in
+            Float(index) * nyquist / Float(count - 1)
+        }
+    }
+
+    private func downsampleForDisplay(source: [Float], into output: inout [Float]) {
+        guard !source.isEmpty, !output.isEmpty else { return }
+
+        let outputCount = output.count
+        for index in 0..<outputCount {
+            let start = index * source.count / outputCount
+            let end = max(start + 1, (index + 1) * source.count / outputCount)
+            var peak = source[start]
+            if end > start + 1 {
+                for sourceIndex in (start + 1)..<min(end, source.count) {
+                    peak = max(peak, source[sourceIndex])
+                }
+            }
+            output[index] = peak.isFinite ? peak : -180.0
+        }
     }
     
     // MARK: - WKExtendedRuntimeSessionDelegate
 
     func extendedRuntimeSession(_ session: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: Error?) {
         print("[WatchAudioEngine] RuntimeSession invalidated: \(reason.rawValue) error: \(String(describing: error))")
-        self.session = nil
-        // The session is gone; the audio tap is no longer "kept alive" by the
-        // system and would otherwise keep draining the battery in the
-        // background. Stop the engine if we still think we're recording.
-        if isRecording {
-            stopRecording()
+        // WKExtendedRuntimeSession delegate callbacks arrive on an arbitrary
+        // background thread. Hop to main before touching @Published state or
+        // calling stopRecording() (enforced by dispatchPrecondition there).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.session = nil
+            // The session is gone; the audio tap is no longer "kept alive" by
+            // the system and would otherwise keep draining the battery in the
+            // background. Stop the engine if we still think we're recording.
+            if self.isRecording {
+                self.stopRecording()
+            }
         }
     }
 
@@ -463,12 +520,16 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
     func extendedRuntimeSessionWillExpire(_ session: WKExtendedRuntimeSession) {
         print("[WatchAudioEngine] RuntimeSession will expire")
-        // Graceful stop before the system invalidates the session. If the
-        // user wants to keep going they'll need to restart explicitly — the
-        // audit ("do NOT auto-resume; the user may have lowered the wrist
-        // deliberately") rules out automatic re-arming.
-        if isRecording {
-            stopRecording()
+        // Hop to main — same rationale as didInvalidateWith above.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // Graceful stop before the system invalidates the session. If the
+            // user wants to keep going they'll need to restart explicitly — the
+            // audit ("do NOT auto-resume; the user may have lowered the wrist
+            // deliberately") rules out automatic re-arming.
+            if self.isRecording {
+                self.stopRecording()
+            }
         }
     }
 

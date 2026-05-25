@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
+    @ObservedObject private var dashboardManager: DashboardManager
     @EnvironmentObject private var fftConfig: FFTConfiguration
     @Environment(\.designDensity) private var density
     @State private var isHeaderVisible: Bool = true
@@ -19,7 +20,9 @@ struct ModularDashboardView: View {
     private let scrollThreshold: CGFloat = 20
 
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
-        _viewModel = StateObject(wrappedValue: DashboardViewModel(audioEngine: audioEngine, connectivityManager: connectivityManager))
+        let dm = DashboardManager()
+        _viewModel = StateObject(wrappedValue: DashboardViewModel(dashboardManager: dm, audioEngine: audioEngine, connectivityManager: connectivityManager))
+        _dashboardManager = ObservedObject(wrappedValue: dm)
     }
     
     var body: some View {
@@ -32,12 +35,12 @@ struct ModularDashboardView: View {
         ZStack {
             GeometryReader { geo in
                 let selection = Binding<Int>(
-                    get: { viewModel.dashboardManager.activeLayoutIndex },
-                    set: { viewModel.dashboardManager.setActiveLayout(index: $0) }
+                    get: { dashboardManager.activeLayoutIndex },
+                    set: { dashboardManager.setActiveLayout(index: $0) }
                 )
 
                 TabView(selection: selection) {
-                    ForEach(Array(viewModel.dashboardManager.layouts.indices), id: \.self) { index in
+                    ForEach(Array(dashboardManager.layouts.indices), id: \.self) { index in
                         let isCompactWidth = geo.size.width <= 390
                         let verticalInset: CGFloat = isCompactWidth ? 6 : 8
                         ScrollView {
@@ -52,8 +55,8 @@ struct ModularDashboardView: View {
                             VStack(spacing: 0) {
                                 dashboardGrid(
                                     geo: geo,
-                                    widgets: viewModel.dashboardManager.widgets(forLayoutAt: index),
-                                    isActiveLayout: index == viewModel.dashboardManager.activeLayoutIndex
+                                    widgets: dashboardManager.widgets(forLayoutAt: index),
+                                    isActiveLayout: index == dashboardManager.activeLayoutIndex
                                 )
                                 .padding(.top, verticalInset)
                                 .padding(.bottom, verticalInset)
@@ -137,35 +140,35 @@ struct ModularDashboardView: View {
         }
         .confirmationDialog("Layouts", isPresented: $showLayoutsDialog, titleVisibility: .visible) {
             Button("Aktuelle Seite speichern") {
-                viewModel.dashboardManager.saveCurrentAsNewLayout()
+                dashboardManager.saveCurrentAsNewLayout()
             }
             Button("Neue leere Seite") {
-                viewModel.dashboardManager.addEmptyLayout()
+                dashboardManager.addEmptyLayout()
             }
             Button("Screenshot-Preset: Widgetgrößen") {
-                viewModel.dashboardManager.installWidgetSizeScreenshotPreset()
+                dashboardManager.installWidgetSizeScreenshotPreset()
             }
             Button("Seite umbenennen") {
-                renameText = viewModel.dashboardManager.currentLayoutName
+                renameText = dashboardManager.currentLayoutName
                 showRenameAlert = true
             }
 
-            ForEach(Array(viewModel.dashboardManager.layouts.enumerated()), id: \.element.id) { index, layout in
+            ForEach(Array(dashboardManager.layouts.enumerated()), id: \.element.id) { index, layout in
                 Button("Öffnen: \(layout.name)") {
-                    viewModel.dashboardManager.setActiveLayout(index: index)
+                    dashboardManager.setActiveLayout(index: index)
                 }
             }
 
-            if viewModel.dashboardManager.layouts.count > 1 {
+            if dashboardManager.layouts.count > 1 {
                 Button("Aktuelle Seite löschen", role: .destructive) {
-                    viewModel.dashboardManager.deleteLayout(at: viewModel.dashboardManager.activeLayoutIndex)
+                    dashboardManager.deleteLayout(at: dashboardManager.activeLayoutIndex)
                 }
             }
         }
         .alert("Seite umbenennen", isPresented: $showRenameAlert) {
             TextField("Name", text: $renameText)
             Button("Umbenennen") {
-                viewModel.dashboardManager.renameLayout(at: viewModel.dashboardManager.activeLayoutIndex, name: renameText)
+                dashboardManager.renameLayout(at: dashboardManager.activeLayoutIndex, name: renameText)
             }
             Button("Abbrechen", role: .cancel) {}
         }
@@ -189,9 +192,9 @@ struct ModularDashboardView: View {
         }
         .onAppear {
             // Ensure audio engine is ready or started if needed
-            print("[ModularDashboardView] View appeared. Widgets count: \(viewModel.dashboardManager.widgets.count)")
+            print("[ModularDashboardView] View appeared. Widgets count: \(dashboardManager.widgets.count)")
         }
-        .onChange(of: viewModel.dashboardManager.isEditMode) { oldValue, newValue in
+        .onChange(of: dashboardManager.isEditMode) { oldValue, newValue in
             print("[ModularDashboardView] Edit mode changed: \(oldValue) -> \(newValue)")
         }
         .accessibilityIdentifier("dashboardView")
@@ -200,21 +203,21 @@ struct ModularDashboardView: View {
     private var headerBar: some View {
         VStack(spacing: 6) {
             DashboardHeaderView(
-                isEditMode: $viewModel.dashboardManager.isEditMode,
-                currentLayoutName: viewModel.dashboardManager.currentLayoutName,
+                isEditMode: $dashboardManager.isEditMode,
+                currentLayoutName: dashboardManager.currentLayoutName,
                 onAddWidget: viewModel.addWidget,
-                onAddLayout: { viewModel.dashboardManager.addEmptyLayout() },
-                onSaveLayout: { viewModel.dashboardManager.saveCurrentAsNewLayout() },
+                onAddLayout: { dashboardManager.addEmptyLayout() },
+                onSaveLayout: { dashboardManager.saveCurrentAsNewLayout() },
                 onShowLayouts: { showLayoutsDialog = true },
                 onShowSettings: { viewModel.showSettings = true }
             )
             PresetRailView(
                 presets: PresetCatalogue.all,
                 activeID: $activePresetID,
-                dimmed: viewModel.dashboardManager.isEditMode,
+                dimmed: dashboardManager.isEditMode,
                 onSelect: { preset in
                     withAnimation(.easeInOut(duration: 0.25)) {
-                        viewModel.dashboardManager.applyPreset(id: preset.id)
+                        dashboardManager.applyPreset(id: preset.id)
                     }
                 }
             )
@@ -329,7 +332,7 @@ struct ModularDashboardView: View {
             .padding(.top, isCompactWidth ? 32 : 50)
         } else {
             VStack(spacing: stackSpacing) {
-                if viewModel.dashboardManager.isEditMode && isActiveLayout {
+                if dashboardManager.isEditMode && isActiveLayout {
                     Text("Widgets verschieben oder skalieren")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -352,7 +355,7 @@ struct ModularDashboardView: View {
                                 let span = viewModel.getSpan(for: widget, colCount: colCount)
                                 let card = widgetCard(widget: widget, columnWidth: columnWidth, isActiveLayout: isActiveLayout)
 
-                                if viewModel.dashboardManager.isEditMode && isActiveLayout {
+                                if dashboardManager.isEditMode && isActiveLayout {
                                     card
                                         .gridCellColumns(span)
                                         .onDrag {
@@ -363,11 +366,11 @@ struct ModularDashboardView: View {
                                             of: [UTType.text],
                                             delegate: WidgetDropDelegate(
                                                 item: widget,
-                                                items: $viewModel.dashboardManager.widgets,
+                                                items: $dashboardManager.widgets,
                                                 draggedItem: $viewModel.draggedWidget,
                                                 dropTargetWidgetID: $dropTargetWidgetID,
-                                                isEnabled: viewModel.dashboardManager.isEditMode && isActiveLayout,
-                                                onSave: viewModel.dashboardManager.saveConfiguration
+                                                isEnabled: dashboardManager.isEditMode && isActiveLayout,
+                                                onSave: dashboardManager.saveConfiguration
                                             )
                                         )
                                         .overlay(
@@ -386,7 +389,7 @@ struct ModularDashboardView: View {
                                             let generator = UIImpactFeedbackGenerator(style: .medium)
                                             generator.impactOccurred()
                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                                viewModel.dashboardManager.isEditMode = true
+                                                dashboardManager.isEditMode = true
                                             }
                                         }
                                         .transition(WidgetAnimations.cardTransition)
@@ -408,7 +411,7 @@ struct ModularDashboardView: View {
             widget: widget,
             audioEngine: viewModel.audioEngine,
             fftConfig: fftConfig,
-            isEditMode: viewModel.dashboardManager.isEditMode && isActiveLayout,
+            isEditMode: dashboardManager.isEditMode && isActiveLayout,
             columnWidth: columnWidth,
             onDelete: {
                 withAnimation(.spring()) {
@@ -417,11 +420,11 @@ struct ModularDashboardView: View {
             },
             onResize: { newSize in
                 withAnimation(.spring()) {
-                    viewModel.dashboardManager.resizeWidget(id: widget.id, to: newSize)
+                    dashboardManager.resizeWidget(id: widget.id, to: newSize)
                 }
             },
             onUpdateSettings: { newSettings in
-                viewModel.dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+                dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
             }
         )
     }

@@ -15,7 +15,8 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     private static let complicationWidgetKinds = [
         "SpektoWatchLevelCircular",
         "SpektoWatchLevelRectangular",
-        "SpektoWatchLevelInline"
+        "SpektoWatchLevelInline",
+        "SpektoWatchLevelCorner"
     ]
     #endif
     private let sendQueue = DispatchQueue(label: "com.spektowatch.watch-send", qos: .utility)

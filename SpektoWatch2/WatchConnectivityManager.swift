@@ -13,7 +13,8 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     private static let complicationWidgetKinds = [
         "SpektoWatchLevelCircular",
         "SpektoWatchLevelRectangular",
-        "SpektoWatchLevelInline"
+        "SpektoWatchLevelInline",
+        "SpektoWatchLevelCorner"
     ]
     #endif
     
@@ -298,12 +299,19 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     // MARK: - Queue Logic
     
     private func sendWithRetry(_ message: [String: Any]) {
-        let queued = QueuedMessage(message: message, retries: 0, timestamp: Date())
-        messageQueue.append(queued)
-        processQueue()
+        // Callers can arrive on any thread; all messageQueue / isProcessingQueue
+        // mutations must happen on main to stay consistent with the reply/error
+        // handlers (which already dispatch to main) and the reachability callbacks.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let queued = QueuedMessage(message: message, retries: 0, timestamp: Date())
+            self.messageQueue.append(queued)
+            self.processQueue()
+        }
     }
-    
+
     private func processQueue() {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard !isProcessingQueue, !messageQueue.isEmpty else { return }
         
         guard WCSession.default.activationState == .activated, WCSession.default.isReachable else {
@@ -327,6 +335,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     }
     
     private func handleMessageError(_ message: QueuedMessage, error: Error) {
+        dispatchPrecondition(condition: .onQueue(.main))
         var updatedMessage = message
         updatedMessage.retries += 1
         

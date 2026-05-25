@@ -27,10 +27,7 @@ struct WatchSpectrogramWidget: View {
                     let chunkSize = max(1, magnitudes.count / displayBins)
 
                     for f in 0..<displayBins {
-                        let start = f * chunkSize
-                        let end = min(start + chunkSize, magnitudes.count)
-                        let mag = (start < end && start < magnitudes.count) ?
-                            (magnitudes[start..<min(end, magnitudes.count)].max() ?? minDB) : minDB
+                        let mag = displayMagnitude(for: f, in: magnitudes, chunkSize: chunkSize)
 
                         let normalized = (mag - minDB) / (maxDB - minDB)
 
@@ -56,6 +53,25 @@ struct WatchSpectrogramWidget: View {
 
     private func processData(_ data: SpectrogramData) {
         frames.append(data.visualMagnitudes ?? data.magnitudes)
+    }
+
+    private func displayMagnitude(for bin: Int, in magnitudes: [Float], chunkSize: Int) -> Float {
+        guard !magnitudes.isEmpty else { return minDB }
+        if magnitudes.count == displayBins, bin < magnitudes.count {
+            return magnitudes[bin]
+        }
+
+        let start = bin * chunkSize
+        let end = min(start + chunkSize, magnitudes.count)
+        guard start < end else { return minDB }
+
+        var peak = magnitudes[start]
+        if end > start + 1 {
+            for index in (start + 1)..<end {
+                peak = max(peak, magnitudes[index])
+            }
+        }
+        return peak
     }
 
     private func spectrogramColor(_ value: Double) -> Color {
