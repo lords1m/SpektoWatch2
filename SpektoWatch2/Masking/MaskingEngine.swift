@@ -207,7 +207,14 @@ final class MaskingEngine: ObservableObject {
     // MARK: – Private
 
     private func wireAudioEngine(_ engine: AudioEngine) {
-        // MaskingEngine observes live band data via a callback on AudioEngine.
+        // MaskingEngine always receives Z-weighted (unweighted linear) 1/3-octave
+        // bands, regardless of the user's active frequency weighting. This is
+        // intentional: the masking ambient model and novelty detector are trained
+        // on psychoacoustic Z-band structure; A- or C-weighting would shift the
+        // spectral shape and cause the trigger threshold to drift when the user
+        // changes the display weighting. `AudioEngine.onBandsUpdated` is wired to
+        // `octaveBandsZ` in `updateUI` — do not change it to the active-weighting
+        // array (R11 correctness fix).
         // The callback is set to nil when MaskingEngine is deallocated.
         engine.onBandsUpdated = { [weak self] bands, rmsDB in
             Task { @MainActor [weak self] in

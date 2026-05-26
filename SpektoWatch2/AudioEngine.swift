@@ -146,6 +146,11 @@ class AudioEngine: ObservableObject {
     // `processFFTFrame` via `requiredSpectralWeightingsForCurrentFrame`.
     private let widgetSpectralWeightingsLock = OSAllocatedUnfairLock<Set<FrequencyWeighting>>(initialState: [])
 
+    /// Guards whether any visible widget requires pre-aggregated Bark bands.
+    /// Read on the audio render thread via `withLockUnchecked`; written on
+    /// main via `setWidgetBarkBandsRequired(_:)`.
+    private let widgetBarkBandsRequiredLock = OSAllocatedUnfairLock<Bool>(initialState: false)
+
     /// AE-5: Measurement frame write errors are stored here on the audio render thread
     /// (Logger is not RT-safe). The `updateUI` main-thread block drains and logs it.
     private let lastWriteErrorLock = OSAllocatedUnfairLock<String?>(initialState: nil)
@@ -305,10 +310,6 @@ class AudioEngine: ObservableObject {
         get { live.isStereoActive }
         set { live.isStereoActive = newValue }
     }
-    var currentOctaveBands: [Float] {
-        get { live.currentOctaveBands }
-        set { live.currentOctaveBands = newValue }
-    }
     var currentOctaveBandsZ: [Float] {
         get { live.currentOctaveBandsZ }
         set { live.currentOctaveBandsZ = newValue }
@@ -321,11 +322,30 @@ class AudioEngine: ObservableObject {
         get { live.currentOctaveBandsC }
         set { live.currentOctaveBandsC = newValue }
     }
-    var currentSpectrum: [Float] {
-        get { live.currentSpectrum }
-        set { live.currentSpectrum = newValue }
+    var bandLeqZ: [Float] {
+        get { live.bandLeqZ }
+        set { live.bandLeqZ = newValue }
     }
-
+    var bandLeqA: [Float] {
+        get { live.bandLeqA }
+        set { live.bandLeqA = newValue }
+    }
+    var bandLeqC: [Float] {
+        get { live.bandLeqC }
+        set { live.bandLeqC = newValue }
+    }
+    var currentBarkBandsZ: [Float] {
+        get { live.currentBarkBandsZ }
+        set { live.currentBarkBandsZ = newValue }
+    }
+    var currentBarkBandsA: [Float] {
+        get { live.currentBarkBandsA }
+        set { live.currentBarkBandsA = newValue }
+    }
+    var currentBarkBandsC: [Float] {
+        get { live.currentBarkBandsC }
+        set { live.currentBarkBandsC = newValue }
+    }
     // Called on the main thread after each band-update cycle.
     // MaskingEngine sets this to observe live spectrum data without a second audio tap.
     // bands = Z-weighted 1/3-octave bands (31 values, dB SPL); rmsDB = broadband level.
@@ -472,6 +492,13 @@ class AudioEngine: ObservableObject {
         widgetSpectralWeightingsLock.withLock { state in
             state = weightings
         }
+    }
+
+    /// Tells the engine whether any widget currently needs pre-aggregated Bark bands.
+    /// Called by `DashboardViewModel` whenever the widget list changes.
+    /// When `false` (the default) the per-frame Bark aggregation is skipped entirely.
+    func setWidgetBarkBandsRequired(_ required: Bool) {
+        widgetBarkBandsRequiredLock.withLock { $0 = required }
     }
     
     func setGainBoost(_ gain: Float) {
@@ -1256,8 +1283,6 @@ class AudioEngine: ObservableObject {
             }
 
             self.currentSpectrogramData = data
-            self.currentSpectrum = data.magnitudes
-            self.currentOctaveBands = octaveBandsZ
             self.currentOctaveBandsZ = octaveBandsZ
             self.currentOctaveBandsA = octaveBandsA
             self.currentOctaveBandsC = octaveBandsC
@@ -1466,6 +1491,12 @@ class AudioEngine: ObservableObject {
         os_signpost(.begin, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID) }
 
+        // R8: snapshot calibrationOffset once at the top of the frame so all
+        // downstream uses (vDSP_vsadd, energy factor, LCpeak) see a consistent
+        // value and the @Published property is not read multiple times on the
+        // audio render thread.
+        let cal = calibrationOffset
+
         // Thread-sichere FFT-Verarbeitung — snapshot all three lock-protected
         // fields in one critical section to keep them mutually consistent.
         let (currentFFTSize, localFFTProcessor, localWeightingProcessor, localVisualSpectrogramProcessor) = processingLock.withLockUnchecked {
@@ -1481,7 +1512,7 @@ class AudioEngine: ObservableObject {
         let visualFrequencies = localVisualSpectrogramProcessor.computeDBMagnitudes(
             on: samples,
             gainBoost: gainBoost,
-            calibrationOffset: calibrationOffset,
+            calibrationOffset: cal,
             into: &visualDBMagnitudesScratch
         )
         
@@ -1491,7 +1522,7 @@ class AudioEngine: ObservableObject {
         // diagnostics are needed.
 
         // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
-        var calOffset = calibrationOffset
+        var calOffset = cal
         vDSP_vsadd(fftDBMagnitudesScratch, 1, &calOffset, &fftDBMagnitudesScratch, 1, vDSP_Length(fftDBMagnitudesScratch.count))
 
         // Gate A/C spectral tracks to data consumers that actually need them.
@@ -1555,15 +1586,32 @@ class AudioEngine: ObservableObject {
                 magnitudes: $0.bandMagnitudes
             )
         } ?? Self.emptyThirdOctaveBands
-        let displayOctaveBands: [Float]
-        switch frequencyWeighting {
-        case .a: displayOctaveBands = displayOctaveBandsA
-        case .c: displayOctaveBands = displayOctaveBandsC
-        case .z: displayOctaveBands = displayOctaveBandsZ
+
+        // Bark band aggregation — only when a widget requests it (zero-cost otherwise).
+        // Uses the same binned band data as third-octave so no extra FFT pass is needed.
+        let needsBark = widgetBarkBandsRequiredLock.withLockUnchecked { $0 }
+        let displayBarkBandsZ: [Float]
+        let displayBarkBandsA: [Float]
+        let displayBarkBandsC: [Float]
+        if needsBark {
+            displayBarkBandsZ = SpectrumBandAggregator.barkBands(
+                frequencies: processedZ.bandFrequencies,
+                spectrum: processedZ.bandMagnitudes
+            )
+            displayBarkBandsA = processedA.map {
+                SpectrumBandAggregator.barkBands(frequencies: $0.bandFrequencies, spectrum: $0.bandMagnitudes)
+            } ?? []
+            displayBarkBandsC = processedC.map {
+                SpectrumBandAggregator.barkBands(frequencies: $0.bandFrequencies, spectrum: $0.bandMagnitudes)
+            } ?? []
+        } else {
+            displayBarkBandsZ = []
+            displayBarkBandsA = []
+            displayBarkBandsC = []
         }
 
         // Calculate energies for acoustic metrics using vectorized Accelerate ops
-        let calibrationFactor = pow(10.0, calibrationOffset / 10.0)
+        let calibrationFactor = pow(10.0, cal / 10.0)
         let energyCount = min(fftLinearMagnitudesScratch.count,
                               min(localWeightingProcessor.aWeightingGainsSq.count,
                                   localWeightingProcessor.cWeightingGainsSq.count))
@@ -1605,7 +1653,7 @@ class AudioEngine: ObservableObject {
         var cPeakLinear: Float = 0.0
         vDSP_maxv(lcPeakScratch, 1, &cPeakLinear, vDSP_Length(lcPeakCount))
         // 20·log10 (amplitude domain) → dBFS, then add calibration → dB SPL
-        let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + calibrationOffset
+        let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + cal
 
         // Update acoustic metrics
         let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
@@ -1620,15 +1668,21 @@ class AudioEngine: ObservableObject {
         } else {
             audioThreadRecordingDuration = 0
         }
-        let levels = metricsCalculator.updateMetrics(
+        let metricsResult = metricsCalculator.updateMetrics(
             energyZ: energyZ,
             energyA: energyA,
             energyC: energyC,
             peakLevel: lcPeak,
             dt: dt,
-            recordingDuration: audioThreadRecordingDuration
+            recordingDuration: audioThreadRecordingDuration,
+            frequencies: localFFTProcessor.frequencies,
+            magnitudes: fftDBMagnitudesScratch,
+            bandsZ: displayOctaveBandsZ,
+            bandsA: processedA != nil ? displayOctaveBandsA : [],
+            bandsC: processedC != nil ? displayOctaveBandsC : []
         )
-        
+        let levels = metricsResult.levels
+
         let broadbandLevel = levels["LAF"] ?? -120.0
 
         // Writer lifecycle lives on main: `startAudioCapture` /
@@ -1695,11 +1749,15 @@ class AudioEngine: ObservableObject {
         // Update UI on main thread
         updateUI(
             spectrogramData: spectrogramData,
-            octaveBands: displayOctaveBands,
             octaveBandsZ: displayOctaveBandsZ,
             octaveBandsA: displayOctaveBandsA,
             octaveBandsC: displayOctaveBandsC,
-            spectrum: processed.spectrum,
+            bandLeqZ: metricsResult.bandLeqZ,
+            bandLeqA: metricsResult.bandLeqA,
+            bandLeqC: metricsResult.bandLeqC,
+            barkBandsZ: displayBarkBandsZ,
+            barkBandsA: displayBarkBandsA,
+            barkBandsC: displayBarkBandsC,
             broadbandLevel: broadbandLevel,
             peakLevel: peakLevel,
             processEndTime: CFAbsoluteTimeGetCurrent()
@@ -1721,11 +1779,15 @@ class AudioEngine: ObservableObject {
     
     private func updateUI(
         spectrogramData: SpectrogramData,
-        octaveBands: [Float],
         octaveBandsZ: [Float],
         octaveBandsA: [Float],
         octaveBandsC: [Float],
-        spectrum: [Float],
+        bandLeqZ: [Float],
+        bandLeqA: [Float],
+        bandLeqC: [Float],
+        barkBandsZ: [Float],
+        barkBandsA: [Float],
+        barkBandsC: [Float],
         broadbandLevel: Float,
         peakLevel: Float,
         processEndTime: TimeInterval
@@ -1787,11 +1849,15 @@ class AudioEngine: ObservableObject {
                 self.lastSpectrogramUIEnqueueTime = nowMain
                 self.currentSpectrogramData = spectrogramData
             }
-            self.currentOctaveBands = octaveBands
             self.currentOctaveBandsZ = octaveBandsZ
             self.currentOctaveBandsA = octaveBandsA
             self.currentOctaveBandsC = octaveBandsC
-            self.currentSpectrum = spectrum
+            if !bandLeqZ.isEmpty { self.bandLeqZ = bandLeqZ }
+            if !bandLeqA.isEmpty { self.bandLeqA = bandLeqA }
+            if !bandLeqC.isEmpty { self.bandLeqC = bandLeqC }
+            if !barkBandsZ.isEmpty { self.currentBarkBandsZ = barkBandsZ }
+            if !barkBandsA.isEmpty { self.currentBarkBandsA = barkBandsA }
+            if !barkBandsC.isEmpty { self.currentBarkBandsC = barkBandsC }
             // Use the IEC 61672 LCpeak from the metrics dict (C-weighted peak,
             // computed in processFFTFrame). Fall back to the raw sample peak only
             // if the metrics dict is somehow missing the key.

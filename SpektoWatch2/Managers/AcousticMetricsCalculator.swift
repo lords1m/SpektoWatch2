@@ -1,6 +1,27 @@
 import Foundation
 import os
 
+// MARK: - MetricsResult
+
+/// Value returned by `AcousticMetricsCalculator.updateMetrics`.
+///
+/// Bundling the broadband levels dict and the per-band Leq arrays in a single
+/// struct avoids a second lock acquisition when the caller (AudioEngine) needs
+/// both pieces of data after a single `updateMetrics` call.
+struct MetricsResult {
+    /// Broadband acoustic levels (LAF, LAS, LAeq, PHON, SONE, …).
+    var levels: [String: Float]
+    /// Per-band Leq (31 third-octave, Z-weighted), EMA-smoothed in linear power.
+    /// Empty if no Z-band data was passed on this call.
+    var bandLeqZ: [Float]
+    /// Per-band Leq (31 third-octave, A-weighted). Empty when A-weighting is not active.
+    var bandLeqA: [Float]
+    /// Per-band Leq (31 third-octave, C-weighted). Empty when C-weighting is not active.
+    var bandLeqC: [Float]
+}
+
+// MARK: -
+
 enum TimeWeighting: String, CaseIterable {
     case fast = "Fast"
     case slow = "Slow"
@@ -31,7 +52,7 @@ enum TimeWeighting: String, CaseIterable {
 /// The lock is `OSAllocatedUnfairLock` (not `NSLock`/`DispatchQueue`) to ensure
 /// sub-microsecond uncontended acquisition and to avoid priority inversion on the
 /// audio render thread.
-class AcousticMetricsCalculator {
+class AcousticMetricsCalculator: @unchecked Sendable {
 
     // MARK: - Thread safety
 
@@ -78,6 +99,21 @@ class AcousticMetricsCalculator {
     private var lastTaktTime: TimeInterval = 0
     private var taktValues: [Float] = []
 
+    // MARK: - Per-band Leq EMA
+
+    /// EMA coefficient for per-band Leq smoothing (~50-sample warm-up at 15 Hz).
+    /// Default 0.02; exposed as a `let` so it can be read by tests without
+    /// adding a full accessor method.
+    let leqBandAlpha: Float = 0.02
+
+    /// Per-band Leq EMA accumulators stored in **linear power** domain.
+    /// 31 entries each (third-octave centres 20 Hz … 12 500 Hz).
+    /// Protected by `lock`. Initialised lazily on the first frame that
+    /// includes band data — no allocation on class init.
+    private var bandLeqLinearZ: [Float] = []
+    private var bandLeqLinearA: [Float] = []
+    private var bandLeqLinearC: [Float] = []
+
     // MARK: - Initialization
 
     init(sampleRate: Double = 44100.0) {
@@ -99,17 +135,30 @@ class AcousticMetricsCalculator {
     ///   - peakLevel: IEC 61672 LCpeak in dB SPL (C-weighted frequency-domain peak)
     ///   - dt: Time step since last update (seconds)
     ///   - recordingDuration: Total recording duration for Taktmaximal calculation
-    /// - Returns: Dictionary of current levels (all in dB SPL or dB as appropriate)
+    ///   - frequencies: FFT bin centre frequencies (Hz) — used for PHON/SONE
+    ///   - magnitudes: FFT bin magnitudes in dB — used for PHON/SONE
+    ///   - bandsZ: 31 third-octave band levels (dB, Z-weighted) for per-band Leq EMA.
+    ///             Pass empty to skip Z-band Leq update.
+    ///   - bandsA: 31 third-octave band levels (dB, A-weighted). Pass empty when
+    ///             A-weighting is not active this frame.
+    ///   - bandsC: 31 third-octave band levels (dB, C-weighted). Pass empty when
+    ///             C-weighting is not active this frame.
+    /// - Returns: `MetricsResult` containing broadband levels and smoothed per-band Leq.
     func updateMetrics(
         energyZ: Float,
         energyA: Float,
         energyC: Float,
         peakLevel: Float,
         dt: Float,
-        recordingDuration: TimeInterval
-    ) -> [String: Float] {
+        recordingDuration: TimeInterval,
+        frequencies: [Float] = [],
+        magnitudes: [Float] = [],
+        bandsZ: [Float] = [],
+        bandsA: [Float] = [],
+        bandsC: [Float] = []
+    ) -> MetricsResult {
 
-        return lock.withLockUnchecked {
+        var result = lock.withLockUnchecked { () -> MetricsResult in
             // Calculate exponential averaging coefficients
             let alphaFast = 1.0 - exp(-dt / TimeWeighting.fast.timeConstant)
             let alphaSlow = 1.0 - exp(-dt / TimeWeighting.slow.timeConstant)
@@ -184,8 +233,60 @@ class AcousticMetricsCalculator {
                 levels["LAFTeq"] = currentTaktMax > -1000 ? currentTaktMax : -120.0
             }
 
-            return levels
+            // Per-band Leq EMA — linear power domain.
+            // First call seeds the buffer directly; subsequent calls apply EMA.
+            // Skipped when the caller passes an empty array (weighting not active).
+            let keep = 1.0 - leqBandAlpha
+
+            if !bandsZ.isEmpty {
+                if bandLeqLinearZ.count != bandsZ.count {
+                    bandLeqLinearZ = bandsZ.map { pow(10.0, $0 / 10.0) }
+                } else {
+                    for i in 0..<bandsZ.count {
+                        bandLeqLinearZ[i] = keep * bandLeqLinearZ[i] + leqBandAlpha * pow(10.0, bandsZ[i] / 10.0)
+                    }
+                }
+            }
+            if !bandsA.isEmpty {
+                if bandLeqLinearA.count != bandsA.count {
+                    bandLeqLinearA = bandsA.map { pow(10.0, $0 / 10.0) }
+                } else {
+                    for i in 0..<bandsA.count {
+                        bandLeqLinearA[i] = keep * bandLeqLinearA[i] + leqBandAlpha * pow(10.0, bandsA[i] / 10.0)
+                    }
+                }
+            }
+            if !bandsC.isEmpty {
+                if bandLeqLinearC.count != bandsC.count {
+                    bandLeqLinearC = bandsC.map { pow(10.0, $0 / 10.0) }
+                } else {
+                    for i in 0..<bandsC.count {
+                        bandLeqLinearC[i] = keep * bandLeqLinearC[i] + leqBandAlpha * pow(10.0, bandsC[i] / 10.0)
+                    }
+                }
+            }
+
+            let outLeqZ = bandLeqLinearZ.map { 10.0 * log10(max($0, 1e-12)) }
+            let outLeqA = bandLeqLinearA.map { 10.0 * log10(max($0, 1e-12)) }
+            let outLeqC = bandLeqLinearC.map { 10.0 * log10(max($0, 1e-12)) }
+
+            return MetricsResult(levels: levels,
+                                 bandLeqZ: outLeqZ,
+                                 bandLeqA: outLeqA,
+                                 bandLeqC: outLeqC)
+        } // end lock
+
+        // Compute phon + sone outside the lock (pure math, no shared state).
+        // Uses the static ISO 226 helpers on LoudnessCalculator so no instance
+        // allocation occurs on the audio render thread.
+        if !frequencies.isEmpty && !magnitudes.isEmpty {
+            let freq = LoudnessCalculator.dominantFrequency(frequencies: frequencies, magnitudes: magnitudes)
+            let spl  = Double(result.levels["LAF"] ?? -120.0)
+            let phonVal = LoudnessCalculator.phon(spl: spl, frequency: freq)
+            result.levels["PHON"] = Float(phonVal)
+            result.levels["SONE"] = Float(LoudnessCalculator.sone(phon: phonVal))
         }
+        return result
     }
 
     /// Resets all metrics to initial state.
@@ -214,6 +315,10 @@ class AcousticMetricsCalculator {
             currentTaktMax = -1000.0
             lastTaktTime = 0
             taktValues = []
+
+            bandLeqLinearZ = []
+            bandLeqLinearA = []
+            bandLeqLinearC = []
         }
     }
 

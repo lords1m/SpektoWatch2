@@ -38,19 +38,27 @@ final class LiveAcousticState: ObservableObject {
     /// Latest spectrogram frame (mags + frequencies + per-weighting
     /// levels). Updated at ~15 Hz.
     @Published var currentSpectrogramData: SpectrogramData?
-    /// Latest broadband spectrum (mirrors `currentSpectrogramData.magnitudes`).
-    /// Kept as a separate publish for widgets that want the bare
-    /// spectrum array.
-    @Published var currentSpectrum: [Float] = []
-    /// Active third-octave bands matching the engine's current
-    /// frequency weighting.
-    @Published var currentOctaveBands: [Float] = Array(repeating: -120.0, count: 31)
     /// Third-octave bands per weighting — driven independently so a
     /// widget can pick a weighting that differs from the engine
     /// default.
     @Published var currentOctaveBandsZ: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentOctaveBandsA: [Float] = Array(repeating: -120.0, count: 31)
     @Published var currentOctaveBandsC: [Float] = Array(repeating: -120.0, count: 31)
+
+    /// Per-band Leq (31 third-octave), EMA-smoothed in the metrics layer.
+    /// Updated at the UI rate (~15 Hz). Widgets use these instead of
+    /// maintaining their own @State EMA.
+    @Published var bandLeqZ: [Float] = Array(repeating: -120.0, count: 31)
+    @Published var bandLeqA: [Float] = Array(repeating: -120.0, count: 31)
+    @Published var bandLeqC: [Float] = Array(repeating: -120.0, count: 31)
+
+    /// Pre-aggregated Bark bands (24 critical bands).
+    /// Empty when no widget requests Bark mode — zero-cost in that case.
+    /// Populated by `AudioEngine.processFFTFrame` when
+    /// `widgetBarkBandsRequired` is set via `setWidgetBarkBandsRequired(_:)`.
+    @Published var currentBarkBandsZ: [Float] = []
+    @Published var currentBarkBandsA: [Float] = []
+    @Published var currentBarkBandsC: [Float] = []
 
     // MARK: - Stereo
 

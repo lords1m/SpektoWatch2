@@ -35,8 +35,8 @@ final class RecordingPersistenceDurabilityTests: XCTestCase {
         recordingsDirectory.appendingPathComponent("recordings_metadata_v2.json")
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         createdRecordingIDs.removeAll()
         extraFilesToClean.removeAll()
         metadataBackup = nil
@@ -48,7 +48,7 @@ final class RecordingPersistenceDurabilityTests: XCTestCase {
         }
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: metadataURL)
         if let backup = metadataBackup {
             try? backup.write(to: metadataURL, options: .atomic)
@@ -67,7 +67,7 @@ final class RecordingPersistenceDurabilityTests: XCTestCase {
         }
         createdRecordingIDs.removeAll()
         extraFilesToClean.removeAll()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Helpers

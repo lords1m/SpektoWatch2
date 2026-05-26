@@ -1,6 +1,7 @@
 # Task 8: Stability & Polish (in-flight fixes)
 
-Status: in_progress
+Status: completed
+Completed: 2026-05-25
 Created: 2026-05-21
 Milestone: `milestone-12-liquid-glass-redesign`
 Depends on: task-2, task-3, task-4

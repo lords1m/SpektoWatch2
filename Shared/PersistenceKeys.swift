@@ -114,6 +114,22 @@ public enum PersistenceKeys {
         public static let colormap      = "design.colormap"
     }
 
+    // MARK: - Tone Generator widget
+
+    public enum ToneGenerator {
+        /// Input mode for the tone generator widget ("Hz" or "Piano").
+        /// Storage: @AppStorage, `UserDefaults.standard`.
+        public static let inputMode     = "toneGenerator.inputMode"
+
+        /// Last active piano octave (0…8).
+        /// Storage: @AppStorage, `UserDefaults.standard`.
+        public static let pianoOctave   = "toneGenerator.pianoOctave"
+
+        /// MIDI note number of the last piano key tapped (12…119).
+        /// -1 means no note selected. Storage: @AppStorage, `UserDefaults.standard`.
+        public static let selectedMidi  = "toneGenerator.selectedMidi"
+    }
+
     // MARK: - AppGroup shared keys (complication ↔ watch app)
     //
     // These live under `AppGroup.defaults`, not `.standard`. Listed

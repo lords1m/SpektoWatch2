@@ -134,7 +134,7 @@ final class WatchAppScreenshotTests: XCTestCase {
         print("[UITest] Screenshot saved: \(fileURL.path)")
     }
 
-    private func sanitizeFilename(_ value: String) -> String {
+    internal override func sanitizeFilename(_ value: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         return value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }.reduce("") { $0 + String($1) }
     }

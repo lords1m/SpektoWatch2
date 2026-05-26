@@ -120,7 +120,7 @@ final class WatchDSPParityTests: XCTestCase {
         var window = [Float](repeating: 0, count: fftSize)
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_DENORM))
         var realIn = [Float](repeating: 0, count: fftSize)
-        var imagIn = [Float](repeating: 0, count: fftSize)
+        let imagIn = [Float](repeating: 0, count: fftSize)
         var realOut = [Float](repeating: 0, count: fftSize)
         var imagOut = [Float](repeating: 0, count: fftSize)
         vDSP_vmul(samples, 1, window, 1, &realIn, 1, vDSP_Length(fftSize))

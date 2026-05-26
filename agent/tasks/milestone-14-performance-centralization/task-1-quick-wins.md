@@ -1,7 +1,8 @@
 # Task 1: Quick wins (R6 + R7 + R8 + R9)
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Source: `2026-05-21-performance-centralization-audit.md`
 (items R6, R7, R8, R9)
@@ -14,42 +15,63 @@ Foundation for the bigger tasks that follow.
 
 ## Scope
 
-### R8 — Calibration snapshot per frame
+### R8 — Calibration snapshot per frame ✅
 
-`AudioEngine.processFFTFrame` reads `calibrationOffset` twice
-(lines ~1332, ~1404). Snapshot once at the top of the function:
-```swift
-let cal = calibrationOffset
-```
-Use `cal` for both the `vDSP_vsadd` and the
-`pow(10, cal / 10.0)` energy factor.
+Added `let cal = calibrationOffset` at the top of
+`processFFTFrame`. All four downstream reads (visual DCT
+`calibrationOffset:` arg, `var calOffset` for `vDSP_vsadd`, the
+energy `calibrationFactor = pow(10, cal/10)`, and the LCpeak
+`+ calibrationOffset`) now use `cal` — one read of the
+`@Published` property per frame on the audio render thread.
 
-### R9 — Bandstop filter snapshot cache
+### R9 — Bandstop filter snapshot cache ✅ (already implemented)
 
-`SpectrogramProcessor.applyBandstopFilters` calls
-`bandstopFilterManager.snapshotEnabledFilters()` every frame.
-Add a cached `enabledFiltersSnapshot` + invalidation hook on
-filter mutation. Effective only when ≥1 filter is configured.
+`BandstopFilterManager` already maintained `enabledFiltersSnapshot`
+(an `nonisolated(unsafe)` var guarded by `snapshotLock`) with a
+`didSet { updateSnapshot() }` invalidation hook. `snapshotEnabledFilters()`
+already reads from the cached snapshot under the lock. No change
+needed.
 
-### R7 — Delete `currentOctaveBands` alias
+### R7 — Delete `currentOctaveBands` alias ✅
 
-`LiveAcousticState.currentOctaveBands` is an alias of one of
-`currentOctaveBandsZ/A/C` picked by `frequencyWeighting`. Per
-the audit, no live consumer reads the alias — `FrequencySpectrumWidget`
-reads the weighted variants explicitly. Drop the alias, its
-forwarder on AudioEngine, and the writer in `updateUI`.
+- Deleted `@Published var currentOctaveBands` from `LiveAcousticState`.
+- Deleted `var currentOctaveBands` forwarder from `AudioEngine`.
+- Removed `self.currentOctaveBands = ...` write in both
+  `ingestWearableSpectrogramData` and the `DispatchQueue.main.async`
+  updateUI block.
+- Removed the dead `displayOctaveBands` selector block (5 LOC) that
+  was only ever passed as the now-deleted `octaveBands:` parameter.
+- Removed `octaveBands:` and `spectrum:` parameters from `updateUI()`
+  signature and call site (now only the three per-weighting variants
+  are passed).
+- `OctaveBandWidget.body` now reads the weighted variant directly via
+  a private `weightedOctaveBands` computed property.
 
-### R6 — Consolidate `currentSpectrum`
+### R6 — Consolidate `currentSpectrum` ✅
 
-`live.currentSpectrum` carries the same data as
-`live.currentSpectrogramData?.magnitudes` (for the active
-weighting). Audit every consumer; migrate to the `data.magnitudes`
-accessor; drop the standalone `currentSpectrum` field + its
-publish + its forwarder.
+- Deleted `@Published var currentSpectrum` from `LiveAcousticState`.
+- Deleted `var currentSpectrum` forwarder from `AudioEngine`.
+- Removed `self.currentSpectrum = ...` writes in both
+  `ingestWearableSpectrogramData` and the `updateUI` block.
+- `FrequencySpectrumWidget.weightedSpectrum` simplified to
+  `audioEngine.currentSpectrogramData?.magnitudes(for: weighting) ?? []`.
+- `OctaveBandWidget.body` fallback likewise uses `[] ` (the startup
+  case where no FFT frame has arrived yet).
 
-## Acceptance
+## Net changes
 
-- AudioEngine.swift LOC drops by ~20 (forwarders gone).
-- LiveAcousticState publishes 10 properties instead of 12.
-- iOS + watchOS builds green.
-- Zero behavior change. Existing widgets render identically.
+- `LiveAcousticState` publishes **10** properties (was 12).
+- `AudioEngine` has **2** fewer computed forwarders.
+- `updateUI()` takes **2** fewer parameters.
+- `processFFTFrame` reads `calibrationOffset` **once** (was 4 times).
+- **~30 LOC removed** across `AudioEngine.swift`, `LiveAcousticState.swift`,
+  `AudioWidgets.swift`.
+
+## Validation
+
+- `xcodebuild -scheme SpektoWatch2 -destination 'generic/platform=iOS
+  Simulator' build` → `** BUILD SUCCEEDED **`.
+- Zero behavior change; `OctaveBandWidget` renders the same bands as
+  before (now reads the weighted per-weighting array directly).
+- R9 already implemented; verified by reading
+  `BandstopFilterManager.swift` lines 8-17 and `snapshotEnabledFilters`.

@@ -1,5 +1,6 @@
 import XCTest
-@testable import SpektoWatch2
+import os
+@preconcurrency @testable import SpektoWatch2
 
 /// Tests für ToneGenerator - Testet Retain-Cycle Fix und Audio-Generierung
 final class ToneGeneratorTests: XCTestCase {
@@ -203,8 +204,7 @@ final class ToneGeneratorTests: XCTestCase {
     func testConcurrentAccess() {
         let generator = ToneGenerator()
         let expectation = XCTestExpectation(description: "Concurrent access completes")
-        var completedOps = 0
-        let lock = NSLock()
+        let completedOps = OSAllocatedUnfairLock(initialState: 0)
         let totalOps = 200
 
         // Thread 1: Frequenz ändern
@@ -212,10 +212,10 @@ final class ToneGeneratorTests: XCTestCase {
             for i in 0..<50 {
                 generator.frequency = Float(100 + i * 10)
             }
-            lock.lock()
-            completedOps += 50
-            if completedOps == totalOps { expectation.fulfill() }
-            lock.unlock()
+            completedOps.withLock { count in
+                count += 50
+                if count == totalOps { expectation.fulfill() }
+            }
         }
 
         // Thread 2: Amplitude ändern
@@ -223,10 +223,10 @@ final class ToneGeneratorTests: XCTestCase {
             for i in 0..<50 {
                 generator.amplitude = Float(i % 10) / 10.0
             }
-            lock.lock()
-            completedOps += 50
-            if completedOps == totalOps { expectation.fulfill() }
-            lock.unlock()
+            completedOps.withLock { count in
+                count += 50
+                if count == totalOps { expectation.fulfill() }
+            }
         }
 
         // Thread 3: Start/Stop
@@ -235,10 +235,10 @@ final class ToneGeneratorTests: XCTestCase {
                 generator.toggle()
                 Thread.sleep(forTimeInterval: 0.01)
             }
-            lock.lock()
-            completedOps += 50
-            if completedOps == totalOps { expectation.fulfill() }
-            lock.unlock()
+            completedOps.withLock { count in
+                count += 50
+                if count == totalOps { expectation.fulfill() }
+            }
         }
 
         // Thread 4: Wellenform ändern
@@ -247,10 +247,10 @@ final class ToneGeneratorTests: XCTestCase {
                 let waveforms = ToneGenerator.Waveform.allCases
                 generator.waveform = waveforms[i % waveforms.count]
             }
-            lock.lock()
-            completedOps += 50
-            if completedOps == totalOps { expectation.fulfill() }
-            lock.unlock()
+            completedOps.withLock { count in
+                count += 50
+                if count == totalOps { expectation.fulfill() }
+            }
         }
 
         wait(for: [expectation], timeout: 10.0)

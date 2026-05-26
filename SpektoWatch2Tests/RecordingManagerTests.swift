@@ -10,16 +10,15 @@ final class RecordingManagerTests: XCTestCase {
     var connectivityManager: WatchConnectivityManager!
     var audioEngine: AudioEngine!
     
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         recordingManager = RecordingManager()
         filterManager = BandstopFilterManager()
         connectivityManager = WatchConnectivityManager()
         audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
     }
-    
-    override func tearDown() {
-        // Cleanup test recordings
+
+    override func tearDown() async throws {
         if let manager = recordingManager, !manager.recordings.isEmpty {
             let allIndices = IndexSet(integersIn: 0..<manager.recordings.count)
             manager.deleteRecording(at: allIndices)
@@ -28,7 +27,7 @@ final class RecordingManagerTests: XCTestCase {
         connectivityManager = nil
         filterManager = nil
         recordingManager = nil
-        super.tearDown()
+        try await super.tearDown()
     }
     
     // MARK: - Initialization Tests

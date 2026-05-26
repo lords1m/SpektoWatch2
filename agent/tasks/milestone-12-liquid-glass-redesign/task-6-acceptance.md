@@ -1,9 +1,15 @@
 # Task 6: Acceptance
 
-Status: pending
+Status: in_progress
 Created: 2026-05-21
 Milestone: `milestone-12-liquid-glass-redesign`
 Depends on: task-1..5
+
+## Code-side status (2026-05-25)
+
+Handoff report written: `agent/reports/2026-05-25-milestone-12-acceptance.md`.
+All 7 tasks (1–5, 7, 8) confirmed code-complete. The 8 checklist items below
+require hardware on the `redesign/liquid-glass` branch.
 
 ## Goal
 

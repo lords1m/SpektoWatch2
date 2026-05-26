@@ -171,7 +171,7 @@ enum FFTBlockSize: Int, CaseIterable, Identifiable {
 
 /// Handles FFT computation and magnitude conversion
 /// Thread-safe: all access to mutable state is protected by a lock
-class FFTProcessor {
+class FFTProcessor: @unchecked Sendable {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.fft")
     private(set) var fftSize: Int
     private let sampleRate: Double

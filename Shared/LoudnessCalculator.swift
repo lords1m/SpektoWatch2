@@ -11,8 +11,106 @@ import Combine
 
 class LoudnessCalculator: ObservableObject {
     @Published var result: LoudnessResult?
-    
-    // MARK: - ISO 226:2003 Equal-Loudness Contour Data
+
+    // MARK: - Static ISO 226 helpers (audio-thread-safe, no lazy-init allocation)
+
+    /// Dominant frequency (Hz) from an FFT frame.
+    /// Returns the frequency of the highest-magnitude bin, clamped to [20, 12500].
+    static func dominantFrequency(frequencies: [Float], magnitudes: [Float]) -> Double {
+        guard !frequencies.isEmpty, !magnitudes.isEmpty else { return 1000 }
+        let count = min(frequencies.count, magnitudes.count)
+        var bestIdx = 0
+        var bestMag = magnitudes[0]
+        for i in 1..<count where magnitudes[i] > bestMag {
+            bestMag = magnitudes[i]
+            bestIdx = i
+        }
+        return Double(max(20, min(frequencies[bestIdx], 12_500)))
+    }
+
+    /// SPL → Phon conversion (ISO 226:2003).
+    static func phon(spl: Double, frequency: Double) -> Double {
+        if frequency == 1000 { return spl }
+        let fi = nearestStaticFreqIndex(frequency)
+        return staticInterpolatePhon(spl: spl, freqIdx: fi)
+    }
+
+    /// Phon → Sone conversion (Stevens' Power Law, ISO 532).
+    static func sone(phon phonVal: Double) -> Double {
+        let p = max(0.0, phonVal)
+        return p >= 40 ? pow(2.0, (p - 40.0) / 10.0) : pow(p / 40.0, 2.642)
+    }
+
+    // MARK: - Static ISO 226 data (mirrors the instance arrays)
+
+    private static let staticFrequencies: [Double] = [
+        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500,
+        630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000,
+        10000, 12500
+    ]
+    private static let staticAf: [Double] = [
+        0.532, 0.506, 0.480, 0.455, 0.432, 0.409, 0.387, 0.367, 0.349, 0.330,
+        0.315, 0.301, 0.288, 0.276, 0.267, 0.259, 0.253, 0.250, 0.246, 0.244,
+        0.243, 0.243, 0.243, 0.242, 0.242, 0.245, 0.254, 0.271, 0.301
+    ]
+    private static let staticLu: [Double] = [
+        -31.6, -27.2, -23.0, -19.1, -15.9, -13.0, -10.3, -8.1, -6.2, -4.5,
+        -3.1, -2.0, -1.1, -0.4, 0.0, 0.3, 0.5, 0.0, -2.7, -4.1,
+        -1.0, 1.7, 2.5, 1.2, -2.1, -7.1, -11.2, -10.7, -3.1
+    ]
+    private static let staticTf: [Double] = [
+        78.5, 68.7, 59.5, 51.1, 44.0, 37.5, 31.5, 26.5, 22.1, 17.9,
+        14.4, 11.4, 8.6, 6.2, 4.4, 3.0, 2.2, 2.4, 3.5, 1.7,
+        -1.3, -4.2, -6.0, -5.4, -1.5, 6.0, 12.6, 13.9, 12.3
+    ]
+    private static let staticPhonLevels: [Double] = Array(stride(from: 0.0, through: 90.0, by: 10.0))
+
+    /// Precomputed SPL table: `splTable[freqIdx][phonLevelIdx]` = dB SPL.
+    /// Built once at class load time; 29 × 10 doubles, no allocation at use time.
+    private static let splTable: [[Double]] = {
+        staticFrequencies.indices.map { fi in
+            staticPhonLevels.map { phon in
+                let afv = staticAf[fi], luv = staticLu[fi], tfv = staticTf[fi]
+                let term1 = 4.47e-3 * (pow(10.0, 0.025 * phon) - 1.15)
+                let term2Base = 0.4 * pow(10.0, ((tfv + luv) / 10.0) - 9.0)
+                let afVal = term1 + pow(term2Base, afv)
+                return (10.0 / afv) * log10(afVal) - luv + 94.0
+            }
+        }
+    }()
+
+    private static func nearestStaticFreqIndex(_ frequency: Double) -> Int {
+        var best = 0
+        var minDiff = abs(frequency - staticFrequencies[0])
+        for i in 1..<staticFrequencies.count {
+            let d = abs(frequency - staticFrequencies[i])
+            if d < minDiff { minDiff = d; best = i }
+        }
+        return best
+    }
+
+    private static func staticInterpolatePhon(spl: Double, freqIdx: Int) -> Double {
+        let phonRow = splTable[freqIdx]   // SPL values for each phon level
+        let phons = staticPhonLevels
+        for i in 0..<(phons.count - 1) {
+            let lo = phonRow[i], hi = phonRow[i + 1]
+            if spl >= lo && spl <= hi {
+                guard abs(hi - lo) > 1e-9 else { return phons[i] }
+                return phons[i] + (spl - lo) / (hi - lo) * (phons[i + 1] - phons[i])
+            }
+        }
+        // Extrapolation
+        if spl < phonRow[0] {
+            guard abs(phonRow[0]) > 1e-9 else { return phons[0] }
+            return phons[0] * (spl / phonRow[0])
+        } else {
+            let last = phons.count - 1
+            guard abs(phonRow[last]) > 1e-9 else { return phons[last] }
+            return phons[last] * (spl / phonRow[last])
+        }
+    }
+
+    // MARK: - ISO 226:2003 Equal-Loudness Contour Data (instance)
     // Normgerechte Referenzfrequenzen nach ISO 226
     private let isoFrequencies: [Double] = [
         20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500,

@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import Combine
 import CoreMotion
+import os.lock
 
 private enum PhysicalScopeScale {
     // Fixed physical viewport size so the oscilloscope appears equally large on all iPhones.
@@ -41,14 +42,24 @@ private enum PhysicalScopeScale {
 
 // MARK: - Tone Generator Engine
 
-class ToneGenerator: ObservableObject {
+class ToneGenerator: ObservableObject, @unchecked Sendable {
     private var audioEngine: AVAudioEngine?
     private var srcNode: AVAudioSourceNode?
 
     @Published var isPlaying = false
-    @Published var frequency: Float = 1000.0
-    @Published var amplitude: Float = 0.5
-    @Published var waveform: Waveform = .sine
+
+    // @Published properties are written on the main thread and drive SwiftUI.
+    // didSet propagates each change into synthLock so the render callback always
+    // reads a consistent, fresh snapshot without touching @Published storage.
+    @Published var frequency: Float = 1000.0 {
+        didSet { synthLock.withLock { $0.frequency = frequency } }
+    }
+    @Published var amplitude: Float = 0.5 {
+        didSet { synthLock.withLock { $0.amplitude = amplitude } }
+    }
+    @Published var waveform: Waveform = .sine {
+        didSet { synthLock.withLock { $0.waveform = waveform } }
+    }
 
     enum Waveform: String, CaseIterable {
         case sine = "Sinus"
@@ -58,8 +69,19 @@ class ToneGenerator: ObservableObject {
     }
 
     private let sampleRate: Double = 44100.0
-    private var phase: Double = 0.0
-    private let phaseLock = NSLock()
+
+    // All synthesis parameters accessed from the AVAudioSourceNode render
+    // callback are held under OSAllocatedUnfairLock so the render thread
+    // never takes a blocking lock (NSLock was not real-time safe — M11/R1).
+    // withLockUnchecked is used on the render path (no priority-inversion
+    // check needed; the lock is always held briefly).
+    private struct SynthState {
+        var frequency: Float = 1000.0
+        var amplitude: Float = 0.5
+        var waveform: Waveform = .sine
+        var phase: Double = 0.0
+    }
+    private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
 
     init() {}
 
@@ -90,14 +112,14 @@ class ToneGenerator: ObservableObject {
                     return noErr
                 }
 
-                // Snapshot @Published properties under the lock before render loop
-                // to avoid data races with main-thread writes.
-                self.phaseLock.lock()
-                let freq = Double(self.frequency)
-                let amp = Double(self.amplitude)
-                let waveformType = self.waveform
-                var currentPhase = self.phase
-                self.phaseLock.unlock()
+                // Snapshot synthesis state from the lock (non-blocking on the
+                // render thread — OSAllocatedUnfairLock / os_unfair_lock never
+                // sleeps, unlike NSLock which could block the real-time thread).
+                let state = self.synthLock.withLockUnchecked { $0 }
+                let freq = Double(state.frequency)
+                let amp = Double(state.amplitude)
+                let waveformType = state.waveform
+                var currentPhase = state.phase
 
                 let phaseIncrement = 2.0 * .pi * freq / self.sampleRate
 
@@ -124,9 +146,8 @@ class ToneGenerator: ObservableObject {
                     }
                 }
 
-                self.phaseLock.lock()
-                self.phase = currentPhase
-                self.phaseLock.unlock()
+                // Write back the updated phase (non-blocking).
+                self.synthLock.withLockUnchecked { $0.phase = currentPhase }
 
                 return noErr
             }
@@ -148,7 +169,7 @@ class ToneGenerator: ObservableObject {
         srcNode = nil
         audioEngine?.stop()
         audioEngine = nil
-        phase = 0.0
+        synthLock.withLock { $0.phase = 0.0 }
         isPlaying = false
     }
 
@@ -574,6 +595,72 @@ struct OscilloscopeView: View {
     }
 }
 
+// MARK: - Piano Input View
+
+/// Compact one-octave piano keyboard. White keys fill the full width;
+/// black keys overlay at 60 % height. Tapping any key calls `onNoteSelected`.
+private struct PianoInputView: View {
+    let octave: Int
+    let selectedNote: MusicalNote?
+    let onNoteSelected: (MusicalNote) -> Void
+
+    private let whiteNames: [MusicalNote.Name] = [.C, .D, .E, .F, .G, .A, .B]
+    // (index of white key to the left, note name)
+    private let blackKeys: [(Int, MusicalNote.Name)] = [
+        (0, .Cs), (1, .Ds), (3, .Fs), (4, .Gs), (5, .As)
+    ]
+
+    var body: some View {
+        GeometryReader { geo in
+            let spacing: CGFloat = 1
+            let whiteW = (geo.size.width - spacing * 6) / 7
+            let blackW = whiteW * 0.62
+            let blackH = geo.size.height * 0.60
+
+            ZStack(alignment: .topLeading) {
+                // White keys
+                ForEach(0..<7, id: \.self) { i in
+                    let note = MusicalNote(name: whiteNames[i], octave: octave)
+                    let isSelected = selectedNote == note
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(isSelected ? Color.blue.opacity(0.75) : Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5)
+                        )
+                        .overlay(alignment: .bottom) {
+                            if isSelected {
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 6, height: 6)
+                                    .padding(.bottom, 4)
+                            }
+                        }
+                        .frame(width: whiteW, height: geo.size.height)
+                        .offset(x: CGFloat(i) * (whiteW + spacing))
+                        .contentShape(Rectangle())
+                        .onTapGesture { onNoteSelected(note) }
+                }
+
+                // Black keys (drawn on top)
+                ForEach(0..<blackKeys.count, id: \.self) { idx in
+                    let (leftIdx, name) = (blackKeys[idx].0, blackKeys[idx].1)
+                    let note = MusicalNote(name: name, octave: octave)
+                    let isSelected = selectedNote == note
+                    let xPos = CGFloat(leftIdx) * (whiteW + spacing)
+                               + whiteW + spacing / 2 - blackW / 2
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(isSelected ? Color.blue : Color.black)
+                        .frame(width: blackW, height: blackH)
+                        .offset(x: xPos)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onNoteSelected(note) }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Tone Generator Widget View
 
 struct ToneGeneratorWidget: View {
@@ -582,6 +669,39 @@ struct ToneGeneratorWidget: View {
     var settings: [String: String]
     private let outerPadding: CGFloat = 10
     private let minOscilloscopeHeight: CGFloat = 100
+
+    private enum InputMode: String {
+        case hz = "Hz"
+        case piano = "Piano"
+    }
+
+    // Persistence: survive app re-launches, follow the TweaksPanelView raw-value pattern.
+    @AppStorage(PersistenceKeys.ToneGenerator.inputMode)   private var inputModeRaw: String = InputMode.hz.rawValue
+    @AppStorage(PersistenceKeys.ToneGenerator.pianoOctave) private var pianoOctave: Int = 4
+    @AppStorage(PersistenceKeys.ToneGenerator.selectedMidi) private var selectedMidi: Int = -1
+
+    // Runtime-only: restored from selectedMidi on onAppear.
+    @State private var selectedNote: MusicalNote? = nil
+
+    /// Computed access to the typed enum backed by @AppStorage.
+    private var inputMode: InputMode { InputMode(rawValue: inputModeRaw) ?? .hz }
+
+    /// Explicit Binding used by Picker so the set path can run side-effects
+    /// (pre-select nearest note when switching to piano mode).
+    private var inputModeBinding: Binding<InputMode> {
+        Binding(
+            get: { InputMode(rawValue: inputModeRaw) ?? .hz },
+            set: { [self] newMode in
+                inputModeRaw = newMode.rawValue
+                if newMode == .piano {
+                    let nearest = MusicalNote.nearest(to: toneGenerator.frequency)
+                    selectedNote = nearest
+                    selectedMidi = nearest.midiNote
+                    pianoOctave  = nearest.octave
+                }
+            }
+        )
+    }
 
     // Preset frequencies
     private let presetFrequencies: [(String, Float)] = [
@@ -643,47 +763,93 @@ struct ToneGeneratorWidget: View {
                     .foregroundColor(.gray)
             }
 
-            // Frequency Slider
-            VStack(spacing: 4) {
-                Slider(
-                    value: Binding(
-                        get: { log10(toneGenerator.frequency) },
-                        set: { toneGenerator.frequency = pow(10, $0) }
-                    ),
-                    in: log10(20)...log10(20000)
-                )
-                .tint(toneGenerator.isPlaying ? .green : .blue)
-
-                HStack {
-                    Text("20")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Text("20k")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                }
+            // Input mode switch: Hz direct entry  /  Piano keyboard
+            Picker("Eingabemodus", selection: inputModeBinding) {
+                Text("Hz").tag(InputMode.hz)
+                Text("Piano").tag(InputMode.piano)
             }
+            .pickerStyle(.segmented)
 
-            // Preset Buttons
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(presetFrequencies, id: \.1) { preset in
-                        Button(action: {
-                            toneGenerator.frequency = preset.1
-                        }) {
-                            Text(preset.0)
-                                .font(.caption2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    abs(toneGenerator.frequency - preset.1) < 1 ?
-                                    Color.blue : Color.gray.opacity(0.3)
-                                )
-                                .foregroundColor(.white)
-                                .cornerRadius(6)
+            if inputMode == .hz {
+                // Frequency Slider
+                VStack(spacing: 4) {
+                    Slider(
+                        value: Binding(
+                            get: { log10(toneGenerator.frequency) },
+                            set: { toneGenerator.frequency = pow(10, $0) }
+                        ),
+                        in: log10(20)...log10(20000)
+                    )
+                    .tint(toneGenerator.isPlaying ? .green : .blue)
+
+                    HStack {
+                        Text("20")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                        Spacer()
+                        Text("20k")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+
+                // Preset Buttons
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(presetFrequencies, id: \.1) { preset in
+                            Button(action: {
+                                toneGenerator.frequency = preset.1
+                            }) {
+                                Text(preset.0)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        abs(toneGenerator.frequency - preset.1) < 1 ?
+                                        Color.blue : Color.gray.opacity(0.3)
+                                    )
+                                    .foregroundColor(.white)
+                                    .cornerRadius(6)
+                            }
                         }
                     }
+                }
+            } else {
+                // Piano keyboard input
+                VStack(spacing: 6) {
+                    // Octave selector + selected-note label
+                    HStack(spacing: 6) {
+                        Text("Oct")
+                            .font(.caption2.weight(.medium))
+                            .foregroundColor(.secondary)
+                        Text("\(pianoOctave)")
+                            .font(.caption.weight(.bold).monospacedDigit())
+                            .frame(minWidth: 14, alignment: .center)
+                        Stepper("", value: $pianoOctave, in: 0...8)
+                            .labelsHidden()
+                            .onChange(of: pianoOctave) { _, newOctave in
+                                // Clear highlight when the octave changes away from
+                                // the note the user last tapped.
+                                if selectedNote?.octave != newOctave {
+                                    selectedNote = nil
+                                    selectedMidi = -1
+                                }
+                            }
+                        Spacer()
+                        if let note = selectedNote {
+                            Text(note.label)
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                                .foregroundColor(.blue)
+                        }
+                    }
+
+                    // One-octave piano keyboard
+                    PianoInputView(octave: pianoOctave, selectedNote: selectedNote) { note in
+                        selectedNote  = note
+                        selectedMidi  = note.midiNote   // persist across relaunches
+                        toneGenerator.frequency = note.frequency
+                    }
+                    .frame(height: 64)
                 }
             }
 
@@ -730,6 +896,16 @@ struct ToneGeneratorWidget: View {
         .padding(.horizontal, outerPadding)
         .padding(.vertical, outerPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            // Restore the last tapped piano note from its persisted MIDI number.
+            if selectedMidi >= 12 && selectedMidi <= 119 {
+                let octave   = selectedMidi / 12 - 1
+                let semitone = selectedMidi % 12
+                if let name = MusicalNote.Name(rawValue: semitone) {
+                    selectedNote = MusicalNote(name: name, octave: octave)
+                }
+            }
+        }
         .onDisappear {
             toneGenerator.stop()
         }

@@ -1,7 +1,8 @@
 # Task 4: Bark precompute upstream (R2)
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Source: audit R2
 
@@ -41,11 +42,44 @@ Bark precomputed in the AudioEngine pipeline like third-octave.
 
 ## Acceptance
 
-- AudioEngine emits Bark bands when at least one widget needs
-  them. Zero-cost otherwise.
-- `SpectrumBandChartView` Bark-mode Canvas does not aggregate;
-  reads precomputed array.
-- iOS build green; existing Bark widgets render identically.
-- Estimated CPU saving with one Bark widget visible: 0.3-0.5 ms
-  per Canvas redraw → 5-8% of the widget's render budget at
-  15 Hz.
+- [x] `AudioEngine` emits Bark bands when at least one widget needs them;
+  `widgetBarkBandsRequiredLock` is `false` by default → zero-cost.
+- [x] `SpectrumBandChartView` Bark-mode `computeBandData` reads
+  `precomputedBark` when non-empty; falls back to inline only on the
+  first frame before `DashboardViewModel` registers the requirement.
+- [x] `DashboardViewModel.updateWidgetSpectralWeightingRequirements`
+  scans `settings["frequencyBands"]` and calls
+  `setWidgetBarkBandsRequired(true)` when any Bark-mode widget is active.
+- [x] iOS `** BUILD SUCCEEDED **`.
+- [x] watchOS `** BUILD SUCCEEDED **`.
+
+## What landed
+
+### `LiveAcousticState`
+`@Published var currentBarkBandsZ/A/C: [Float] = []` — empty by default;
+populated only when `widgetBarkBandsRequired == true`.
+
+### `AudioEngine`
+- `private let widgetBarkBandsRequiredLock = OSAllocatedUnfairLock<Bool>(initialState: false)`
+- `func setWidgetBarkBandsRequired(_ required: Bool)` — main-thread setter.
+- Forwarding computed properties `currentBarkBandsZ/A/C`.
+- In `processFFTFrame`: reads `needsBark` via lock; if `true`, calls
+  `SpectrumBandAggregator.barkBands(frequencies:spectrum:)` for Z and
+  optionally A/C (empty when weighting not active); otherwise emits
+  three empty arrays.
+- `updateUI` signature gains `barkBandsZ/A/C: [Float]`; assigns on main
+  thread (guarded by `!isEmpty`).
+
+### `DashboardViewModel`
+`updateWidgetSpectralWeightingRequirements` now also scans
+`settings["frequencyBands"]` for each spectral widget. Calls
+`audioEngine.setWidgetBarkBandsRequired(needsBark)` after the existing
+weighting call.
+
+### `AudioWidgets.swift`
+- `FrequencySpectrumWidget` gains `barkBandsForWeighting: [Float]`
+  (picks Z/A/C); passes as `precomputedBark:` to `SpectrumBandChartView`.
+- `SpectrumBandChartView` adds `let precomputedBark: [Float]`; `.bark`
+  case in `computeBandData` uses it when non-empty, falls back inline
+  otherwise.
+- `OctaveBandWidget` passes `precomputedBark: []` (always `.thirdOctave`).

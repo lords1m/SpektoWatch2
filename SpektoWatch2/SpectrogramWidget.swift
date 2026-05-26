@@ -46,6 +46,8 @@ struct SpectrogramWidget: View {
         return Float(raw) ?? 0.0
     }
 
+    var noiseFloor: Float { WidgetSettings.noiseFloorDB(settings) }
+
     var body: some View {
         HighEndSpectrogramAdapterWithAxes(
             audioEngine: audioEngine,
@@ -55,7 +57,8 @@ struct SpectrogramWidget: View {
             isPaused: audioEngine.engineStatus != .running,
             freqWeighting: freqWeighting,
             sensitivity: sensitivity,
-            frequencySmoothing: frequencySmoothing
+            frequencySmoothing: frequencySmoothing,
+            noiseFloor: noiseFloor
         )
         .onAppear {
             print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan), sensitivity: \(sensitivity), override=\(useWidgetOverrides)")

@@ -286,14 +286,28 @@ class SpectrogramProcessor {
         cachedRangeSampleRate = sampleRate
     }
     
+    // IEC 61672 EMA time-weighting on FFT measurement values (dB).
+    //
+    // Pipeline position: runs on binned FFT dB magnitudes; output is stored in
+    // SpectrogramProcessor.Result.bandMagnitudes. Consumers: third-octave bands,
+    // acoustic metrics, recording, and the spectrogram visual fallback path.
+    //
+    // This does NOT feed the live spectrogram texture in normal operation.
+    // HighEndSpectrogramAdapter prefers SpectrogramData.visualMagnitudes (DCT/Mel,
+    // no EMA) over .magnitudes (EMA-smoothed FFT). The Metal shader's Gaussian
+    // blur (HighEndSpectrogramShaders.metal) is a separate display-only pass on
+    // the already-written texture columns — the two smoothing layers operate on
+    // independent data paths and do NOT stack in normal live rendering (R10).
+    //
+    // temporalSmoothingIntensity (0=raw, 1=full IEC weighting) is the user knob
+    // exposed in SpectrogramSettingsView.
     private func temporalSmoothing(currentMagnitudes: [Float], track: SmoothingTrack) -> [Float] {
         guard let previousBandMagnitudes = previousBandMagnitudesByTrack[track],
               previousBandMagnitudes.count == currentMagnitudes.count else {
             previousBandMagnitudesByTrack[track] = currentMagnitudes
             return currentMagnitudes
         }
-        // IEC 61672 exponential time weighting: α = 1 − exp(−dt / τ)
-        // τ = 0.125 s (Fast) or 1.0 s (Slow)
+        // IEC 61672: α = 1 − exp(−dt / τ), τ = 0.125 s (Fast) or 1.0 s (Slow)
         let baseAlpha = 1.0 - exp(-hopDuration / spectrogramTimeWeighting.timeConstant)
         let intensity = max(0.0, min(1.0, temporalSmoothingIntensity))
         var alpha = (1.0 - intensity) + intensity * baseAlpha

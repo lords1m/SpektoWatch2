@@ -89,7 +89,9 @@ class HighEndSpectrogramAdapter: MTKView {
     /// dB SPL -> dBFS Umrechnung mit Runtime-Kalibrierung.
     private var calibrationOffset: Float = 94.0
     var colormapType: Int = 0
-    var noiseFloor: Float = -120.0   // dBFS (standardmäßig effektiv aus)
+    /// Noise-floor in dB SPL. −120 = off. Converted to dBFS at render time via
+    /// calibrationOffset so the floor tracks calibration changes automatically.
+    var noiseFloor: Float = -120.0
     var kneeWidth: Float = 0.0
     var gamma: Float = 1.15
     private var frequencySmoothing: Float = 0.0
@@ -395,7 +397,8 @@ class HighEndSpectrogramAdapter: MTKView {
         let minDBFS = displayMinDBFS
         let maxDBFS = displayMaxDBFS
         let range = maxDBFS - minDBFS
-        let floorDBFS = max(noiseFloor, minDBFS)
+        // noiseFloor is in dB SPL; convert to dBFS using the current calibration.
+        let floorDBFS = max(noiseFloor - calibrationOffset, minDBFS)
         let kw = kneeWidth
         let gam = gamma
 
@@ -697,7 +700,12 @@ class HighEndSpectrogramAdapter: MTKView {
         }
     }
 
-    func setNoiseFloor(_ db: Float) { noiseFloor = db }
+    /// Set the noise floor in dB SPL. Values > −119 activate a 6 dB soft-knee
+    /// transition so the floor boundary fades rather than hard-clips.
+    func setNoiseFloor(_ spl: Float) {
+        noiseFloor = spl
+        kneeWidth = spl > -119 ? 6.0 : 0.0
+    }
     func setKneeWidth(_ width: Float) { kneeWidth = max(0.0, width) }
     func setGamma(_ value: Float) { gamma = max(0.1, min(2.0, value)) }
     func setCalibrationOffset(_ value: Float) { calibrationOffset = value }
@@ -798,6 +806,9 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
     var freqWeighting: String = "Z"
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
+    /// Noise floor in dB SPL. −120 = off. Passed to setNoiseFloor(), which
+    /// auto-enables a 6 dB soft-knee when the floor is active.
+    var noiseFloor: Float = -120.0
     var onAxisMetricsChanged: ((SpectrogramAxisMetrics) -> Void)? = nil
 
     func makeUIView(context: Context) -> HighEndSpectrogramAdapter {
@@ -811,6 +822,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         view.setPaused(isPaused)
         view.setSensitivity(sensitivity)
         view.setFrequencySmoothing(frequencySmoothing)
+        view.setNoiseFloor(noiseFloor)
         view.setCalibrationOffset(audioEngine.calibrationOffset)
         context.coordinator.view = view
         context.coordinator.freqWeighting = freqWeighting
@@ -828,6 +840,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         uiView.setPaused(isPaused)
         uiView.setSensitivity(sensitivity)
         uiView.setFrequencySmoothing(frequencySmoothing)
+        uiView.setNoiseFloor(noiseFloor)
         uiView.setCalibrationOffset(audioEngine.calibrationOffset)
         context.coordinator.freqWeighting = freqWeighting
         context.coordinator.onAxisMetricsChanged = onAxisMetricsChanged
@@ -889,6 +902,7 @@ struct SpectrogramWidgetView: View {
     var freqWeighting: String = "Z"
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
+    var noiseFloor: Float = -120.0
 
     let axisFrequencies: [Double] = [20000, 16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
     let axisWidth: CGFloat = 35
@@ -909,7 +923,7 @@ struct SpectrogramWidgetView: View {
                 .frame(width: axisWidth, height: geometry.size.height)
                 .clipped()
 
-                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, freqWeighting: freqWeighting, sensitivity: sensitivity, frequencySmoothing: frequencySmoothing)
+                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, freqWeighting: freqWeighting, sensitivity: sensitivity, frequencySmoothing: frequencySmoothing, noiseFloor: noiseFloor)
                     .cornerRadius(10)
             }
         }
@@ -941,6 +955,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     var freqWeighting: String = "Z"
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
+    var noiseFloor: Float = -120.0
     let axisWidth: CGFloat = 35
     let axisHeight: CGFloat = 28
     let axisSpacing: CGFloat = 4
@@ -967,6 +982,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
             freqWeighting: freqWeighting,
             sensitivity: sensitivity,
             frequencySmoothing: frequencySmoothing,
+            noiseFloor: noiseFloor,
             onAxisMetricsChanged: { metrics in
                 axisMetrics = metrics
                 axisMetricsReceivedAt = CACurrentMediaTime()

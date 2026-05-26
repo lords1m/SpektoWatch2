@@ -241,14 +241,25 @@ class DashboardViewModel: ObservableObject {
 
     private func updateWidgetSpectralWeightingRequirements(for widgets: [WidgetConfiguration]) {
         var required = Set<FrequencyWeighting>()
+        var needsBark = false
         for widget in widgets where widgetUsesSpectralWeighting(widget) {
-            guard WidgetSettings.usesWidgetOverrides(widget.settings) else { continue }
-            let rawWeighting = (widget.settings["freqWeighting"] ?? "Z").uppercased()
-            if let weighting = FrequencyWeighting(rawValue: rawWeighting) {
-                required.insert(weighting)
+            let useOverrides = WidgetSettings.usesWidgetOverrides(widget.settings)
+            if useOverrides {
+                let rawWeighting = (widget.settings["freqWeighting"] ?? "Z").uppercased()
+                if let weighting = FrequencyWeighting(rawValue: rawWeighting) {
+                    required.insert(weighting)
+                }
+                let bandsRaw = widget.settings["frequencyBands"] ?? WidgetSettings.defaultSpectrumBandMode
+                if SpectrumBandMode(settingValue: bandsRaw) == .bark {
+                    needsBark = true
+                }
+            } else {
+                // No widget override — uses engine default weighting and default band mode.
+                // Default band mode is "terz" (third-octave), never Bark.
             }
         }
         audioEngine.setWidgetSpectralWeightingRequirements(required)
+        audioEngine.setWidgetBarkBandsRequired(needsBark)
     }
 
     private func widgetUsesSpectralWeighting(_ widget: WidgetConfiguration) -> Bool {

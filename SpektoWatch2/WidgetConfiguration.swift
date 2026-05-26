@@ -228,6 +228,18 @@ enum WidgetSettings {
     // / waterfallMaxDB) — kept separate to preserve legacy decoding.
     static let defaultChartYMinDB: Float = 20
     static let defaultChartYMaxDB: Float = 110
+    /// Per-widget noise floor in dB SPL. −120 means off (no suppression).
+    /// Spectrogram: soft-knee gate below the floor. SingleValue: display guard.
+    /// Waterfall: floor is minDB; soft-knee is always on (fixed 6 dB, no key needed).
+    /// Chart widgets: floor is chartYMinDB; no separate key.
+    static let defaultNoiseFloor: Float = -120.0
+
+    static func noiseFloorDB(_ settings: [String: String]) -> Float {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["noiseFloor"],
+              let v = Float(raw) else { return defaultNoiseFloor }
+        return v
+    }
 
     static func chartYMinDB(_ settings: [String: String]) -> Float {
         guard usesWidgetOverrides(settings),

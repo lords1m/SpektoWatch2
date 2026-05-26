@@ -95,7 +95,15 @@ fragment half4 liveSpectrogramFragment(
     float v8 = mix(s8, s9, xFrac);
     float v9 = mix(s9, s10, xFrac);
 
-    // Gaussian kernel σ ≈ 2.0 for smoother blending (10 taps, sum = 1.0)
+    // Gaussian kernel σ ≈ 2.0 for smoother blending (10 taps, sum = 1.0).
+    //
+    // Display-only: operates on already-normalized [0,1] DCT/Mel values that
+    // were written into the ring texture by HighEndSpectrogramAdapter. This blur
+    // is a visual anti-aliasing pass so discrete column writes are imperceptible
+    // at varying scroll speeds — it is NOT a duplicate of SpectrogramProcessor's
+    // IEC 61672 EMA (which runs on FFT dB values and does not feed this texture
+    // in normal live operation). The two smoothing stages work on independent
+    // data paths (R10: intentional parallel pipelines, not a stack).
     float t = v0 * 0.01 + v1 * 0.03 + v2 * 0.07 + v3 * 0.12 + v4 * 0.18
             + v5 * 0.18 + v6 * 0.18 + v7 * 0.12 + v8 * 0.07 + v9 * 0.04;
 

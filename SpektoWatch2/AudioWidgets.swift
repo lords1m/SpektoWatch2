@@ -19,7 +19,14 @@ enum SpectrumBandMode: String, CaseIterable {
 // MARK: - Frequency Spectrum Widget
 struct FrequencySpectrumWidget: View {
     @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject private var live: LiveAcousticState
     var settings: [String: String]
+
+    init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
+        self.audioEngine = audioEngine
+        self._live = ObservedObject(wrappedValue: audioEngine.live)
+        self.settings = settings
+    }
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     private var weighting: String {
@@ -34,18 +41,29 @@ struct FrequencySpectrumWidget: View {
         }
         return SpectrumBandMode(settingValue: WidgetSettings.defaultSpectrumBandMode)
     }
-    private var frequencies: [Float] { audioEngine.currentSpectrogramData?.frequencies ?? [] }
+    private var frequencies: [Float] { live.currentSpectrogramData?.frequencies ?? [] }
     private var weightedSpectrum: [Float] {
-        guard let data = audioEngine.currentSpectrogramData else {
-            return audioEngine.currentSpectrum
-        }
-        return data.magnitudes(for: weighting)
+        live.currentSpectrogramData?.magnitudes(for: weighting) ?? []
     }
     private var weightedThirdOctaveBands: [Float] {
         switch weighting.uppercased() {
-        case "A": return audioEngine.currentOctaveBandsA
-        case "C": return audioEngine.currentOctaveBandsC
-        default: return audioEngine.currentOctaveBandsZ
+        case "A": return live.currentOctaveBandsA
+        case "C": return live.currentOctaveBandsC
+        default: return live.currentOctaveBandsZ
+        }
+    }
+    private var bandLeqForWeighting: [Float] {
+        switch weighting.uppercased() {
+        case "A": return live.bandLeqA
+        case "C": return live.bandLeqC
+        default: return live.bandLeqZ
+        }
+    }
+    private var barkBandsForWeighting: [Float] {
+        switch weighting.uppercased() {
+        case "A": return live.currentBarkBandsA
+        case "C": return live.currentBarkBandsC
+        default: return live.currentBarkBandsZ
         }
     }
 
@@ -55,6 +73,8 @@ struct FrequencySpectrumWidget: View {
             frequencies: frequencies,
             spectrum: weightedSpectrum,
             precomputedThirdOctave: weightedThirdOctaveBands,
+            precomputedBark: barkBandsForWeighting,
+            leqThirds: bandLeqForWeighting,
             weightingLabel: weighting,
             yMinDB: Double(WidgetSettings.chartYMinDB(settings)),
             yMaxDB: Double(WidgetSettings.chartYMaxDB(settings))
@@ -77,20 +97,25 @@ private struct SpectrumBandChartView: View {
     let frequencies: [Float]
     let spectrum: [Float]
     let precomputedThirdOctave: [Float]
+    /// Pre-aggregated Bark bands (24 critical bands) from `AudioEngine`.
+    /// Empty when the engine has not been asked to compute Bark (zero widgets
+    /// in Bark mode). Falls back to inline aggregation when empty.
+    let precomputedBark: [Float]
+    /// Pre-smoothed per-band Leq values (31 third-octave, dB).
+    /// Computed by `AcousticMetricsCalculator`; this view reads them directly.
+    let leqThirds: [Float]
     let weightingLabel: String
     var yMinDB: Double = 20
     var yMaxDB: Double = 110
 
-    @State private var leqValues: [Float] = []
-    @State private var sampleCount: Int = 0
     @State private var diagnosticsCounter: Int = 0
-    private let leqAlpha: Float = 0.02
     private let enableWidgetDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_WIDGET_SPECTRUM"] == "1"
 
     var body: some View {
         Canvas { context, size in
             let bandData = computeBandData(mode: mode, frequencies: frequencies, spectrum: spectrum)
             let bands = bandData.values
+            let leqValues = computeLeqBandData(mode: mode, leqThirds: leqThirds)
             let width = size.width
             let height = size.height
 
@@ -184,42 +209,31 @@ private struct SpectrumBandChartView: View {
         }
         .drawingGroup()
         .onAppear {
-            resetLeq()
             let bandData = computeBandData(mode: mode, frequencies: frequencies, spectrum: spectrum)
-            updateLeq(with: bandData.values)
             logBandDiagnosticsIfNeeded(bandData)
-        }
-        .onChange(of: mode) { _, _ in
-            resetLeq()
         }
         .onChange(of: spectrum) { _, newSpectrum in
             let bandData = computeBandData(mode: mode, frequencies: frequencies, spectrum: newSpectrum)
-            updateLeq(with: bandData.values)
             logBandDiagnosticsIfNeeded(bandData)
         }
     }
 
-    private func resetLeq() {
-        leqValues = []
-        sampleCount = 0
-    }
-
-    private func updateLeq(with bands: [Float]) {
-        guard !bands.isEmpty else { return }
-        if leqValues.count != bands.count {
-            leqValues = [Float](repeating: -120.0, count: bands.count)
-            sampleCount = 0
-        }
-        sampleCount += 1
-        for i in 0..<bands.count {
-            if sampleCount == 1 {
-                leqValues[i] = bands[i]
-            } else {
-                let currentLinear = pow(10, bands[i] / 10.0)
-                let leqLinear = pow(10, leqValues[i] / 10.0)
-                let newLeqLinear = leqLinear * (1 - leqAlpha) + currentLinear * leqAlpha
-                leqValues[i] = 10 * log10(max(newLeqLinear, 1e-10))
-            }
+    /// Returns the mode-appropriate Leq band values from the pre-smoothed
+    /// third-octave Leq array produced by `AcousticMetricsCalculator`.
+    ///
+    /// - For `.thirdOctave`: returns `leqThirds` directly (31 values).
+    /// - For `.octave`: aggregates the 31 thirds into 10 octave bands using
+    ///   power-sum, matching `SpectrumBandAggregator.octaveBands(fromThirds:)`.
+    /// - For `.bark`: returns `[]` (no Leq overlay in bark mode).
+    private func computeLeqBandData(mode: SpectrumBandMode, leqThirds: [Float]) -> [Float] {
+        guard leqThirds.count == SpectrumBandAggregator.thirdOctaveCenters.count else { return [] }
+        switch mode {
+        case .thirdOctave:
+            return leqThirds
+        case .octave:
+            return SpectrumBandAggregator.octaveBands(frequencies: [], spectrum: [], fromThirds: leqThirds)
+        case .bark:
+            return []
         }
     }
 
@@ -255,7 +269,13 @@ private struct SpectrumBandChartView: View {
             )
 
         case .bark:
-            let values = SpectrumBandAggregator.barkBands(frequencies: frequencies, spectrum: spectrum)
+            // Prefer precomputed Bark bands from the AudioEngine pipeline (zero
+            // extra work per Canvas redraw). Fall back to inline aggregation only
+            // if the engine hasn't been asked to precompute them (e.g. during the
+            // first frame before DashboardViewModel registers the requirement).
+            let values = precomputedBark.isEmpty
+                ? SpectrumBandAggregator.barkBands(frequencies: frequencies, spectrum: spectrum)
+                : precomputedBark
             return SpectrumBandData(
                 values: values,
                 labels: (1...24).map(String.init),
@@ -285,9 +305,17 @@ private struct SpectrumBandChartView: View {
 }
 
 // MARK: - Level Meter Widget
+/// M13 task-4 Phase 2 pilot: observes `LiveAcousticState` directly so re-renders
+/// are driven by live data ticks only. `audioEngine` is not retained after init —
+/// no re-renders from engine settings / status changes.
 struct LevelMeterWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject private var live: LiveAcousticState
     var settings: [String: String] = [:]
+
+    init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
+        self._live = ObservedObject(wrappedValue: audioEngine.live)
+        self.settings = settings
+    }
 
     private var yMinDB: Float { WidgetSettings.chartYMinDB(settings) }
     private var yMaxDB: Float { WidgetSettings.chartYMaxDB(settings) }
@@ -308,7 +336,7 @@ struct LevelMeterWidget: View {
                     .fill(Color.gray.opacity(0.2))
 
                 // Level Bar
-                let level = audioEngine.currentLevel // dB SPL (kalibriert)
+                let level = live.currentLevel // dB SPL (kalibriert)
                 let minDB: Float = yMinDB
                 let maxDB: Float = max(yMaxDB, yMinDB + 5)
                 let norm = CGFloat((level - minDB) / (maxDB - minDB))
@@ -320,7 +348,7 @@ struct LevelMeterWidget: View {
                     .animation(.easeOut(duration: 0.15), value: clamped)
 
                 // Peak Hold (simplified)
-                let peak = audioEngine.currentPeakLevel
+                let peak = live.currentPeakLevel
                 let peakNorm = CGFloat((peak - minDB) / (maxDB - minDB))
                 let peakClamped = max(0, min(1, peakNorm))
 
@@ -353,15 +381,32 @@ struct LevelMeterWidget: View {
 struct OctaveBandWidget: View {
     @ObservedObject var audioEngine: AudioEngine
 
+    private var weightedOctaveBands: [Float] {
+        switch audioEngine.frequencyWeighting {
+        case .a: return audioEngine.currentOctaveBandsA
+        case .c: return audioEngine.currentOctaveBandsC
+        case .z: return audioEngine.currentOctaveBandsZ
+        }
+    }
+    private var bandLeqForWeighting: [Float] {
+        switch audioEngine.frequencyWeighting {
+        case .a: return audioEngine.bandLeqA
+        case .c: return audioEngine.bandLeqC
+        case .z: return audioEngine.bandLeqZ
+        }
+    }
+
     var body: some View {
         let weighting = audioEngine.frequencyWeighting.rawValue
         let frequencies = audioEngine.currentSpectrogramData?.frequencies ?? []
-        let spectrum = audioEngine.currentSpectrogramData?.magnitudes(for: weighting) ?? audioEngine.currentSpectrum
+        let spectrum = audioEngine.currentSpectrogramData?.magnitudes(for: weighting) ?? []
         SpectrumBandChartView(
             mode: .thirdOctave,
             frequencies: frequencies,
             spectrum: spectrum,
-            precomputedThirdOctave: audioEngine.currentOctaveBands,
+            precomputedThirdOctave: weightedOctaveBands,
+            precomputedBark: [],  // OctaveBandWidget always uses .thirdOctave
+            leqThirds: bandLeqForWeighting,
             weightingLabel: weighting
         )
         .onAppear {

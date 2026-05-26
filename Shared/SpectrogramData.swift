@@ -41,13 +41,25 @@ public struct SpectrogramData: Codable {
         self.sampleRate = sampleRate
     }
 
-    /// Gibt die Magnituden für die gewählte Bewertungskurve zurück
+    /// Gibt die Magnituden für die gewählte Bewertungskurve zurück.
+    /// Falls back to Z (unweighted) when the requested weighting array is nil.
+    /// In DEBUG builds, logs a warning when fallback occurs — a fallback during
+    /// live rendering means the widget's weighting requirement was not registered
+    /// in `widgetSpectralWeightingRequirements` before the frame arrived (R5).
     public func magnitudes(for weighting: String) -> [Float] {
         switch weighting.uppercased() {
         case "A":
-            return magnitudesA ?? magnitudes
+            if let a = magnitudesA { return a }
+            #if DEBUG
+            print("[SpectrogramData] magnitudes(for:\"A\") fallback to Z — A-weighting not computed this frame (R5: check widgetSpectralWeightingRequirements)")
+            #endif
+            return magnitudes
         case "C":
-            return magnitudesC ?? magnitudes
+            if let c = magnitudesC { return c }
+            #if DEBUG
+            print("[SpectrogramData] magnitudes(for:\"C\") fallback to Z — C-weighting not computed this frame (R5: check widgetSpectralWeightingRequirements)")
+            #endif
+            return magnitudes
         default: // "Z" oder andere
             return magnitudes
         }

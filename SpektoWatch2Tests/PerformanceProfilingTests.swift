@@ -3,6 +3,7 @@ import MetalKit
 import Combine
 import SwiftUI
 import UIKit
+import os
 @testable @preconcurrency import SpektoWatch2
 
 // MARK: - Pipeline Overview
@@ -323,9 +324,12 @@ final class PerformanceProfilingTests: XCTestCase {
         let frequencies: [Float] = (0..<binCount).map { Float($0) * 22050.0 / Float(max(1, binCount - 1)) }
         let levelKeys = ["LAF", "LAS", "LCF", "LCS", "LZF", "LZS", "LAeq", "LAFmin", "LAFmax", "LAF5", "LAF95", "LAFT5", "LAFTeq", "LCpeak"]
 
-        var phase: Float = 0
+        let phaseLock = OSAllocatedUnfairLock(initialState: Float(0))
         let updateTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
-            phase += 0.045
+            let phase = phaseLock.withLock { p -> Float in
+                p += 0.045
+                return p
+            }
             var magnitudes = [Float](repeating: -90.0, count: binCount)
             for i in 0..<binCount {
                 let x = Float(i) / Float(binCount)

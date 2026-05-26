@@ -15,6 +15,37 @@ struct WidgetSettingsView: View {
         _useWidgetOverrides = State(initialValue: WidgetSettings.usesWidgetOverrides(widget.settings))
     }
 
+    /// Shared noise-floor editor. Appears in widgets that support per-widget
+    /// floor suppression (Spektrogramm: soft-knee gate; SingleValue: display guard).
+    /// The waterfall's floor is its minDB stepper; chart widgets use chartYMinDB.
+    @ViewBuilder
+    private var noiseFloorSection: some View {
+        let raw = Float(settings["noiseFloor"] ?? "-120") ?? -120.0
+        let isActive = raw > -119
+        Section(header: Text("Grundrauschen")) {
+            Toggle("Untergrenze aktivieren", isOn: Binding(
+                get: { isActive },
+                set: { on in settings["noiseFloor"] = on ? "30" : "-120" }
+            ))
+            if isActive {
+                Stepper(
+                    "Schwelle: \(Int(raw)) dB SPL",
+                    value: Binding(
+                        get: { Int(raw) },
+                        set: { settings["noiseFloor"] = String($0) }
+                    ),
+                    in: 0...90,
+                    step: 5
+                )
+                Text(widget.type == .singleValue
+                     ? "Werte unter der Schwelle werden ausgeblendet (zeigt –)."
+                     : "Signale unterhalb der Schwelle werden weich ausgeblendet (6 dB Übergang).")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
     /// Shared Y-axis bound editor (dB SPL). Reuses the `chartYMinDB` /
     /// `chartYMaxDB` setting keys defined in `WidgetSettings`.
     @ViewBuilder
@@ -152,6 +183,9 @@ struct WidgetSettingsView: View {
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    noiseFloorSection
+                        .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .waterfall {
                     Section(header: Text("Wasserfall Einstellungen")) {
                         Picker("Frequenzbewertung", selection: Binding(
@@ -294,6 +328,9 @@ struct WidgetSettingsView: View {
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    noiseFloorSection
+                        .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else {
                     Text("Keine Einstellungen verfügbar für diesen Widget-Typ.")
                 }

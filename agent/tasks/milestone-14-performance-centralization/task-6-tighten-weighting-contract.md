@@ -1,7 +1,8 @@
 # Task 6: Tighten weighting contract (R5)
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Source: audit R5
 
@@ -53,3 +54,38 @@ Optional API change ripples through ~10 call sites (spectrum,
 waterfall, level history, watch widgets). If the optional path
 is taken, do it in one pass and verify each consumer's nil
 branch.
+
+## What landed
+
+### `Shared/SpectrogramData.swift`
+`magnitudes(for:)` now has an explicit `if let` branch for A and C
+before falling back to Z. When the weighting array is nil, a
+`#if DEBUG` print fires:
+```
+[SpectrogramData] magnitudes(for:"A") fallback to Z — A-weighting not computed this frame (R5: check widgetSpectralWeightingRequirements)
+```
+This will surface any missed `widgetSpectralWeightingRequirements`
+registrations during development without changing the public API or
+adding any overhead in Release builds.
+
+### Settings-change path verification
+`WidgetSettingsView` → `dashboardManager.updateWidgetSettings(id:settings:)`
+→ `@Published var widgets` → `DashboardViewModel` Combine sink →
+`updateWidgetSpectralWeightingRequirements`. Path is synchronous on the
+main actor. No missed call sites found.
+
+### Optional API change
+Binding decision: **not taken**. Changing return type to `[Float]?`
+would produce `[Float]??` at every call site that chains optional on
+`currentSpectrogramData?` (e.g. `audioEngine.currentSpectrogramData?.magnitudes(for:)`)
+— double-optional requires structural changes across 5 files. The
+`#if DEBUG` log achieves the safety-net goal without the ripple.
+
+## Acceptance
+
+- [x] All widget settings paths that change `freqWeighting` go through
+  `dashboardManager.updateWidgetSettings` → Combine sink → weighting registration
+  (verified: only path in `WidgetSettingsView.onSave`).
+- [x] `#if DEBUG` log fires when A/C fallback would occur (surfacing
+  missed registrations in development).
+- [x] iOS `** BUILD SUCCEEDED **`.

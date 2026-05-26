@@ -3,7 +3,6 @@ import SwiftUI
 struct LevelHistoryWidget: View {
     @ObservedObject var audioEngine: AudioEngine
     var settings: [String: String]
-    @StateObject private var loudnessCalculator = LoudnessCalculator()
     @State private var phonValue: Double?
     @State private var soneValue: Double?
 
@@ -80,39 +79,12 @@ struct LevelHistoryWidget: View {
     }
 
     private func updateLoudness(from data: SpectrogramData) {
-        guard !data.frequencies.isEmpty, !data.magnitudes.isEmpty else {
+        if let p = data.levels["PHON"], let s = data.levels["SONE"] {
+            phonValue = Double(p)
+            soneValue = Double(s)
+        } else {
             phonValue = nil
             soneValue = nil
-            return
         }
-
-        let safeCount = min(data.frequencies.count, data.magnitudes.count)
-        guard safeCount > 0 else {
-            phonValue = nil
-            soneValue = nil
-            return
-        }
-
-        var dominantIndex = 0
-        var dominantMagnitude = data.magnitudes[0]
-        for i in 1..<safeCount {
-            if data.magnitudes[i] > dominantMagnitude {
-                dominantMagnitude = data.magnitudes[i]
-                dominantIndex = i
-            }
-        }
-
-        let dominantFrequency = max(20.0, min(12500.0, Double(data.frequencies[dominantIndex])))
-        let spl = Double(data.levels["LAF"] ?? data.broadbandLevel)
-        loudnessCalculator.calculate(spl: spl, frequency: dominantFrequency)
-
-        guard let result = loudnessCalculator.result else {
-            phonValue = nil
-            soneValue = nil
-            return
-        }
-
-        phonValue = result.phon
-        soneValue = result.sone
     }
 }

@@ -128,3 +128,48 @@ soaks on hardware.
 
 Task stays in_progress until Phase 2 + hardware verification close
 the remaining checkboxes.
+
+## Phase 2 progress (2026-05-25)
+
+### Pilot migration: `LevelMeterWidget`
+
+`LevelMeterWidget` (AudioWidgets.swift) is the first full Phase-2 migration:
+- `@ObservedObject var audioEngine: AudioEngine` **removed** entirely.
+- `@ObservedObject private var live: LiveAcousticState` added.
+- Custom `init(audioEngine:settings:)` initialises `_live` from `audioEngine.live`
+  so the call site `LevelMeterWidget(audioEngine: audioEngine, settings: ...)` is
+  unchanged.
+- `audioEngine.currentLevel` → `live.currentLevel`;
+  `audioEngine.currentPeakLevel` → `live.currentPeakLevel`.
+
+### Migration: `FrequencySpectrumWidget` (2026-05-25)
+
+`FrequencySpectrumWidget` (AudioWidgets.swift) — second Phase-2 migration:
+- `@ObservedObject var audioEngine: AudioEngine` **kept** (needed for
+  `audioEngine.frequencyWeighting.rawValue`, a non-live setting).
+- `@ObservedObject private var live: LiveAcousticState` added.
+- Custom `init(audioEngine:settings:)` initialises `_live` from `audioEngine.live`;
+  call site `FrequencySpectrumWidget(audioEngine: audioEngine, settings: ...)` unchanged.
+- Live reads migrated: `audioEngine.currentSpectrogramData` → `live.currentSpectrogramData`;
+  `audioEngine.currentOctaveBandsA/C/Z` → `live.currentOctaveBandsA/C/Z`;
+  `audioEngine.bandLeqA/C/Z` → `live.bandLeqA/C/Z`;
+  `audioEngine.currentBarkBandsA/C/Z` → `live.currentBarkBandsA/C/Z`.
+
+Note: `OctaveBandWidget` (also in AudioWidgets.swift) is dead code — both
+`.frequencyDisplay` and `.octaveBands` widget types route to `FrequencySpectrumWidget`
+in WidgetCardView. Skipped.
+
+### Remaining Phase-2 widget migrations (not yet landed)
+
+| Widget | Live reads | Complexity |
+|--------|-----------|------------|
+| `LAFGraphView` / `LAFGraphWidget` | currentSpectrogramData (via onReceive on `live.$`) | Already correct — no change needed |
+| `SingleValueWidget` | currentSpectrogramData (via onReceive on `live.$`) | Already correct — no change needed |
+| `WaterfallView` | currentSpectrogramData via spectrogramSubject | Medium |
+| `SpectrogramWidget` → `HighEndSpectrogramAdapterView` | spectrogramSubject (UIKit bridge) | High — deferred |
+| `PhaseMeterWidget` | currentStereoPhase, isStereoActive | N/A — deactivated |
+
+Bridge deletion milestone: once WaterfallView + SpectrogramWidget are migrated (or
+LAFGraph/SingleValue confirmed needing no change), remove `liveBridge` from
+`AudioEngine` and delete the 12 computed forwarders (~74 LOC). AudioEngine
+drops to its target ≤ 1680 LOC.

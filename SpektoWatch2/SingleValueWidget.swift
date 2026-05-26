@@ -4,8 +4,6 @@ struct SingleValueWidget: View {
     @ObservedObject var audioEngine: AudioEngine
     @Environment(\.designNumerals) private var numerals
     var settings: [String: String]
-    @StateObject private var loudnessCalculator = LoudnessCalculator()
-    
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     var metricKey: String {
         if useWidgetOverrides {
@@ -107,53 +105,17 @@ struct SingleValueWidget: View {
                 self.value = nil
                 return
             }
-            if metricKey == "PHON" || metricKey == "SONE" {
-                updateLoudnessValue(from: data)
-            } else {
-                self.value = data.levels[metricKey] ?? 0.0
-            }
+            // PHON and SONE are now populated by AcousticMetricsCalculator,
+            // so all metrics including loudness use the same levels dict path.
+            let raw = data.levels[metricKey] ?? 0.0
+            let floor = WidgetSettings.noiseFloorDB(settings)
+            // Suppress display when the signal is at or below the noise floor.
+            self.value = (floor > -119 && raw <= floor) ? nil : raw
         }
         .onReceive(audioEngine.$engineStatus) { status in
             if status != .running {
                 self.value = nil
             }
-        }
-    }
-
-    private func updateLoudnessValue(from data: SpectrogramData) {
-        guard !data.frequencies.isEmpty, !data.magnitudes.isEmpty else {
-            value = nil
-            return
-        }
-
-        let safeCount = min(data.frequencies.count, data.magnitudes.count)
-        guard safeCount > 0 else {
-            value = nil
-            return
-        }
-
-        var dominantIndex = 0
-        var dominantMagnitude = data.magnitudes[0]
-        for i in 1..<safeCount {
-            if data.magnitudes[i] > dominantMagnitude {
-                dominantMagnitude = data.magnitudes[i]
-                dominantIndex = i
-            }
-        }
-
-        let dominantFrequency = max(20.0, min(12500.0, Double(data.frequencies[dominantIndex])))
-        let spl = Double(data.levels["LAF"] ?? data.broadbandLevel)
-        loudnessCalculator.calculate(spl: spl, frequency: dominantFrequency)
-
-        guard let result = loudnessCalculator.result else {
-            value = nil
-            return
-        }
-
-        if metricKey == "PHON" {
-            value = Float(result.phon)
-        } else {
-            value = Float(result.sone)
         }
     }
 }

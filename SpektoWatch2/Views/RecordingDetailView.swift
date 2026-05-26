@@ -21,14 +21,16 @@ struct RecordingDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var recordingManager: RecordingManager
+    // Main shared AudioEngine — used for playback via PlaybackAnalyzer (M14/R1).
+    // The second @StateObject vizAudioEngine was removed: constructing a new
+    // AudioEngine per detail view allocated a full second DSP pipeline including
+    // WatchConnectivityManager, BandstopFilterManager, and all @Published state.
+    @EnvironmentObject private var audioEngine: AudioEngine
 
     @State private var recording: Recording
     @State private var selectedTab: DetailTab = .overview
     @StateObject private var audioPlayer = AudioPlayerManager()
-    @StateObject private var vizAudioEngine = AudioEngine(
-        filterManager: BandstopFilterManager(),
-        connectivityManager: WatchConnectivityManager()
-    )
+    @StateObject private var playbackAnalyzer = PlaybackAnalyzer()
     @StateObject private var playbackFFTConfig = FFTConfiguration()
 
     @State private var isDraggingSlider = false
@@ -158,20 +160,18 @@ struct RecordingDetailView: View {
             reloadRecordingState()
             let audioURL = recordingManager.url(for: recording)
             audioPlayer.loadAudio(url: audioURL)
-            audioPlayer.onAudioSamples = { samples in
-                vizAudioEngine.processExternalAudio(samples, sampleRate: recording.sampleRate)
+
+            // PlaybackAnalyzer suspends the live mic engine and routes
+            // playback samples through the shared pipeline (M14/R1).
+            playbackAnalyzer.start(engine: audioEngine, recording: recording)
+            audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples in
+                playbackAnalyzer?.processSamples(samples, sampleRate: recording.sampleRate)
             }
-            vizAudioEngine.calibrationOffset = recording.calibrationOffset
             if let weighting = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
-                vizAudioEngine.setFrequencyWeighting(weighting)
                 playbackWeighting = weighting
-            }
-            if let timeWeighting = TimeWeighting(rawValue: recording.timeWeighting) {
-                vizAudioEngine.setTimeWeighting(timeWeighting)
             }
             if let blockSize = FFTBlockSize(rawValue: recording.fftBlockSize) {
                 playbackFFTConfig.blockSize = blockSize
-                vizAudioEngine.setBlockSize(blockSize)
             }
             analysisEndTime = max(audioPlayer.duration, recording.duration)
             loadPlaybackWidgets()
@@ -179,6 +179,8 @@ struct RecordingDetailView: View {
         }
         .onDisappear {
             audioPlayer.stop()
+            // Restore main engine settings and resume live mic capture.
+            playbackAnalyzer.stop()
             storedDataProvider?.pause()
             spectrogramLoadTask?.cancel()
             spectrogramLoadTask = nil
@@ -355,7 +357,7 @@ struct RecordingDetailView: View {
                 .frame(height: 280)
                 .cornerRadius(12)
             } else {
-                HighEndSpectrogramAdapterWithAxes(audioEngine: vizAudioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
+                HighEndSpectrogramAdapterWithAxes(audioEngine: audioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
                     .frame(height: 280)
                     .cornerRadius(12)
             }
@@ -509,7 +511,7 @@ struct RecordingDetailView: View {
                 ForEach(widgets) { widget in
                     WidgetCardView(
                         widget: widget,
-                        audioEngine: vizAudioEngine,
+                        audioEngine: audioEngine,
                         fftConfig: playbackFFTConfig,
                         isEditMode: false,
                         columnWidth: 160,
@@ -1232,11 +1234,12 @@ struct RecordingDetailView: View {
                 )
             }
             if Task.isCancelled { return }
+            let snapshot = weightedHistory
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                weightedSpectrogramCache[weighting] = weightedHistory
+                weightedSpectrogramCache[weighting] = snapshot
                 if playbackWeighting == weighting {
-                    spectrogramHistory = weightedHistory
+                    spectrogramHistory = snapshot
                 }
             }
         }

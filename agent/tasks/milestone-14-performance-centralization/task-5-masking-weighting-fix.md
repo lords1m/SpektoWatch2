@@ -1,7 +1,8 @@
 # Task 5: Masking receives Z bands (R11)
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Source: audit R11
 
@@ -45,8 +46,22 @@ behaviour shifts noticeably. Latent bug.
 
 ## Acceptance
 
-- Toggle frequency weighting in the iOS UI; masking ambient
-  model and novelty score stay invariant (no calibration drift).
-- iOS build green.
-- Re-run M9 task-10 (masking) hardware checks for the
-  trigger-fires-at-threshold item.
+- [x] `AudioEngine.onBandsUpdated` always passes `octaveBandsZ` (verified
+  at both call sites: `ingestWearableSpectrogramData` line ~1300,
+  `updateUI` line ~1866). Bug was already resolved as a side effect of
+  M14 task-1 removing the `displayOctaveBands` active-weighting selector.
+- [x] `requiredSpectralWeightingsForCurrentFrame()` always includes `.z`
+  (confirmed — it's in the initial `[.z, frequencyWeighting]` set).
+- [x] Contract documented in `MaskingEngine.wireAudioEngine`: "always
+  Z-weighted; do not change to active-weighting array (R11)."
+- [x] iOS `** BUILD SUCCEEDED **`.
+- [ ] Hardware: toggle A/C weighting → masking novelty score invariant
+  (deferred to M9 task-10 hardware pass).
+
+## Verification reversal note
+
+The audit traced the bug to a `displayOctaveBands` selector that picked
+Z/A/C based on `frequencyWeighting`. That selector was removed in M14
+task-1 ("quick wins"), which dropped the `currentOctaveBands` alias and
+the `displayOctaveBands` switch block. Both `onBandsUpdated` call sites
+now hardcode `octaveBandsZ` — the bug no longer exists in code.

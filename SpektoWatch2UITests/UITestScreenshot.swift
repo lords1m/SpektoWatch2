@@ -9,14 +9,14 @@ extension XCTestCase {
     /// The attachment name encodes device + iOS version so multi-device Xcode
     /// Cloud matrix runs produce distinguishable artifacts.
     func capture(
-        _ name: String,
+        _ screenshotName: String,
         file: StaticString = #file,
         line: UInt = #line
     ) {
         settle()
 
         let screenshot = XCUIScreen.main.screenshot()
-        let qualifiedName = "\(deviceTag())-\(name)"
+        let qualifiedName = "\(deviceTag())-\(screenshotName)"
 
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = qualifiedName
@@ -25,7 +25,7 @@ extension XCTestCase {
 
         // Sidecar PNG for capture-screenshots.py extraction.
         let testClass = String(describing: type(of: self))
-        let testName = name(withPrefix: false)
+        let testName = self.name
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("UITestScreenshots", isDirectory: true)
             .appendingPathComponent(sanitizeFilename(testClass), isDirectory: true)
@@ -74,7 +74,7 @@ extension XCTestCase {
 
     /// Override to automatically capture a screenshot on test failure so every
     /// failed run ships with its visual context in the xcresult bundle.
-    override func tearDown() {
+    open override func tearDown() {
         if let run = testRun, !run.hasSucceeded {
             XCTContext.runActivity(named: "Failure screenshot") { _ in
                 let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

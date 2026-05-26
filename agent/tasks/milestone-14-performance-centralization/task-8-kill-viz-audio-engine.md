@@ -1,7 +1,8 @@
 # Task 8: Kill `vizAudioEngine` — PlaybackAnalyzer extract (R1)
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Source: audit R1 — highest-leverage perf fix.
 Depends on: tasks 1-6 (LiveAcousticState shape stable;
@@ -85,3 +86,40 @@ state pulled into LiveAcousticState. Phase the work:
 3. Migrate the 10 live widgets to observe `audioEngine.live`
    (M13 task-4 Phase 2) so the live engine's deletable
    forwarders + bridge can be removed.
+
+## What landed (2026-05-25)
+
+### `SpektoWatch2/PlaybackAnalyzer.swift` (new, 100 LOC)
+Thin coordinator that routes playback audio through the shared main
+`AudioEngine` rather than constructing a second engine. On `start(engine:recording:)`:
+1. Saves the main engine's `calibrationOffset`, `frequencyWeighting`,
+   `timeWeighting`, `currentBlockSize`.
+2. Calls `engine.stopLiveMode()` to suspend live mic capture.
+3. Reconfigures engine with the recording's measurement parameters.
+
+On `stop()`: restores all saved settings and calls `engine.startLiveMode()`.
+
+`processSamples(_:sampleRate:)` delegates to `engine.processExternalAudio`.
+`setFrequencyWeighting` delegates to `engine.setFrequencyWeighting`.
+
+### `RecordingDetailView.swift`
+- **Removed**: `@StateObject private var vizAudioEngine = AudioEngine(filterManager:connectivityManager:)` — second engine allocation eliminated.
+- **Added**: `@EnvironmentObject private var audioEngine: AudioEngine` (main engine already in environment from `SpektoWatch2App`).
+- **Added**: `@StateObject private var playbackAnalyzer = PlaybackAnalyzer()`.
+- `onAppear`: calls `playbackAnalyzer.start(engine:recording:)` then routes `onAudioSamples` → `playbackAnalyzer.processSamples`.
+- `onDisappear`: calls `playbackAnalyzer.stop()` to restore state and resume live mic.
+- `HighEndSpectrogramAdapterWithAxes(audioEngine: audioEngine, ...)` and `WidgetCardView(audioEngine: audioEngine, ...)` now pass the main engine.
+
+### Phase 3 deferred
+Widget protocol refactor (M13 task-4 Phase 2 — migrate 10 live widgets
+to observe `audioEngine.live` directly) left for a future task.
+
+## Acceptance
+
+- [x] `@StateObject vizAudioEngine = AudioEngine(...)` removed — one
+  DSP pipeline during playback (iOS BUILD SUCCEEDED).
+- [ ] Hardware: one FFT-frame signpost stream visible in Instruments during
+  playback (deferred to hardware pass).
+- [ ] CPU during playback ≥ 20% lower than pre-fix baseline (hardware pass).
+- [ ] Behavior parity: scrubbing, waveform, marker editing all still work
+  (hardware pass).

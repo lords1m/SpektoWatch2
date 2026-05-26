@@ -1,5 +1,6 @@
 import XCTest
 import Accelerate
+import os
 @testable import SpektoWatch2
 
 /// Tests für FFTProcessor - Testet FFT-Berechnungen, Fensterfunktionen und Rekonfiguration
@@ -402,21 +403,18 @@ final class FFTProcessorTests: XCTestCase {
     func testConcurrentReconfigurationAndProcessing() {
         let expectation = XCTestExpectation(description: "Concurrent operations complete without crash")
         let iterations = 100
-        var completedOps = 0
-        let lock = NSLock()
+        let completedOps = OSAllocatedUnfairLock(initialState: 0)
+        let processor = fftProcessor!
 
         // Hintergrund-Thread für Rekonfiguration
         DispatchQueue.global().async {
             for i in 0..<iterations {
                 let sizes = [512, 1024, 2048, 4096]
-                self.fftProcessor.reconfigure(fftSize: sizes[i % sizes.count])
-
-                lock.lock()
-                completedOps += 1
-                if completedOps == iterations * 2 {
-                    expectation.fulfill()
+                processor.reconfigure(fftSize: sizes[i % sizes.count])
+                completedOps.withLock { count in
+                    count += 1
+                    if count == iterations * 2 { expectation.fulfill() }
                 }
-                lock.unlock()
             }
         }
 
@@ -424,14 +422,11 @@ final class FFTProcessorTests: XCTestCase {
         DispatchQueue.global().async {
             for _ in 0..<iterations {
                 let samples = [Float](repeating: 0.5, count: 4096)
-                _ = self.fftProcessor.performFFT(on: samples)
-
-                lock.lock()
-                completedOps += 1
-                if completedOps == iterations * 2 {
-                    expectation.fulfill()
+                _ = processor.performFFT(on: samples)
+                completedOps.withLock { count in
+                    count += 1
+                    if count == iterations * 2 { expectation.fulfill() }
                 }
-                lock.unlock()
             }
         }
 

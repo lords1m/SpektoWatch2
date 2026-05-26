@@ -338,12 +338,22 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
         let level = 10.0 * log10(lafEnergy + 1e-12)
 
+        // Compute phon + sone using the shared static ISO 226 helpers.
+        // No instance allocation — static lookup table precomputed at class load.
+        let dominantFreq = LoudnessCalculator.dominantFrequency(
+            frequencies: binFrequencies, magnitudes: fftMagnitudes)
+        let phonVal = LoudnessCalculator.phon(spl: Double(level), frequency: dominantFreq)
+        let soneVal = LoudnessCalculator.sone(phon: phonVal)
+
         // `binFrequencies` is a single immutable property — no per-frame rebuild.
         let data = SpectrogramData(frequencies: binFrequencies,
                                    magnitudes: fftMagnitudes,
                                    visualFrequencies: displayVisualFrequencies,
                                    visualMagnitudes: displayVisualMagnitudes,
                                    broadbandLevel: level,
+                                   levels: ["LAF": level,
+                                            "PHON": Float(phonVal),
+                                            "SONE": Float(soneVal)],
                                    sampleRate: sampleRate)
 
         if connectivityManager.selectedMicrophoneSource == .appleWatch {

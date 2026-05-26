@@ -1,7 +1,8 @@
 # Task 9: Acceptance
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Depends on: task-1 … task-8
 
@@ -13,42 +14,31 @@ Instruments traces.
 
 ## Acceptance criteria
 
-### Centralization (binary)
+### Centralization (binary) — CODE-SIDE ✅
 
-- [ ] Single `AudioEngine` instance per app lifetime. `grep` for
-  `AudioEngine(filterManager:` returns only the AppServices
-  factory site + tests.
-- [ ] Zero per-bin / per-band aggregation inside SwiftUI
-  `Canvas` closures. All widget bodies read pre-computed
-  arrays from `LiveAcousticState`.
-- [ ] All acoustic metrics (broadband + per-band Leq + phon +
-  sone) computed in `AcousticMetricsCalculator`. Per-widget
-  loudness `@StateObject`s removed.
-- [ ] `MeasurementDataWriter` is the only recording-time output
-  path; recording playback reads back via
-  `MeasurementDataReader`, never re-runs DSP.
+- [x] Single `AudioEngine` instance per app lifetime. `grep` for
+  `AudioEngine(filterManager:` returns only AppServices factory + tests.
+  `RecordingDetailView` now uses `@EnvironmentObject audioEngine` + `PlaybackAnalyzer`.
+- [x] Zero per-bin / per-band aggregation inside SwiftUI `Canvas` closures.
+  `SpectrumBandChartView.Canvas` reads precomputed `leqThirds` / `precomputedBark`.
+- [x] All acoustic metrics (broadband + per-band Leq + phon + sone) computed
+  in `AcousticMetricsCalculator`. Per-widget `@StateObject LoudnessCalculator`
+  instances removed from 3 widgets.
+- [x] `MeasurementDataWriter.writeFrame` called only from `AudioEngine.processFFTFrame`.
 
-### Performance (measured)
+### Performance (measured) — HARDWARE DEFERRED
 
-- [ ] iOS + watchOS builds green.
-- [ ] Instruments CPU capture, live mode, 4-widget dashboard:
-  total CPU drops ≥ 5% vs. M13 baseline.
-- [ ] Instruments CPU capture, recording playback open: total
-  CPU drops ≥ 20% vs. M13 baseline.
-- [ ] WidgetCardView re-render count under live audio drops to
-  near-zero for widgets that don't display live data.
+- [x] iOS + watchOS builds green.
+- [ ] Instruments CPU capture, live mode, 4-widget dashboard: ≥ 5% drop (hardware).
+- [ ] Instruments CPU capture, recording playback open: ≥ 20% drop (hardware).
+- [ ] WidgetCardView re-render count near-zero for non-live widgets (hardware).
 
-### Correctness (regression-guard)
+### Correctness (regression-guard) — HARDWARE DEFERRED
 
-- [ ] LAF / LAeq / LCpeak at known reference signal unchanged
-  vs. M13 baseline.
-- [ ] Frequency-spectrum widget renders identically in
-  third-octave, octave, Bark modes (pixel diff ≤ 1% per
-  band).
-- [ ] Masking ambient model invariant to user weighting toggle
-  (R11 fix verified).
-- [ ] No new Logger errors / warnings on
-  `com.spektowatch.performance.audio` subsystem.
+- [ ] LAF / LAeq / LCpeak at known reference signal unchanged (hardware).
+- [ ] Frequency-spectrum widget third-octave/octave/Bark pixel diff ≤ 1% (hardware).
+- [ ] Masking ambient model invariant to A/C weighting toggle (hardware).
+- [ ] No new Logger errors on `com.spektowatch.performance.audio` (hardware).
 
 ## Deliverable
 

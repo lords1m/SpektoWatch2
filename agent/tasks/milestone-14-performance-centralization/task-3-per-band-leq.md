@@ -1,7 +1,8 @@
 # Task 3: Per-band Leq in AcousticMetricsCalculator (R3)
 
-Status: pending
+Status: completed
 Created: 2026-05-21
+Completed: 2026-05-25
 Milestone: `milestone-14-performance-centralization`
 Source: audit R3 + M9 task-4 finding #4 (hardcoded leqAlpha)
 
@@ -41,10 +42,88 @@ layer. Widgets read pre-computed band-Leq arrays.
 
 ## Acceptance
 
-- `SpectrumBandChartView` body has no `.onReceive` that triggers
-  per-band linear EMA work.
-- Live frequency-spectrum widget renders identically pre/post.
-- iOS build green.
-- Unit test: feed AcousticMetricsCalculator a known sequence of
-  bands; verify the returned band-Leq array matches the
-  closed-form EMA.
+- [x] `SpectrumBandChartView` has no `@State leqValues` / `updateLeq` /
+  `resetLeq` / `.onChange` EMA work.
+- [x] Live frequency-spectrum widget reads pre-computed band Leq from
+  `audioEngine.bandLeqZ/A/C` via `leqThirds` parameter.
+- [x] iOS `** BUILD SUCCEEDED **`.
+- [x] watchOS `** BUILD SUCCEEDED **`.
+- [x] 4 new unit tests: seed behaviour, closed-form EMA match, reset
+  clears buffers, empty-input skips update.
+
+## What landed
+
+### `MetricsResult` struct (`AcousticMetricsCalculator.swift`)
+
+New top-level struct returned by `updateMetrics`:
+```swift
+struct MetricsResult {
+    var levels: [String: Float]
+    var bandLeqZ: [Float]
+    var bandLeqA: [Float]
+    var bandLeqC: [Float]
+}
+```
+
+### `AcousticMetricsCalculator` additions
+
+- `let leqBandAlpha: Float = 0.02` — exposed so tests can read
+  the coefficient without an extra accessor.
+- `private var bandLeqLinearZ/A/C: [Float] = []` — lazy-initialised
+  on the first frame that carries band data; no allocation on class
+  init.
+- `updateMetrics` gains `bandsZ/A/C: [Float] = []` parameters.
+  Inside the lock, for each non-empty bands array the buffer is
+  seeded on the first call (count mismatch) and EMA'd on subsequent
+  calls (linear power domain, same formula as the old per-widget
+  code). Returned as part of `MetricsResult`.
+- `reset()` also clears the three band buffers so `bandLeqZ/A/C`
+  re-seed cleanly after session restart.
+
+### `LiveAcousticState`
+
+Added:
+```swift
+@Published var bandLeqZ: [Float] = Array(repeating: -120.0, count: 31)
+@Published var bandLeqA: [Float] = Array(repeating: -120.0, count: 31)
+@Published var bandLeqC: [Float] = Array(repeating: -120.0, count: 31)
+```
+
+### `AudioEngine`
+
+- Three forwarding computed properties (`bandLeqZ/A/C`) alongside
+  `currentOctaveBandsZ/A/C`.
+- `processFFTFrame` unpacks `MetricsResult`; passes
+  `bandsZ: displayOctaveBandsZ`, `bandsA: processedA != nil ? ... : []`,
+  `bandsC: processedC != nil ? ... : []`.
+- `updateUI` signature gains `bandLeqZ/A/C: [Float]`; assigns
+  `self.bandLeqZ/A/C` on the main thread (guarded by `!isEmpty`).
+
+### `AudioWidgets.swift`
+
+- `FrequencySpectrumWidget` gains `bandLeqForWeighting: [Float]`
+  (picks Z/A/C based on active weighting).
+- `SpectrumBandChartView` adds `let leqThirds: [Float]`; removes
+  `@State leqValues`, `@State sampleCount`, `leqAlpha`;
+  removes `updateLeq(with:)`, `resetLeq()`, `.onChange(of: mode)`
+  reset, and `.onAppear { resetLeq(); updateLeq(...) }` calls.
+- New pure helper `computeLeqBandData(mode:leqThirds:)`:
+  - `.thirdOctave` → pass through 31 values
+  - `.octave` → `SpectrumBandAggregator.octaveBands(fromThirds:)`
+  - `.bark` → `[]` (no Leq overlay)
+- `OctaveBandWidget` also wired with `bandLeqForWeighting`.
+
+### Tests (`AcousticMetricsCalculatorTests.swift`)
+
+8 existing tests updated: `levels["LAF"]` → `result.levels["LAF"]`
+etc. to match `MetricsResult` return type.
+
+4 new tests:
+- `testBandLeqSeedsOnFirstFrameAndStaysConstant`: constant input
+  → EMA seeded at target and stays there.
+- `testBandLeqEMAMatchesClosedForm`: step from 70 dB → 50 dB,
+  N=150 frames; closed-form `x0·(1−α)^N + x1·(1−(1−α)^N)` ±0.5 dB.
+- `testBandLeqClearsOnReset`: warm up at 80 dB, reset, re-seed
+  at 40 dB — must not carry pre-reset value.
+- `testBandLeqSkippedWhenBandsNotProvided`: `bandsZ` only →
+  `bandLeqA/C` are empty.

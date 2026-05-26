@@ -633,7 +633,16 @@ struct WaterfallView: View {
         let minDB = dataSet.minDB + zShift
         let maxDB = dataSet.maxDB + zShift
         let range = max(1, maxDB - minDB)
-        return max(0, min(1, (value - minDB) / range))
+        var normalized = max(0, min(1, (value - minDB) / range))
+        // Soft-knee: fade the bottom 6 dB of the display range smoothly to
+        // black using a Hermite curve. This mirrors the spectrogram adapter's
+        // kneeWidth mechanism so both widgets handle the floor boundary consistently.
+        let kneeNorm: Float = min(0.5, 6.0 / range)
+        if normalized > 0 && normalized < kneeNorm {
+            let t = normalized / kneeNorm
+            normalized *= t * t * (3.0 - 2.0 * t)
+        }
+        return normalized
     }
 
     private func frequencyAt(binFrac: CGFloat) -> Float {
