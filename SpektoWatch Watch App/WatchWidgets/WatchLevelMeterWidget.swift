@@ -8,8 +8,8 @@ struct WatchLevelMeterWidget: View {
     @State private var currentLevel: Float = -60.0
     @State private var unitLabel: String = "dB(Z)"
 
-    private let minDB: Float = -60.0
-    private let maxDB: Float = 0.0
+    private let minDB: Float = 30.0
+    private let maxDB: Float = 110.0
 
     var body: some View {
         GeometryReader { geometry in

@@ -192,6 +192,28 @@ struct WidgetConfiguration: Identifiable, Codable {
         }
     }
 
+    /// Base height (pt) for a single row of this widget type. Most widgets
+    /// keep the historical 200pt baseline so chart/spectrogram layouts stay
+    /// untouched; compact value-readout widgets get a shorter baseline so
+    /// `1×1` cells don't waste vertical space around a single number.
+    static func baseRowHeight(for type: AudioWidgetType) -> CGFloat {
+        switch type {
+        case .singleValue, .levelMeter, .phaseMeter:
+            return 110
+        default:
+            return 200
+        }
+    }
+
+    /// Total height for this widget's frame, derived from its type's base
+    /// row height + spacing between rows. Replaces direct reads of
+    /// `widget.size.height` so per-type row heights take effect.
+    var frameHeight: CGFloat {
+        let baseHeight = WidgetConfiguration.baseRowHeight(for: type)
+        let spacing: CGFloat = 12
+        return CGFloat(size.rows) * baseHeight + CGFloat(max(0, size.rows - 1)) * spacing
+    }
+
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
         case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:

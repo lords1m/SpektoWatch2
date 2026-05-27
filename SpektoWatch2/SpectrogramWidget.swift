@@ -1,8 +1,32 @@
 import SwiftUI
+import Combine
 
 struct SpectrogramWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    private let audioEngine: AudioEngine
     var settings: [String: String]
+
+    private let scrollSpeedPublisher: Published<ScrollSpeed>.Publisher
+    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
+    private let spectrogramFrequencySmoothingPublisher: Published<Float>.Publisher
+    private let engineStatusPublisher: Published<EngineStatus>.Publisher
+
+    @State private var engineScrollSpeed: ScrollSpeed
+    @State private var engineFrequencyWeighting: String
+    @State private var engineSpectrogramFrequencySmoothing: Float
+    @State private var engineStatus: EngineStatus
+
+    init(audioEngine: AudioEngine, settings: [String: String]) {
+        self.audioEngine = audioEngine
+        self.settings = settings
+        self.scrollSpeedPublisher = audioEngine.$scrollSpeed
+        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
+        self.spectrogramFrequencySmoothingPublisher = audioEngine.$spectrogramFrequencySmoothing
+        self.engineStatusPublisher = audioEngine.$engineStatus
+        _engineScrollSpeed = State(initialValue: audioEngine.scrollSpeed)
+        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
+        _engineSpectrogramFrequencySmoothing = State(initialValue: audioEngine.spectrogramFrequencySmoothing)
+        _engineStatus = State(initialValue: audioEngine.engineStatus)
+    }
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     var colormapType: Int {
@@ -20,12 +44,12 @@ struct SpectrogramWidget: View {
         let raw = Int(settings["timeSpan"] ?? String(fallback)) ?? fallback
         return SpectrogramTimeSpan(rawValue: raw) ?? SpectrogramTimeSpan(rawValue: fallback) ?? .seconds5
     }
-    var scrollSpeed: ScrollSpeed { audioEngine.scrollSpeed }
+    var scrollSpeed: ScrollSpeed { engineScrollSpeed }
     var freqWeighting: String {
         if useWidgetOverrides {
-            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
+            return settings["freqWeighting"] ?? engineFrequencyWeighting
         }
-        return audioEngine.frequencyWeighting.rawValue
+        return engineFrequencyWeighting
     }
     var sensitivity: Float {
         guard useWidgetOverrides else {
@@ -40,7 +64,7 @@ struct SpectrogramWidget: View {
     /// existing global slider keeps working as before.
     var frequencySmoothing: Float {
         guard useWidgetOverrides else {
-            return audioEngine.spectrogramFrequencySmoothing
+            return engineSpectrogramFrequencySmoothing
         }
         let raw = settings["frequencySmoothing"] ?? "0.0"
         return Float(raw) ?? 0.0
@@ -54,12 +78,16 @@ struct SpectrogramWidget: View {
             colormapType: colormapType,
             timeSpan: timeSpan,
             scrollSpeed: scrollSpeed,
-            isPaused: audioEngine.engineStatus != .running,
+            isPaused: engineStatus != .running,
             freqWeighting: freqWeighting,
             sensitivity: sensitivity,
             frequencySmoothing: frequencySmoothing,
             noiseFloor: noiseFloor
         )
+        .onReceive(scrollSpeedPublisher) { engineScrollSpeed = $0 }
+        .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
+        .onReceive(spectrogramFrequencySmoothingPublisher) { engineSpectrogramFrequencySmoothing = $0 }
+        .onReceive(engineStatusPublisher) { engineStatus = $0 }
         .onAppear {
             print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan), sensitivity: \(sensitivity), override=\(useWidgetOverrides)")
         }

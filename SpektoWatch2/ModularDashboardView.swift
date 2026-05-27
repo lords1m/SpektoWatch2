@@ -135,6 +135,15 @@ struct ModularDashboardView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: isHeaderVisible)
         .animation(.easeInOut(duration: 0.22), value: isFooterVisible)
+        // Keep the preset-rail highlight in sync with the active layout.
+        // PresetRailView's activeID is its own @AppStorage value (so it
+        // survives cold launch), but TabView swipes only change
+        // `activeLayoutIndex`. Without this onChange the rail chip stays
+        // on the previously selected preset after swiping.
+        .onChange(of: dashboardManager.activeLayoutIndex) { _, _ in
+            syncActivePresetFromLayout()
+        }
+        .onAppear { syncActivePresetFromLayout() }
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
         }
@@ -254,6 +263,22 @@ struct ModularDashboardView: View {
             )
     }
     
+    /// Derives the active preset ID from the active layout's name and
+    /// writes it back into `@AppStorage("dashboard.activePreset")` so the
+    /// PresetRailView chip highlight matches what the TabView is showing.
+    /// Layouts created via `DashboardManager.applyPreset(id:)` are named
+    /// `"Preset: <id>"`; user-created layouts don't match the prefix and
+    /// leave the rail highlight untouched (no preset is "active").
+    private func syncActivePresetFromLayout() {
+        let name = dashboardManager.currentLayoutName
+        let prefix = "Preset: "
+        guard name.hasPrefix(prefix) else { return }
+        let derivedID = String(name.dropFirst(prefix.count))
+        if activePresetID != derivedID {
+            activePresetID = derivedID
+        }
+    }
+
     private func handleScrollChange(_ offset: CGFloat) {
         guard let previous = lastScrollOffset else {
             lastScrollOffset = offset

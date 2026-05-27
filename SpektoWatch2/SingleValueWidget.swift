@@ -1,9 +1,17 @@
 import SwiftUI
+import Combine
 
 struct SingleValueWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject private var live: LiveAcousticState
     @Environment(\.designNumerals) private var numerals
+    private let engineStatusPublisher: Published<EngineStatus>.Publisher
     var settings: [String: String]
+
+    init(audioEngine: AudioEngine, settings: [String: String]) {
+        _live = ObservedObject(initialValue: audioEngine.live)
+        self.engineStatusPublisher = audioEngine.$engineStatus
+        self.settings = settings
+    }
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     var metricKey: String {
         if useWidgetOverrides {
@@ -67,9 +75,10 @@ struct SingleValueWidget: View {
     }
     
     @State private var value: Float? = nil
+    @State private var engineStatus: EngineStatus = .idle
 
     private var displayValue: String {
-        guard let v = value, audioEngine.engineStatus == .running else {
+        guard let v = value, engineStatus == .running else {
             return "0.0"
         }
         if metricKey == "SONE" {
@@ -88,7 +97,7 @@ struct SingleValueWidget: View {
             Text(displayValue)
                 .font(.numerals(numerals, size: 36, weight: .semibold))
                 .monospacedDigit()
-                .foregroundColor(audioEngine.engineStatus == .running ? .primary : .gray)
+                .foregroundColor(engineStatus == .running ? .primary : .gray)
                 .minimumScaleFactor(0.4)
                 .lineLimit(1)
                 .contentTransition(.numericText(value: Double(value ?? 0)))
@@ -100,7 +109,7 @@ struct SingleValueWidget: View {
                 .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onReceive(audioEngine.live.$currentSpectrogramData) { data in
+        .onReceive(live.$currentSpectrogramData) { data in
             guard let data = data else {
                 self.value = nil
                 return
@@ -112,7 +121,8 @@ struct SingleValueWidget: View {
             // Suppress display when the signal is at or below the noise floor.
             self.value = (floor > -119 && raw <= floor) ? nil : raw
         }
-        .onReceive(audioEngine.$engineStatus) { status in
+        .onReceive(engineStatusPublisher) { status in
+            engineStatus = status
             if status != .running {
                 self.value = nil
             }

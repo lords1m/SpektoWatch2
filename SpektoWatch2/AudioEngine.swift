@@ -218,7 +218,7 @@ class AudioEngine: ObservableObject {
     // WaterfallView, the audio frame writers below) keep working
     // unchanged.
     //
-    // The `isMeasurementRecording` didSet side effects
+    // The `recording.isMeasurementRecording` didSet side effects
     // (setupMeasurementDataFileIfNeeded / closeMeasurementWriter) moved
     // out of the property and into a Combine subscription bridged in
     // init — same pattern as task-4's live-state extraction.
@@ -239,113 +239,26 @@ class AudioEngine: ObservableObject {
     private let audioThreadIsRecordingToFile = OSAllocatedUnfairLock<Bool>(initialState: false)
     private let audioThreadIsMeasurementRecording = OSAllocatedUnfairLock<Bool>(initialState: false)
 
-    /// Gibt an, ob Audio in eine Datei geschrieben wird (true) oder nur Live-Anzeige (false).
-    /// The setter also updates the audio-thread-safe mirror lock.
-    var isRecordingToFile: Bool {
-        get { recording.isRecordingToFile }
-        set {
-            recording.isRecordingToFile = newValue
-            audioThreadIsRecordingToFile.withLock { $0 = newValue }
-        }
-    }
-    /// The setter also updates the audio-thread-safe mirror lock.
-    var isMeasurementRecording: Bool {
-        get { recording.isMeasurementRecording }
-        set {
-            recording.isMeasurementRecording = newValue
-            audioThreadIsMeasurementRecording.withLock { $0 = newValue }
-        }
-    }
-    var recordingDuration: TimeInterval {
-        get { recording.recordingDuration }
-        set { recording.recordingDuration = newValue }
-    }
+    // RecordingCoordinator forwarders deleted 2026-05-27 as M13 task-5
+    // continued: all call sites use `audioEngine.recording.X` directly.
+    // The audio-thread-safe `audioThreadIs*` mirrors are kept in sync via
+    // Combine sinks on `recording.$isRecordingToFile` /
+    // `$isMeasurementRecording` (installed in init), replacing the old
+    // setter side effects.
+    private var recordingFileMirrorSink: AnyCancellable?
+    private var measurementMirrorSink: AnyCancellable?
     @Published var engineStatus: EngineStatus = .idle
     @Published private(set) var activeMicrophoneSource: MicrophoneSource?
     @Published var lastError: SpektoWatchError?
     // MARK: - Live acoustic state
     //
-    // Storage for the 12 live-metric @Published properties moved into
-    // LiveAcousticState as part of M13 task-4. The properties below are
-    // computed forwarders so the existing ~30 read sites across the
-    // codebase keep working unchanged.
-    //
-    // AudioEngine still emits objectWillChange for these by bridging
-    // `live.objectWillChange` into `self` in init — that preserves
-    // existing widget update behavior until they migrate to
-    // `@ObservedObject var live = audioEngine.live` per-widget for
-    // the actual re-render breadth reduction.
+    // The 17 live-metric `@Published` properties (`currentSpectrogramData`,
+    // `currentLevel`, …, `currentBarkBandsC`) live on `LiveAcousticState`.
+    // All read and write sites — internal and external — use `live.X`
+    // directly. The compatibility forwarders that previously bridged
+    // `audioEngine.X` to `live.X` were deleted 2026-05-27 as M13 task-4
+    // closed out.
     let live = LiveAcousticState()
-    private var liveBridge: AnyCancellable?
-
-    var currentSpectrogramData: SpectrogramData? {
-        get { live.currentSpectrogramData }
-        set { live.currentSpectrogramData = newValue }
-    }
-    var currentLevel: Float {
-        get { live.currentLevel }
-        set { live.currentLevel = newValue }
-    }
-    var maxLevel: Float {
-        get { live.maxLevel }
-        set { live.maxLevel = newValue }
-    }
-    var minLevel: Float {
-        get { live.minLevel }
-        set { live.minLevel = newValue }
-    }
-    var levelHistory: [Float] {
-        get { live.levelHistory }
-        set { live.levelHistory = newValue }
-    }
-    var currentPeakLevel: Float {
-        get { live.currentPeakLevel }
-        set { live.currentPeakLevel = newValue }
-    }
-    var currentStereoPhase: Float {
-        get { live.currentStereoPhase }
-        set { live.currentStereoPhase = newValue }
-    }
-    var isStereoActive: Bool {
-        get { live.isStereoActive }
-        set { live.isStereoActive = newValue }
-    }
-    var currentOctaveBandsZ: [Float] {
-        get { live.currentOctaveBandsZ }
-        set { live.currentOctaveBandsZ = newValue }
-    }
-    var currentOctaveBandsA: [Float] {
-        get { live.currentOctaveBandsA }
-        set { live.currentOctaveBandsA = newValue }
-    }
-    var currentOctaveBandsC: [Float] {
-        get { live.currentOctaveBandsC }
-        set { live.currentOctaveBandsC = newValue }
-    }
-    var bandLeqZ: [Float] {
-        get { live.bandLeqZ }
-        set { live.bandLeqZ = newValue }
-    }
-    var bandLeqA: [Float] {
-        get { live.bandLeqA }
-        set { live.bandLeqA = newValue }
-    }
-    var bandLeqC: [Float] {
-        get { live.bandLeqC }
-        set { live.bandLeqC = newValue }
-    }
-    var currentBarkBandsZ: [Float] {
-        get { live.currentBarkBandsZ }
-        set { live.currentBarkBandsZ = newValue }
-    }
-    var currentBarkBandsA: [Float] {
-        get { live.currentBarkBandsA }
-        set { live.currentBarkBandsA = newValue }
-    }
-    var currentBarkBandsC: [Float] {
-        get { live.currentBarkBandsC }
-        set { live.currentBarkBandsC = newValue }
-    }
     // Called on the main thread after each band-update cycle.
     // MaskingEngine sets this to observe live spectrum data without a second audio tap.
     // bands = Z-weighted 1/3-octave bands (31 values, dB SPL); rmsDB = broadband level.
@@ -435,21 +348,38 @@ class AudioEngine: ObservableObject {
             self?.processSamples(samples)
         }
 
-        // Bridge LiveAcousticState's objectWillChange into this engine's
-        // so existing `@ObservedObject var audioEngine: AudioEngine`
-        // consumers keep updating on live ticks until they migrate to
-        // observing `audioEngine.live` directly (M13 task-4 phase 2).
-        liveBridge = live.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        // liveBridge removed 2026-05-27 (M13 task-4 Phase-2 complete):
+        // every widget now observes `audioEngine.live` directly (or doesn't
+        // need to observe live state at all), so engine-level
+        // objectWillChange no longer needs to fan out live-tick updates.
+        // The 12 computed forwarders on AudioEngine still exist for
+        // legacy non-observing read sites — deletable in a follow-up
+        // pass once those callers migrate to `audioEngine.live.X`.
 
-        // Same bridge for RecordingCoordinator (M13 task-5).
+        // Bridge for RecordingCoordinator (M13 task-5). Kept so existing
+        // `@ObservedObject var audioEngine` consumers re-render when
+        // recording state changes — they read `audioEngine.recording.X`
+        // through the parent engine's observation.
         recordingBridge = recording.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
 
+        // Keep the audio-thread-safe mirror locks in sync with the
+        // RecordingCoordinator's published state. Previously the
+        // forwarder setters wrote both the @Published value and the lock
+        // mirror in one assignment; with the forwarders gone, sinks on
+        // the projected publishers do the same job.
+        recordingFileMirrorSink = recording.$isRecordingToFile
+            .sink { [weak self] newValue in
+                self?.audioThreadIsRecordingToFile.withLock { $0 = newValue }
+            }
+        measurementMirrorSink = recording.$isMeasurementRecording
+            .sink { [weak self] newValue in
+                self?.audioThreadIsMeasurementRecording.withLock { $0 = newValue }
+            }
+
         // Run the file-setup / writer-close side effects when
-        // isMeasurementRecording flips. Previously a didSet on the
+        // recording.isMeasurementRecording flips. Previously a didSet on the
         // @Published property — moved here so the storage can live on
         // RecordingCoordinator.
         // dropFirst() to skip the initial false value emission.
@@ -631,9 +561,9 @@ class AudioEngine: ObservableObject {
             return
         }
         Logger.audioEngine.info("Starting AudioEngine in LIVE mode (no file recording)")
-        isRecordingToFile = false
+        recording.isRecordingToFile = false
         activeMicrophoneSource = .iPhone
-        print("[AudioEngine] Set isRecordingToFile = false")
+        print("[AudioEngine] Set recording.isRecordingToFile = false")
         startAudioCapture()
     }
 
@@ -641,7 +571,7 @@ class AudioEngine: ObservableObject {
     func startRecording() {
         print("[AudioEngine] startRecording called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
-        print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+        print("[AudioEngine] Current recording.isRecordingToFile: \(recording.isRecordingToFile)")
 
         if engineStatus == .starting {
             print("[AudioEngine] Engine is starting, ignoring startRecording")
@@ -649,22 +579,22 @@ class AudioEngine: ObservableObject {
         }
 
         // Always capture measurement data when starting a recording.
-        if !isMeasurementRecording {
-            isMeasurementRecording = true
+        if !recording.isMeasurementRecording {
+            recording.isMeasurementRecording = true
         }
 
         guard engineStatus != .running else {
             // Wenn bereits im Live-Modus, nur auf Aufnahme umschalten
-            if !isRecordingToFile {
+            if !recording.isRecordingToFile {
                 Logger.audioEngine.info("Switching from LIVE to RECORDING mode")
-                isRecordingToFile = true
+                recording.isRecordingToFile = true
                 activeMicrophoneSource = .iPhone
-                print("[AudioEngine] Set isRecordingToFile = true (switching from live)")
+                print("[AudioEngine] Set recording.isRecordingToFile = true (switching from live)")
                 recordingStartTime = Date()
-                recordingDuration = 0.0
+                recording.recordingDuration = 0.0
                 resetMetrics()
                 setupRecordingFile()
-                if isMeasurementRecording {
+                if recording.isMeasurementRecording {
                     setupMeasurementDataFileIfNeeded()
                 } else {
                     lastMeasurementDataURL = nil
@@ -674,13 +604,13 @@ class AudioEngine: ObservableObject {
             return
         }
         Logger.audioEngine.info("Starting AudioEngine in RECORDING mode")
-        isRecordingToFile = true
+        recording.isRecordingToFile = true
         activeMicrophoneSource = .iPhone
-        if !isMeasurementRecording {
+        if !recording.isMeasurementRecording {
             lastMeasurementDataURL = nil
             closeMeasurementWriter()
         }
-        print("[AudioEngine] Set isRecordingToFile = true")
+        print("[AudioEngine] Set recording.isRecordingToFile = true")
         startAudioCapture()
     }
 
@@ -695,11 +625,11 @@ class AudioEngine: ObservableObject {
         }
 
         Logger.audioEngine.info("Starting AudioEngine in WEARABLE live mode")
-        isRecordingToFile = false
-        isMeasurementRecording = false
+        recording.isRecordingToFile = false
+        recording.isMeasurementRecording = false
         activeMicrophoneSource = .appleWatch
         recordingStartTime = Date()
-        recordingDuration = 0.0
+        recording.recordingDuration = 0.0
         resetMetrics()
 
         DispatchQueue.main.async {
@@ -711,7 +641,7 @@ class AudioEngine: ObservableObject {
     private func startAudioCapture() {
         print("[AudioEngine] startAudioCapture called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
-        print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+        print("[AudioEngine] Current recording.isRecordingToFile: \(recording.isRecordingToFile)")
         if isStartingCapture || engineStatus == .starting {
             print("[AudioEngine] Capture already starting, returning early")
             return
@@ -724,7 +654,7 @@ class AudioEngine: ObservableObject {
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
         }
         recordingStartTime = Date()
-        recordingDuration = 0.0
+        recording.recordingDuration = 0.0
         hasLoggedSilence = false
 
         resetMetrics()
@@ -732,7 +662,7 @@ class AudioEngine: ObservableObject {
         #if targetEnvironment(simulator)
         Logger.audioEngine.info("Running on Simulator - using test audio generator")
         print("[AudioEngine] Starting test generator")
-        if isRecordingToFile {
+        if recording.isRecordingToFile {
             setupRecordingFile()
             setupMeasurementDataFileIfNeeded()
         }
@@ -742,7 +672,7 @@ class AudioEngine: ObservableObject {
             self.engineStatus = .running
             self.isStartingCapture = false
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
-            print("[AudioEngine] isRecordingToFile: \(self.isRecordingToFile)")
+            print("[AudioEngine] recording.isRecordingToFile: \(self.recording.isRecordingToFile)")
         }
         #else
         startRealRecording()
@@ -761,10 +691,10 @@ class AudioEngine: ObservableObject {
     func stopRecording() {
         print("[AudioEngine] stopRecording called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
-        print("[AudioEngine] Current isRecordingToFile: \(isRecordingToFile)")
+        print("[AudioEngine] Current recording.isRecordingToFile: \(recording.isRecordingToFile)")
         Logger.audioEngine.info("Stopping AudioEngine recording")
-        isRecordingToFile = false
-        print("[AudioEngine] Set isRecordingToFile = false")
+        recording.isRecordingToFile = false
+        print("[AudioEngine] Set recording.isRecordingToFile = false")
         stopAudioCapture()
     }
 
@@ -779,7 +709,7 @@ class AudioEngine: ObservableObject {
 
         DispatchQueue.main.async {
             self.engineStatus = .idle
-            self.isRecordingToFile = false
+            self.recording.isRecordingToFile = false
             self.isStartingCapture = false
             self.activeMicrophoneSource = nil
         }
@@ -795,12 +725,12 @@ class AudioEngine: ObservableObject {
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .idle")
             self.engineStatus = .idle
-            print("[AudioEngine] Setting isRecordingToFile to false")
-            self.isRecordingToFile = false
+            print("[AudioEngine] Setting recording.isRecordingToFile to false")
+            self.recording.isRecordingToFile = false
             self.activeMicrophoneSource = nil
             self.isStartingCapture = false
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
-            print("[AudioEngine] isRecordingToFile is now: \(self.isRecordingToFile)")
+            print("[AudioEngine] recording.isRecordingToFile is now: \(self.recording.isRecordingToFile)")
         }
 
         #if targetEnvironment(simulator)
@@ -815,8 +745,8 @@ class AudioEngine: ObservableObject {
         #endif
 
         DispatchQueue.main.async {
-            self.levelHistory.removeAll()
-            self.currentLevel = -120.0
+            self.live.levelHistory.removeAll()
+            self.live.currentLevel = -120.0
         }
 
         // Reset buffer state
@@ -826,7 +756,7 @@ class AudioEngine: ObservableObject {
     }
 
     private func setupRecordingFile() {
-        guard isRecordingToFile else { return }
+        guard recording.isRecordingToFile else { return }
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -847,7 +777,7 @@ class AudioEngine: ObservableObject {
     }
 
     private func setupMeasurementDataFileIfNeeded() {
-        guard isRecordingToFile, isMeasurementRecording else {
+        guard recording.isRecordingToFile, recording.isMeasurementRecording else {
             closeMeasurementWriter()
             return
         }
@@ -1026,7 +956,7 @@ class AudioEngine: ObservableObject {
                     } else {
                         DispatchQueue.main.async {
                             self.isStartingCapture = false
-                            self.isRecordingToFile = false
+                            self.recording.isRecordingToFile = false
                             self.engineStatus = .error("Microphone permission denied")
                         }
                     }
@@ -1037,7 +967,7 @@ class AudioEngine: ObservableObject {
                 Logger.audioEngine.error("Microphone permission denied")
                 DispatchQueue.main.async {
                     self.isStartingCapture = false
-                    self.isRecordingToFile = false
+                    self.recording.isRecordingToFile = false
                     self.engineStatus = .error("Microphone permission denied")
                 }
                 return
@@ -1053,7 +983,7 @@ class AudioEngine: ObservableObject {
                     } else {
                         DispatchQueue.main.async {
                             self.isStartingCapture = false
-                            self.isRecordingToFile = false
+                            self.recording.isRecordingToFile = false
                             self.engineStatus = .error("Microphone permission denied")
                         }
                     }
@@ -1064,7 +994,7 @@ class AudioEngine: ObservableObject {
                 Logger.audioEngine.error("Microphone permission denied")
                 DispatchQueue.main.async {
                     self.isStartingCapture = false
-                    self.isRecordingToFile = false
+                    self.recording.isRecordingToFile = false
                     self.engineStatus = .error("Microphone permission denied")
                 }
                 return
@@ -1081,7 +1011,7 @@ class AudioEngine: ObservableObject {
                 } else {
                     DispatchQueue.main.async {
                         self.isStartingCapture = false
-                        self.isRecordingToFile = false
+                        self.recording.isRecordingToFile = false
                         self.engineStatus = .error("Microphone permission denied")
                     }
                 }
@@ -1092,7 +1022,7 @@ class AudioEngine: ObservableObject {
             Logger.audioEngine.error("Microphone permission denied")
             DispatchQueue.main.async {
                 self.isStartingCapture = false
-                self.isRecordingToFile = false
+                self.recording.isRecordingToFile = false
                 self.engineStatus = .error("Microphone permission denied")
             }
             return
@@ -1100,7 +1030,7 @@ class AudioEngine: ObservableObject {
         #endif
 
         // Capture state needed for background work
-        let isRecording = self.isRecordingToFile
+        let isRecording = self.recording.isRecordingToFile
         let selectedSource = self.selectedDataSource
         let blockSize = self.tapBlockSize
         let rate = self.sampleRate
@@ -1250,10 +1180,10 @@ class AudioEngine: ObservableObject {
         metricsCalculator.reset()
         
         DispatchQueue.main.async {
-            self.levelHistory.removeAll()
-            self.currentLevel = -120.0
-            self.maxLevel = -120.0
-            self.minLevel = -120.0
+            self.live.levelHistory.removeAll()
+            self.live.currentLevel = -120.0
+            self.live.maxLevel = -120.0
+            self.live.minLevel = -120.0
         }
     }
 
@@ -1279,23 +1209,23 @@ class AudioEngine: ObservableObject {
 
         DispatchQueue.main.async {
             if let startTime = self.recordingStartTime {
-                self.recordingDuration = Date().timeIntervalSince(startTime)
+                self.recording.recordingDuration = Date().timeIntervalSince(startTime)
             }
 
-            self.currentSpectrogramData = data
-            self.currentOctaveBandsZ = octaveBandsZ
-            self.currentOctaveBandsA = octaveBandsA
-            self.currentOctaveBandsC = octaveBandsC
-            self.currentLevel = data.broadbandLevel
-            self.currentPeakLevel = data.levels["LCpeak"] ?? max(self.currentPeakLevel, data.broadbandLevel)
-            self.maxLevel = max(self.maxLevel, data.broadbandLevel)
+            self.live.currentSpectrogramData = data
+            self.live.currentOctaveBandsZ = octaveBandsZ
+            self.live.currentOctaveBandsA = octaveBandsA
+            self.live.currentOctaveBandsC = octaveBandsC
+            self.live.currentLevel = data.broadbandLevel
+            self.live.currentPeakLevel = data.levels["LCpeak"] ?? max(self.live.currentPeakLevel, data.broadbandLevel)
+            self.live.maxLevel = max(self.live.maxLevel, data.broadbandLevel)
             if data.broadbandLevel > -110 {
-                self.minLevel = min(self.minLevel, data.broadbandLevel)
+                self.live.minLevel = min(self.live.minLevel, data.broadbandLevel)
             }
-            self.levelHistory.append(data.broadbandLevel)
+            self.live.levelHistory.append(data.broadbandLevel)
             let overshootBudget = 64
-            if self.levelHistory.count > self.maxHistorySize + overshootBudget {
-                self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
+            if self.live.levelHistory.count > self.maxHistorySize + overshootBudget {
+                self.live.levelHistory.removeFirst(self.live.levelHistory.count - self.maxHistorySize)
             }
             self.onBandsUpdated?(octaveBandsZ, data.broadbandLevel)
         }
@@ -1358,8 +1288,8 @@ class AudioEngine: ObservableObject {
 
         let isStereo = channels > 1
         DispatchQueue.main.async {
-            self.isStereoActive = isStereo
-            self.currentStereoPhase = phase  // 1.0 for mono (no stereo data)
+            self.live.isStereoActive = isStereo
+            self.live.currentStereoPhase = phase  // 1.0 for mono (no stereo data)
         }
     }
     
@@ -1659,7 +1589,7 @@ class AudioEngine: ObservableObject {
         let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
         spectrogramProcessor.hopDuration = dt
         // Derive recording duration on the audio thread from recordingStartTime
-        // rather than reading the `@Published` `recordingDuration` (main-only
+        // rather than reading the `@Published` `recording.recordingDuration` (main-only
         // writer). The same pattern is used a few lines below for the writer
         // timestamp.
         let audioThreadRecordingDuration: TimeInterval
@@ -1701,7 +1631,7 @@ class AudioEngine: ObservableObject {
                 if let startTime = recordingStartTime {
                     timestampSeconds = Float(Date().timeIntervalSince(startTime))
                 } else {
-                    timestampSeconds = Float(recordingDuration)
+                    timestampSeconds = Float(recording.recordingDuration)
                 }
                 let metricValues = measurementMetricKeys.map { levels[$0] ?? -120.0 }
                 do {
@@ -1838,7 +1768,7 @@ class AudioEngine: ObservableObject {
 
             // Update recording duration
             if let startTime = self.recordingStartTime {
-                self.recordingDuration = Date().timeIntervalSince(startTime)
+                self.recording.recordingDuration = Date().timeIntervalSince(startTime)
             }
             
             // Update data — currentSpectrogramData throttled to 15 Hz to reduce
@@ -1847,28 +1777,28 @@ class AudioEngine: ObservableObject {
             let nowMain = CFAbsoluteTimeGetCurrent()
             if nowMain - self.lastSpectrogramUIEnqueueTime >= self.targetSpectrogramUIInterval {
                 self.lastSpectrogramUIEnqueueTime = nowMain
-                self.currentSpectrogramData = spectrogramData
+                self.live.currentSpectrogramData = spectrogramData
             }
-            self.currentOctaveBandsZ = octaveBandsZ
-            self.currentOctaveBandsA = octaveBandsA
-            self.currentOctaveBandsC = octaveBandsC
-            if !bandLeqZ.isEmpty { self.bandLeqZ = bandLeqZ }
-            if !bandLeqA.isEmpty { self.bandLeqA = bandLeqA }
-            if !bandLeqC.isEmpty { self.bandLeqC = bandLeqC }
-            if !barkBandsZ.isEmpty { self.currentBarkBandsZ = barkBandsZ }
-            if !barkBandsA.isEmpty { self.currentBarkBandsA = barkBandsA }
-            if !barkBandsC.isEmpty { self.currentBarkBandsC = barkBandsC }
+            self.live.currentOctaveBandsZ = octaveBandsZ
+            self.live.currentOctaveBandsA = octaveBandsA
+            self.live.currentOctaveBandsC = octaveBandsC
+            if !bandLeqZ.isEmpty { self.live.bandLeqZ = bandLeqZ }
+            if !bandLeqA.isEmpty { self.live.bandLeqA = bandLeqA }
+            if !bandLeqC.isEmpty { self.live.bandLeqC = bandLeqC }
+            if !barkBandsZ.isEmpty { self.live.currentBarkBandsZ = barkBandsZ }
+            if !barkBandsA.isEmpty { self.live.currentBarkBandsA = barkBandsA }
+            if !barkBandsC.isEmpty { self.live.currentBarkBandsC = barkBandsC }
             // Use the IEC 61672 LCpeak from the metrics dict (C-weighted peak,
             // computed in processFFTFrame). Fall back to the raw sample peak only
             // if the metrics dict is somehow missing the key.
-            self.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? peakLevel
-            self.currentLevel = broadbandLevel
+            self.live.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? peakLevel
+            self.live.currentLevel = broadbandLevel
             self.onBandsUpdated?(octaveBandsZ, broadbandLevel)
 
             // Update min/max
-            self.maxLevel = max(self.maxLevel, broadbandLevel)
+            self.live.maxLevel = max(self.live.maxLevel, broadbandLevel)
             if broadbandLevel > -110 {
-                self.minLevel = min(self.minLevel, broadbandLevel)
+                self.live.minLevel = min(self.live.minLevel, broadbandLevel)
             }
             
             // Update history. The previous form (`append` + `removeFirst()`) ran
@@ -1876,10 +1806,10 @@ class AudioEngine: ObservableObject {
             // shifts per second. Amortize by letting the array grow to a small
             // overshoot and trimming a chunk in one O(n) pass, instead of a
             // per-tick shift.
-            self.levelHistory.append(broadbandLevel)
+            self.live.levelHistory.append(broadbandLevel)
             let overshootBudget = 64
-            if self.levelHistory.count > self.maxHistorySize + overshootBudget {
-                self.levelHistory.removeFirst(self.levelHistory.count - self.maxHistorySize)
+            if self.live.levelHistory.count > self.maxHistorySize + overshootBudget {
+                self.live.levelHistory.removeFirst(self.live.levelHistory.count - self.maxHistorySize)
             }
             
             // Send to watch (throttled)

@@ -231,10 +231,10 @@ milestones:
     name: Architecture Hygiene
     status: in_progress
     priority: medium
-    progress: 67
+    progress: 89
     started: "2026-05-21"
     estimated_weeks: "3"
-    tasks_completed: 6
+    tasks_completed: 8
     tasks_total: 9
     notes: >
       Planned 2026-05-21 from agent/reports/2026-05-21-architecture-review.md.
@@ -783,8 +783,8 @@ tasks:
     - { id: task-1-app-services-injection,        name: "AppServices injection layer",                status: completed,   file: agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md, notes: "Code-side landed 2026-05-21. New AppServices.swift (@MainActor ObservableObject) owns the 5 eager managers + deferred AudioEngine/MaskingEngine via startAudio(). Convenience init() + testFixture(...) static factory. SpektoWatch2App uses one @StateObject AppServices instead of 5 individual @StateObjects + 1 AudioEngineContainer. Body still calls 8 .environmentObject(...) (consumer migration explicitly deferred to a future task; scope here was producer-side only). Old AudioEngineContainer private type removed. iOS build green. Tests not migrated to testFixture (deferred — drop-in pattern across 5+ test files; do alongside M13 task-3/-4 AudioEngine extracts). Hardware acceptance gated on M13 task-9." }
     - { id: task-2-recording-detail-split,        name: "Split RecordingDetailView",                  status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md, notes: "Phase 1 landed 2026-05-21: 3 standalone helpers extracted — Views/RecordingDetailComponents.swift (MiniLineChart + StatRow, 96 LOC), Views/AudioPlayerManager.swift (161 LOC), Views/PhotoPickerView.swift (39 LOC). RecordingDetailView.swift dropped 1496→1211 LOC (-285). Phase 2 (per-tab card split into RecordingPlaybackSection / Markers / Export / Notes / Metadata) deferred — requires a shared RecordingDetailViewModel for the 29+ @State graph that spans all tabs; high regression risk without hardware pass. Recommended timing: after M13 task-4 (LiveAcousticState) so the VM can consume the new live-state pattern. iOS build green." }
     - { id: task-3-extract-calibration-provider,  name: "Extract CalibrationProvider",                status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-3-extract-calibration-provider.md, notes: "Code-side landed 2026-05-21. New CalibrationProvider.swift (135 LOC, pure enum) owns the device-offset table, currentDeviceModel(), recommendedOffset, resolveStartupOffset(defaults:), persist(offset:). AudioEngine retains @Published var calibrationOffset to preserve the SpectrogramSettingsView Slider binding (deliberate — moving the value off-engine would touch 5+ unrelated call sites). AudioEngine init replaces 13-line load block with one provider call; getDeviceModel + getRecommendedCalibrationOffset removed (54 LOC device map + 17 LOC static methods). AudioEngine: 1761 → 1691 LOC (-70). SpectrogramSettingsView 1-line rewrite. New CalibrationProviderTests.swift covers 5 cases (3 known device IDs + 2 unknown fallback + load/version-bump). iOS + watchOS builds green." }
-    - { id: task-4-extract-live-acoustic-state,   name: "Extract LiveAcousticState",                  status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-4-extract-live-acoustic-state.md, notes: "Phase 1 landed 2026-05-21: LiveAcousticState.swift, AudioEngine forwarders + liveBridge. Phase 2 in progress (2026-05-25): LevelMeterWidget migrated (audioEngine @ObservedObject removed; live: LiveAcousticState added); FrequencySpectrumWidget migrated (audioEngine kept for frequencyWeighting; live added for all 6 live-read properties). LAFGraphView/LAFGraphWidget/SingleValueWidget already use live.$... via onReceive — no change needed. OctaveBandWidget is dead code (skipped). Remaining: WaterfallWidget (medium), SpectrogramWidget/HighEndSpectrogramAdapter (high — deferred). liveBridge deletion blocked until those two land. iOS builds green." }
-    - { id: task-5-extract-recording-coordinator, name: "Extract RecordingCoordinator",               status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-5-extract-recording-coordinator.md, notes: "Phase 1 landed 2026-05-21: new RecordingCoordinator.swift (37 LOC) owns isRecordingToFile, isMeasurementRecording, recordingDuration as @Published. AudioEngine adds `let recording = RecordingCoordinator()`; 3 computed forwarders preserve existing call sites; recordingBridge republishes objectWillChange so @ObservedObject AudioEngine consumers still update; measurementRecordingSink (Combine subscription, .dropFirst()) replaces the didSet logic and runs setupMeasurementDataFileIfNeeded / closeMeasurementWriter with the same isRecordingToFile gating. AudioEngine 1753→1790 LOC (+37). Phase 2 (moving startRecording / stopRecording / cancelRecording into the coordinator) deferred — those methods orchestrate the AVAudioEngine session itself and require a larger refactor. iOS + watchOS builds green. Hardware functional acceptance (file writer closes cleanly mid-session) gated on M13 task-9." }
+    - { id: task-4-extract-live-acoustic-state,   name: "Extract LiveAcousticState",                  status: completed,   file: agent/tasks/milestone-13-architecture-hygiene/task-4-extract-live-acoustic-state.md, notes: "Code-side complete 2026-05-27. Phase 1 (2026-05-21) introduced LiveAcousticState.swift + 17 AudioEngine forwarders + liveBridge. Phase 2 (2026-05-25 → 2026-05-27) migrated every non-deactivated widget off @ObservedObject audioEngine: LevelMeterWidget, FrequencySpectrumWidget, SingleValueWidget, LevelHistoryWidget, LevelHistoryView, WaterfallWidget, SpectrogramWidget — engine settings (engineStatus / freqWeighting / timeWeighting / scrollSpeed / spectrogramFrequencySmoothing) now tracked in @State via .onReceive on stored publishers. CardMetaReader migrated to observe LiveAcousticState directly. OctaveBandWidget dead code (skipped); PhaseMeterWidget deactivated. liveBridge subscription removed. All external read sites (AudioWidgets ×13, ControlBarView ×2, WaterfallView ×1) migrated to audioEngine.live.X. AudioEngine internal writers migrated to self.live.X; 17 computed forwarders deleted (-75 LOC, 1996 → 1921). iOS + watchOS builds green. Hardware Instruments re-render comparison gated on M13 task-9." }
+    - { id: task-5-extract-recording-coordinator, name: "Extract RecordingCoordinator",               status: completed,   file: agent/tasks/milestone-13-architecture-hygiene/task-5-extract-recording-coordinator.md, notes: "Phase 1 landed 2026-05-21 (state extraction). Phase 1.5 landed 2026-05-27: 3 forwarders deleted; all call sites use audioEngine.recording.X (DashboardViewModel ×3, ControlBarView ×7, internal AudioEngine writers); audio-thread mirror locks updated via Combine sinks on recording.$isRecordingToFile / $isMeasurementRecording (functional parity with the old setter side effects). recordingBridge kept so @ObservedObject audioEngine consumers (PlayPauseButton, RecordStopButton, ControlBarView) keep updating. iOS + watchOS builds green. Promoted to completed code-side 2026-05-27, matching the M13 pattern (task-3/6/7/8). Phase 2 (moving startRecording / stopRecording orchestration into the coordinator — only path to the ≤1300 LOC target) routed to backlog: high hardware-acceptance risk, requires either tight back-coupling to AudioEngine or a narrow AV-graph start/stop protocol. Hardware acceptance for task-5's current seam still gated on M13 task-9." }
     - { id: task-6-kernel-math-extraction,        name: "Kernel math extraction",                     status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-6-kernel-math-extraction.md, notes: "Landed 2026-05-21: new Managers/SpectrumBandAggregator.swift (220 LOC) centralises third-octave + octave + Bark aggregation. The M12 negative-offset bug source — two identical implementations of the third-octave power-sum (AudioEngine.computeDisplayThirdOctaveBands + SpectrumBandChartView.thirdOctaveBands) — collapsed to one. AudioEngine -77 LOC (1790→1713), AudioWidgets -104 LOC (619→515). SpectrumBandChartView.computeBandData body 70→30 LOC (57% reduction). New SpectrumBandAggregatorTests.swift (7 cases) including a regression guard for the M12 sum-vs-mean bug. Level-history clamping/axis extraction deferred (intertwined with Canvas GraphicsContext). iOS + watchOS builds green." }
     - { id: task-7-watch-protocol-versioning,     name: "Watch protocol versioning + AppState",       status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-7-watch-protocol-versioning.md, notes: "Phase 1 landed 2026-05-21. SpectrogramData.toBinaryData() now prepends a UInt8 schema version (0x01); fromBinaryData rejects unknown versions cleanly. New Shared/WatchAppState.swift (105 LOC) defines a Codable envelope (activePresetID, isRecording, designAccent, theme, optional toneGenerator, schemaVersion) with JSON encode/decode helpers and version-mismatch rejection. WatchConnectivityProtocol gains MessageType.appStateUpdate + makeAppStateUpdateMessage + appStateUpdate(from:) decoder. Both connectivity managers (iOS + watch) gained the appStateUpdate switch arm (decode-and-drop today; consumption is Phase 2). New WatchProtocolVersioningTests.swift covers 7 cases including version-byte rejection on both SpectrogramData and WatchAppState. Phase 2 (iOS broker observing accent/theme/preset/recording + watch-side store + face migration from hardcoded phosphor) deferred — crosses concerns that need hardware verification together. iOS + watchOS builds green." }
     - { id: task-8-persistence-registry,          name: "Persistence registry",                       status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-8-persistence-registry.md, notes: "Phase 1 landed 2026-05-21. New Shared/PersistenceKeys.swift (110 LOC) inventories every UserDefaults / AppGroup / @AppStorage key with tier, schema version, and migration rule. 8 files migrated from string literals to registry constants: DashboardManager, CalibrationProvider, AudioEngine, Models/FFTConfiguration, Managers/BandstopFilterManager, ControlBarView, Shared/WatchWidgetConfiguration, both WatchConnectivityManager copies. Nested PersistenceKeys.FFT + Design enums for grouped namespaces. Sunset plan for DashboardConfiguration_v5 documented in the registry file. Phase 2 (one-shot PersistenceMigrator runner + @AppStorage declaration migration + legacy key removal) deferred. iOS + watchOS builds green. After migration: zero raw key strings remain outside the registry (a leftover CSV column header in CSVExporter named 'calibrationOffset' is a false positive in different namespace)." }
@@ -921,7 +921,7 @@ tasks:
       name: Stability & Polish (in-flight fixes)
       status: completed
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-8-stability-polish.md
-      notes: "Completed 2026-05-25. Audio-correctness, perf, UX polish all landed. Hardware visual pass gated on task-6."
+      notes: "Completed 2026-05-25. Audio-correctness, perf, UX polish all landed. Hardware visual pass gated on task-6. 2026-05-27 follow-up UX fixes recorded in agent/reports/2026-05-27-m12-ux-polish.md (single-value cell height + preset-rail-on-swipe sync)."
       notes: >
         Captures fixes that landed organically during M12 implementation
         and don't fit any other task. Audio-correctness: waterfall
@@ -958,8 +958,9 @@ tasks:
 updated_at: 2026-05-25
 last_completed_task: M13/task-4-phase2-pilot
 current_milestone: M13
-current_task: task-4-extract-live-acoustic-state
-last_proceed: 2026-05-25
+current_task: task-9-acceptance
+last_proceed: 2026-05-27
+last_proceed_note: M12 UX polish report logged (single-value cell height + preset-rail swipe sync). Both fixes landed on redesign/liquid-glass; iOS build green.
 parked:
   - milestone: M8
     task: task-2-acceptance
@@ -977,6 +978,8 @@ parked:
     task: task-9-acceptance
     reason: code-side acceptance complete; promotion gated on hardware behavior parity + Instruments re-render comparison
 recent_reports:
+  - agent/reports/2026-05-27-m12-ux-polish.md
+  - agent/reports/2026-05-27-milestone-13-phase2-followup.md
   - agent/reports/2026-05-25-milestone-18-acceptance.md
   - agent/reports/2026-05-25-milestone-17-acceptance.md
   - agent/reports/2026-05-25-milestone-16-acceptance.md
@@ -995,15 +998,34 @@ active_context:
     deferred). M13 (Architecture Hygiene) all tasks Phase-1 complete,
     Phase-2 deferred. M7/M8 parked on hardware/Xcode Cloud.
     All work on branch redesign/liquid-glass.
-  next_action: >
-    M13 task-4 Phase-2 pilot landed 2026-05-25: LevelMeterWidget now
-    observes LiveAcousticState directly; @ObservedObject audioEngine
-    removed from that widget. Remaining Phase-2 widgets: OctaveBandWidget,
-    LAFGraphView, LAFGraphWidget, SingleValueWidget, WaterfallView,
-    SpectrogramWidget (high complexity — HighEndSpectrogramAdapter bridge).
-    liveBridge stays until ALL widgets are migrated. Next: continue
-    Phase-2 widget migrations, starting with the simpler ones
-    (LAFGraphView, SingleValueWidget) before tackling SpectrogramWidget.
+    M13 task-4 closed code-side 2026-05-27. Full chain landed across
+    multiple proceed passes: Phase-1 seam (LiveAcousticState +
+    forwarders + liveBridge) → Phase-2 widget migrations (7 widgets +
+    CardMetaReader observe LiveAcousticState directly) → liveBridge
+    removal → external call-site migration (audioEngine.live.X) →
+    AudioEngine internal writer migration + forwarder deletion
+    (AudioEngine.swift 1996 → 1921, -75 LOC). iOS + watchOS builds
+    green throughout. Hardware Instruments re-render comparison still
+    gated on M13 task-9.
+
+    M13 task-5 promoted to completed code-side 2026-05-27 (matches
+    M13 pattern for task-3 / 6 / 7 / 8). Phase 1.5 (forwarder
+    deletion + call-site migration) landed earlier today; Phase 2
+    (move startRecording / stopRecording into the coordinator) routed
+    to backlog — high hardware-acceptance risk, requires either tight
+    back-coupling to AudioEngine or a narrow AV-graph start/stop
+    protocol. With task-5 promoted, M13 is 8/9 code-side complete;
+    only task-9 (hardware acceptance) remains and is already parked.
+
+    Effectively M13 is code-complete. current_task points at the
+    parked task-9 for visibility, but no further code work is queued
+    inside M13. Next active milestone: pick from M9 task-11, M12
+    task-4, M13 task-9 (all hardware-gated), the M8/M7 parked items,
+    or open a new milestone for the M13 task-5 Phase 2 backlog plus
+    the misc. Phase 2 deferrals across M13 / M7 / M12.
+
+    Hardware Instruments comparison for task-4 still gated on task-9
+    (hardware acceptance).
 
     Hardware acceptance still open for:
     - M12: 8-item hardware checklist (themes/accents/presets/watch faces).

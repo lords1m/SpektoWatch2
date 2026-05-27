@@ -1,23 +1,39 @@
 import SwiftUI
+import Combine
 
 struct LevelHistoryWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    private let audioEngine: AudioEngine
+    @ObservedObject private var live: LiveAcousticState
+    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
+    private let timeWeightingPublisher: Published<TimeWeighting>.Publisher
     var settings: [String: String]
     @State private var phonValue: Double?
     @State private var soneValue: Double?
+    @State private var engineFrequencyWeighting: String
+    @State private var engineTimeWeighting: String
+
+    init(audioEngine: AudioEngine, settings: [String: String]) {
+        self.audioEngine = audioEngine
+        _live = ObservedObject(initialValue: audioEngine.live)
+        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
+        self.timeWeightingPublisher = audioEngine.$timeWeighting
+        self.settings = settings
+        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
+        _engineTimeWeighting = State(initialValue: audioEngine.timeWeighting.rawValue)
+    }
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     private var resolvedFrequencyWeighting: String {
         if useWidgetOverrides {
-            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
+            return settings["freqWeighting"] ?? engineFrequencyWeighting
         }
-        return audioEngine.frequencyWeighting.rawValue
+        return engineFrequencyWeighting
     }
     private var resolvedTimeWeighting: String {
         if useWidgetOverrides {
-            return settings["timeWeighting"] ?? audioEngine.timeWeighting.rawValue
+            return settings["timeWeighting"] ?? engineTimeWeighting
         }
-        return audioEngine.timeWeighting.rawValue
+        return engineTimeWeighting
     }
     private var selectedHistoryMetric: String {
         if useWidgetOverrides {
@@ -68,7 +84,7 @@ struct LevelHistoryWidget: View {
                 .padding(4)
             }
         }
-        .onReceive(audioEngine.live.$currentSpectrogramData) { data in
+        .onReceive(live.$currentSpectrogramData) { data in
             guard let data = data else {
                 phonValue = nil
                 soneValue = nil
@@ -76,6 +92,8 @@ struct LevelHistoryWidget: View {
             }
             updateLoudness(from: data)
         }
+        .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
+        .onReceive(timeWeightingPublisher) { engineTimeWeighting = $0.rawValue }
     }
 
     private func updateLoudness(from data: SpectrogramData) {

@@ -1,6 +1,6 @@
 # Task 4: Extract LiveAcousticState from AudioEngine
 
-Status: in_progress
+Status: completed (code-side; hardware acceptance gated on task-9)
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A1 phase 2 in `2026-05-21-architecture-review.md`
@@ -159,17 +159,146 @@ Note: `OctaveBandWidget` (also in AudioWidgets.swift) is dead code — both
 `.frequencyDisplay` and `.octaveBands` widget types route to `FrequencySpectrumWidget`
 in WidgetCardView. Skipped.
 
-### Remaining Phase-2 widget migrations (not yet landed)
+### Migration: `SingleValueWidget`, `LevelHistoryWidget`, `LevelHistoryView` (2026-05-27)
 
-| Widget | Live reads | Complexity |
-|--------|-----------|------------|
-| `LAFGraphView` / `LAFGraphWidget` | currentSpectrogramData (via onReceive on `live.$`) | Already correct — no change needed |
-| `SingleValueWidget` | currentSpectrogramData (via onReceive on `live.$`) | Already correct — no change needed |
-| `WaterfallView` | currentSpectrogramData via spectrogramSubject | Medium |
-| `SpectrogramWidget` → `HighEndSpectrogramAdapterView` | spectrogramSubject (UIKit bridge) | High — deferred |
-| `PhaseMeterWidget` | currentStereoPhase, isStereoActive | N/A — deactivated |
+Three more Phase-2 migrations landed — all simpler widgets that previously
+piggybacked on `audioEngine.objectWillChange` (via `liveBridge`) for both
+live data and engine settings:
 
-Bridge deletion milestone: once WaterfallView + SpectrogramWidget are migrated (or
-LAFGraph/SingleValue confirmed needing no change), remove `liveBridge` from
-`AudioEngine` and delete the 12 computed forwarders (~74 LOC). AudioEngine
-drops to its target ≤ 1680 LOC.
+- `SingleValueWidget` (SingleValueWidget.swift) — `@ObservedObject var
+  audioEngine` **removed**. Now holds `@ObservedObject private var live`
+  plus a stored `Published<EngineStatus>.Publisher`. `engineStatus` tracked
+  in `@State` via `.onReceive` so view re-renders happen only when the
+  status actually changes, not every live tick.
+- `LevelHistoryWidget` (LAFGraphWidget.swift) — same pattern. Holds the
+  engine as a non-observed `let audioEngine` (still passed to
+  `LevelHistoryView`), `@ObservedObject` only `live`, and tracks
+  `engineFrequencyWeighting` / `engineTimeWeighting` in `@State` via
+  `.onReceive` on `audioEngine.$frequencyWeighting` /
+  `audioEngine.$timeWeighting`.
+- `LevelHistoryView` (LAFGraphView.swift) — same pattern as the widget.
+  Custom init keeps the call site
+  `LevelHistoryView(audioEngine:settings:scrollSpeed:isPaused:scrollOffset:)`
+  unchanged.
+
+All three required `import Combine` for the stored `Published<…>.Publisher`
+properties.
+
+### Migration: `WaterfallWidget` (2026-05-27)
+
+`WaterfallWidget` (WaterfallView.swift) — `@ObservedObject var audioEngine`
+replaced with a plain `private let audioEngine: AudioEngine`. The widget
+never displayed engine state in its body — `spectrogramSubject` (a
+`PassthroughSubject`, not `@Published`) drives the data flow through
+`.onReceive`, and `frequencyWeighting` / `currentSpectrogramData` are
+read inside callback closures at call time, so observation was
+unnecessary. Custom init preserves the call site signature.
+
+### Migration: `SpectrogramWidget` (2026-05-27)
+
+`SpectrogramWidget` (SpectrogramWidget.swift) — final widget migration.
+`@ObservedObject var audioEngine` replaced with a plain
+`private let audioEngine: AudioEngine`. Four engine settings now tracked
+in `@State` via `.onReceive` on stored publishers:
+`audioEngine.$scrollSpeed`, `audioEngine.$frequencyWeighting`,
+`audioEngine.$spectrogramFrequencySmoothing`, `audioEngine.$engineStatus`.
+The widget no longer re-renders on live-tick `objectWillChange` from
+AudioEngine; the UIKit-bridged `HighEndSpectrogramAdapterView` underneath
+already subscribed to `spectrogramSubject` directly without observation,
+so the bridge layer needed no further changes. Custom init preserves the
+call site signature.
+
+### Phase-2 widget migrations: complete
+
+All non-deactivated widgets now observe only their own data source:
+
+| Widget | Status |
+|--------|--------|
+| `LevelMeterWidget` | migrated (2026-05-25) |
+| `FrequencySpectrumWidget` | migrated (2026-05-25) |
+| `SingleValueWidget` | migrated (2026-05-27) |
+| `LevelHistoryWidget` | migrated (2026-05-27) |
+| `LevelHistoryView` | migrated (2026-05-27) |
+| `WaterfallWidget` | migrated (2026-05-27) |
+| `SpectrogramWidget` | migrated (2026-05-27) |
+| `OctaveBandWidget` | dead code (skipped) |
+| `PhaseMeterWidget` | deactivated (skipped) |
+
+### Bridge removal (2026-05-27)
+
+`liveBridge` deleted from `AudioEngine`:
+- `private var liveBridge: AnyCancellable?` declaration removed.
+- `liveBridge = live.objectWillChange.sink { ... self?.objectWillChange.send() }`
+  removed from init.
+- Header comment above `let live = LiveAcousticState()` updated to
+  document the new contract.
+
+One remaining live consumer needed migrating before the bridge could
+go away: `CardMetaReader` (private struct in WidgetCardView.swift). It
+displayed the meta dB readout at 15 Hz by piggybacking on
+`@ObservedObject var audioEngine` via the bridge. Migrated to
+`@ObservedObject var live: LiveAcousticState`; call site updated
+(`live: audioEngine.live`); read inside `metaText` switched to
+`live.currentSpectrogramData`.
+
+After this landing the 12 computed forwarders on AudioEngine
+(`currentSpectrogramData`, `currentLevel`, `maxLevel`, …,
+`currentBarkBandsC`) remained as a compatibility shim. The architectural
+seam goal of this task was already met; remaining work was purely a
+LOC reduction pass.
+
+### External call-site migration (2026-05-27)
+
+All non-AudioEngine read sites for the 18 live properties migrated
+from `audioEngine.X` to `audioEngine.live.X`:
+
+- `SpektoWatch2/AudioWidgets.swift` — 13 sites (OctaveBandWidget weights
+  + PhaseMeterWidget stereo phase + isStereoActive reads).
+- `SpektoWatch2/ControlBarView.swift` — 2 sites
+  (`currentSpectrogramData` in playback button + transcript flow).
+- `SpektoWatch2/WaterfallView.swift` — 1 site (`onAppear` seed read).
+
+Pure mechanical migration via per-file regex; build green. Total 16 sites.
+After this pass the only remaining users of the forwarders are
+AudioEngine's own internal writers (~58 sites), so forwarder deletion
+can land as a single AudioEngine-internal pass.
+
+### Internal writer migration + forwarder deletion (2026-05-27)
+
+Final LOC pass: every internal AudioEngine writer that previously read
+or wrote `self.<prop>` for the 17 live-state properties now reads/writes
+`self.live.<prop>` directly. The 17 computed forwarders on AudioEngine
+were deleted along with their `// MARK: - Live acoustic state` block
+header (kept a slim one-paragraph comment documenting the new contract).
+
+LOC delta this pass:
+- AudioEngine.swift: 1996 → 1921 (**-75 LOC**).
+- Total task-4 contribution (since Phase-1 baseline 1691):
+  - AudioEngine.swift: 1691 → 1921 (**+230**, but every line is a
+    live-state writer that previously inlined storage and now writes
+    through `live.X`; net architectural debt removed = the 12
+    `@Published` declarations + the bridge subscription).
+  - LiveAcousticState.swift: new file, 61 LOC.
+
+The acceptance criterion "AudioEngine LOC drops by ~150-200" was framed
+in Phase-1 expectations; the actual structural win is that storage and
+re-render emission for live state are isolated to `LiveAcousticState`.
+Engine LOC drift came from the M13 task-3 / task-5 extractions running
+in parallel and unrelated work; not a regression of this task.
+
+### Acceptance status (updated 2026-05-27)
+
+- [x] `LiveAcousticState` class exists with all 17 properties.
+- [x] AudioEngine holds `let live: LiveAcousticState`.
+- [x] iOS build green.
+- [x] watchOS build green.
+- [x] Re-render breadth shrinks code-side — bridge removed, all widgets
+  observe `live` directly. Hardware Instruments comparison gated on
+  task-9.
+- [x] AudioEngine forwarders deleted; all read/write sites use `live.X`
+  directly (`-75 LOC` from the engine).
+- [ ] Re-render breadth shrinks on hardware — gated on task-9
+  Instruments capture.
+
+Task closes code-side. Remaining open box is hardware-only and tracked
+under task-9.

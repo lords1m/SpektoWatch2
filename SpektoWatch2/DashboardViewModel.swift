@@ -124,7 +124,7 @@ class DashboardViewModel: ObservableObject {
 
     private func restartActiveMeasurementForSelectedSource(_ newSource: MicrophoneSource) {
         guard audioEngine.engineStatus == .running else { return }
-        let wasRecordingToFile = audioEngine.isRecordingToFile
+        let wasRecordingToFile = audioEngine.recording.isRecordingToFile
 
         if audioEngine.activeMicrophoneSource == .appleWatch {
             audioEngine.stopWearableLiveMode()
@@ -151,7 +151,7 @@ class DashboardViewModel: ObservableObject {
     private func handleWatchRecordingStart(source: MicrophoneSource?) {
         let requestedSource = source ?? connectivityManager.selectedMicrophoneSource
         guard applyMicrophoneSourceSelection(requestedSource, notifyWatch: false) else { return }
-        guard !audioEngine.isRecordingToFile else { return }
+        guard !audioEngine.recording.isRecordingToFile else { return }
 
         if audioEngine.engineStatus == .running {
             guard audioEngine.activeMicrophoneSource != requestedSource else { return }
@@ -170,7 +170,7 @@ class DashboardViewModel: ObservableObject {
     }
 
     private func handleWatchRecordingStop(source: MicrophoneSource?) {
-        guard !audioEngine.isRecordingToFile else { return }
+        guard !audioEngine.recording.isRecordingToFile else { return }
 
         let requestedSource = source ?? selectedMicrophoneSource
         if requestedSource == .appleWatch || audioEngine.activeMicrophoneSource == .appleWatch {

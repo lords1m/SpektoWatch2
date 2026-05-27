@@ -90,5 +90,28 @@ Routing reminders captured in the report:
 - Phase 2 of tasks 1/4/5/7/8 each have a deletable-code path
   that drops further LOC and finishes acceptance criteria.
 
+## Addendum (2026-05-27)
+
+Follow-up report:
+`agent/reports/2026-05-27-milestone-13-phase2-followup.md`.
+
+Covers the cross-task Phase 2 / forwarder-deletion work that landed
+between 2026-05-25 and 2026-05-27:
+
+- task-4 (LiveAcousticState) Phase 2 closed code-side: 7 widgets +
+  CardMetaReader migrated to observe `LiveAcousticState`; `liveBridge`
+  removed; all external + internal call sites use `audioEngine.live.X`
+  / `self.live.X`; 17 computed forwarders deleted from AudioEngine.
+- task-5 (RecordingCoordinator) Phase 1.5: 3 forwarders deleted; audio-
+  thread mirrors driven by Combine sinks; call sites migrated to
+  `audioEngine.recording.X`. Phase 2 (AVAudioEngine start/stop into
+  the coordinator) routed to backlog.
+
+Updated architecture-pressure snapshot: ≥ 12 @Published-moved
+sub-criterion met (now 20 properties); AudioEngine ≤ 1300 LOC
+criterion still **not met** (1925 LOC) — only task-5 Phase 2 can
+close it.
+
 Task stays in_progress until a hardware session closes the
-verification checklist above.
+verification checklist above. M13 8/9 tasks now code-side
+complete; task-9 is the sole remaining item, hardware-gated.

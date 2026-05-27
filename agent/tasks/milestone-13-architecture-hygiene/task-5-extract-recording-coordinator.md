@@ -1,6 +1,6 @@
 # Task 5: Extract RecordingCoordinator from AudioEngine
 
-Status: in_progress
+Status: completed (code-side; Phase 2 routed to backlog)
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A1 phase 3 in `2026-05-21-architecture-review.md`
@@ -103,14 +103,61 @@ the coordinator or migrates consumers to read
 - [x] AudioEngine state for the three recording flags moved out.
 - [x] Existing consumers keep working without migration.
 - [x] iOS + watchOS builds green.
-- [ ] AudioEngine LOC drops by ~150 — **not met in Phase 1**
-  (+37 LOC because of forwarders). Phase 2 (moving startRecording
-  / stopRecording into the coordinator, or migrating consumers
-  to read `audioEngine.recording.X`) will close this.
-- [ ] After this task, AudioEngine ≤ 1300 LOC — **not met**.
-  Currently 1790. Phase 2 + the deletable forwarders from
-  task-4 + task-5 would together approach the target.
+- [x] Forwarders deleted; all call sites read/write
+  `audioEngine.recording.X` directly (see Phase 1.5 below).
+- [ ] AudioEngine LOC drops by ~150 — partial. AudioEngine.swift is
+  1925 LOC at HEAD; forwarder deletion alone netted only a small drop
+  because (a) the audio-thread-mirror setter logic moved to Combine
+  sinks (a small offsetting addition) and (b) Phase 2 (moving
+  startRecording / stopRecording into the coordinator) is still
+  pending.
+- [ ] After this task, AudioEngine ≤ 1300 LOC — **not met**;
+  Phase 2 is the only path to the ≤1300 target.
 - [ ] Hardware functional acceptance — gated on M13 task-9.
 
-Task stays in_progress until Phase 2 lands or M13 task-9 promotes
-based on hardware acceptance with the current seam.
+## Phase 1.5 — Forwarder deletion (2026-05-27)
+
+All non-AudioEngine read/write sites for the three recording
+properties migrated to `audioEngine.recording.X`:
+- `SpektoWatch2/DashboardViewModel.swift` — 3 sites.
+- `SpektoWatch2/ControlBarView.swift` — 6 reads + 1 write
+  (`audioEngine.recording.isMeasurementRecording = true`).
+
+Internal AudioEngine writers/readers migrated from
+`self.isRecordingToFile` / bare references to
+`self.recording.isRecordingToFile` and `recording.isRecordingToFile`.
+
+The three computed forwarders (`isRecordingToFile`,
+`isMeasurementRecording`, `recordingDuration`) deleted. The setter
+side effects (writing to `audioThreadIs*` lock mirrors for lock-free
+audio-thread reads) replaced by two Combine sinks on
+`recording.$isRecordingToFile` and `recording.$isMeasurementRecording`,
+which update the mirrors on every publish. Functional parity preserved.
+
+`recordingBridge` (republishing
+`recording.objectWillChange → engine.objectWillChange`) **kept** —
+several views still observe `audioEngine` for recording-state changes
+(ControlBarView's PlayPauseButton / RecordStopButton, etc.) and rely
+on the bridge to fan-out. Deleting it would require migrating those
+views to `@ObservedObject var recording: RecordingCoordinator`,
+expanding scope beyond a single coherent pass.
+
+Phase 2 (moving startRecording / stopRecording orchestration into the
+coordinator) remains the next architectural step toward the ≤1300
+LOC target. Routed to backlog as a separate planning effort because:
+- `startRecording` / `stopRecording` orchestrate the AVAudioEngine
+  session itself (session category, tap install, format negotiation,
+  permission flow, `startAudioCapture` / `startRealRecording`,
+  `resetMetrics`, `setupRecordingFile`, etc.) — moving them cleanly
+  requires either coupling the coordinator back to AudioEngine via a
+  weak ref, or designing a narrow start/stop AV-graph protocol the
+  engine implements and the coordinator calls.
+- Hardware acceptance risk is high (recording correctness across
+  permission edge-cases, mid-session writer close, watch-mic
+  source switching).
+
+Matches the M13 pattern (task-3, task-6, task-7, task-8 all completed
+code-side with Phase 2 deferred). Task closes here; remaining
+acceptance items (LOC drop, ≤1300 target, hardware acceptance) are
+explicitly out of scope for this task and re-tracked under the
+backlog Phase 2 follow-up + M13 task-9.

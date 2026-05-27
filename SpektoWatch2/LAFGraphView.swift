@@ -1,12 +1,30 @@
 import SwiftUI
+import Combine
 
 struct LevelHistoryView: View {
-    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject private var live: LiveAcousticState
+    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
+    private let timeWeightingPublisher: Published<TimeWeighting>.Publisher
     var settings: [String: String]
     var scrollSpeed: ScrollSpeed = .fast
     var isPaused: Bool
     var scrollOffset: Float
-    
+
+    @State private var engineFrequencyWeighting: String
+    @State private var engineTimeWeighting: String
+
+    init(audioEngine: AudioEngine, settings: [String: String], scrollSpeed: ScrollSpeed = .fast, isPaused: Bool, scrollOffset: Float) {
+        _live = ObservedObject(initialValue: audioEngine.live)
+        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
+        self.timeWeightingPublisher = audioEngine.$timeWeighting
+        self.settings = settings
+        self.scrollSpeed = scrollSpeed
+        self.isPaused = isPaused
+        self.scrollOffset = scrollOffset
+        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
+        _engineTimeWeighting = State(initialValue: audioEngine.timeWeighting.rawValue)
+    }
+
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     var timeSpan: SpectrogramTimeSpan {
         let fallback = WidgetSettings.defaultTimeSpanSeconds
@@ -18,15 +36,15 @@ struct LevelHistoryView: View {
     }
     var freqWeighting: String {
         if useWidgetOverrides {
-            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
+            return settings["freqWeighting"] ?? engineFrequencyWeighting
         }
-        return audioEngine.frequencyWeighting.rawValue
+        return engineFrequencyWeighting
     }
     var timeWeighting: String {
         if useWidgetOverrides {
-            return settings["timeWeighting"] ?? audioEngine.timeWeighting.rawValue
+            return settings["timeWeighting"] ?? engineTimeWeighting
         }
-        return audioEngine.timeWeighting.rawValue
+        return engineTimeWeighting
     }
     var selectedHistoryMetric: String {
         if useWidgetOverrides {
@@ -146,12 +164,14 @@ struct LevelHistoryView: View {
             }
             .drawingGroup()
         }
-        .onReceive(audioEngine.live.$currentSpectrogramData) { data in
+        .onReceive(live.$currentSpectrogramData) { data in
             guard let data = data, !isPaused else { return }
             observedSampleRate = data.sampleRate
             let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel
             updateLevelBuffer(level: level)
         }
+        .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
+        .onReceive(timeWeightingPublisher) { engineTimeWeighting = $0.rawValue }
         .onChange(of: timeSpan) { _, _ in resetBuffer() }
         .onChange(of: scrollSpeed) { _, _ in resetBuffer() }
         .onChange(of: resolvedMetricKey) { _, _ in resetBuffer() }

@@ -1,8 +1,108 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "a0e872eaae794364dadfecad98fb885615242726",
-  "generatedAt": "2026-05-23T12:33:09.824Z",
+  "gitCommitHash": "6d4cf036dfb1ab38809ea9b503bce77102175933",
+  "generatedAt": "2026-05-26T10:21:33.551Z",
   "files": {
+    "AGENT.md": {
+      "filePath": "AGENT.md",
+      "contentHash": "b3a089d1a052d1cdceeda5399a689c252d0b1bb24ae0acd750be973b78521411",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 96,
+      "hasStructuralAnalysis": true
+    },
+    "BANDSTOP_INTEGRATION.md": {
+      "filePath": "BANDSTOP_INTEGRATION.md",
+      "contentHash": "3501158e850f4b34ec02e49f31370ff5568a6bf78adf9fe508fb46a2731d933f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 316,
+      "hasStructuralAnalysis": true
+    },
+    "BASELINE_PROFILING_MATRIX.md": {
+      "filePath": "BASELINE_PROFILING_MATRIX.md",
+      "contentHash": "64eef338d1206eea416f7f58426c37e5eeea93d394b5ac403d921d2c3e85d9ad",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 82,
+      "hasStructuralAnalysis": true
+    },
+    "BUTTON_FIX_SUMMARY.md": {
+      "filePath": "BUTTON_FIX_SUMMARY.md",
+      "contentHash": "f87f7a0b242b88581dc1194f23de63732670db5301c807bba946cd5a6f23e571",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 419,
+      "hasStructuralAnalysis": true
+    },
+    "FULLSTACK_UEBERSICHT.md": {
+      "filePath": "FULLSTACK_UEBERSICHT.md",
+      "contentHash": "02210e161e0f8d170c20030e489172bd2fed3b8f5b5a0482aa1140080afd1d10",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 221,
+      "hasStructuralAnalysis": true
+    },
+    "LOUDNESS_CALCULATOR_README.md": {
+      "filePath": "LOUDNESS_CALCULATOR_README.md",
+      "contentHash": "3e27ef604e2888960de1184fccb3cec966db0a68c68abc2551fa75efc79bfcbc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 222,
+      "hasStructuralAnalysis": true
+    },
+    "PERFORMANCE_BUDGET.md": {
+      "filePath": "PERFORMANCE_BUDGET.md",
+      "contentHash": "4c57c86cc921a868bae908a56a2b601363addfd0ad41341f2d96ea6c78e2c4ac",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 114,
+      "hasStructuralAnalysis": true
+    },
+    "PERFORMANCE_CONTRACT.md": {
+      "filePath": "PERFORMANCE_CONTRACT.md",
+      "contentHash": "e2b8f91c898117b925159885ddf8354c15bc02740eab0966fae685c87ba155d0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": true
+    },
+    "PERFORMANCE_REVIEW.md": {
+      "filePath": "PERFORMANCE_REVIEW.md",
+      "contentHash": "a76e14792ffb2f3d84aaeca81d503944e7089ffd586ec38adcaa1773c3b2a46d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 424,
+      "hasStructuralAnalysis": true
+    },
+    "SPECTROGRAM_REFERENCE.md": {
+      "filePath": "SPECTROGRAM_REFERENCE.md",
+      "contentHash": "b028fa317091dc7eafefe41d6908dfac6c13561a5e6ada178b43be6754c6aa69",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 438,
+      "hasStructuralAnalysis": true
+    },
     "Shared/AppGroup.swift": {
       "filePath": "Shared/AppGroup.swift",
       "contentHash": "9dd6c8e79ea9fccf116cadd32a5c0e3de29bda9385f6036e877e2267ed6bebfc",
@@ -25,12 +125,12 @@
     },
     "Shared/LoudnessCalculator.swift": {
       "filePath": "Shared/LoudnessCalculator.swift",
-      "contentHash": "66be365eeea2e31a5a7a49b9e399169419f38f4b3f5431cd4a7c764e45bbe261",
+      "contentHash": "2550368552aefa2da8c2b2616df8e6030c3abf603ad86dd732e46e36421e92f5",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 312,
+      "totalLines": 410,
       "hasStructuralAnalysis": false
     },
     "Shared/LoudnessCalculatorView.swift": {
@@ -55,12 +155,12 @@
     },
     "Shared/PersistenceKeys.swift": {
       "filePath": "Shared/PersistenceKeys.swift",
-      "contentHash": "5a9966ac87ab673fd52026b7f54f2d4e3f2ea11b947047f6d962b5b903fa7471",
+      "contentHash": "aad8edc541e3b2470f31227a21b5642ebe36b7ab1b0725b76d7e5a7daff10448",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 127,
+      "totalLines": 143,
       "hasStructuralAnalysis": false
     },
     "Shared/RingBuffer.swift": {
@@ -75,32 +175,32 @@
     },
     "Shared/SpectrogramData.swift": {
       "filePath": "Shared/SpectrogramData.swift",
-      "contentHash": "e137d1890f8a14141638fa5e7bb5330765512d1ccf3515de4bcd43d47cc2668d",
+      "contentHash": "01021fb2244777ec93a3d9206b674235d1ceb623e1b3137ec235b62d1c30626d",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 295,
+      "totalLines": 308,
       "hasStructuralAnalysis": false
     },
     "Shared/WatchAppState.swift": {
       "filePath": "Shared/WatchAppState.swift",
-      "contentHash": "0a63ace00989a8a91e3bffeabba9d421e9e2005e9fe1143b48b74632a2f2d018",
+      "contentHash": "d0d246019056b1bf6a2309cfae8b56622a8696aa5e2cd4d300d3dbf7daf02d10",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 100,
+      "totalLines": 101,
       "hasStructuralAnalysis": false
     },
     "Shared/WatchConnectivityManager.swift": {
       "filePath": "Shared/WatchConnectivityManager.swift",
-      "contentHash": "d865bb8a7f795ee21f5bf9cedd9d65a8459f335df17ee6ae82c4f1447c02bb21",
+      "contentHash": "c60b339a2ca1d0ac34f6115c0ac648845912fcd51e0b0d39e671f049163f3fc5",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 377,
+      "totalLines": 378,
       "hasStructuralAnalysis": false
     },
     "Shared/WatchConnectivityProtocol.swift": {
@@ -285,12 +385,12 @@
     },
     "SpektoWatch Watch App/WatchAudioEngine.swift": {
       "filePath": "SpektoWatch Watch App/WatchAudioEngine.swift",
-      "contentHash": "b6e9dc68386ee717587b5f9043843326f6e52b23db2b41aef83c71c37a817085",
+      "contentHash": "c6b8e8fe6536cc7cb803f6c87e7d4f621830a96119ec98f6cfda86c517f0cfe0",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 518,
+      "totalLines": 562,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch Watch App/WatchContentView.swift": {
@@ -315,12 +415,12 @@
     },
     "SpektoWatch Watch App/WatchLevelMeterView.swift": {
       "filePath": "SpektoWatch Watch App/WatchLevelMeterView.swift",
-      "contentHash": "2651965084f4dfd248ddbb2c9d088f91bf7795786650b311a42a3dd1f1e1aa07",
+      "contentHash": "3fd4830de4f8d3ba206473009b7448af0cf28b1c903eac8426b32e0c16737b75",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 193,
+      "totalLines": 192,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch Watch App/WatchModularFace.swift": {
@@ -355,12 +455,12 @@
     },
     "SpektoWatch Watch App/WatchSpectrogramView.swift": {
       "filePath": "SpektoWatch Watch App/WatchSpectrogramView.swift",
-      "contentHash": "58dfc8b67f79bce56346d36c6c3b1ed5ae7a667b05cc9ad52116bb97c28f451d",
+      "contentHash": "805f1048db2d684edf05416fb95483e7974f0b16b546e00d1c4388c035e822ab",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 355,
+      "totalLines": 359,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch Watch App/WatchTonegeneratorFace.swift": {
@@ -385,12 +485,12 @@
     },
     "SpektoWatch Watch App/WatchWidgets/WatchLoudnessWidget.swift": {
       "filePath": "SpektoWatch Watch App/WatchWidgets/WatchLoudnessWidget.swift",
-      "contentHash": "bf775bdfc3fe0e07a78e9025970ada1cd0854a5ffe3dc449387427a8909886a9",
+      "contentHash": "e6244c51a8c552fb0de3d84e8ff0f0d7b4c1d02e552e51eb845db46da9083c51",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 86,
+      "totalLines": 75,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch Watch App/WatchWidgets/WatchSingleValueWidget.swift": {
@@ -443,14 +543,34 @@
       "totalLines": 19,
       "hasStructuralAnalysis": false
     },
-    "SpektoWatch2.xcodeproj/project.pbxproj": {
-      "filePath": "SpektoWatch2.xcodeproj/project.pbxproj",
-      "contentHash": "f0c3c8b703a74d341fc0055caa9f2b873585152442f52f2e2fef019c0376c4b0",
+    "SpektoWatch2 2026-05-23 12-18-19/Packaging.log": {
+      "filePath": "SpektoWatch2 2026-05-23 12-18-19/Packaging.log",
+      "contentHash": "ce4130f3032e6ccc0f14ce2b9305fac65eb74c252ae3bbc46028983c6ba035c4",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 1291,
+      "totalLines": 1174,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/project.pbxproj": {
+      "filePath": "SpektoWatch2.xcodeproj/project.pbxproj",
+      "contentHash": "bce71084933f2d60f32ef8b0dc2e5298593a83e675e5b9752171296b677fc290",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1297,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2.xcodeproj/project.pbxproj.backup": {
+      "filePath": "SpektoWatch2.xcodeproj/project.pbxproj.backup",
+      "contentHash": "8706fd9ca0f7cabf915c4d0981abd4d1a2b7ad6244fe1cd2aa0f039e7a292bbd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 867,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2.xcodeproj/project.xcworkspace/contents.xcworkspacedata": {
@@ -605,32 +725,32 @@
     },
     "SpektoWatch2/AudioEngine.swift": {
       "filePath": "SpektoWatch2/AudioEngine.swift",
-      "contentHash": "b17e77367b46c2059d08705592bf8b16760dda94ed11e525305850818459d8c9",
+      "contentHash": "b1b5cc0a957771aac1c6005e10cc4951596acc98c8e59cfad929fd711ce33735",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 1796,
+      "totalLines": 1996,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/AudioWidgets.swift": {
       "filePath": "SpektoWatch2/AudioWidgets.swift",
-      "contentHash": "91ce400e6cf04d56ea62d04467390a46cefb8013e47c2c9079928e52e39b9aa5",
+      "contentHash": "315d428a75be780b8637c48fbea50483e059f3d3ca6e604dea4a4a8708b97a02",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 514,
+      "totalLines": 559,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/CSVExporter.swift": {
       "filePath": "SpektoWatch2/CSVExporter.swift",
-      "contentHash": "59eac2582874ebc15217fa2f373f38fda8fe31e548a499185905bcd17b3a8f93",
+      "contentHash": "d615f547028879696114c0a3d3224d1ce9743b49891f2657e067b9cd993c3f7f",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 115,
+      "totalLines": 134,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/CalibrationProvider.swift": {
@@ -725,22 +845,22 @@
     },
     "SpektoWatch2/DashboardViewModel.swift": {
       "filePath": "SpektoWatch2/DashboardViewModel.swift",
-      "contentHash": "2a8c3e0e4386909b1b8240aaba4717812a5bf96e7dfcd46678f47d4432b5f7b3",
+      "contentHash": "adb52830519a891f480a4dd51a395c26abe66fa31a969f70f22e5afc6b84c889",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 269,
+      "totalLines": 274,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/DesignTokens.swift": {
       "filePath": "SpektoWatch2/DesignTokens.swift",
-      "contentHash": "21b187af0b2558fb7f250edd3679d48f4c89265bff763413e933acd7e28f6142",
+      "contentHash": "58b9722eee50a681746b166dc473e224db64f9a6bf7e1ad6fe07f0f52c74d275",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 273,
+      "totalLines": 292,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/GlassStyle.swift": {
@@ -755,22 +875,22 @@
     },
     "SpektoWatch2/HighEndSpectrogramAdapter.swift": {
       "filePath": "SpektoWatch2/HighEndSpectrogramAdapter.swift",
-      "contentHash": "a89c9ff8f252dd6ce3acb7bd142b50a81b66e9e91d024bde5397b1edda5b2663",
+      "contentHash": "3048d34e13d313347c5833b164c855bed9e72e8b7c643a5643b5a2ad089544ad",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 1108,
+      "totalLines": 1124,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/HighEndSpectrogramShaders.metal": {
       "filePath": "SpektoWatch2/HighEndSpectrogramShaders.metal",
-      "contentHash": "7806b0b367388b51181026db9a84a5b7b53119338c685fcc4b5b00005c6688c7",
+      "contentHash": "8585e212c1be52030f21abe85e75b1c345da1efe0fc2425b6afaa5ca7c3a5975",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 153,
+      "totalLines": 161,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/LAFGraphView.swift": {
@@ -785,32 +905,32 @@
     },
     "SpektoWatch2/LAFGraphWidget.swift": {
       "filePath": "SpektoWatch2/LAFGraphWidget.swift",
-      "contentHash": "27dcc0d59a49aa5406179ac96759fbd06498651ed467d07a5b1bb2b9cc23c19f",
+      "contentHash": "f3e7c9a14de45964d2e8812ccabcee8164732c5a28fc94a4248cc76e425f840f",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 119,
+      "totalLines": 91,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/LiveAcousticState.swift": {
       "filePath": "SpektoWatch2/LiveAcousticState.swift",
-      "contentHash": "a75f5cae885b4b5575b4faed37b64c7bf8c4af84262fc8049dd2cbae2133638b",
+      "contentHash": "01108aae6b9124dd543d1cf8c5fd942278d16b5697bf78807903869c6084552e",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 62,
+      "totalLines": 70,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/Managers/AcousticMetricsCalculator.swift": {
       "filePath": "SpektoWatch2/Managers/AcousticMetricsCalculator.swift",
-      "contentHash": "aa2bb90ee7c92f836e457067ff61c3538effed3696cc060570ab84b678b6f6c8",
+      "contentHash": "1a1a42219b337784cf83753eabad643c6af60a095a7d63b3379e7c673f0d3221",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 210,
+      "totalLines": 364,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/Managers/BandstopFilterManager.swift": {
@@ -865,12 +985,12 @@
     },
     "SpektoWatch2/Masking/MaskingEngine.swift": {
       "filePath": "SpektoWatch2/Masking/MaskingEngine.swift",
-      "contentHash": "4027e4b37c6f84daa99fccaa50e546e66cf87dbca606cccf4ec8ee0af01945a2",
+      "contentHash": "c53508f3223b416a37c5714dc489e19e3fd7441f9614af3f1a342718df82a6ac",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 248,
+      "totalLines": 255,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/Masking/MaskingEntryWidget.swift": {
@@ -995,22 +1115,22 @@
     },
     "SpektoWatch2/MeasurementDataReader.swift": {
       "filePath": "SpektoWatch2/MeasurementDataReader.swift",
-      "contentHash": "269d195245cc0ba7b750f2768d65b718d0cc4709ecd07e7816b560a2eb28a5bb",
+      "contentHash": "519fa02a2f374e6e81ae4393b535c63f7256dd7044634995b943584c6f05e864",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 157,
+      "totalLines": 175,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/MeasurementDataWriter.swift": {
       "filePath": "SpektoWatch2/MeasurementDataWriter.swift",
-      "contentHash": "20d4a8caef559d0273ee0443d384e679ab7d563729de033be50ebb1a2be29e9e",
+      "contentHash": "b53b1a34e31b53ac8d16953d15574cfb8ece7de87ff11d48537beda3d43974fb",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 198,
+      "totalLines": 204,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/MetalWidgetManager.swift": {
@@ -1055,32 +1175,32 @@
     },
     "SpektoWatch2/Models/Recording.swift": {
       "filePath": "SpektoWatch2/Models/Recording.swift",
-      "contentHash": "fcab7beec31f41016dd1a2701bf11bb7bb49671ec7c03b3dc43e35990bae1279",
+      "contentHash": "b3823f71416ccaeb80685385da68e36c92b78e30e3bd38a2268388a985ed6c27",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 190,
+      "totalLines": 206,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/ModularDashboardView.swift": {
       "filePath": "SpektoWatch2/ModularDashboardView.swift",
-      "contentHash": "f5abc7adae739e5672119fdf4229f74c026e9b9106457f242074615fd14a3dbd",
+      "contentHash": "6f8b48dfaf59168e51ac247d2dd8b7f3fd6e3ef5718d36666465d15be7afa7a7",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 481,
+      "totalLines": 484,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/PDFReportGenerator.swift": {
       "filePath": "SpektoWatch2/PDFReportGenerator.swift",
-      "contentHash": "1c2c307392b0a083a913aa4cd86459e5d699f0ca52b70dd0968ee5d7ffb83ef5",
+      "contentHash": "5632f1463e7838e2c0c0c36d8949df1eb01970678e7152027499166d6eef9940",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 293,
+      "totalLines": 360,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/PlaybackSpectrogramView.swift": {
@@ -1115,7 +1235,7 @@
     },
     "SpektoWatch2/Processing/FFTProcessor.swift": {
       "filePath": "SpektoWatch2/Processing/FFTProcessor.swift",
-      "contentHash": "dda50e128a445402263894d20db60985727367733c22185c5e798e239d824a7a",
+      "contentHash": "f9f5a675a2cd5a3b62da1ac24bc0542702293d290526659e7bb23d780f6861ba",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -1155,12 +1275,12 @@
     },
     "SpektoWatch2/RecordingManager.swift": {
       "filePath": "SpektoWatch2/RecordingManager.swift",
-      "contentHash": "9f66d5ccfa45bab0e80ae505b951b6dbd8df7025054467d4024645d0dfd217ee",
+      "contentHash": "1c28f8afdf605cc2a002b41dfd20b56e8e045a009edb08bc5c2eca79e4abc85f",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 386,
+      "totalLines": 505,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/ScientificChartSupport.swift": {
@@ -1175,12 +1295,12 @@
     },
     "SpektoWatch2/SingleValueWidget.swift": {
       "filePath": "SpektoWatch2/SingleValueWidget.swift",
-      "contentHash": "284eaf3f55a1780fd4dabd2263905c8bb439b883b6a8e5097f1325d0260c086b",
+      "contentHash": "6786dc92ce1e77f5cf072bc4272a6fa95cf2e91e765774f7f4cafb3e15dbc766",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 160,
+      "totalLines": 122,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/SpectrogramCrosshairOverlay.swift": {
@@ -1215,12 +1335,12 @@
     },
     "SpektoWatch2/SpectrogramProcessor.swift": {
       "filePath": "SpektoWatch2/SpectrogramProcessor.swift",
-      "contentHash": "716215d54ca21fe36bcf1fe599e84e22104a077f6599ff3e16568fa5181ab27b",
+      "contentHash": "43a09749bfb80fca4db1e30216abfb457ca6be1e39ace300f72764ec27b96b26",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 733,
+      "totalLines": 747,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/SpectrogramSettingsView.swift": {
@@ -1245,12 +1365,12 @@
     },
     "SpektoWatch2/SpectrogramWidget.swift": {
       "filePath": "SpektoWatch2/SpectrogramWidget.swift",
-      "contentHash": "74fadb4ce851aef6f7877d0ce42111c448ea8157e40a4d6f5191bdc051da0fd9",
+      "contentHash": "1a26c6c2fe0163ecc29a06bc2d03d42277cb120e3d4529cfdd9974d1b7db6305",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 65,
+      "totalLines": 68,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/SpektoWatch2App.swift": {
@@ -1285,27 +1405,27 @@
     },
     "SpektoWatch2/StoredDataProvider.swift": {
       "filePath": "SpektoWatch2/StoredDataProvider.swift",
-      "contentHash": "f9d8f57012105a84632063841787f606119957b9ac2a9b64fe0b7cc557dbc33e",
+      "contentHash": "a3589f28dc70754428715a6f49c81d204946a81a33b5ebc339affa618d707c01",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 137,
+      "totalLines": 196,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/ToneGeneratorWidget.swift": {
       "filePath": "SpektoWatch2/ToneGeneratorWidget.swift",
-      "contentHash": "766088f949e1183bfbb20c6e6ea6e9b1ba0ced30bddfd14e7acd3c82f893bf38",
+      "contentHash": "84afb462427e259217d202de19ddf77c73515d275e980af22dea485b8f803bcf",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 856,
+      "totalLines": 1032,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/TweaksPanelView.swift": {
       "filePath": "SpektoWatch2/TweaksPanelView.swift",
-      "contentHash": "207d4b0746e7ae36e67bc8c67090077e3fb73e36c2944d9d264e762217e98840",
+      "contentHash": "72203285578829c38b522f9734f32a1246d49174de482fe7b3592e652f94bfe9",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -1325,12 +1445,12 @@
     },
     "SpektoWatch2/Views/AudioPlayerManager.swift": {
       "filePath": "SpektoWatch2/Views/AudioPlayerManager.swift",
-      "contentHash": "84046c121ccb1d04644aa8049e1d410983a2f5ce2464000408ee374d625bbdc4",
+      "contentHash": "69bdd228d78a0756ebe4eabf4efe0af137e4c9588815a3e1b6f629c87f953c03",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 172,
+      "totalLines": 173,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/Views/BandstopDashboardWidget.swift": {
@@ -1365,12 +1485,12 @@
     },
     "SpektoWatch2/Views/PhotoPickerView.swift": {
       "filePath": "SpektoWatch2/Views/PhotoPickerView.swift",
-      "contentHash": "a78e665b0536dd61f938443ad5d74c7c8531265db6c69a98d23be919ba2b8c58",
+      "contentHash": "0c876de56c9da20e88f8d17a5a6c56cfdf1887afb980427d72d3fcc17f8be88f",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 40,
+      "totalLines": 46,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/Views/RecordingDetailComponents.swift": {
@@ -1385,12 +1505,12 @@
     },
     "SpektoWatch2/Views/RecordingDetailView.swift": {
       "filePath": "SpektoWatch2/Views/RecordingDetailView.swift",
-      "contentHash": "c668c022995ffb1dd2a4cae66f51abf16500e406e3031caf555af42ad6ad9f3a",
+      "contentHash": "3e6a6f2e76f210487e30246353ef13f527cc5c08781fda84330451de06ca71f6",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 1202,
+      "totalLines": 1362,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/Views/RecordingsListView.swift": {
@@ -1405,12 +1525,12 @@
     },
     "SpektoWatch2/WatchConnectivityManager.swift": {
       "filePath": "SpektoWatch2/WatchConnectivityManager.swift",
-      "contentHash": "24cc34abd875dd4689bab2ab546ebbe10bc4f949cb5082978bd5e9a75bd1872d",
+      "contentHash": "6311befa8a6a5c70008b219c72b0c350fa8f841b26c00c485250a527710375cc",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 355,
+      "totalLines": 364,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/WatchDashboardSettingsView.swift": {
@@ -1435,12 +1555,12 @@
     },
     "SpektoWatch2/WaterfallView.swift": {
       "filePath": "SpektoWatch2/WaterfallView.swift",
-      "contentHash": "159af199bd1266b389ab384cd0abf5f80fb03465583e3f826aac805a77b42af0",
+      "contentHash": "3454a05d7cbaff3c4f83a856df773439277f0bdca19c84bfdbc0d2b88bd2470c",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 960,
+      "totalLines": 969,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/WidgetAnimations.swift": {
@@ -1465,12 +1585,12 @@
     },
     "SpektoWatch2/WidgetConfiguration.swift": {
       "filePath": "SpektoWatch2/WidgetConfiguration.swift",
-      "contentHash": "439fe90e99bd61766b2e62a5c5e0979d853352098ee488f71a5296196841d065",
+      "contentHash": "985bb27b57a3889723573494f71abe8797ed4a2acd1aef5ec3357b116160a666",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 253,
+      "totalLines": 265,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2/WidgetPickerView.swift": {
@@ -1485,12 +1605,12 @@
     },
     "SpektoWatch2/WidgetSettingsView.swift": {
       "filePath": "SpektoWatch2/WidgetSettingsView.swift",
-      "contentHash": "a5c046fd94ca50d86957454acf1b8bfdb13332aa122756dbc20a3de029c4483d",
+      "contentHash": "74e6c04d6223a181272a85c74d9be4ead9050501da462463fd4dc1e9d53ccce9",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 321,
+      "totalLines": 358,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2Tests/AudioEngineTests.swift": {
@@ -1505,12 +1625,12 @@
     },
     "SpektoWatch2Tests/CSVExporterTests.swift": {
       "filePath": "SpektoWatch2Tests/CSVExporterTests.swift",
-      "contentHash": "bc06e86a03c217c31d9f606c89e03f8ebf1375ca323de3d23f2b7ac887382413",
+      "contentHash": "ba3dd10adcd5beb811d33d6e6d21e565a61d79dd5278ee9153f86c73ac002046",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 667,
+      "totalLines": 733,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2Tests/CalibrationProviderTests.swift": {
@@ -1535,12 +1655,12 @@
     },
     "SpektoWatch2Tests/FFTProcessorTests.swift": {
       "filePath": "SpektoWatch2Tests/FFTProcessorTests.swift",
-      "contentHash": "73f6094a7643945efd2efab4a16f1b005c36801f9d3ec9b3085f288e44e5cabb",
+      "contentHash": "a71866e07b058052ff7ee9ffa0fdaa94fadb79758801a08628b46207c04cc382",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 480,
+      "totalLines": 475,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2Tests/FrequencyWeightingTests.swift": {
@@ -1595,12 +1715,12 @@
     },
     "SpektoWatch2Tests/PDFReportGeneratorTests.swift": {
       "filePath": "SpektoWatch2Tests/PDFReportGeneratorTests.swift",
-      "contentHash": "f17c7a58dfe0412744417a910a68f480ae8938f693f39750bba29b9b1e7053b2",
+      "contentHash": "7af7139b46d5b50a643d4b49ac26bf6f99e3722f2854c8ae8d0008877546bdef",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 528,
+      "totalLines": 615,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2Tests/PDFReportSnapshotTests.swift": {
@@ -1625,27 +1745,27 @@
     },
     "SpektoWatch2Tests/PerformanceProfilingTests.swift": {
       "filePath": "SpektoWatch2Tests/PerformanceProfilingTests.swift",
-      "contentHash": "f4da77abdd4fccd20c5d72aad278219fc05278438da5b9d13e8ae96c64262e00",
+      "contentHash": "94ca816a76ae7765494a89356ef329bb3f3e09af36b2cd0e290100f397f75f7a",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 481,
+      "totalLines": 485,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2Tests/RecordingManagerTests.swift": {
       "filePath": "SpektoWatch2Tests/RecordingManagerTests.swift",
-      "contentHash": "d61c2184e87bce9fcf254fe611998740389f149fadcde2395eec7fcc799a1fd1",
+      "contentHash": "6a93b1fe90f065dad71884a3782d9dae9f2227181925e522615f8c2d3c74723d",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 438,
+      "totalLines": 437,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2Tests/SnapshotTestSupport.swift": {
       "filePath": "SpektoWatch2Tests/SnapshotTestSupport.swift",
-      "contentHash": "1c403008602286ead08b201c841ab977f03f8f6645c49032c98223a0da97d04b",
+      "contentHash": "550cdd32a45e17ec7d2577b9dbaddeae4661e16de55f6d9ce0f86941d610571c",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -1685,7 +1805,7 @@
     },
     "SpektoWatch2Tests/ToneGeneratorTests.swift": {
       "filePath": "SpektoWatch2Tests/ToneGeneratorTests.swift",
-      "contentHash": "1c556add408ae31174b812f2541cc582a6e029c519a73e2bb8665f3c52af6a97",
+      "contentHash": "df3843ec8cdffbe9337e6482d4adbd92cc7dce83e9e5a151d822c7613f8b5a84",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -1753,14 +1873,24 @@
       "totalLines": 194,
       "hasStructuralAnalysis": false
     },
-    "SpektoWatch2UITests/ScreenshotCatalogTests.swift": {
-      "filePath": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
-      "contentHash": "c8ac10e18c89e736df711ed036d0d6414381b9019293b1e634d7b7c5538f46e2",
+    "SpektoWatch2Tests/__Snapshots__/PDFReportSnapshotTests/README.txt": {
+      "filePath": "SpektoWatch2Tests/__Snapshots__/PDFReportSnapshotTests/README.txt",
+      "contentHash": "f0b8d1a7784ad1ac732e9248b4b1faf884f60719895822c2ea93051bfc3a4f9c",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 206,
+      "totalLines": 9,
+      "hasStructuralAnalysis": false
+    },
+    "SpektoWatch2UITests/ScreenshotCatalogTests.swift": {
+      "filePath": "SpektoWatch2UITests/ScreenshotCatalogTests.swift",
+      "contentHash": "50fc74b0e5152fe14581325cf20d7c21215cfb9f85a362fa81253022bdd12527",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 180,
       "hasStructuralAnalysis": false
     },
     "SpektoWatch2UITests/SpektoWatch2UITests.swift": {
@@ -1785,7 +1915,7 @@
     },
     "SpektoWatch2UITests/WatchAppScreenshotTests.swift": {
       "filePath": "SpektoWatch2UITests/WatchAppScreenshotTests.swift",
-      "contentHash": "a7c99c102a4ae05b3e0912fcc0534eca24eee9805973c97ebfca94734c492a64",
+      "contentHash": "83367302334f17c3373604682ffa3a1719133d217f3c940c86c7d78dd4c924a4",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -1843,6 +1973,16 @@
       "totalLines": 170,
       "hasStructuralAnalysis": false
     },
+    "TESTKONZEPT.md": {
+      "filePath": "TESTKONZEPT.md",
+      "contentHash": "620db85b5697421de412043326bae46d847c3f3b23bd83f08f35b53abc3812b8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 541,
+      "hasStructuralAnalysis": true
+    },
     "TestPlan.xctestplan": {
       "filePath": "TestPlan.xctestplan",
       "contentHash": "30e9d4bbcd8f150353c0c6636b0d839c8b925829782c4cc0de775ccc80e338a1",
@@ -1852,6 +1992,176 @@
       "exports": [],
       "totalLines": 25,
       "hasStructuralAnalysis": false
+    },
+    "WATCH_PLAN.md": {
+      "filePath": "WATCH_PLAN.md",
+      "contentHash": "9b04195d5896e81b394aeea15868289e90b22d421b0c4a0cc8c4740d0522ab64",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 402,
+      "hasStructuralAnalysis": true
+    },
+    "agent/clarifications/spektowatch-project.clarification.md": {
+      "filePath": "agent/clarifications/spektowatch-project.clarification.md",
+      "contentHash": "1724b820ea0f851847b8d245e25be6caf8fa9ad068f7d2c86c87b973a1ed8933",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 533,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.clarification-address.md": {
+      "filePath": "agent/commands/acp.clarification-address.md",
+      "contentHash": "adc4a5a5db6adec91b5020d45875026b058b4c8880a386a9990beb1416097df7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.clarification-create.md": {
+      "filePath": "agent/commands/acp.clarification-create.md",
+      "contentHash": "888c4df2f5aef6a324e950493f22b7e918f023866ccc7daba6493ef602a84f88",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.design-create.md": {
+      "filePath": "agent/commands/acp.design-create.md",
+      "contentHash": "bba9fba112970f0277dff4a6d76c4672881df2ba610179826cff336864e9475c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.init.md": {
+      "filePath": "agent/commands/acp.init.md",
+      "contentHash": "3c6cdf284b48cf46e48e919fb166c68fdcc60460e230fc58181c319bf0a86c16",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.plan.md": {
+      "filePath": "agent/commands/acp.plan.md",
+      "contentHash": "54365e5ec3b9d32ca80d1289d6202662c0fe2b324aa4795b229199ab6105f9d2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 27,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.proceed.md": {
+      "filePath": "agent/commands/acp.proceed.md",
+      "contentHash": "3c284b9e00ea8338c8c1f38d4584411133285efefb3daf8e26444c49e8b6efe9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.report.md": {
+      "filePath": "agent/commands/acp.report.md",
+      "contentHash": "4464e4f10d65decf697da7a1b3945fb98bd02f2b65065d33a5fbf726a5b8f5b7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 16,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.status.md": {
+      "filePath": "agent/commands/acp.status.md",
+      "contentHash": "64e1ea15cddd866e789dd8769f43fb97d516b2e52ad4e4fb32d491a2b387ee4c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.sync.md": {
+      "filePath": "agent/commands/acp.sync.md",
+      "contentHash": "f00f33ad93f10bf7a7174b65f7f0bcb2a43eef83a0ce4a9936900b1f0572f7c4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "agent/commands/acp.validate.md": {
+      "filePath": "agent/commands/acp.validate.md",
+      "contentHash": "eb97bc3d6c73bb251521bca99a094d005e8724cdb4746ffbe42e725dfa7d81e7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "agent/design/acp-integration.md": {
+      "filePath": "agent/design/acp-integration.md",
+      "contentHash": "9e206dcb16f4d2dcd17035b74d6bb953d30bab1113817881601365f8e7dd841c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/design/project-draft.md": {
+      "filePath": "agent/design/project-draft.md",
+      "contentHash": "cc112f6b4c85e92a024f9a5c658f4559d1ee24b2f19ac3fcbb116d323aa62186",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 146,
+      "hasStructuralAnalysis": true
+    },
+    "agent/design/requirements.md": {
+      "filePath": "agent/design/requirements.md",
+      "contentHash": "c7a7284888d246df8d2aa0af812b3b67423af77990549192359304e36d87bba7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 52,
+      "hasStructuralAnalysis": true
+    },
+    "agent/design/spektowatch-field-engineering-design.md": {
+      "filePath": "agent/design/spektowatch-field-engineering-design.md",
+      "contentHash": "ce0761f354e6425e7001000adc8e883ca7ef1c43a901ef85971b66db764c259a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 311,
+      "hasStructuralAnalysis": true
+    },
+    "agent/drafts/spektowatch-project.draft.md": {
+      "filePath": "agent/drafts/spektowatch-project.draft.md",
+      "contentHash": "d4893e5d020bcd5511d28df1ab373d65f673f0cf4175f6d2155deef8cc091919",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 44,
+      "hasStructuralAnalysis": true
     },
     "agent/manifest.yaml": {
       "filePath": "agent/manifest.yaml",
@@ -1863,19 +2173,309 @@
       "totalLines": 19,
       "hasStructuralAnalysis": true
     },
-    "agent/progress.yaml": {
-      "filePath": "agent/progress.yaml",
-      "contentHash": "18b41d56272a35cc0d3746136b9d8e2d691de5c72ece3a0e4462db4db128200b",
+    "agent/milestones/milestone-1-acp-bootstrap.md": {
+      "filePath": "agent/milestones/milestone-1-acp-bootstrap.md",
+      "contentHash": "6bc710e6f3da55d8128156294feb4dd05c107bd148e8e04174f75ae1e587eefb",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 881,
+      "totalLines": 23,
       "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-10-ios-standalone-widgets.md": {
+      "filePath": "agent/milestones/milestone-10-ios-standalone-widgets.md",
+      "contentHash": "9f39114e3bf5c2acb81c48b0a9b63e27137c3f3f1907cb7b0d404289b3bd5712",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 116,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-11-tone-generator-piano-input.md": {
+      "filePath": "agent/milestones/milestone-11-tone-generator-piano-input.md",
+      "contentHash": "e5a0965a1e927b7683083e3564e19d96dbcbb60866b87198155d959ebef8b34d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 62,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-12-liquid-glass-redesign.md": {
+      "filePath": "agent/milestones/milestone-12-liquid-glass-redesign.md",
+      "contentHash": "45664f47e8362fb470dbeb2d8344dc8a2b8f813ed5632054c25da6a5030312f1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 71,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-13-architecture-hygiene.md": {
+      "filePath": "agent/milestones/milestone-13-architecture-hygiene.md",
+      "contentHash": "d2138b2e33d39db13cae6f3141b6758f359901afb2285f6d7ea96bdfcf036f7a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 136,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-14-performance-centralization.md": {
+      "filePath": "agent/milestones/milestone-14-performance-centralization.md",
+      "contentHash": "9a9af7fb419a71a5bc7475228772f3360c61ed3534b1a4182b044487f67d6fda",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 150,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-2-performance-stabilization-watch-architecture.md": {
+      "filePath": "agent/milestones/milestone-2-performance-stabilization-watch-architecture.md",
+      "contentHash": "185d48739fdb0d80847439f678599f6f2fd5921907af4af4ee0a173ffc9a0cc1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 73,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-3-dashboard-and-recording-polish.md": {
+      "filePath": "agent/milestones/milestone-3-dashboard-and-recording-polish.md",
+      "contentHash": "886521f05c72b4745118ebc5b5dc8d62bcdac64101457d94d4acedcc2e44523d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 64,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-4-export-and-reporting.md": {
+      "filePath": "agent/milestones/milestone-4-export-and-reporting.md",
+      "contentHash": "78009eeef9e974dcbc7769a81bb5d98b4d542a00e9dd60b874b4c53a775b230d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 77,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-5-watch-complications.md": {
+      "filePath": "agent/milestones/milestone-5-watch-complications.md",
+      "contentHash": "2088e3c7f64b37bae880d4e0370fa542ecdb051a30afc58a95566805231fbe9f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 59,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-6-code-audit-remediation.md": {
+      "filePath": "agent/milestones/milestone-6-code-audit-remediation.md",
+      "contentHash": "9330f6935173d7e96d230caa52e9dd2fa63d41c8853bb2d784e2fe2f375072b8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 101,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-7-xcode-cloud-snapshot-testing.md": {
+      "filePath": "agent/milestones/milestone-7-xcode-cloud-snapshot-testing.md",
+      "contentHash": "253529df2462965c3b9f581a2476c5e82a4a480a2f0ba09519607c46e53b408d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 96,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-8-widget-sizing-refactor.md": {
+      "filePath": "agent/milestones/milestone-8-widget-sizing-refactor.md",
+      "contentHash": "805b93d720848ffe19561c36441f5312277a5d003004425dbc046ca833daa3d1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 76,
+      "hasStructuralAnalysis": true
+    },
+    "agent/milestones/milestone-9-widget-audit.md": {
+      "filePath": "agent/milestones/milestone-9-widget-audit.md",
+      "contentHash": "3adfee882503f74eebc678a1527f39491d8775cf847bd00d035622bccd62062c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 70,
+      "hasStructuralAnalysis": true
+    },
+    "agent/patterns/swiftui-audio-pipeline.md": {
+      "filePath": "agent/patterns/swiftui-audio-pipeline.md",
+      "contentHash": "df4340e600777d43d27ab4e089f4ad7e53eeacea7ae6b41c6bb49ce2da194db5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": true
+    },
+    "agent/progress.yaml": {
+      "filePath": "agent/progress.yaml",
+      "contentHash": "6b1bfe7a22da64b1b36e4ea35d0735aa749748ce379b92affc71b16ff4378fbb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1046,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-11-milestone-2-acceptance.md": {
+      "filePath": "agent/reports/2026-05-11-milestone-2-acceptance.md",
+      "contentHash": "d1201284e8090f946449cc962955f253daf2e9e81618a851b69285250277b360",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 94,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-12-milestone-3-acceptance.md": {
+      "filePath": "agent/reports/2026-05-12-milestone-3-acceptance.md",
+      "contentHash": "6681a35bda094066eb92a2f7cc47599e9ec5a05adced5149bba5f411c2c65374",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-13-milestone-4-acceptance.md": {
+      "filePath": "agent/reports/2026-05-13-milestone-4-acceptance.md",
+      "contentHash": "18a211e914a761718c50b2b627bc7c78a44c021be98553d6e1adecf4f327909f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 74,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-16-milestone-5-acceptance.md": {
+      "filePath": "agent/reports/2026-05-16-milestone-5-acceptance.md",
+      "contentHash": "ede24f0c784735f0e6d8834fe62a7ebda9f291a91551acec408c752d6f2e2e78",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 76,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-19-milestone-6-acceptance.md": {
+      "filePath": "agent/reports/2026-05-19-milestone-6-acceptance.md",
+      "contentHash": "c35087959db0ce650896e667fe4a7ac97860d0b19d7a02ee1beb9c5171d41d18",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 164,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-architecture-review.md": {
+      "filePath": "agent/reports/2026-05-21-architecture-review.md",
+      "contentHash": "146fd3870e95999ef48abea22d1a7c52774292f3a3ede077ebca04a3084d5625",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 446,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-milestone-12-phase-1.md": {
+      "filePath": "agent/reports/2026-05-21-milestone-12-phase-1.md",
+      "contentHash": "2aaf26973275faf68ac50e387cb067a8550bf15d3bb176038c1a1676588a6e51",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 92,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-milestone-13-acceptance.md": {
+      "filePath": "agent/reports/2026-05-21-milestone-13-acceptance.md",
+      "contentHash": "c9a5f24c43bba85d76dfa3f77354413b565e16c538173ef4ba245b273b817224",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 192,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-milestone-9-widget-audit.md": {
+      "filePath": "agent/reports/2026-05-21-milestone-9-widget-audit.md",
+      "contentHash": "068dfa586badbe478ebb178396a45f4c04e10d1f9063f9ef36a3a29f4eeef457",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 226,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-performance-centralization-audit.md": {
+      "filePath": "agent/reports/2026-05-21-performance-centralization-audit.md",
+      "contentHash": "4645eb7923da11c2937e707d0b297055a546c49f3ad46cf27053d09febe8fe78",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 376,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-spectrogram-quickwins.md": {
+      "filePath": "agent/reports/2026-05-21-spectrogram-quickwins.md",
+      "contentHash": "b8834f761944126c4dcba70272dd81d04e330edf8758546863c85c0cc4529075",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 93,
+      "hasStructuralAnalysis": true
+    },
+    "agent/reports/2026-05-21-widget-screenshot-review.md": {
+      "filePath": "agent/reports/2026-05-21-widget-screenshot-review.md",
+      "contentHash": "9c284fee043c4e44beb61b7b45002724622baa50d6fa4b951fd4930189d2e25c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 295,
+      "hasStructuralAnalysis": true
+    },
+    "agent/scripts/acp-status": {
+      "filePath": "agent/scripts/acp-status",
+      "contentHash": "55bad341061cd0c2ff430605ef2941dd0f07662b7e148cda93e3ec43fb3556aa",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 24,
+      "hasStructuralAnalysis": false
+    },
+    "agent/scripts/acp-validate": {
+      "filePath": "agent/scripts/acp-validate",
+      "contentHash": "01ba275cb4c293ce20baeda0b5a68da7669d576b87b7d522ab59c2c8ca6ca930",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 130,
+      "hasStructuralAnalysis": false
     },
     "agent/scripts/capture-screenshots.py": {
       "filePath": "agent/scripts/capture-screenshots.py",
-      "contentHash": "4b06093616a1aafc23548fde72c71c7ad4b68d15c7eea242fe30222e2edf6c61",
+      "contentHash": "7e692627d6523d48a37c63735a00c16de0e3ab82cea9da1f31cb4aca900a1452",
       "functions": [
         {
           "name": "log",
@@ -1901,6 +2501,24 @@
           "returnType": "str",
           "exported": true,
           "lineCount": 3
+        },
+        {
+          "name": "_as_list",
+          "params": [
+            "node"
+          ],
+          "returnType": "list",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_str_value",
+          "params": [
+            "node"
+          ],
+          "returnType": "Optional[str]",
+          "exported": true,
+          "lineCount": 13
         },
         {
           "name": "xcrun",
@@ -1954,7 +2572,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 14
+          "lineCount": 13
         },
         {
           "name": "extract_screenshots",
@@ -1964,7 +2582,7 @@
           ],
           "returnType": "list[Path]",
           "exported": true,
-          "lineCount": 34
+          "lineCount": 36
         },
         {
           "name": "write_index",
@@ -1994,7 +2612,7 @@
           "params": [],
           "returnType": "int",
           "exported": true,
-          "lineCount": 55
+          "lineCount": 77
         }
       ],
       "classes": [],
@@ -2059,6 +2677,8 @@
         "log",
         "repo_root",
         "sanitize_filename",
+        "_as_list",
+        "_str_value",
         "xcrun",
         "run_xcodebuild",
         "get_json",
@@ -2069,7 +2689,897 @@
         "capture_platform",
         "main"
       ],
-      "totalLines": 326,
+      "totalLines": 400,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md": {
+      "filePath": "agent/tasks/milestone-1-acp-bootstrap/task-1-install-acp-structure.md",
+      "contentHash": "cebd67be790ae2419f82b3fa423817c7ca87027e014b04bbdc5aa6f9280eab44",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 27,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-1-design.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-1-design.md",
+      "contentHash": "faa953465733d6545bbad80801b278930b0425469b63e68b262df13089a9eef1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-2-widget-extension-target.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-2-widget-extension-target.md",
+      "contentHash": "05bd8048c1268bfc5965cf12e578a875328b7975f4ecdb69cdfa53468fbeffb1",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-3-letzte-messung-widget.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-3-letzte-messung-widget.md",
+      "contentHash": "93100fdd074cb40cfcfdea69c6f48117baa7322aad5e3a317bbd1aa0ed25a91d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-4-recent-recordings-widget.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-4-recent-recordings-widget.md",
+      "contentHash": "9873d5cdd232eee144fa88249c8d91b01eecb72348519929db083f6a8110f121",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-5-level-snapshot-widget.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-5-level-snapshot-widget.md",
+      "contentHash": "6722b0a9f39d608f9aa56cbf1676f691b6a461af28383ac038b415de56607133",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-6-tonegenerator-quick.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-6-tonegenerator-quick.md",
+      "contentHash": "3eded92286cb23467ea384e595f93312a3e8d60b5716fb4addd387e9add818b8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-10-ios-standalone-widgets/task-7-acceptance.md": {
+      "filePath": "agent/tasks/milestone-10-ios-standalone-widgets/task-7-acceptance.md",
+      "contentHash": "8bb4cd8881652fe88e028018435e0c0dd1f387dd4280acbc32a5011034ea97fe",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-11-tone-generator-piano-input/task-1-render-thread-safety-precheck.md": {
+      "filePath": "agent/tasks/milestone-11-tone-generator-piano-input/task-1-render-thread-safety-precheck.md",
+      "contentHash": "da464472a7ccf981753c71843c02b3d083d5d30b8a04e76ebf1f3e13f233edf4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 49,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-11-tone-generator-piano-input/task-2-note-frequency-model.md": {
+      "filePath": "agent/tasks/milestone-11-tone-generator-piano-input/task-2-note-frequency-model.md",
+      "contentHash": "712ee0b19221f8941661d81c7a3a2a764ba5faaaf8a1d245388fe25369904408",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-11-tone-generator-piano-input/task-3-piano-input-ui.md": {
+      "filePath": "agent/tasks/milestone-11-tone-generator-piano-input/task-3-piano-input-ui.md",
+      "contentHash": "e1e9ebc5c79fa6b708aa778787b5b0837d6dde01fa5df5bd80e5dbe228f4d881",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 50,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-11-tone-generator-piano-input/task-4-persistence-and-acceptance.md": {
+      "filePath": "agent/tasks/milestone-11-tone-generator-piano-input/task-4-persistence-and-acceptance.md",
+      "contentHash": "f1da71df708590180c80084ace21707249511b9efe207a08f653b2352363cebb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 73,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-1-chrome-and-tokens.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-1-chrome-and-tokens.md",
+      "contentHash": "112ddc0817d8f6cb1be488412a41980f154c999abcc8c3dc0286d75c9d49f712",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-2-widget-card-headers.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-2-widget-card-headers.md",
+      "contentHash": "c8c99fef484a568407506a05940431c92a16225ee0d04a19bef5ea1f5fd70a1a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 72,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-3-preset-rail-wiring.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-3-preset-rail-wiring.md",
+      "contentHash": "6195bf25e9ad144481f56985480eb613d2bfffa78195dbbdb3460e14b6ea488b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-4-watch-faces-and-complications.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-4-watch-faces-and-complications.md",
+      "contentHash": "9da0d4b8e905ffded07f6cf491b3095ddd2c3d3fc1401e5eec2b050ab8cebc7a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 132,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-5-density-numerals-application.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-5-density-numerals-application.md",
+      "contentHash": "4779dd105fc8c6f90e4b8798eb13b75fea4baec991ac042fc23ce1970b347109",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 58,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-6-acceptance.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-6-acceptance.md",
+      "contentHash": "824d45d6d9779cec35253c2255368ead048623c31f1ad799e8b7702a27d1e114",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 45,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-7-review-followups.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-7-review-followups.md",
+      "contentHash": "282ec48d4f18b009889e2b317852800c0bd85261834e47cf35938a5a43c31a09",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 62,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-12-liquid-glass-redesign/task-8-stability-polish.md": {
+      "filePath": "agent/tasks/milestone-12-liquid-glass-redesign/task-8-stability-polish.md",
+      "contentHash": "ad055d20bc773df681b524c4b23d889b15357f35b06bcd51540c354644ffc021",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 103,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-1-app-services-injection.md",
+      "contentHash": "a263295f381012e19b08d04465822a59371ba4154e835cd79bd393a15193fe7a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 79,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-2-recording-detail-split.md",
+      "contentHash": "dfecfc3a967bca316e39ad481ecd61ac00c735f7d47211ea6439c3d796af1310",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 89,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-3-extract-calibration-provider.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-3-extract-calibration-provider.md",
+      "contentHash": "9044cdf33b29d32ed8b7cf35876fd3cf01a1155bfe5fc9727581a82be09f873b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 107,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-4-extract-live-acoustic-state.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-4-extract-live-acoustic-state.md",
+      "contentHash": "b1a7ffbc11379d752bd155953449589b227b02a2947bdccc5ff2704a187fbf3d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 176,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-5-extract-recording-coordinator.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-5-extract-recording-coordinator.md",
+      "contentHash": "6ff73c216ab1b772718eda85bb06911a2ea342f1a6403872824c5aca95366d7e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 117,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-6-kernel-math-extraction.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-6-kernel-math-extraction.md",
+      "contentHash": "146f582f72713c7a1bfe0abcf2b54c046dea1ef02ab86b06bdba2cceb1bbddfa",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 134,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-7-watch-protocol-versioning.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-7-watch-protocol-versioning.md",
+      "contentHash": "81e7738ec6bdcdc582f4d97546be82b4c2bec0b099362a73856d18464424bc3f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 134,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-8-persistence-registry.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-8-persistence-registry.md",
+      "contentHash": "e5ef39ebcdb662c8b980d4b932f6750c9343dccd744adfa49ed9fd176d96ee2b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 124,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md": {
+      "filePath": "agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md",
+      "contentHash": "731d330c89b009697eb4d30588ed56690973150b7ece43a05422b971757982b0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 95,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-1-quick-wins.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-1-quick-wins.md",
+      "contentHash": "10cee1f877b28c3f67588dc6af7e5d88677df57447aaf5795ee197dd33e60bed",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 78,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-10-dct-visual-path.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-10-dct-visual-path.md",
+      "contentHash": "4910eec376821805c6d8f4ae315f8782205d2117d2d1c468437c174d7bb152d6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 130,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-2-centralize-loudness.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-2-centralize-loudness.md",
+      "contentHash": "0784e288ca8853afd9102eeb8d758854cc7c0abf68b90761d775e6dfeabacb7e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 84,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-3-per-band-leq.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-3-per-band-leq.md",
+      "contentHash": "cedab6679a4a50eae886bee6bd2e66662756ed01ed1dd0c0494b0e4734967928",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 130,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-4-bark-precompute-upstream.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-4-bark-precompute-upstream.md",
+      "contentHash": "9f3c1632126e182449d39eda9592db727accd5603c3727aee22065a3caa34f9d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 86,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-5-masking-weighting-fix.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-5-masking-weighting-fix.md",
+      "contentHash": "b4b594ecb0951e735fe2badbfb8d2efbca331e3a6857655b62e055304078f74b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 68,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-6-tighten-weighting-contract.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-6-tighten-weighting-contract.md",
+      "contentHash": "a2d3167f733f41c94ec950e8632ef1dd44549f42230a4186a6c3dbdafccc9305",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 92,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-7-investigate-double-smoothing.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-7-investigate-double-smoothing.md",
+      "contentHash": "f525c86d8287e03748bca506cab30a7bb1e1c1457a3998ae001822254ce0815b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 108,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-8-kill-viz-audio-engine.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-8-kill-viz-audio-engine.md",
+      "contentHash": "3e49116542080821702716c7547f5f66077cbef62a4f4348d9a9027399ed668b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 126,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-14-performance-centralization/task-9-acceptance.md": {
+      "filePath": "agent/tasks/milestone-14-performance-centralization/task-9-acceptance.md",
+      "contentHash": "56b7e7b895911dc1f9e48a19a802ef80f8ff82427ac0d449d3497b4035f1fc94",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 55,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-1-baseline-and-test-safety.md",
+      "contentHash": "87ef167e2cd6cd918a684a3dea78b302b91a4afde3f4c4feae5fb993b56cda64",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 95,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-2-weighting-and-fft-hot-path.md",
+      "contentHash": "bfaf9dfb519fee34a742dc18a624fc7a807669660ee8f1c248f0acd3eba47c46",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 72,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-3-recording-writer-backpressure.md",
+      "contentHash": "cf55e7692f7a52c50432578c3addb6a69ae4bf1f0dd15ce4ef0ecb24b8d5ea3a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-4-gate-redundant-processing.md",
+      "contentHash": "f837fad426c0ac5a2de8e1c2c5998f5a647af56c98079dbdf3a4a368c7edffc7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 74,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-5-watch-compact-protocol.md",
+      "contentHash": "df7f212420284f07fe3fa9c068287ccebbb36d4ff1be520c32c56dbec62fa1e5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 72,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-6-watch-wearable-source-controls.md",
+      "contentHash": "37930db2165adc7021ba38190865afaa9322f6c156f89e0b191cfc50b203237d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 82,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility.md": {
+      "filePath": "agent/tasks/milestone-2-performance-stabilization-watch-architecture/task-7-acceptance-and-compatibility.md",
+      "contentHash": "a5b6ba4208bf6efb8bbd24de4a91fbe967c6f5976fa564462168938883ded237",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 94,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-3-dashboard-and-recording-polish/task-1-compile-gate.md": {
+      "filePath": "agent/tasks/milestone-3-dashboard-and-recording-polish/task-1-compile-gate.md",
+      "contentHash": "9fc1c796bb4313717e2f93df18985757c220a9c11a08c172b66b969b06e2c6c2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 41,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-3-dashboard-and-recording-polish/task-2-layout-rename.md": {
+      "filePath": "agent/tasks/milestone-3-dashboard-and-recording-polish/task-2-layout-rename.md",
+      "contentHash": "57d999dc94313466abfac43546b79753bd4310dfed7f84209a84848fa636d75b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit.md": {
+      "filePath": "agent/tasks/milestone-3-dashboard-and-recording-polish/task-3-recording-notes-edit.md",
+      "contentHash": "7014ad997b92830b6d7a062da27c2a510f9734cfe35ef5a1503255a8dac92c2c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 46,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment.md": {
+      "filePath": "agent/tasks/milestone-3-dashboard-and-recording-polish/task-4-recording-photo-attachment.md",
+      "contentHash": "6a1163ea2ea144b36ddea358199d485c7f9bc2ac2de59ecc666c69463a13da45",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests.md": {
+      "filePath": "agent/tasks/milestone-3-dashboard-and-recording-polish/task-5-waterfall-tests.md",
+      "contentHash": "7230a22e3090a00d330401b8148b74db5b93672c6065dbc4ea1f8b18e9c32371",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-3-dashboard-and-recording-polish/task-6-acceptance.md": {
+      "filePath": "agent/tasks/milestone-3-dashboard-and-recording-polish/task-6-acceptance.md",
+      "contentHash": "8a691a60e10f51285804625b495471b38fcb666d01d68aa6d7c64276966fa6b4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 34,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-4-export-and-reporting/task-1-export-baseline-audit.md": {
+      "filePath": "agent/tasks/milestone-4-export-and-reporting/task-1-export-baseline-audit.md",
+      "contentHash": "dea8c5ab59b542162792857ae70bb3b5f6e1fd7691dc175758f9ca7b58be5abd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 111,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-4-export-and-reporting/task-2-pdf-report-baseline.md": {
+      "filePath": "agent/tasks/milestone-4-export-and-reporting/task-2-pdf-report-baseline.md",
+      "contentHash": "75033f71b1838f32ce203eaf0e262a4f1540d9fa21f57eaf41e170501b525f41",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 49,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-4-export-and-reporting/task-3-csv-export-hardening.md": {
+      "filePath": "agent/tasks/milestone-4-export-and-reporting/task-3-csv-export-hardening.md",
+      "contentHash": "f8bb7cb20769d0348bf93131452daac00778844946812c0a9b3215960784926b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-4-export-and-reporting/task-4-spectrogram-image-export.md": {
+      "filePath": "agent/tasks/milestone-4-export-and-reporting/task-4-spectrogram-image-export.md",
+      "contentHash": "67184c5bdca391e8dd88247e7d876972a2a4085d18fc09d7ce99d5adcbe92dcd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-4-export-and-reporting/task-5-recording-detail-export-ui.md": {
+      "filePath": "agent/tasks/milestone-4-export-and-reporting/task-5-recording-detail-export-ui.md",
+      "contentHash": "b3d092711ab355f7701e3dc50d1a0b45ed731ef9f10bbf8f2e25aac3e2eafaf0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md": {
+      "filePath": "agent/tasks/milestone-4-export-and-reporting/task-6-acceptance.md",
+      "contentHash": "e1ffb91a8bebc917f8636eb78c1bbd9a9af81a31da3fd018c6c6f8b18b0f65b2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-5-watch-complications/task-1-complication-source-files.md": {
+      "filePath": "agent/tasks/milestone-5-watch-complications/task-1-complication-source-files.md",
+      "contentHash": "936252af2345431889d72ecda73295cee07b3fd4ab05ce5e0a53cefa2dcdde9d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-5-watch-complications/task-2-xcode-target.md": {
+      "filePath": "agent/tasks/milestone-5-watch-complications/task-2-xcode-target.md",
+      "contentHash": "fbb2277483fc712c4f373f26b400dbe0ecd7c9dd81ad6d8a25c812c8b0b28300",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 46,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-5-watch-complications/task-3-live-data-integration.md": {
+      "filePath": "agent/tasks/milestone-5-watch-complications/task-3-live-data-integration.md",
+      "contentHash": "a7f2420cd20efeb0da2614525045c346409f4af1ee03979ac119a7559217eb1f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-5-watch-complications/task-4-acceptance.md": {
+      "filePath": "agent/tasks/milestone-5-watch-complications/task-4-acceptance.md",
+      "contentHash": "99f4ab132c79815fb7031bfe1cbbc326892189686168d1f5635ecbbff925d928",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-1-dsp-correctness.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-1-dsp-correctness.md",
+      "contentHash": "61e77debeb1439131df963aa330080ee569e65c7997063d4d57fb7e22715080d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 148,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-10-acceptance.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-10-acceptance.md",
+      "contentHash": "56f14fadca9a1f46e44dcd0c1ada89c47d93de571c7b897baad348e3979e2eb3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 100,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-2-recording-persistence-integrity.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-2-recording-persistence-integrity.md",
+      "contentHash": "090a07d3587bfcd5daf87fc49781b83cb8b8f2af3f3adb4821c44ff0c3426fe8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 173,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-3-watchconnectivity-consolidation.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-3-watchconnectivity-consolidation.md",
+      "contentHash": "96317a33e2592d9df325512c3c3506f5ec6b83a2b5589207df40a63cc868b60c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 184,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-4-complication-app-group.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-4-complication-app-group.md",
+      "contentHash": "1e1a5950e095b5e4ac47a4e4a9735044d023ee5e2b50039584e61c4c9560cf7a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-5-spectrogram-metal-threading.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-5-spectrogram-metal-threading.md",
+      "contentHash": "6ef0dfb81dcb113a34df75a39d782fa7c72f2af27eb46558f35a9fb9d2bc0ca8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 139,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-6-audio-thread-realtime-safety.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-6-audio-thread-realtime-safety.md",
+      "contentHash": "5fb91845568ba6ffde4a73f8fccbacf62495fa64f2dcea3c6fc5bd25560ef687",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 109,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-7-watch-lifecycle-and-battery.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-7-watch-lifecycle-and-battery.md",
+      "contentHash": "0b58c00a0385e287abc776b8ebb6a87d661131ab49e77bcc284783d460424c27",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 110,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-8-ios-ui-state-hygiene.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-8-ios-ui-state-hygiene.md",
+      "contentHash": "d34573d5daf950021381df175abd79353999b5aebcf8e3bbbc85642e866400fa",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 155,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-6-code-audit-remediation/task-9-dead-code-purge.md": {
+      "filePath": "agent/tasks/milestone-6-code-audit-remediation/task-9-dead-code-purge.md",
+      "contentHash": "0e9bb679e6fef414ddf2e937d667c29283c991741b2eea543f67a5ca6f57d627",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 125,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-1-package-and-test-target-wiring.md": {
+      "filePath": "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-1-package-and-test-target-wiring.md",
+      "contentHash": "18439522f1edf33de15ac326cc763c803404d6763ac2e49ac7da186cc135bdd3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 122,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-2-pdf-report-fixture.md": {
+      "filePath": "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-2-pdf-report-fixture.md",
+      "contentHash": "12bba92c960ab5f6f7f0b283513ec5dd49f43b82f598352f27c87b9324d292b4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 135,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-3-record-and-commit-baselines.md": {
+      "filePath": "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-3-record-and-commit-baselines.md",
+      "contentHash": "2e626db4f07913515aefa2adc1ff3bf69d07849033685a4dcd7960c758df45a6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 69,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-4-acceptance.md": {
+      "filePath": "agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-4-acceptance.md",
+      "contentHash": "3eb0753402cccf56256985b35c23b45775bb997c61c25e97b8da925471b398a2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-8-widget-sizing-refactor/task-1-widget-sizing-refactor.md": {
+      "filePath": "agent/tasks/milestone-8-widget-sizing-refactor/task-1-widget-sizing-refactor.md",
+      "contentHash": "88755fa68c7f61df6465cc735ca7e42a01f4e2cf384c47012ff8482656f6b4e8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 118,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-8-widget-sizing-refactor/task-2-acceptance.md": {
+      "filePath": "agent/tasks/milestone-8-widget-sizing-refactor/task-2-acceptance.md",
+      "contentHash": "ad2cb620f657b7fe813e38c784e559490e88588e5e9412cadacee1945b745cd4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 167,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-1-spectrogram.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-1-spectrogram.md",
+      "contentHash": "95923c9ee845af52ecf3b2b2088d259700363a9c93a90686ae504869d926676e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 126,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-10-masking.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-10-masking.md",
+      "contentHash": "9f64dfc81b13bf399f6e0a723a247195351c09af19c7d110f32c4585cbc17df4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-11-acceptance.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-11-acceptance.md",
+      "contentHash": "f942c743f9039f9fb166e018a8c36d4c7b33c1078404f9ccf2387b836e148500",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 70,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-2-waterfall.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-2-waterfall.md",
+      "contentHash": "08d370cc7732e7ef975e4798ed5f1b9377023aeff94ae28d3c98c60949983c7f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 121,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-3-level-history.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-3-level-history.md",
+      "contentHash": "0cda16d9b9b3b79ee50fe2ec5ad560a462d3cfa6b65528a91abfd2bcc1f7c556",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 129,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-4-frequency-display.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-4-frequency-display.md",
+      "contentHash": "29d109998121e9cebc270af4413d67786fc6fb7e1f96867c27f08cf43a5d04a3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 130,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-5-level-meter.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-5-level-meter.md",
+      "contentHash": "3b10102a3bba201cbc597b4d1a82dd1ddf0525d4f4cd22fddeedc8550b33ffcf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 135,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-6-phase-meter.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-6-phase-meter.md",
+      "contentHash": "6561d9600f3c90042dd9215b22ef24a0c6aca87bb92ec5a372d3bbb6ed2c1817",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-7-single-value.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-7-single-value.md",
+      "contentHash": "6959f10363a805b218ee7fdec6eb4f5eb04e785df72b44b218db73db4a6c926b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 137,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-8-tone-generator.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-8-tone-generator.md",
+      "contentHash": "7fb4b247944565d9a9de17dfb88ae2218d6206504aabc657f3304ea9635f2283",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 146,
+      "hasStructuralAnalysis": true
+    },
+    "agent/tasks/milestone-9-widget-audit/task-9-spektralanalyse-lab.md": {
+      "filePath": "agent/tasks/milestone-9-widget-audit/task-9-spektralanalyse-lab.md",
+      "contentHash": "d63cfb0d74c71077addbfa3b91b7de7fcfc608a4016c0c02b7b1ff06c418a5dc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 147,
       "hasStructuralAnalysis": true
     },
     "ci_scripts/ci_pre_xcodebuild.sh": {
@@ -2080,6 +3590,16 @@
       "imports": [],
       "exports": [],
       "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    "design/DESIGN_PHILOSOPHY.md": {
+      "filePath": "design/DESIGN_PHILOSOPHY.md",
+      "contentHash": "0460a470a85f78866a0e1d555a13ba41cba2bdb0991b97fada3ab6bde883364b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 45,
       "hasStructuralAnalysis": true
     },
     "design/render_plate.py": {
@@ -2430,6 +3950,26 @@
       "totalLines": 811,
       "hasStructuralAnalysis": true
     },
+    "design/themes/claude-atelier.md": {
+      "filePath": "design/themes/claude-atelier.md",
+      "contentHash": "27a8a267e7fac6eaa5619c48ef1c86b3ed31a4bd0652e0abd39ce1c2bd10621d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 58,
+      "hasStructuralAnalysis": true
+    },
+    "design_handoff_spektowatch_redesign/README.md": {
+      "filePath": "design_handoff_spektowatch_redesign/README.md",
+      "contentHash": "67ff9b6c9cc660bfa03a24a6e88f29e84181d87aa614dc15a512dc2202751c2d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 288,
+      "hasStructuralAnalysis": true
+    },
     "design_handoff_spektowatch_redesign/SpektoWatch Redesign.html": {
       "filePath": "design_handoff_spektowatch_redesign/SpektoWatch Redesign.html",
       "contentHash": "717efe3994f184033cfafe35fe3e8c10228e400bb15e7a804f1117d0abd7553d",
@@ -2657,6 +4197,16 @@
       "imports": [],
       "exports": [],
       "totalLines": 100,
+      "hasStructuralAnalysis": true
+    },
+    "spektowatch_masker_prompt.md": {
+      "filePath": "spektowatch_masker_prompt.md",
+      "contentHash": "ab7ef337e03af15f8f84632863400f7d692b361d78d3129e592a10201c3f131f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 153,
       "hasStructuralAnalysis": true
     }
   }

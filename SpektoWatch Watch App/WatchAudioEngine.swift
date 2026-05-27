@@ -42,6 +42,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var debugFrameCount = 0
     #endif
     private var lafEnergy: Float = 1e-12
+    private let watchMicCalibrationOffset: Float = 100.0
 
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate)
     // and a scratch buffer for converting magnitude-dB to linear power for energy summation.
@@ -288,8 +289,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         var rms: Float = 0
         vDSP_rmsqv(monoSampleScratch, 1, &rms, vDSP_Length(frameCount))
         let inputDB = 20 * log10(rms + 1e-9)
-        // Watch mic ≈ 100 dB SPL @ 0 dBFS (rough calibration constant)
-        let estimatedSPL = inputDB + 100.0
+        let estimatedSPL = inputDB + watchMicCalibrationOffset
 
         // Periodic input-level probe. Kept under #if DEBUG so neither the
         // counter increment, the vDSP min/max scan, the `String(format:)`
@@ -336,13 +336,14 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         let dt: Float = Float(fftSize) / Float(sampleRate)
         let alpha = 1.0 - exp(-dt / 0.125)
         lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
-        let level = 10.0 * log10(lafEnergy + 1e-12)
+        let levelDBFS = 10.0 * log10(lafEnergy + 1e-12)
+        let levelSPL = levelDBFS + watchMicCalibrationOffset
 
         // Compute phon + sone using the shared static ISO 226 helpers.
         // No instance allocation — static lookup table precomputed at class load.
         let dominantFreq = LoudnessCalculator.dominantFrequency(
             frequencies: binFrequencies, magnitudes: fftMagnitudes)
-        let phonVal = LoudnessCalculator.phon(spl: Double(level), frequency: dominantFreq)
+        let phonVal = LoudnessCalculator.phon(spl: Double(levelSPL), frequency: dominantFreq)
         let soneVal = LoudnessCalculator.sone(phon: phonVal)
 
         // `binFrequencies` is a single immutable property — no per-frame rebuild.
@@ -350,20 +351,41 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                                    magnitudes: fftMagnitudes,
                                    visualFrequencies: displayVisualFrequencies,
                                    visualMagnitudes: displayVisualMagnitudes,
-                                   broadbandLevel: level,
-                                   levels: ["LAF": level,
+                                   broadbandLevel: levelSPL,
+                                   levels: ["LAF": levelSPL,
+                                            "LAeq": levelSPL,
                                             "PHON": Float(phonVal),
                                             "SONE": Float(soneVal)],
                                    sampleRate: sampleRate)
 
         if connectivityManager.selectedMicrophoneSource == .appleWatch {
-            connectivityManager.sendSpectrogramData(data)
+            connectivityManager.sendSpectrogramData(phoneExportData(from: data))
         }
 
         // Coalesced flush to main — see `liveDataLock` block above for the
         // rationale. This replaces a per-callback `DispatchQueue.main.async`
         // that delivered 1024-float copies at the FFT framerate.
         scheduleLiveDataFlush(data)
+    }
+
+    private func phoneExportData(from data: SpectrogramData) -> SpectrogramData {
+        SpectrogramData(
+            frequencies: data.frequencies,
+            magnitudes: addCalibrationOffset(to: data.magnitudes),
+            visualFrequencies: data.visualFrequencies,
+            visualMagnitudes: data.visualMagnitudes.map { addCalibrationOffset(to: $0) },
+            broadbandLevel: data.broadbandLevel,
+            levels: data.levels,
+            sampleRate: data.sampleRate,
+            timestamp: data.timestamp
+        )
+    }
+
+    private func addCalibrationOffset(to values: [Float]) -> [Float] {
+        var result = values
+        var offset = watchMicCalibrationOffset
+        vDSP_vsadd(result, 1, &offset, &result, 1, vDSP_Length(result.count))
+        return result
     }
 
     private func scheduleLiveDataFlush(_ data: SpectrogramData) {

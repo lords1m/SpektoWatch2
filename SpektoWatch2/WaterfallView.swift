@@ -819,10 +819,15 @@ private extension WaterfallDataSet {
 // ============================================================================
 
 struct WaterfallWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    private let audioEngine: AudioEngine
     var settings: [String: String]
 
     @StateObject private var store = WaterfallHistoryStore()
+
+    init(audioEngine: AudioEngine, settings: [String: String]) {
+        self.audioEngine = audioEngine
+        self.settings = settings
+    }
 
     // Settings derivation. With the mel visual pipeline `visualMagnitudes`
     // is always present and weighting-agnostic, so the per-widget weighting
@@ -885,7 +890,7 @@ struct WaterfallWidget: View {
             }
             .onAppear {
                 store.update(settings: resolvedSettings)
-                if let current = audioEngine.currentSpectrogramData {
+                if let current = audioEngine.live.currentSpectrogramData {
                     let m = current.visualMagnitudes ?? current.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
                     let f = current.visualFrequencies ?? current.frequencies
                     store.append(magnitudes: m, frequencies: f, timestamp: current.timestamp)

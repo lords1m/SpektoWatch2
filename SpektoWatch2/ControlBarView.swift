@@ -9,7 +9,7 @@ private struct PlayPauseButton: View {
     let action: () -> Void
 
     private var state: ControlBarState {
-        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.recording.isRecordingToFile)
     }
 
     var body: some View {
@@ -56,7 +56,7 @@ private struct RecordStopButton: View {
     let action: () -> Void
 
     private var baseState: ControlBarState {
-        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.recording.isRecordingToFile)
     }
 
     private var isActive: Bool { activeOverride ?? baseState.isRecording }
@@ -112,7 +112,7 @@ struct ControlBarView: View {
 
     // Computed properties für reaktive Updates
     private var state: ControlBarState {
-        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.isRecordingToFile)
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.recording.isRecordingToFile)
     }
 
     var body: some View {
@@ -296,7 +296,7 @@ struct ControlBarView: View {
 
         print("[ControlBarView] toggleLiveMode - Current state:")
         print("  engineStatus: \(audioEngine.engineStatus)")
-        print("  isRecordingToFile: \(audioEngine.isRecordingToFile)")
+        print("  isRecordingToFile: \(audioEngine.recording.isRecordingToFile)")
         print("  engineRunning: \(state.engineRunning)")
         print("  isLiveMode: \(state.isLiveMode)")
 
@@ -316,7 +316,7 @@ struct ControlBarView: View {
         if audioEngine.engineStatus == .starting {
             // Allow canceling a pending recording startup; ignore only when startup
             // belongs to live mode.
-            if audioEngine.isRecordingToFile {
+            if audioEngine.recording.isRecordingToFile {
                 print("[ControlBarView] Cancelling pending recording while starting")
                 audioEngine.stopRecording()
                 recordingManager.stopRecording(audioEngine: audioEngine) { _ in }
@@ -328,7 +328,7 @@ struct ControlBarView: View {
 
         print("[ControlBarView] toggleRecording - Current state:")
         print("  engineStatus: \(audioEngine.engineStatus)")
-        print("  isRecordingToFile: \(audioEngine.isRecordingToFile)")
+        print("  isRecordingToFile: \(audioEngine.recording.isRecordingToFile)")
         print("  engineRunning: \(state.engineRunning)")
         print("  isRecording: \(state.isRecording)")
 
@@ -361,7 +361,7 @@ struct ControlBarView: View {
                         duration: recordedDuration,
                         audioFileName: url.path,
                         measurementDataFileName: audioEngine.lastMeasurementDataURL?.path,
-                        sampleRate: audioEngine.currentSpectrogramData?.sampleRate ?? 44100.0,
+                        sampleRate: audioEngine.live.currentSpectrogramData?.sampleRate ?? 44100.0,
                         channelCount: 1,
                         timeWeighting: audioEngine.timeWeighting.rawValue,
                         frequencyWeighting: audioEngine.frequencyWeighting.rawValue,
@@ -372,7 +372,7 @@ struct ControlBarView: View {
                     )
                     
                     // Statistiken aus AudioEngine übernehmen
-                    if let data = audioEngine.currentSpectrogramData {
+                    if let data = audioEngine.live.currentSpectrogramData {
                         recording.laeqFast = data.levels["LAeq"] ?? -120.0
                         recording.peakLevel = data.levels["LCpeak"] ?? -120.0
                         recording.minLevel = data.levels["LAFmin"] ?? -120.0
@@ -389,7 +389,7 @@ struct ControlBarView: View {
             }
         } else {
             print("[ControlBarView] Starting recording...")
-            audioEngine.isMeasurementRecording = true
+            audioEngine.recording.isMeasurementRecording = true
             let recordingStarted = recordingManager.startRecording(audioEngine: audioEngine)
             print("[ControlBarView] RecordingManager.startRecording() returned: \(recordingStarted)")
             if recordingStarted {

@@ -383,23 +383,23 @@ struct OctaveBandWidget: View {
 
     private var weightedOctaveBands: [Float] {
         switch audioEngine.frequencyWeighting {
-        case .a: return audioEngine.currentOctaveBandsA
-        case .c: return audioEngine.currentOctaveBandsC
-        case .z: return audioEngine.currentOctaveBandsZ
+        case .a: return audioEngine.live.currentOctaveBandsA
+        case .c: return audioEngine.live.currentOctaveBandsC
+        case .z: return audioEngine.live.currentOctaveBandsZ
         }
     }
     private var bandLeqForWeighting: [Float] {
         switch audioEngine.frequencyWeighting {
-        case .a: return audioEngine.bandLeqA
-        case .c: return audioEngine.bandLeqC
-        case .z: return audioEngine.bandLeqZ
+        case .a: return audioEngine.live.bandLeqA
+        case .c: return audioEngine.live.bandLeqC
+        case .z: return audioEngine.live.bandLeqZ
         }
     }
 
     var body: some View {
         let weighting = audioEngine.frequencyWeighting.rawValue
-        let frequencies = audioEngine.currentSpectrogramData?.frequencies ?? []
-        let spectrum = audioEngine.currentSpectrogramData?.magnitudes(for: weighting) ?? []
+        let frequencies = audioEngine.live.currentSpectrogramData?.frequencies ?? []
+        let spectrum = audioEngine.live.currentSpectrogramData?.magnitudes(for: weighting) ?? []
         SpectrumBandChartView(
             mode: .thirdOctave,
             frequencies: frequencies,
@@ -420,7 +420,7 @@ struct PhaseMeterWidget: View {
     @ObservedObject var audioEngine: AudioEngine
 
     var body: some View {
-        if audioEngine.isStereoActive {
+        if audioEngine.live.isStereoActive {
             stereoContent
         } else {
             monoPlaceholder
@@ -440,7 +440,7 @@ struct PhaseMeterWidget: View {
                 GeometryReader { geo in
                     let w = geo.size.width
                     let h = geo.size.height
-                    let phase = audioEngine.currentStereoPhase
+                    let phase = audioEngine.live.currentStereoPhase
 
                     // Gradient background: red (–1, out of phase) → green (+1, mono/in phase)
                     Rectangle()
@@ -478,9 +478,9 @@ struct PhaseMeterWidget: View {
                 .foregroundColor(.gray)
 
                 // Numeric readout
-                Text(String(format: "%.2f", audioEngine.currentStereoPhase))
+                Text(String(format: "%.2f", audioEngine.live.currentStereoPhase))
                     .font(.system(.body, design: .monospaced))
-                    .foregroundColor(indicatorColor(phase: audioEngine.currentStereoPhase))
+                    .foregroundColor(indicatorColor(phase: audioEngine.live.currentStereoPhase))
             }
             .padding()
 
@@ -512,7 +512,7 @@ struct PhaseMeterWidget: View {
                 // +1 (mono/in-phase)  → tall vertical line
                 //  0 (uncorrelated)   → circle
                 // –1 (out-of-phase)   → wide horizontal line
-                let phase = CGFloat(audioEngine.currentStereoPhase)
+                let phase = CGFloat(audioEngine.live.currentStereoPhase)
                 let scaleX = sqrt(max(0, (1.0 - phase) / 2.0))
                 let scaleY = sqrt(max(0, (1.0 + phase) / 2.0))
                 let ew = radius * scaleX

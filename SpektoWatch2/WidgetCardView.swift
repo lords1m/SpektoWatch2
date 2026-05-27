@@ -33,10 +33,10 @@ struct WidgetCardView: View {
     }
 
     /// Kernel render height — preserved across edit-mode toggle. Floor at
-    /// 60pt so the smallest widget (1×1 = 200pt total) still leaves a
-    /// visible kernel area after chrome overhead.
+    /// 60pt so the smallest widget still leaves a visible kernel area
+    /// after chrome overhead.
     private var kernelHeight: CGFloat {
-        max(60, widget.size.height - chromeOverhead)
+        max(60, widget.frameHeight - chromeOverhead)
     }
 
     // Stable per-widget jiggle phase so cards rotate out of sync. Uses
@@ -71,7 +71,7 @@ struct WidgetCardView: View {
                 .frame(height: kernelHeight)
                 .clipped()
         }
-        .frame(height: widget.size.height)
+        .frame(height: widget.frameHeight)
         .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         // Resize handles go BEFORE the button overlays so the tap-eating
@@ -112,7 +112,7 @@ struct WidgetCardView: View {
             Spacer(minLength: 6)
             // Meta readout is isolated in its own view so only it (not the
             // whole card chrome) re-renders on the 15 Hz audio publish.
-            CardMetaReader(widgetType: widget.type, audioEngine: audioEngine, numerals: numerals)
+            CardMetaReader(widgetType: widget.type, live: audioEngine.live, numerals: numerals)
         }
         .padding(.horizontal, 4)
     }
@@ -314,7 +314,7 @@ struct WidgetCardView: View {
 /// (`.regularMaterial` + shadows + edit overlays) at 15 Hz is not.
 private struct CardMetaReader: View {
     let widgetType: AudioWidgetType
-    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var live: LiveAcousticState
     let numerals: NumeralStyle
 
     var body: some View {
@@ -337,7 +337,7 @@ private struct CardMetaReader: View {
     }
 
     private var metaText: (value: String, unit: String?)? {
-        guard let data = audioEngine.currentSpectrogramData,
+        guard let data = live.currentSpectrogramData,
               data.broadbandLevel > -119 else { return nil }
         let levels = data.levels
         switch widgetType {
