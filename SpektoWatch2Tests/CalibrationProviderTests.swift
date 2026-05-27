@@ -17,6 +17,10 @@ final class CalibrationProviderTests: XCTestCase {
         XCTAssertEqual(CalibrationProvider.recommendedOffset(for: "iPhone16,1"), 94.0)
         // iPhone 8 — older, less sensitive.
         XCTAssertEqual(CalibrationProvider.recommendedOffset(for: "iPhone10,1"), 96.0)
+        // iPhone 16 Pro — M19 addition.
+        XCTAssertEqual(CalibrationProvider.recommendedOffset(for: "iPhone17,1"), 94.0)
+        // iPhone SE (3rd gen) — M19 addition.
+        XCTAssertEqual(CalibrationProvider.recommendedOffset(for: "iPhone14,6"), 94.0)
     }
 
     func testUnknownDeviceFallsBackToDefault() {

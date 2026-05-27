@@ -79,3 +79,13 @@ This runbook defines how to collect the baseline for SpektoWatch2 and compare it
 - Ambient conditions:
 - Observed regressions:
 - Follow-up actions:
+
+## Calibration Invariants
+
+- `gainBoost` in `AudioEngine` and all entries in
+  `CalibrationProvider.deviceCalibrationOffsets` are co-dependent.
+  They were measured together at gainBoost = 10.0 dB. Do not
+  change one without re-deriving the other.
+- Effective SPL = dBFS + calibrationOffset (device table value).
+  gainBoost shifts the dBFS reading upward before this formula;
+  it is baked into the table.

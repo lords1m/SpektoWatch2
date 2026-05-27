@@ -46,9 +46,13 @@ enum CalibrationProvider {
         "iPhone14,2": 92.0,  // iPhone 13 Pro
         "iPhone14,3": 92.0,  // iPhone 13 Pro Max
 
+        // iPhone SE
+        "iPhone14,6": 94.0,  // iPhone SE (3rd gen)
+
         // iPhone 14 series
         "iPhone14,7": 92.0,  // iPhone 14
         "iPhone14,8": 92.0,  // iPhone 14 Plus
+        "iPhone15,1": 93.0,  // iPhone 14 Pro
         "iPhone15,2": 93.0,  // iPhone 14 Pro
         "iPhone15,3": 93.0,  // iPhone 14 Pro Max
 
@@ -57,6 +61,13 @@ enum CalibrationProvider {
         "iPhone15,5": 93.0,  // iPhone 15 Plus
         "iPhone16,1": 94.0,  // iPhone 15 Pro
         "iPhone16,2": 94.0,  // iPhone 15 Pro Max
+
+        // iPhone 16 series
+        "iPhone17,1": 94.0,  // iPhone 16 Pro
+        "iPhone17,2": 94.0,  // iPhone 16 Pro Max
+        "iPhone17,3": 94.0,  // iPhone 16
+        "iPhone17,4": 94.0,  // iPhone 16 Plus
+        "iPhone17,5": 94.0,  // iPhone 16e
 
         // iPhone 11 series
         "iPhone12,1": 94.0,  // iPhone 11

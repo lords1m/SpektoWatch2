@@ -42,7 +42,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var debugFrameCount = 0
     #endif
     private var lafEnergy: Float = 1e-12
-    private let watchMicCalibrationOffset: Float = 100.0
+    private let watchMicCalibrationOffset: Float = WatchCalibrationProvider.recommendedOffset()
 
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate)
     // and a scratch buffer for converting magnitude-dB to linear power for energy summation.

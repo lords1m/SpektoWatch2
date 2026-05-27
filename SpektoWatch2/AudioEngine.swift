@@ -92,7 +92,16 @@ class AudioEngine: ObservableObject {
     /// Scratch buffer for per-bin C-weighted amplitudes used in LCpeak computation.
     /// Resized alongside `fftEnergyScratch` when the FFT size changes.
     private var lcPeakScratch: [Float] = []
-    private var gainBoost: Float = 10.0
+    /// Pre-FFT linear gain applied to every frame before the
+    /// calibration offset is computed. The per-device entries in
+    /// CalibrationProvider.deviceCalibrationOffsets were measured
+    /// with this value in place. If you change gainBoost you MUST
+    /// re-derive all device offsets from scratch.
+    ///
+    /// Effective acoustic reference: calibrationOffset − gainBoost dB
+    /// relative to a 0 dBFS full-scale sine.
+    private let gainBoostDB: Float = 10.0  // keep in sync with CalibrationProvider table
+    private var gainBoost: Float = 10.0    // runtime (settable via setGainBoost)
 
     // Reusable scratch buffer for the mono channel of an incoming audio callback.
     // Avoids allocating a fresh `[Float]` per buffer (typical iOS audio buffer is
@@ -154,6 +163,13 @@ class AudioEngine: ObservableObject {
     /// AE-5: Measurement frame write errors are stored here on the audio render thread
     /// (Logger is not RT-safe). The `updateUI` main-thread block drains and logs it.
     private let lastWriteErrorLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    // MARK: - Calibration contract
+    //
+    // iPhone path:  dBSPL = dBFS + calibrationOffset (device-specific, CalibrationProvider)
+    // Watch path:   dBSPL = dBFS + watchMicCalibrationOffset (WatchCalibrationProvider),
+    //               applied inside WatchAudioEngine before transmission.
+    //               ingestWearableSpectrogramData() passes SPL values through unchanged.
 
     // MARK: - Microphone Calibration
     // Device map, recommended-offset lookup, and load/save logic live
@@ -432,6 +448,13 @@ class AudioEngine: ObservableObject {
     }
     
     func setGainBoost(_ gain: Float) {
+        if abs(gain - gainBoostDB) > 0.01 {
+            Logger.audioEngine.warning(
+                "gainBoost changed to \(gain, format: .fixed(precision: 1)) dB — " +
+                "calibration offsets were derived for \(gainBoostDB, format: .fixed(precision: 1)) dB. " +
+                "Measurements will be inaccurate until device offsets are re-derived."
+            )
+        }
         gainBoost = gain
     }
 
@@ -1198,7 +1221,19 @@ class AudioEngine: ObservableObject {
     }
 
     /// Applies processed Apple Watch spectrogram data to the phone dashboard.
-    /// The watch sends compact derived data only; no raw audio is accepted here.
+    ///
+    /// **Calibration contract:** `data.broadbandLevel` and all values in
+    /// `data.levels` are already in dB SPL (dBFS + WatchCalibrationProvider
+    /// offset, applied inside `WatchAudioEngine`). The phone's own
+    /// `calibrationOffset` is intentionally NOT applied here — it covers
+    /// the iPhone mic path only. Do not add a secondary calibration step
+    /// in this method.
+    ///
+    /// The magnitudes in `data.magnitudes` are in dB SPL for the same
+    /// reason. The `updateUI` path subtracts `calibrationOffset` before
+    /// sending to the Watch display because the Watch renderer expects
+    /// dBFS — that subtraction is a display conversion, not a calibration
+    /// correction.
     func ingestWearableSpectrogramData(_ data: SpectrogramData) {
         guard activeMicrophoneSource == .appleWatch else { return }
 
