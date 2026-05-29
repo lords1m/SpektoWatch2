@@ -19,32 +19,34 @@ private struct PlayPauseButton: View {
                     .fill(state.isLiveMode ? Color.green.opacity(0.2) : Color.clear)
                     .frame(width: diameter, height: diameter)
 
+                // In iOS 26 with PlainButtonStyle the Button wrapper is accessibility-
+                // transparent. The Image leaf is what XCUITest sees. Identifier and label
+                // are placed directly on each Image — no intermediate ZStack, no
+                // .accessibilityElement(children: .ignore) which triggers parent-identifier
+                // inheritance in iOS 26. Image is already a leaf so no children: .ignore
+                // is needed.
                 ZStack {
                     if state.isLiveMode {
                         Image(systemName: "pause.circle")
                             .font(.system(size: iconSize))
                             .foregroundColor(.green)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                            .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
+                            .accessibilityLabel(state.playPauseAccessibilityLabel)
                     } else {
                         Image(systemName: "play.circle")
                             .font(.system(size: iconSize))
                             .foregroundColor(.green.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                            .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
+                            .accessibilityLabel(state.playPauseAccessibilityLabel)
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
-                // No inner .accessibilityElement here — the outer Button is the
-                // single accessibility leaf. An inner .accessibilityElement(children:
-                // .ignore) conflicts with the Button's own representation in iOS 26
-                // and causes XCUITest to drop the identifier from the element tree.
             }
         }
         .buttonStyle(PlainButtonStyle())
         .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
-        // Single accessibility declaration on the Button itself.
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
-        .accessibilityLabel(state.playPauseAccessibilityLabel)
     }
 }
 
@@ -71,30 +73,32 @@ private struct RecordStopButton: View {
                     .fill(isActive ? Color.red.opacity(0.2) : Color.clear)
                     .frame(width: diameter, height: diameter)
 
+                // Identifier directly on each Image leaf — same iOS 26 fix as
+                // PlayPauseButton: no intermediate .accessibilityElement(children: .ignore).
                 ZStack {
                     if isActive {
                         Image(systemName: "stop.circle")
                             .font(.system(size: iconSize))
                             .foregroundColor(.red)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                            .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
+                            .accessibilityLabel(baseState.recordStopAccessibilityLabel)
                     } else {
                         Image(systemName: "record.circle.fill")
                             .font(.system(size: iconSize))
                             .foregroundColor(.red.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                            .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
+                            .accessibilityLabel(baseState.recordStopAccessibilityLabel)
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: isActive)
             }
-            // No inner .accessibilityElement — see PlayPauseButton for rationale.
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1.0 : 0.5)
         .animation(.easeInOut(duration: 0.2), value: isActive)
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
-        .accessibilityLabel(baseState.recordStopAccessibilityLabel)
     }
 }
 
@@ -169,7 +173,9 @@ struct ControlBarView: View {
         .onAppear {
             audioEngine.prewarmAudioSession()
         }
-        .accessibilityIdentifier("controlBarView")
+        // NOTE: No .accessibilityIdentifier("controlBarView") here — in iOS 26,
+        // named container identifiers are inherited by all PlainButtonStyle descendant
+        // elements, overriding the custom identifiers we set on leaf Images.
     }
 
     @ViewBuilder
@@ -228,10 +234,16 @@ struct ControlBarView: View {
         Button(action: {
             showRecordingsList = true
         }) {
+            // Identifier directly on the Image leaf — same iOS 26 PlainButtonStyle fix:
+            // .accessibilityElement(children: .ignore) on a ZStack inside a plain-style
+            // Button triggers parent-identifier inheritance in iOS 26. Instead, set the
+            // identifier on the Image itself (a natural leaf, no children: .ignore needed).
             ZStack {
                 Image(systemName: "folder.fill")
                     .font(font)
                     .foregroundColor(.blue)
+                    .accessibilityIdentifier("recordingsListButton")
+                    .accessibilityLabel("Aufnahmen")
 
                 if recordingManager.recordings.count > 0 {
                     Text("\(recordingManager.recordings.count)")
@@ -244,12 +256,7 @@ struct ControlBarView: View {
                         .offset(x: badgeOffsetX, y: badgeOffsetY)
                 }
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityIdentifier("recordingsListButton")
-            .accessibilityLabel("Aufnahmen")
         }
-        .accessibilityIdentifier("recordingsListButton")
-        .accessibilityLabel("Aufnahmen")
     }
 
     private var statusText: String {

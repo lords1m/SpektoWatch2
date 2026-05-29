@@ -210,7 +210,12 @@ struct ModularDashboardView: View {
         .onChange(of: dashboardManager.isEditMode) { oldValue, newValue in
             print("[ModularDashboardView] Edit mode changed: \(oldValue) -> \(newValue)")
         }
-        .accessibilityIdentifier("dashboardView")
+        // NOTE: Do NOT apply .accessibilityIdentifier("dashboardView") to this outer
+        // ZStack. In iOS 26, a named container's identifier is inherited by all
+        // PlainButtonStyle children, causing every button to report "dashboardView"
+        // as its identifier instead of its own. The setUp test finds the dashboard
+        // by checking controlBarView, which is in the footer bar's VStack.
+
     }
 
     private var headerBar: some View {

@@ -135,6 +135,8 @@ struct WidgetCardView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             showSettings = true
         } label: {
+            // Identifier directly on the Image leaf — .accessibilityElement(children: .ignore)
+            // on an inner container triggers parent-identifier inheritance in iOS 26.
             Image(systemName: "gearshape.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -142,6 +144,8 @@ struct WidgetCardView: View {
                 .background(Circle().fill(.thinMaterial))
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
                 .contentShape(Circle())
+                .accessibilityIdentifier("widgetSettingsButton")
+                .accessibilityLabel("Widget-Einstellungen")
         }
         .buttonStyle(.plain)
         // High priority so the parent .onDrag in ModularDashboardView
@@ -152,18 +156,15 @@ struct WidgetCardView: View {
                 showSettings = true
             }
         )
-        // Single accessibility leaf on the Button — an inner .accessibilityElement
-        // conflicts with the Button's own representation in iOS 26 and drops the
-        // identifier from the XCUITest element tree.
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier("widgetSettingsButton")
-        .accessibilityLabel("Widget-Einstellungen")
     }
 
     private var deleteButton: some View {
         Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
         } label: {
+            // Identifier directly on the Image leaf — same iOS 26 PlainButtonStyle fix
+            // as settingsButton: .accessibilityIdentifier on the Button wrapper is
+            // ignored when PlainButtonStyle makes the Button accessibility-transparent.
             Image(systemName: "xmark")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
@@ -171,6 +172,8 @@ struct WidgetCardView: View {
                 .background(Circle().fill(Color.red))
                 .shadow(color: Color.red.opacity(0.4), radius: 6)
                 .contentShape(Circle())
+                .accessibilityIdentifier("widgetDeleteButton")
+                .accessibilityLabel("Widget entfernen")
         }
         .buttonStyle(.plain)
         .highPriorityGesture(
@@ -178,8 +181,6 @@ struct WidgetCardView: View {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
             }
         )
-        .accessibilityIdentifier("widgetDeleteButton")
-        .accessibilityLabel("Widget entfernen")
     }
     
     @ViewBuilder

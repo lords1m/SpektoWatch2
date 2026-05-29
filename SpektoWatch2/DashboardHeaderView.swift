@@ -41,12 +41,19 @@ struct DashboardHeaderView: View {
                 }
 
                 Button(action: toggleEdit) {
+                    // In iOS 26, PlainButtonStyle makes the Button wrapper accessibility-
+                    // transparent. .accessibilityElement(children: .ignore) on an inner
+                    // container triggers parent-identifier inheritance (iOS 26 regression).
+                    // Identifiers are placed directly on the leaf elements (Image / Text)
+                    // instead, with no intermediate .accessibilityElement wrapper.
                     if isEditMode {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 13, weight: .bold))
                             Text("Fertig")
                                 .font(.system(size: 13, weight: .semibold))
+                                .accessibilityIdentifier("editDashboardButton")
+                                .accessibilityLabel("Bearbeiten beenden")
                         }
                         .foregroundStyle(Color.black)
                         .padding(.horizontal, 14)
@@ -60,19 +67,11 @@ struct DashboardHeaderView: View {
                             .frame(width: 34, height: 34)
                             .background(Circle().fill(.thinMaterial))
                             .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+                            .accessibilityIdentifier("editDashboardButton")
+                            .accessibilityLabel("Layout bearbeiten")
                     }
                 }
                 .buttonStyle(.plain)
-                // Single accessibility declaration on the Button itself — an inner
-                // .accessibilityElement(children: .ignore) on the content ZStack conflicts
-                // with the Button's own representation in iOS 26 and drops the identifier
-                // from the XCUITest element tree.
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier("editDashboardButton")
-                .accessibilityLabel(isEditMode ? "Bearbeiten beenden" : "Layout bearbeiten")
-                .accessibilityHint(isEditMode
-                    ? "Beendet den Layout-Bearbeitungsmodus."
-                    : "Aktiviert den Layout-Bearbeitungsmodus zum Verschieben und Löschen von Widgets.")
             }
         }
         .padding(.horizontal, 14)
@@ -80,22 +79,24 @@ struct DashboardHeaderView: View {
         .floatingPill(cornerRadius: 28)
         .padding(.horizontal, 16)
         .padding(.top, 4)
-        .accessibilityIdentifier("dashboardHeaderView")
+        // NOTE: No .accessibilityIdentifier("dashboardHeaderView") — same iOS 26 reason
+        // as ControlBarView: named container identifiers override leaf button identifiers.
     }
 
     private func glassIconButton(_ symbol: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
+            // Identifier directly on the Image leaf — .accessibilityElement(children: .ignore)
+            // on an inner container triggers parent-identifier inheritance in iOS 26;
+            // placing the identifier on the leaf Image avoids that regression.
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(.thinMaterial))
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+                .accessibilityIdentifier(id)
         }
         .buttonStyle(.plain)
-        // Single accessibility leaf on the Button — same iOS 26 fix as editDashboardButton.
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier(id)
     }
 
     private func toggleEdit() {

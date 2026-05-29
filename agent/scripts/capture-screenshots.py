@@ -188,19 +188,56 @@ def export_attachment(xcresult: Path, payload_id: str, dest: Path) -> None:
     subprocess.run(["xcrun", *args], check=True)
 
 
-def walk_attachments(node, callback) -> None:
+def walk_attachments(node, callback, xcresult: Optional[Path] = None,
+                     _visited: Optional[set] = None) -> None:
     """Walk every dict/list in the JSON tree, invoking ``callback`` for any
-    node containing an ``attachments`` field."""
+    node containing an ``attachments`` field.
+
+    In newer Xcode/xcresulttool builds, the test-activity data lives under a
+    ``Reference`` node that must be fetched separately.  When *xcresult* is
+    provided this function follows those references automatically so that
+    screenshots attached inside ``activitySummaries`` are not missed.
+    """
+    if _visited is None:
+        _visited = set()
+
+    # JSON-typed target names that we know are fetchable summaries.
+    _FOLLOW_TYPES = {
+        "ActionTestSummary",
+        "ActionTestActivitySummary",
+        "ActionTestPlanRunSummary",
+        "ActionTestableSummary",
+        "ActionTestSuite",
+        "ActionTestMetadata",
+    }
+
     if isinstance(node, dict):
+        # Follow Reference nodes whose target type is a known JSON summary.
+        # Do NOT follow payloadRef and other binary references.
+        t = node.get("_type", {}).get("_name", "")
+        if t == "Reference" and xcresult is not None:
+            target_type = _str_value(
+                node.get("targetType", {}).get("name", {})
+            ) or ""
+            ref_id = _str_value(node.get("id", {}))
+            if ref_id and ref_id not in _visited and target_type in _FOLLOW_TYPES:
+                _visited.add(ref_id)
+                try:
+                    sub = get_json(xcresult, ref_id)
+                    walk_attachments(sub, callback, xcresult, _visited)
+                except Exception:
+                    pass  # Skip unfetchable references gracefully.
+            return
+
         attachments = node.get("attachments")
         if attachments is not None:
             for entry in _as_list(attachments):
                 callback(entry)
         for value in node.values():
-            walk_attachments(value, callback)
+            walk_attachments(value, callback, xcresult, _visited)
     elif isinstance(node, list):
         for item in node:
-            walk_attachments(item, callback)
+            walk_attachments(item, callback, xcresult, _visited)
 
 
 def extract_screenshots(xcresult: Path, output_dir: Path) -> list[Path]:
@@ -236,7 +273,7 @@ def extract_screenshots(xcresult: Path, output_dir: Path) -> list[Path]:
             written.append(dest)
             log(f"   ↳ {dest.relative_to(repo_root())}")
 
-        walk_attachments(tests, on_attachment)
+        walk_attachments(tests, on_attachment, xcresult=xcresult)
 
     return written
 
