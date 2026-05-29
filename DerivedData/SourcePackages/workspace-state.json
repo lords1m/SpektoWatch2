@@ -1,0 +1,116 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-custom-dump",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/pointfreeco/swift-custom-dump",
+          "name" : "swift-custom-dump"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "06c57924455064182d6b217f06ebc05d00cb2990",
+            "version" : "1.5.0"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-custom-dump"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-snapshot-testing",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/pointfreeco/swift-snapshot-testing",
+          "name" : "swift-snapshot-testing"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "ad5e3190cc63dc288f28546f9c6827efc1e9d495",
+            "version" : "1.19.2"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-snapshot-testing"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-syntax",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/swiftlang/swift-syntax",
+          "name" : "swift-syntax"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "9de99a78f099e59caf2b2beec65a4c45d54b2081",
+            "version" : "603.0.1"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-syntax"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "xctest-dynamic-overlay",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
+          "name" : "xctest-dynamic-overlay"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "dfd70507def84cb5fb821278448a262c6ff2bbad",
+            "version" : "1.9.0"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "xctest-dynamic-overlay"
+      }
+    ],
+    "prebuilts" : [
+      {
+        "checkoutPath" : "/Users/simeonbrandt/SpektoWatch2/DerivedData/SourcePackages/checkouts/swift-syntax",
+        "cModules" : [
+
+        ],
+        "identity" : "swift-syntax",
+        "includePath" : [
+          "Sources/_SwiftSyntaxCShims/include",
+          "Sources/_SwiftLibraryPluginProviderCShims/include"
+        ],
+        "libraryName" : "MacroSupport",
+        "path" : "/Users/simeonbrandt/SpektoWatch2/DerivedData/SourcePackages/prebuilts/swift-syntax/603.0.1/swiftlang-6.3.2.1.108-macosx26.5-MacroSupport",
+        "products" : [
+          "swift-syntaxPackageTests",
+          "SwiftBasicFormat",
+          "SwiftCompilerPlugin",
+          "SwiftDiagnostics",
+          "SwiftIDEUtils",
+          "SwiftIfConfig",
+          "SwiftWarningControl",
+          "SwiftLexicalLookup",
+          "SwiftOperators",
+          "SwiftParser",
+          "SwiftParserDiagnostics",
+          "SwiftRefactor",
+          "SwiftSyntax",
+          "SwiftSyntaxBuilder",
+          "SwiftSyntaxMacros",
+          "SwiftSyntaxMacroExpansion",
+          "SwiftSyntaxMacrosTestSupport",
+          "SwiftSyntaxMacrosGenericTestSupport",
+          "_SwiftCompilerPluginMessageHandling",
+          "_SwiftLibraryPluginProvider"
+        ],
+        "version" : "603.0.1"
+      }
+    ]
+  },
+  "version" : 7
+}

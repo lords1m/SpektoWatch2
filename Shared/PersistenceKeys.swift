@@ -128,6 +128,18 @@ public enum PersistenceKeys {
         /// MIDI note number of the last piano key tapped (12…119).
         /// -1 means no note selected. Storage: @AppStorage, `UserDefaults.standard`.
         public static let selectedMidi  = "toneGenerator.selectedMidi"
+
+        /// Last-used frequency in Hz (20…20000).
+        /// Storage: @AppStorage, `UserDefaults.standard`.
+        public static let frequency     = "toneGenerator.frequency"
+
+        /// Last-used amplitude (0.0…1.0).
+        /// Storage: @AppStorage, `UserDefaults.standard`.
+        public static let amplitude     = "toneGenerator.amplitude"
+
+        /// Last-used waveform rawValue (e.g. "Sinus").
+        /// Storage: @AppStorage, `UserDefaults.standard`.
+        public static let waveform      = "toneGenerator.waveform"
     }
 
     // MARK: - AppGroup shared keys (complication ↔ watch app)

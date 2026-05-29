@@ -170,7 +170,7 @@ final class IntegrationTests: XCTestCase {
         }
 
         // Level-History sollte begrenzt sein
-        XCTAssertLessThanOrEqual(audioEngine.levelHistory.count, 1000,
+        XCTAssertLessThanOrEqual(audioEngine.live.levelHistory.count, 1000,
                                 "Level history should be bounded")
     }
 

@@ -1,8 +1,8 @@
 # Task 8: iOS UI State Hygiene
 
-Status: partial
+Status: completed
 Created: 2026-05-18
-Updated: 2026-05-19
+Updated: 2026-05-29
 Milestone: `milestone-6-code-audit-remediation`
 
 ## Status Summary

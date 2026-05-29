@@ -72,8 +72,8 @@ values") as an executable test rather than code inspection:
 - `testWidgetConfigurationRoundTripsThroughJSON` — encode → decode
   produces an equal value.
 
-Will execute in Xcode Cloud once M7 task-1's package wiring is live;
-runs locally on a working simulator (currently broken per AGENT.md).
+All 11 tests passed locally on iPhone 17 Pro simulator 2026-05-28
+(simulator availability restored per AGENT.md update).
 
 ## Validation maintenance (2026-05-21)
 
@@ -114,15 +114,13 @@ Validation run:
 - `BuildProject`: succeeded.
 - `./agent/scripts/acp-validate`: passed.
 
-## Outstanding (hardware-only)
+## Outstanding
 
-- Checks 1, 5 on hardware or Xcode Cloud. (Check 2 now has XCTest
-  coverage; the hardware run reduces to a visual confirmation that
-  the visible clamp behaviour matches expectations.)
-- Once runtime checks pass: write handoff report under
-  `agent/reports/<date>-milestone-8-acceptance.md` summarizing
-  observed clamp behaviour and any UX surprises from existing
-  dashboards getting visibly resized on first M8 launch.
+- **Check 1** (fresh dashboard): visual runtime confirmation still needed
+  — local simulator now available for this.
+- **Check 5** (widget reorder): visual runtime confirmation.
+- Once checks 1 and 5 pass, write handoff report under
+  `agent/reports/<date>-milestone-8-acceptance.md`.
 
 ## Runtime screenshot evidence (2026-05-21)
 

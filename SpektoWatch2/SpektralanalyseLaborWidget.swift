@@ -141,7 +141,8 @@ private struct ParametersTabView: View {
 
             Divider()
 
-            // Overlap
+            // Overlap — only 4 discrete positions (0/25/50/75 %); use a
+            // segmented picker so the UI matches the actual discrete values.
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Image(systemName: "square.on.square")
@@ -150,14 +151,25 @@ private struct ParametersTabView: View {
                     Text("Overlap")
                         .font(.caption)
                         .fontWeight(.medium)
-                    Spacer()
-                    Text("\(Int(fftConfig.overlapPercent))%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
-                Slider(value: $fftConfig.overlapPercent, in: 0...75, step: 25)
-                    .tint(.orange)
+                Picker("Overlap", selection: Binding(
+                    get: {
+                        // Snap to nearest valid option — default is 87.5 % which
+                        // falls outside the picker range, so it maps to 75 %.
+                        let v = fftConfig.overlapPercent
+                        let valid: [Float] = [0, 25, 50, 75]
+                        return Int(valid.min(by: { abs($0 - v) < abs($1 - v) }) ?? 75)
+                    },
+                    set: { fftConfig.overlapPercent = Float($0) }
+                )) {
+                    Text("0%").tag(0)
+                    Text("25%").tag(25)
+                    Text("50%").tag(50)
+                    Text("75%").tag(75)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
 
             Divider()
@@ -169,6 +181,23 @@ private struct ParametersTabView: View {
                 ResolutionBadge(value: "\(fftConfig.binCount)", unit: "", label: "Bins", color: .green)
             }
             .frame(maxWidth: .infinity)
+
+            Divider()
+
+            // Reset to defaults
+            Button {
+                fftConfig.windowFunction = .blackmanHarris
+                fftConfig.blockSize = .size2048
+                fftConfig.overlapPercent = 75.0
+                audioEngine.setWindowFunction(.blackmanHarris)
+                audioEngine.setBlockSize(.size2048)
+            } label: {
+                Label("Zurücksetzen", systemImage: "arrow.uturn.backward")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
         }
         .padding(12)
         .onChange(of: fftConfig.windowFunction) { _, newValue in
@@ -210,26 +239,6 @@ private struct WindowTabView: View {
             Text(fftConfig.windowFunction.description)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-
-            // Quick selector
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(WindowFunction.allCases) { window in
-                        Button {
-                            fftConfig.windowFunction = window
-                        } label: {
-                            Text(window.localizedName)
-                                .font(.caption2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(window == fftConfig.windowFunction ? Color.green : Color(.systemGray5))
-                                .foregroundColor(window == fftConfig.windowFunction ? .white : .primary)
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
         }
         .padding(12)
     }

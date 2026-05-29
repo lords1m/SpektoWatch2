@@ -57,8 +57,7 @@ struct LevelHistoryWidget: View {
             audioEngine: audioEngine,
             settings: settings,
             scrollSpeed: .fast,
-            isPaused: false,
-            scrollOffset: 0.0
+            isPaused: false
         )
         .cornerRadius(10)
         .overlay(alignment: .topLeading) {
@@ -71,7 +70,10 @@ struct LevelHistoryWidget: View {
                 .padding(4)
         }
         .overlay(alignment: .topTrailing) {
-            if let phon = phonValue, let sone = soneValue {
+            // Phon/sone are A-weighted perceptual units; showing them alongside
+            // an explicit non-A metric (e.g. LCpeak) would be misleading.
+            if let phon = phonValue, let sone = soneValue,
+               selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(String(format: "%.1f phon", phon))
                     Text(String(format: "%.2f sone", sone))

@@ -1,0 +1,52 @@
+SpektoWatch Messbericht
+Messung: Snapshot Fixture
+Datum: 01.01.2026, 00:00
+Zusammenfassung
+Dauer: 02:05
+Ort: 52.52, 13.405
+LAeq 62.5 dB
+LAFmin 31.4 dB
+LAFmax 88.1 dB
+LAF5 -120.0 dB
+LAF95 -120.0 dB
+LCpeak 88.1 dB
+Pegelverlauf
+Hinweis zur Messgenauigkeit
+Messungen mit integrierten iPhone- oder Apple Watch-Mikrofonen sind Näherungswerte. Sie sind nicht für
+behördliche Lärmschutzgutachten oder compliance-relevante Nachweise geeignet.
+Erstellt mit SpektoWatch Seite 1
+---page-break---
+Gesamt-Spektrogramm
+Spektrogramm konnte nicht berechnet werden
+Terzbandanalyse (Z/A/C) Z
+20
+0
+-20
+-40
+-60
+-80
+-100
+A
+20
+0
+-20
+-40
+-60
+-80
+-100
+C
+20
+0
+-20
+-40
+-60
+-80
+-100
+Konfiguration
+FFT-Blockgröße: 4096
+Kalibrierung: 94.0 dB – manueller Offset angewendet
+Zeitbewertung: Fast
+Frequenzbewertung: A
+Beschreibung: Deterministic fixture for PDF snapshot tests.
+Erstellt mit SpektoWatch Seite 2
+---page-break---

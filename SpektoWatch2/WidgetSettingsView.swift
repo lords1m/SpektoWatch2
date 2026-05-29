@@ -260,6 +260,8 @@ struct WidgetSettingsView: View {
                             Text("5 Sekunden").tag("5")
                         }
                         
+                        let isAutoMetric = (settings["historyMetric"] ?? WidgetSettings.defaultLevelHistoryMetric) == WidgetSettings.defaultLevelHistoryMetric
+
                         Picker("Frequenzbewertung", selection: Binding(
                             get: { settings["freqWeighting"] ?? "A" },
                             set: { settings["freqWeighting"] = $0 }
@@ -268,7 +270,8 @@ struct WidgetSettingsView: View {
                             Text("C-Weighting").tag("C")
                             Text("Z-Weighting (Linear)").tag("Z")
                         }
-                        
+                        .disabled(!isAutoMetric)
+
                         Picker("Zeitbewertung", selection: Binding(
                             get: { settings["timeWeighting"] ?? "Fast" },
                             set: { settings["timeWeighting"] = $0 }
@@ -276,12 +279,13 @@ struct WidgetSettingsView: View {
                             Text("Fast (125ms)").tag("Fast")
                             Text("Slow (1s)").tag("Slow")
                         }
+                        .disabled(!isAutoMetric)
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
 
                     yAxisBoundsSection
                         .disabled(supportsOverrideToggle && !useWidgetOverrides)
-                } else if widget.type == .frequencyDisplay || widget.type == .octaveBands {
+                } else if widget.type == .frequencyDisplay {
                     Section(header: Text("Spektrum Einstellungen")) {
                         Picker("Frequenzbewertung", selection: Binding(
                             get: { settings["freqWeighting"] ?? "Z" },

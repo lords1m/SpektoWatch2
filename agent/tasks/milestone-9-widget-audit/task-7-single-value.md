@@ -37,38 +37,27 @@ PHON (loudness in phon), SONE (loudness in sone).
 ### Findings (code-side only — no screenshots yet)
 
 - ✅ `metric` setting is consumed.
-- ⚠ **`metric` locked to default when override is OFF** — same
-  pattern as frequencyDisplay `bandMode` and waterfall settings. A
-  user without the toggle is stuck on `LAF` forever. Same product
-  decision: per-widget-only or global default? In this widget's case,
-  per-widget makes more sense (multiple Single Value widgets each
-  showing a different metric is the obvious use case).
+- ✅ **`metric` always uses per-widget setting** (`SingleValueWidget.swift`):
+  `useWidgetOverrides` conditional removed; `settings["metric"]` with
+  default fallback is always the source of truth. Multiple Single Value
+  widgets can now each show a different metric without needing the
+  override toggle ON. Landed 2026-05-28.
 - ⚠ **Picker metrics ≠ LevelHistory metrics** — LevelHistory exposes
   15 options (incl. LAS, LCF, LCS, LZF, LZS, plus AUTO). SingleValue
-  shows 11 (no LAS, LCF, LCS, LZF, LZS; adds PHON/SONE). The widget
-  code itself just reads `data.levels[metricKey]` — so it *could*
-  show LAS/LCF/etc. if they were in the picker. Inconsistency
-  between widgets that present "the same" data.
+  shows 11. Routed to product backlog (both picker lists need alignment).
 - ⚠ **Title formatting via AttributedString switch** (lines 19-53) —
-  9 explicit case-branches + default. Adding a metric to the picker
-  requires editing both the picker and this switch. Refactor candidate:
-  derive the styled title programmatically from `metricKey`
-  (split on `[FS5T]` boundaries, baseline-offset the subscript portion).
-- ⚠ **"0.0" placeholder when not running** — visually identical to a
-  real reading of 0 dB. Confusing in screenshots; use "—" or "n/a"
-  to signal "no data".
-- ⚠ **Loudness fallback uses `data.levels["LAF"]`** regardless of
-  upstream weighting — same finding as LevelHistory task-3, finding #2.
-  Both widgets share the dominant-bin + LAF coupling. Worth fixing
-  in one place (LoudnessCalculator caller helper).
-- ⚠ **Unit label by string prefix** (`metricKey.hasPrefix("LA")` etc.)
-  works today, but a `metricKey = "L"` (typo / corrupted setting)
-  falls through to `"dB"`. Defensive but obscure; structured enum
-  would catch this at compile time.
-- ⚠ **No font weight indicator for "AUTO" / dynamic metrics** — unlike
-  LevelHistory, SingleValue doesn't have an AUTO mode. If we add it,
-  the title needs to show whether the displayed value is the user's
-  explicit pick or AUTO-derived.
+  refactor candidate; adding a metric requires editing both picker and
+  switch. Routed to backlog (works correctly today).
+- ✅ **"—" placeholder when not running** (`SingleValueWidget.swift`
+  line 82): `"0.0"` replaced with `"—"` so the idle state is visually
+  distinct from a real 0 dB reading. Landed 2026-05-28.
+- ✅ **Loudness finding outdated** — comment at line 117 confirms PHON
+  and SONE are now populated by `AcousticMetricsCalculator`; all
+  metrics including loudness use `data.levels[metricKey]` uniformly.
+  No LAF-coupling in the view.
+- ⚠ **Unit label by string prefix** — defensiveness concern; routed to
+  backlog (structured enum would catch typos at compile time).
+- ⚠ **No AUTO mode** — product decision; routed to backlog.
 
 ### Pending (hardware)
 

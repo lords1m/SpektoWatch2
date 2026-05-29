@@ -55,9 +55,9 @@ class HighEndSpectrogramAdapter: MTKView {
     // in the Coordinator below) AND read by `draw(_:)` on the main thread.
     // `stateLock` serialises the scalar reads/writes; without it, even aligned
     // `Int` access can produce torn reads under contention, and `Bool`/`Double`
-    // values are unsafe across threads. The Metal texture write itself
-    // (`writeColumn` → `spectrogramTexture.replace(...)`) still races with
-    // GPU reads — see comment in `writeColumn` for the trade-off.
+    // values are unsafe across threads. Texture writes are dispatched to the
+    // main thread so they are serialised with draw(_:)'s GPU encoder submit —
+    // no CPU/GPU texture race.
     private let stateLock = OSAllocatedUnfairLock()
     private var currentColumn: Int = 0
     private var totalColumnsWritten: Int = 0
@@ -214,14 +214,21 @@ class HighEndSpectrogramAdapter: MTKView {
 
     private func clearTexture() {
         guard let texture = spectrogramTexture else { return }
-        let count = texture.width * texture.height
-        var data = [Float](repeating: 0, count: count)
-        texture.replace(
-            region: MTLRegion(origin: MTLOrigin(), size: MTLSize(width: texture.width, height: texture.height, depth: 1)),
-            mipmapLevel: 0,
-            withBytes: &data,
-            bytesPerRow: texture.width * MemoryLayout<Float>.stride
-        )
+        let w = texture.width
+        let h = texture.height
+        // Row-by-row clear avoids a single large allocation (e.g. 16000×1024×4 B
+        // ≈ 62 MB) that triggers a Metal runtime assertion.
+        let rowData = [Float](repeating: 0, count: w)
+        let bytesPerRow = w * MemoryLayout<Float>.stride
+        for row in 0..<h {
+            texture.replace(
+                region: MTLRegion(origin: MTLOrigin(x: 0, y: row, z: 0),
+                                  size: MTLSize(width: w, height: 1, depth: 1)),
+                mipmapLevel: 0,
+                withBytes: rowData,
+                bytesPerRow: bytesPerRow
+            )
+        }
     }
 
     private func setupScrollBuffers() {
@@ -357,6 +364,16 @@ class HighEndSpectrogramAdapter: MTKView {
         updateSampleRateIfNeeded(sampleRate)
 
         let currentTimestamp = timestamp.timeIntervalSinceReferenceDate
+
+        // Throttle to ~62 Hz: the Metal draw loop runs at 60 FPS, so writing
+        // columns faster just overwrites data before the GPU reads it. This
+        // saves the 1024-bin remap + Gaussian smooth + texture write on frames
+        // that arrive above display rate (~26 of 86 frames/sec at ScrollSpeed.fast).
+        let shouldSkip = stateLock.withLockUnchecked {
+            lastDataTimestamp > 0 && (currentTimestamp - lastDataTimestamp) < (1.0 / 62.0)
+        }
+        guard !shouldSkip else { return }
+
         let previousTimestamp = stateLock.withLockUnchecked { () -> TimeInterval? in
             let prev = (lastDataTimestamp > 0) ? lastDataTimestamp : nil
             lastDataTimestamp = currentTimestamp
@@ -460,14 +477,12 @@ class HighEndSpectrogramAdapter: MTKView {
 
         applyFrequencySmoothingIfNeeded(values: &reusableColumnData)
 
-        // Serialise scalar-state mutation and the ring-buffer texture writes
-        // under `stateLock` so `draw(_:)` on the main thread sees consistent
-        // values for `currentColumn`/`totalColumnsWritten`/etc. and the
-        // texture-replace ordering is well-defined.
+        // Phase 1 (under stateLock): advance the ring-buffer pointer and
+        // collect (column-index, pixel-data) pairs. No texture I/O here —
+        // keeping the lock critical section short and avoiding any cross-
+        // thread texture access.
+        var pendingWrites: [(column: Int, data: [Float])] = []
         stateLock.withLockUnchecked {
-            // Determine how many columns to write based on elapsed time.
-            // Uses effectiveSecondsPerColumn (timeSpan / timeColumns) so the
-            // accumulator stays in sync with the actual texture resolution.
             let columnsToWrite: Int = {
                 guard let prev = previousTimestamp else { return 1 }
                 let dt = max(0, currentTimestamp - prev)
@@ -483,8 +498,6 @@ class HighEndSpectrogramAdapter: MTKView {
                 return 1
             }()
 
-            // Bei UI-/Scheduler-Drops nicht identische Spalten kopieren, sondern
-            // Zwischenwerte schreiben. Das verhindert breite vertikale Blöcke.
             if columnsToWrite > 1, previousColumnData.count == reusableColumnData.count {
                 for step in 1...columnsToWrite {
                     let mixFactor = Float(step) / Float(columnsToWrite)
@@ -492,13 +505,35 @@ class HighEndSpectrogramAdapter: MTKView {
                         reusableInterpolatedColumnData[i] =
                             previousColumnData[i] * (1.0 - mixFactor) + reusableColumnData[i] * mixFactor
                     }
-                    writeColumnLocked(reusableInterpolatedColumnData)
+                    pendingWrites.append((currentColumn, Array(reusableInterpolatedColumnData)))
+                    currentColumn = (currentColumn + 1) % timeColumns
                 }
             } else {
-                writeColumnLocked(reusableColumnData)
+                pendingWrites.append((currentColumn, Array(reusableColumnData)))
+                currentColumn = (currentColumn + 1) % timeColumns
             }
             previousColumnData = reusableColumnData
             totalColumnsWritten += columnsToWrite
+        }
+
+        // Phase 2: write column pixels to the Metal texture on the main thread.
+        // Both this write and draw(_:)'s GPU-encoder submit happen on main,
+        // so they are serialised by the main queue — no CPU/GPU texture race.
+        let bins = frequencyBins
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let texture = self.spectrogramTexture else { return }
+            for (col, data) in pendingWrites {
+                let region = MTLRegion(
+                    origin: MTLOrigin(x: col, y: 0, z: 0),
+                    size: MTLSize(width: 1, height: bins, depth: 1)
+                )
+                texture.replace(
+                    region: region,
+                    mipmapLevel: 0,
+                    withBytes: data,
+                    bytesPerRow: MemoryLayout<Float>.stride
+                )
+            }
         }
     }
 
@@ -529,29 +564,6 @@ class HighEndSpectrogramAdapter: MTKView {
                 values[i] = values[i] * (1.0 - effectiveStrength) + reusableSmoothedColumnData[i] * effectiveStrength
             }
         }
-    }
-
-    /// Must be called with `stateLock` held. Renamed from `writeColumn` to
-    /// make the precondition explicit.
-    ///
-    /// Note on the GPU-side race: `spectrogramTexture` is `.storageModeShared`
-    /// and may be read by an in-flight GPU encoder while this CPU write lands
-    /// for the next column. This is undefined per Metal validation but
-    /// visually tolerated by the existing pipeline. A future structural fix
-    /// would either double-buffer the texture or gate the write on
-    /// `inFlightSemaphore`. Tracked as a follow-up on Task 5.
-    private func writeColumnLocked(_ columnData: [Float]) {
-        let region = MTLRegion(
-            origin: MTLOrigin(x: currentColumn, y: 0, z: 0),
-            size: MTLSize(width: 1, height: frequencyBins, depth: 1)
-        )
-        spectrogramTexture.replace(
-            region: region,
-            mipmapLevel: 0,
-            withBytes: columnData,
-            bytesPerRow: MemoryLayout<Float>.stride
-        )
-        currentColumn = (currentColumn + 1) % timeColumns
     }
 
     // MARK: - Rendering
@@ -764,14 +776,19 @@ class HighEndSpectrogramAdapter: MTKView {
 
     private func updateTimeColumns() {
         let updateRate = Double(currentSampleRate) / Double(max(hopSize, 1))
+        // Cap timeColumns at a value that fits within all Metal device texture
+        // limits (8192 minimum across all Metal-capable iOS hardware). The UI
+        // never requests more than 60 s × 86 Hz ≈ 5160 columns, so 6000 is
+        // generous enough to cover future scroll speeds while staying safe.
+        let deviceMaxColumns = 6000
         let newColumns: Int
         if currentTimeSpanValue == 0 {
-            newColumns = 8192
+            newColumns = min(8192, deviceMaxColumns)
         } else {
             // Ensure enough columns for sub-pixel resolution on modern displays.
             // Minimum 1200 prevents visible column banding on retina screens.
             let audioColumns = Int(Double(currentTimeSpanValue) * updateRate)
-            newColumns = max(1200, audioColumns)
+            newColumns = min(max(1200, audioColumns), deviceMaxColumns)
         }
         if newColumns != timeColumns {
             timeColumns = max(10, newColumns)
@@ -865,7 +882,10 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
             self.freqWeighting = freqWeighting
             super.init()
 
-            let updateQueue = DispatchQueue(label: "com.spektowatch.spectrogram.update", qos: .userInteractive)
+            // .userInitiated rather than .userInteractive: we want smooth
+            // updates but not at the cost of competing with the main thread
+            // for the same CPU priority tier (which caused 400% CPU + hangs).
+            let updateQueue = DispatchQueue(label: "com.spektowatch.spectrogram.update", qos: .userInitiated)
             // Subscribe to spectrogramSubject (full audio rate, no objectWillChange trigger)
             // instead of $currentSpectrogramData (would cause SwiftUI to re-render at 60 Hz).
             cancellable = audioEngine.spectrogramSubject

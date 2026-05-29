@@ -1,0 +1,18 @@
+{
+  "projectName": "SpektoWatch2",
+  "buildName": "iOS Screenshots",
+  "baseline": false,
+  "screenshotWaitTimeout": 0,
+  "web": {
+    "browsers": [],
+    "viewports": []
+  },
+  "mobile": {
+    "devices": [
+      "iPhone 15 Pro",
+      "iPhone 15"
+    ],
+    "fullPage": false,
+    "orientation": "portrait"
+  }
+}

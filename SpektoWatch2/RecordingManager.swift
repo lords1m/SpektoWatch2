@@ -14,11 +14,13 @@ final class RecordingManager: NSObject, ObservableObject {
     private var recordingStartTime: Date?
     private var pendingAudioURL: URL?
     private let fileManager = FileManager.default
+    private let baseDirectory: URL?
 
     private var recordingsDirectory: URL {
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+        let root = baseDirectory
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
-        let directory = documents.appendingPathComponent("Recordings", isDirectory: true)
+        let directory = root.appendingPathComponent("Recordings", isDirectory: true)
         if !fileManager.fileExists(atPath: directory.path) {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
@@ -39,7 +41,8 @@ final class RecordingManager: NSObject, ObservableObject {
         recordingsDirectory.appendingPathComponent("recordings_pending_soft_delete.json")
     }
 
-    override init() {
+    init(baseDirectory: URL? = nil) {
+        self.baseDirectory = baseDirectory
         super.init()
         loadRecordings()
         restorePendingSoftDeletesFromSidecarIfNeeded()

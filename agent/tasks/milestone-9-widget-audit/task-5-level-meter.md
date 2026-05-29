@@ -29,42 +29,35 @@ shows… an empty form.
 
 ### Findings (code-side only — no screenshots yet)
 
-- ⚠ **Empty settings sheet** — there is no per-widget settings UI for
-  the level meter, and no override toggle. Tapping the cog icon
-  in edit mode opens a sheet with nothing actionable. Either:
-  1. Hide the settings cog for `.levelMeter` (clean — match the UI
-     to what exists).
-  2. Add settings that match the hardcoded values (min/max dB,
-     color zones).
-- ⚠ **Inconsistent peak-hold semantics** — `currentPeakLevel` is
-  written two different ways depending on the audio source:
-  - `AudioEngine.swift:1098` (watch-source path):
-    `max(self.currentPeakLevel, data.broadbandLevel)` — implicit
-    max-hold across frames.
-  - `AudioEngine.swift:1564` (local-mic path): direct assignment
-    `self.currentPeakLevel = peakLevel` — no hold.
-  → On the local mic path, the small peak line on this widget drops
-  back as soon as the peak falls. On a watch-source the indicator
-  rises and stays. Confusing.
-- ⚠ **No peak-hold decay** — even where max-hold exists (watch path),
-  the held value only resets at session start (line 663 / 1060:
-  `self.currentLevel = -120.0` resets). A real meter usually decays
-  the peak indicator over ~1-2 s, or holds for ~1 s and then drops
-  smoothly.
-- ⚠ **Hardcoded color thresholds** — the gradient is uniform from
-  30 → 100 dB. In acoustic engineering, color zones usually mark
-  thresholds (≥ 85 dB → yellow, ≥ 100 dB → red). Worth surfacing as
-  product question: do we want WHO-style thresholds or stay with
-  the visual gradient?
-- ⚠ **No weighting indicator** — the label is just `"L"`. The user
-  has no way to tell from the widget whether they're seeing
-  A-/C-/Z-weighted. The widget uses `audioEngine.currentLevel`
-  which is the broadband level computed with the engine's current
-  weighting.
-- ⚠ **Hardcoded range [30, 100] dB SPL** misses both ends of the
-  realistic measurement range (sub-30 dB ambient rooms exist; > 100
-  dB events are exactly what the meter should show clearly). At least
-  bump to [20, 120] to match the other widgets' Y-axis.
+- ✅ **Settings sheet finding outdated** — M12 task-8 added
+  `yAxisBoundsSection` for `.levelMeter` in `WidgetSettingsView`; the
+  widget accepts `settings: [String: String]` and reads
+  `WidgetSettings.chartYMinDB/Max` (defaults 20/110 dB). Settings cog
+  is actionable. No fix needed.
+- ✅ **Peak-hold semantics now consistent** — local-mic path
+  (`AudioEngine.swift` line ~1795) now uses
+  `max(self.live.currentPeakLevel, peakLevel)` matching the watch
+  path, so the peak indicator shows max-hold on both sources.
+  Landed 2026-05-28.
+- ⚠ **No peak-hold decay** — the held value resets only at session
+  start. A real meter decays the peak indicator over ~1-2 s.
+  Routed to backlog (requires a timer and would affect all
+  LevelMeterWidget instances).
+- ⚠ **Hardcoded color thresholds** — uniform green→yellow→red
+  gradient regardless of calibrated range. WHO-style thresholds
+  (≥ 85 dB → yellow, ≥ 100 dB → red) would be more informative.
+  Routed to product backlog.
+- ✅ **Weighting indicator added** — `LevelMeterWidget` now
+  observes `audioEngine.frequencyWeighting` and displays a
+  `dB(A)` / `dB(C)` / `dB(Z)` badge in the scale row. Updates
+  live when the app-global weighting changes. Landed 2026-05-28.
+- ✅ **Hardcoded range finding outdated** — range now reads from
+  `yMinDB`/`yMaxDB` (defaults 20/110 dB via M12 task-8); scale labels
+  also derived dynamically (`Int(yMinDB)`, midpoint, `Int(yMaxDB)`).
+  No fix needed.
+- ✅ **`onAppear` print gated with `#if DEBUG`** (`AudioWidgets.swift`):
+  `print("[LevelMeterWidget] View appeared")` now inside `#if DEBUG`.
+  Landed 2026-05-28 (alongside OctaveBandWidget same-file fix).
 - ⚠ **`scrollSpeed` / `frequencyWeighting` invariance** — the meter
   doesn't expose either, but the value it shows depends on both
   app-globally. A second `LevelMeter` next to one configured for

@@ -33,53 +33,25 @@ arm and `supportsOverrideToggle` excludes it. Settings sheet is empty.
   `dotProd / sqrt(sumSqL × sumSqR + 1e-9)`. For mono inputs (single
   channel), phase is forced to `1.0`.
 
-### Findings (code-side only — no screenshots yet)
+### Findings — widget deactivated (M12 product decision, 2026-05-28 audit)
 
-- ⚠ **Empty settings sheet** (same as level meter) — no per-widget UI,
-  no override toggle, but the cog icon still opens an empty form.
-  Hide the cog for `.phaseMeter` or add settings (e.g. orientation:
-  bar+ellipse / bar-only / ellipse-only).
-- ⚠ **Asymmetric indicator-color thresholds** — green starts at `> 0.3`
-  while red starts at `< -0.1`. There's a wide yellow band from -0.1
-  to 0.3 (mostly positive territory). Conventionally a phase meter
-  treats `phase ≈ 0` as "uncorrelated, marginal" and `phase > ~0.6`
-  as "mono-compatible". The current thresholds give green to anything
-  > 0.3 which is fairly loose. Worth a product decision.
-- ⚠ **Indicator color does not match the gradient background** — the
-  bar fill is a red→yellow→green LinearGradient at 0.3 opacity, so
-  `phase = 0` lands in yellow (the midpoint) but the needle would be
-  yellow there too — fine. But `phase = 0.4` shows a green needle on
-  a still-yellowish background — visually mismatched.
-- ⚠ **Ellipse `scaleX = sqrt((1-phase)/2)` / `scaleY = sqrt((1+phase)/2)`**
-  — math is correct (encodes 2-channel Lissajous correlation), but
-  worth confirming on hardware that the goniometer rotates as
-  expected (the 45° reference lines suggest a real-goniometer-style
-  presentation, but the ellipse is axis-aligned, not rotated 45°).
-  Either the labels should drop the L/R axis lines, or the ellipse
-  should be rotated.
-- ⚠ **Mono fallback hint "Stereo-Mikrofon in den Einstellungen aktivieren"**
-  — verify this links somewhere or at least matches the actual menu
-  path. Cold dead end if the setting moved.
-- ⚠ **`isStereoActive` reset semantics** — `isStereoActive = channels > 1`
-  is updated on every audio callback. If the engine ever provides
-  N=1 then N=2 within one callback batch, the widget flips back and
-  forth. Probably fine in practice, but the mono → stereo transition
-  is unanimated (instant view swap) which may flicker.
-- ⚠ **Fixed 110 pt ellipse width** in the HStack — at the small allowed
-  size (`1×1` = ~140 pt wide cell on iPhone 12 mini per M8 grid),
-  the ellipse takes 78 % of the row, leaving the correlation bar
-  squished. Verify on smallest allowed size.
+All pre-pass findings below are **N/A**: `.phaseMeter` was deactivated
+as a product decision in M12. `WidgetConfiguration.allCases` excludes it
+from the picker, and `DashboardManager.normalizeWidgets` removes any
+existing `.phaseMeter` instances on load. The widget code is retained
+for backward-compatible decoding only.
+
+- ✅ (N/A) **Empty settings sheet** — widget not user-accessible; moot.
+- ✅ (N/A) **Asymmetric indicator-color thresholds** — moot.
+- ✅ (N/A) **Indicator color / gradient mismatch** — moot.
+- ✅ (N/A) **Ellipse orientation convention** — moot.
+- ✅ (N/A) **Mono fallback hint** — moot.
+- ✅ (N/A) **`isStereoActive` reset semantics** — moot.
+- ✅ (N/A) **Fixed 110 pt ellipse width** — moot.
 
 ### Pending (hardware)
 
-- 📸 Screenshots per allowed size (`sizeRange(for: .phaseMeter)`:
-  `1×1 … 2×2`).
-- Inject a known stereo signal: pure mono (phase=+1), polarity-flipped
-  (phase=-1), random noise pair (phase~0). Confirm needle + ellipse
-  + indicator color all match.
-- Verify mono fallback when only one input channel exists.
-- Verify ellipse rotation convention against a recognized goniometer
-  (e.g. a TV broadcast vectorscope or a known DAW's phase scope).
+None — widget deactivated; no hardware verification required.
 
 ## Subject
 

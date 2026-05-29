@@ -77,15 +77,14 @@ configuration is not propagated.
   the ambient model. Reasonable defaults, but no way to tune for
   different rooms / mic-gain combos. Flag for a future tunables
   sheet — not blocking.
-- ⚠ **"Neu aufnehmen" has no confirmation.** Tapping the red
-  toolbar button in the suggestion sheet (`MaskingSuggestionView`)
-  calls `engine.reset()` immediately and dismisses, discarding any
-  current calibration / capture progress without confirmation.
-  Recommend an `.alert` with a destructive button before reset.
-- ⚠ **No accessibilityIdentifier on the widget body.** All other
-  audit widgets carry an identifier (e.g. `levelHistoryWidget`).
-  Add `.accessibilityIdentifier("maskingWidget")` on the outer
-  Button for UI-test parity.
+- ✅ **"Neu aufnehmen" confirmation dialog** — button now sets
+  `showResetConfirmation = true`; a `.confirmationDialog` with a
+  destructive "Neu aufnehmen" and a "Abbrechen" cancel action
+  protects the reset path. Landed 2026-05-28.
+- ✅ **accessibilityIdentifier added** —
+  `.accessibilityIdentifier("maskingWidget")` attached to the outer
+  `Button` after `.buttonStyle(.plain)`, matching the pattern of
+  other audit widgets. Landed 2026-05-28.
 - ⚠ **At 1×1 (200pt), the three vertical zones (header, mini
   spectrum, footer) plus 20pt of chrome padding leave ≈ 160pt for
   the spectrum.** Won't crash and won't truncate, but the

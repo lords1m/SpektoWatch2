@@ -55,21 +55,26 @@ falls to "Keine Einstellungen verfügbar" placeholder.
   every other spectrogram/waterfall widget's resolution. Consider:
   - A "Lab" badge on the widget signalling "this affects all widgets".
   - Confirmation prompt for changes mid-recording.
-- ⚠ **No undo / reset to defaults** — once the user changes blockSize
-  from 4096 to 1024, there's no "Reset" button. They have to remember
-  the previous value.
+- ✅ **Reset to defaults** — "Zurücksetzen" button added at the bottom
+  of the Parameters tab; resets windowFunction → `.blackmanHarris`,
+  blockSize → `.size2048`, overlapPercent → `75.0` and propagates to
+  the audio engine. Landed 2026-05-28.
 - ⚠ **Mid-recording mutation behaviour** — `audioEngine.setBlockSize(...)`
   mid-recording: does the FFT pipeline cleanly transition? Does the
   `.spekto` measurement file get a frame-size discontinuity? Critical
   for data-integrity claims. Hardware test required.
-- ⚠ **Overlap slider misleading** — `Slider(value:, in: 0...75, step: 25)`
-  yields only 4 valid positions (0/25/50/75 %). The slider visualizes
-  as continuous; users expect 1-% granularity. Either switch to a
-  segmented picker or annotate.
-- ⚠ **Window selector UI duplicated** — Parameter tab has a Menu
-  dropdown for window function; Window tab has a horizontal scrolling
-  chip selector for the *same* binding. Same data, two UIs.
-  Consolidate or mark one as the canonical control.
+- ✅ **Overlap picker** — replaced `Slider(value:, in: 0...75, step: 25)`
+  with a segmented `Picker` showing 0 % / 25 % / 50 % / 75 %. Binding
+  snaps to nearest so the legacy 87.5 % default maps to 75 %. Landed
+  2026-05-28.
+- ✅ **Window selector duplication removed** — horizontal chip selector
+  in the Window tab deleted; Parameter tab's Menu is the sole canonical
+  control. Window tab is now a pure visualization surface. Landed
+  2026-05-28.
+- ✅ **87.5 % overlap legacy default** — `FFTConfiguration.overlapPercent`
+  default and hop-size clamp changed from 87.5 → 75.0 (matches picker
+  range 0/25/50/75). Persisted values > 75 % clamp down on load.
+  Landed 2026-05-29.
 - ⚠ **German strings hardcoded** — `LabTab.rawValue = "Parameter" /
   "Fenster" / "Auflösung"`. No `localized()`. If the app ever ships
   English, the tabs stay German.

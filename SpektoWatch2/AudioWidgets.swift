@@ -36,10 +36,9 @@ struct FrequencySpectrumWidget: View {
         return audioEngine.frequencyWeighting.rawValue
     }
     private var bandMode: SpectrumBandMode {
-        if useWidgetOverrides {
-            return SpectrumBandMode(settingValue: settings["frequencyBands"] ?? WidgetSettings.defaultSpectrumBandMode)
-        }
-        return SpectrumBandMode(settingValue: WidgetSettings.defaultSpectrumBandMode)
+        // Band mode has no app-global equivalent (unlike frequency weighting),
+        // so the per-widget setting is always the source of truth.
+        SpectrumBandMode(settingValue: settings["frequencyBands"] ?? WidgetSettings.defaultSpectrumBandMode)
     }
     private var frequencies: [Float] { live.currentSpectrogramData?.frequencies ?? [] }
     private var weightedSpectrum: [Float] {
@@ -80,7 +79,9 @@ struct FrequencySpectrumWidget: View {
             yMaxDB: Double(WidgetSettings.chartYMaxDB(settings))
         )
         .onAppear {
+            #if DEBUG
             print("[FrequencySpectrumWidget] View appeared (\(weighting), \(bandMode.rawValue), override=\(useWidgetOverrides))")
+            #endif
         }
     }
 }
@@ -108,8 +109,10 @@ private struct SpectrumBandChartView: View {
     var yMinDB: Double = 20
     var yMaxDB: Double = 110
 
+    #if DEBUG
     @State private var diagnosticsCounter: Int = 0
     private let enableWidgetDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_WIDGET_SPECTRUM"] == "1"
+    #endif
 
     var body: some View {
         Canvas { context, size in
@@ -285,6 +288,7 @@ private struct SpectrumBandChartView: View {
     }
 
     private func logBandDiagnosticsIfNeeded(_ bandData: SpectrumBandData) {
+        #if DEBUG
         guard enableWidgetDiagnostics else { return }
         diagnosticsCounter += 1
         guard diagnosticsCounter % 60 == 0 else { return }
@@ -301,6 +305,7 @@ private struct SpectrumBandChartView: View {
             "freqRange=\(String(format: "%.0f", freqMin))-\(String(format: "%.0f", freqMax))Hz binHz=\(String(format: "%.2f", firstPositive)) " +
             "bands{\(preview)}"
         )
+        #endif
     }
 }
 
@@ -310,15 +315,25 @@ private struct SpectrumBandChartView: View {
 /// no re-renders from engine settings / status changes.
 struct LevelMeterWidget: View {
     @ObservedObject private var live: LiveAcousticState
+    @ObservedObject private var audioEngine: AudioEngine
     var settings: [String: String] = [:]
 
     init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
         self._live = ObservedObject(wrappedValue: audioEngine.live)
+        self._audioEngine = ObservedObject(wrappedValue: audioEngine)
         self.settings = settings
     }
 
     private var yMinDB: Float { WidgetSettings.chartYMinDB(settings) }
     private var yMaxDB: Float { WidgetSettings.chartYMaxDB(settings) }
+
+    private var weightingLabel: String {
+        switch audioEngine.frequencyWeighting {
+        case .a: return "dB(A)"
+        case .c: return "dB(C)"
+        case .z: return "dB(Z)"
+        }
+    }
 
     var body: some View {
         // Frameless layout: the card header already labels this widget.
@@ -360,19 +375,25 @@ struct LevelMeterWidget: View {
             }
             .frame(height: 24)
 
-            // Scale labels — bottom-aligned with the bar, no leading inset
+            // Scale labels + weighting badge
             HStack {
                 Text("\(Int(yMinDB))").font(.caption2).foregroundColor(.gray)
                 Spacer()
                 Text("\(Int((yMinDB + yMaxDB) / 2))").font(.caption2).foregroundColor(.gray)
                 Spacer()
                 Text("\(Int(yMaxDB))").font(.caption2).foregroundColor(.gray)
+                Text(weightingLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 4)
             }
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            #if DEBUG
             print("[LevelMeterWidget] View appeared")
+            #endif
         }
     }
 }
@@ -410,7 +431,9 @@ struct OctaveBandWidget: View {
             weightingLabel: weighting
         )
         .onAppear {
+            #if DEBUG
             print("[OctaveBandWidget] View appeared")
+            #endif
         }
     }
 }

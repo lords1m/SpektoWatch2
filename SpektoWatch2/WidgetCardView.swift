@@ -198,7 +198,7 @@ struct WidgetCardView: View {
         case .singleValue:
             SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
         case .toneGenerator:
-            ToneGeneratorWidget(settings: widget.settings)
+            ToneGeneratorWidget()
         case .spektralanalyseLab:
             SpektralanalyseLaborWidget(fftConfig: fftConfig, audioEngine: audioEngine)
         case .masking:

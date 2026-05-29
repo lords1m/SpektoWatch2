@@ -295,7 +295,7 @@ class AudioEngine: ObservableObject {
             UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramTemporalSmoothing)
         }
     }
-    @Published var scrollSpeed: ScrollSpeed = .fast
+    @Published var scrollSpeed: ScrollSpeed = .normal
     
     @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
     @Published var selectedDataSource: AVAudioSessionDataSourceDescription? {
@@ -1188,13 +1188,11 @@ class AudioEngine: ObservableObject {
     }
 
     private func emitSpectrogramData(_ data: SpectrogramData) {
-        if Thread.isMainThread {
-            spectrogramSubject.send(data)
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.spectrogramSubject.send(data)
-            }
-        }
+        // Send directly from whatever thread we're on. The audio render callback
+        // is serial so there are no concurrent sends. Subscribers that need a
+        // different thread use .receive(on:) — the previous main-thread bounce
+        // added 86 DispatchQueue.main.async blocks/sec for no benefit.
+        spectrogramSubject.send(data)
     }
 
     /// Applies processed Apple Watch spectrogram data to the phone dashboard.
@@ -1287,9 +1285,12 @@ class AudioEngine: ObservableObject {
         processSamples(monoSampleScratch)
 
         let isStereo = channels > 1
+        // Only dispatch when values actually change — isStereoActive rarely flips,
+        // so unconditionally queueing 86 closures/sec was pure overhead.
+        let capturedPhase = phase
         DispatchQueue.main.async {
-            self.live.isStereoActive = isStereo
-            self.live.currentStereoPhase = phase  // 1.0 for mono (no stereo data)
+            if self.live.isStereoActive != isStereo { self.live.isStereoActive = isStereo }
+            self.live.currentStereoPhase = capturedPhase
         }
     }
     
@@ -1791,7 +1792,7 @@ class AudioEngine: ObservableObject {
             // Use the IEC 61672 LCpeak from the metrics dict (C-weighted peak,
             // computed in processFFTFrame). Fall back to the raw sample peak only
             // if the metrics dict is somehow missing the key.
-            self.live.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? peakLevel
+            self.live.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? max(self.live.currentPeakLevel, peakLevel)
             self.live.currentLevel = broadbandLevel
             self.onBandsUpdated?(octaveBandsZ, broadbandLevel)
 
@@ -1829,6 +1830,8 @@ class AudioEngine: ObservableObject {
                 let watchData = SpectrogramData(
                     frequencies: spectrogramData.frequencies,
                     magnitudes: dbfsMagnitudes,
+                    magnitudesA: spectrogramData.magnitudesA,
+                    magnitudesC: spectrogramData.magnitudesC,
                     visualFrequencies: spectrogramData.visualFrequencies,
                     visualMagnitudes: visualDBFSMagnitudes,
                     broadbandLevel: spectrogramData.broadbandLevel,

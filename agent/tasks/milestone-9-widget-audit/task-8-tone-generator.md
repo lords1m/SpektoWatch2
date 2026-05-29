@@ -36,20 +36,20 @@ für diesen Widget-Typ." at line 255.
 
 ### Findings (code-side only — no screenshots yet)
 
-- ❌ **`NSLock` on the audio render thread** — `ToneGenerator.phaseLock:
-  NSLock` is locked/unlocked inside the `AVAudioSourceNode` callback
-  at lines 95 and 100. This is exactly the priority-inversion-prone
-  pattern M6 task-6 fixed for `AudioEngine.processingLock` by
-  converting to `OSAllocatedUnfairLock`. ToneGenerator was missed
-  because it has its own audio engine. Recommend same fix here.
-- ⚠ **Dead `settings` parameter** — `ToneGeneratorWidget.settings`
-  declared but unread. Either remove the parameter or wire it for
-  persistence (see next finding).
-- ⚠ **No persistence** — frequency, amplitude, waveform, play-state
-  are all transient (`@StateObject` lifetime). App restart, dashboard
-  layout switch, or even an off-screen scroll that frees the view
-  resets to defaults (1000 Hz, 0.5, sine, stopped). Conventional
-  expectation for tools like this is that last-used settings stick.
+- ✅ **`NSLock` on the audio render thread finding outdated** —
+  `ToneGenerator` already uses `OSAllocatedUnfairLock<SynthState>` with
+  `withLockUnchecked` in the render callback (M11). No `NSLock` present.
+- ✅ **Dead `settings` parameter removed** — `ToneGeneratorWidget.settings`
+  removed; call site in `WidgetCardView` updated to `ToneGeneratorWidget()`.
+  Landed 2026-05-28.
+- ✅ **Frequency / amplitude / waveform persistence** — Three new
+  `@AppStorage` keys (`toneGenerator.frequency`, `.amplitude`, `.waveform`)
+  added to `PersistenceKeys.ToneGenerator`. Widget restores from
+  AppStorage on `onAppear`; `onChange` observers write back on each change.
+  Landed 2026-05-28.
+- ⚠ **play-state still transient** — stopped is the safe default on
+  cold-launch; routed to backlog (product decision: auto-resume tone on
+  launch is unusual UX).
 - ⚠ **No settings sheet** — falls to "Keine Einstellungen verfügbar"
   placeholder. Either hide the cog for `.toneGenerator` or add a
   proper sheet (presets editor, default-on-load behaviour).

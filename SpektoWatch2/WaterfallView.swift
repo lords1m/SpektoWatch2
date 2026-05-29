@@ -860,11 +860,15 @@ struct WaterfallWidget: View {
     }
 
     private var resolvedSettings: WaterfallHistoryStore.Settings {
-        WaterfallHistoryStore.Settings(
+        // Cross-validate: if user sets min ≥ max via the steppers, clamp so
+        // there is always at least 5 dB of range (same pattern as SpectrumBandChartView).
+        let lo = minDB
+        let hi = maxDB
+        return WaterfallHistoryStore.Settings(
             capacity: capacity,
             sliceCount: sliceCount,
-            minDB: minDB,
-            maxDB: maxDB,
+            minDB: min(lo, hi - 5),
+            maxDB: max(hi, lo + 5),
             rebuildInterval: 0.12,
             targetFrequencyCount: 128
         )

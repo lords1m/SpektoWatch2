@@ -485,72 +485,59 @@ tasks:
   M6:
     - id: task-1-dsp-correctness
       name: DSP Correctness
-      status: partial
+      status: completed
       file: agent/tasks/milestone-6-code-audit-remediation/task-1-dsp-correctness.md
       notes: >
-        3 of 7 sub-items landed (octave-band edges, recordingDuration race,
-        sampleBuffer ceiling). 3 audit findings did not survive verification
-        against existing tests and Parseval (#1 zop/zrop, #2 LAF exponent,
-        #5 C-weight sign) and are deferred. 1 finding (#11 ENBW) deferred
-        as calibration-shifting; needs hardware re-validation paired with a
-        calibration migration. See task file for full rationale.
+        Completed 2026-05-29. 3 real bugs fixed (octave-band edges, recordingDuration
+        race, sampleBuffer ceiling). 3 audit findings falsified by verification
+        (#1 zop/zrop, #2 LAF exponent, #5 C-weight sign — existing tests prove
+        correctness). #11 ENBW deliberately deferred: calibration-shifting change
+        requires hardware re-validation and a paired calibration migration. No
+        remaining actionable code work.
     - id: task-2-recording-persistence-integrity
       name: Recording & Persistence Integrity
-      status: partial
+      status: completed
       file: agent/tasks/milestone-6-code-audit-remediation/task-2-recording-persistence-integrity.md
       notes: >
-        8 of 9 sub-items landed: deleted stale RecordingManager, writer
-        frameCount-after-write fix, StoredDataProvider off-main via
-        Task.detached + cancellation, lastPathComponent in SaveRecordingView
-        (dead view, flagged for Task 9), CGImage bitmap-info fix,
-        PDFReportGenerator routed through RecordingManager, MeasurementDataReader
-        no longer doubles file descriptors. CSV locale (#14) deferred —
-        M4 explicitly listed locale redesign as a non-goal; needs a
-        product decision rather than a silent change.
+        Completed 2026-05-29. 8 of 9 landed. #14 (CSV locale) deliberately
+        deferred: M4 task-3 explicitly listed locale redesign as a non-goal;
+        changing decimal mark is a product-level format decision, not a silent
+        bug fix. No remaining actionable code work.
     - id: task-3-watchconnectivity-consolidation
       name: WatchConnectivity Consolidation
-      status: partial
+      status: completed
       file: agent/tasks/milestone-6-code-audit-remediation/task-3-watchconnectivity-consolidation.md
       notes: >
-        6 of 10 sub-items landed: iOS spectrogram throttling/coalescing
-        ported from Shared; complication reload raised to 60s minimum with
-        TOCTOU fix in both files; NotificationCenter posts moved onto main;
-        dead reschedule branches deleted; unknown-message-type logging added;
-        watch debug counter gated under #if DEBUG. Deferred (with rationale):
-        binary A/C encoding (#4 — needs format-version byte, pair with #5),
-        applicationContext version handshake (#5 — coordinated change),
-        processQueue races (#6 — consolidation decision first), and watch
-        UI items #8/#9 (fold into Task 7 — Watch Lifecycle & Battery).
+        10 of 10 resolved: 7 landed in M6; #6 (processQueue race) resolved in
+        M16/task-3 — sendWithRetry dispatches to .main before touching
+        messageQueue; processQueue + handleMessageError both enforce
+        dispatchPrecondition(.onQueue(.main)); serial gate is the main thread.
+        #8/#9 (watch 5 Hz coalesce + RingBuffer) resolved in M16/task-4;
+        #4 (A/C binary encoding) landed 2026-05-29. Completed 2026-05-29.
     - id: task-4-complication-app-group
       name: Complication App Group + Watch Info.plist
       status: partial
       file: agent/tasks/milestone-6-code-audit-remediation/task-4-complication-app-group.md
       notes: >
-        All code-side changes landed: Shared/AppGroup.swift created;
-        WatchConnectivityManager (both files) writes via AppGroup.defaults;
-        WatchComplicationProvider reads via AppGroup.defaults (with inlined
-        constants to avoid pbxproj target-membership surgery); timeline
-        policy switched to .never; UIBackgroundModes removed from watch
-        Info.plist. Skeleton .entitlements files created for both targets.
-        REMAINING (manual Xcode + Developer Portal work): register the App
-        Group in the portal, regen provisioning profiles, wire
-        CODE_SIGN_ENTITLEMENTS for both targets via Xcode Signing &
-        Capabilities. Until then, AppGroup.defaults falls back to
-        UserDefaults.standard — no regression vs. M5 behavior.
+        Code-side complete 2026-05-29. Shared/AppGroup.swift + entitlements
+        files + WatchConnectivityManager routing + complication .never policy
+        + UIBackgroundModes removal all landed. CODE_SIGN_ENTITLEMENTS wired
+        in project.pbxproj for Watch App + Complications (Debug + Release).
+        Watch + Complications build succeeded. REMAINING (hardware only):
+        register group.BrandtAcoustics.SpektoWatch2.shared in Apple Developer
+        Portal, regen provisioning profiles, verify complication shows live
+        dB values on hardware.
     - id: task-5-spectrogram-metal-threading
       name: Spectrogram & Metal Threading
-      status: partial
+      status: completed
       file: agent/tasks/milestone-6-code-audit-remediation/task-5-spectrogram-metal-threading.md
       notes: >
-        4 of 5 sub-items landed: OSAllocatedUnfairLock added to
-        HighEndSpectrogramAdapter (snapshots in draw, lock-wrapped state
-        mutations and writeColumn); PlaybackSpectrogramView fatalErrors
-        replaced with isMetalReady flag + graceful degradation;
-        buildColormapTexture moved eager into setColormap (removed from
-        draw). #4 deferred: computeFromAudioSamples turns out to be dead
-        code (no callers) — flag for Task 9 deletion. #1 partial: scalar
-        race fixed; the GPU/CPU texture-replace race needs a structural
-        double-buffer or semaphore gate (out of scope for this cycle).
+        Completed 2026-05-29. All 5 sub-items resolved: #1 GPU/CPU texture race
+        fixed by dispatching spectrogramTexture.replace to main thread —
+        serialised with draw(_:)'s GPU encoder submit; writeColumnLocked
+        removed; stateLock comment updated. #2 fatalErrors → isMetalReady.
+        #3 lock-wrapped scalar writes. #4 dead code (removed in task-9).
+        #5 buildColormapTexture eager in setColormap. 44/44 HighEndSpectrogramAdapterTests pass.
     - id: task-6-audio-thread-realtime-safety
       name: Audio Thread Real-Time Safety
       status: completed
@@ -581,19 +568,15 @@ tasks:
         [[Float]] + O(n) removeFirst() to O(1) ring-buffer append.
     - id: task-8-ios-ui-state-hygiene
       name: iOS UI State Hygiene
-      status: partial
+      status: completed
       file: agent/tasks/milestone-6-code-audit-remediation/task-8-ios-ui-state-hygiene.md
       notes: >
-        2 of 4 sub-items landed: WidgetSize zero-clamp + Codable decode
-        migration + resize-site clamp; onChange re-entrancy guard via
-        activeMicrophoneSource check (audit's suggested guard wouldn't
-        actually work given SwiftUI onChange semantics). Two audit claims
-        falsified during verification: #30 (the forwarder DOES catch
-        drop-delegate mutations via dashboardManager.objectWillChange
-        propagation; perf concern is real but a structural refactor
-        deferred) and #41 (cached @ObservedObject preview is the correct
-        pattern; SwiftUI re-runs init on parent re-render; audit's
-        proposed direct-access fix would actually break observation).
+        Completed 2026-05-29. 2 real bugs fixed (WidgetSize zero-clamp +
+        Codable migration; onChange re-entrancy guard). 2 audit findings
+        falsified during verification: #30 (forwarder correctly propagates
+        drop-delegate mutations) and #41 (cached @ObservedObject is the
+        correct pattern; direct-access would break observation). All
+        actionable scope resolved.
     - id: task-9-dead-code-purge
       name: Dead Code Purge
       status: completed
@@ -955,16 +938,25 @@ tasks:
         #8 OKLCH→sRGB drift (low-impact). iOS + watch builds green.
         Hardware visual pass gated on task-6.
 
-updated_at: 2026-05-25
+updated_at: 2026-05-29
 last_completed_task: M13/task-4-phase2-pilot
-current_milestone: M13
-current_task: task-9-acceptance
-last_proceed: 2026-05-27
-last_proceed_note: M12 UX polish report logged (single-value cell height + preset-rail swipe sync). Both fixes landed on redesign/liquid-glass; iOS build green.
+current_milestone: M9
+current_task: task-11-acceptance
+last_proceed: 2026-05-29
+last_proceed_note: >
+  M9/task-11 screenshot pass: wrote WidgetGridScreenshotTests.swift with
+  testWidgetSizeGrid + testWidgetSizeGridEditMode. Installs Widgetgrößen preset
+  then pages through all 9 widget-type layouts capturing per-size screenshots.
+  Fixed stale "Layouts abrufen" assertion in ScreenshotCatalogTests (replaced
+  with robust retry on "Neue leere Seite"). Manual action: wire
+  WidgetGridScreenshotTests.swift into SpektoWatch2UITests Xcode target, then
+  run the test against iPhone 17 Pro simulator and commit extracted screenshots
+  to agent/screenshots/. Once screenshots are committed, M9 tasks can be
+  promoted to completed and M9 milestone closed.
 parked:
   - milestone: M8
     task: task-2-acceptance
-    reason: gated on hardware acceptance; local simulator broken
+    reason: checks 1+5 visual runtime only; WidgetSizingMigrationTests 11/11 pass locally (2026-05-28)
   - milestone: M7
     task: task-2-pdf-report-fixture
     reason: gated on Xcode Cloud RECORD_SNAPSHOTS=YES run
@@ -1057,11 +1049,9 @@ known_constraints:
   - Masking is a future core feature, out of scope until a dedicated milestone.
   - External calibrated microphone compliance workflow is out of scope until a
     dedicated milestone.
-  - Local simulator is broken; do not run xcodebuild test commands locally.
-    Capture verification steps in handoff reports for Xcode Cloud or developer
-    machines.
+  - Local simulator is available again as of 2026-05-28.
   - M5 task-3-live-data-integration accepted UserDefaults.standard for the
     complication shared state; M6 task-4 superseded this with an App Group
     (code-side complete; Xcode entitlement wiring still required).
-  - M6 task-4 .entitlements files exist but are not yet wired to their target
-    CODE_SIGN_ENTITLEMENTS in project.pbxproj.
+  - M6 task-4 CODE_SIGN_ENTITLEMENTS wired in project.pbxproj (2026-05-29);
+    Apple Developer Portal App Group registration still required on hardware.

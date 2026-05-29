@@ -37,36 +37,34 @@ Plus override toggle (`useWidgetOverrides`).
 ### Findings (code-side only — no screenshots yet)
 
 - ✅ Both settings are consumed (none dead).
-- ⚠ **`bandMode` is locked to default when override is OFF.** Look at
-  lines 31-36: without override the widget reads
-  `WidgetSettings.defaultSpectrumBandMode` ("terz") regardless of any
-  app-global. There is **no global app setting** for band mode (grep
-  for `frequencyBands` confirms — only the per-widget key exists).
-  Net effect: a user without override toggle on can never see Bark or
-  Octave bands. Either:
-  1. Make per-widget setting the only place this lives (drop the
-     conditional override; band mode is always per-widget).
-  2. Add a global app default that the override can fall back to.
-- ⚠ **Octave-bands legacy type still shares this widget's settings
-  section** (line 213: `widget.type == .frequencyDisplay || widget.type == .octaveBands`).
-  Per `DashboardManager.normalizeWidgets`, legacy `.octaveBands`
-  widgets are rewritten to `.frequencyDisplay` on load — but the
-  settings sheet still has an `|| widget.type == .octaveBands` arm.
-  Dead path after normalize-on-load runs. Safe to remove.
-- ⚠ **Y-axis hardcoded 20…110 dB** — no per-widget min/max settings
-  unlike the waterfall. With a quiet signal or after calibration, the
-  bottom of the chart sits at 20 dB even if the actual floor is
-  -60 dB SPL → empty space below the bars. Worth flagging for product:
-  do we want a `spectrumMinDB`/`spectrumMaxDB` setting (mirrors waterfall)
-  or is the hardcoded range deliberate?
-- ⚠ **EMA `leqAlpha = 0.02`** is hardcoded. At 86 Hz update rate this
-  is roughly a 580 ms time constant. Effectively a slow-Leq. If a user
-  picks an "explicit" weighting (no per-frame display), they get an
-  unexpected averaging behaviour. Document or expose.
-- ⚠ **Debug-only env var `SPEKTO_DEBUG_WIDGET_SPECTRUM`** — would not
-  ship to production users but worth confirming the diagnostics block
-  is `#if DEBUG`-gated (it's only env-var-gated, so the code runs in
-  release; harmless but unnecessary).
+- ✅ **`bandMode` always uses per-widget setting** (`AudioWidgets.swift`):
+  The `useWidgetOverrides` conditional branch removed. There is no
+  app-global band mode to fall back to, so the per-widget `frequencyBands`
+  setting (default: "terz") is always the source of truth. Users can now
+  select Bark or Octave bands even without the override toggle ON.
+  Landed 2026-05-28.
+- ✅ **Octave-bands dead arm removed** (`WidgetSettingsView.swift` line
+  284): `|| widget.type == .octaveBands` deleted. `DashboardManager.normalizeWidgets`
+  already rewrites `.octaveBands` → `.frequencyDisplay` on load so that
+  branch was unreachable. Landed 2026-05-28.
+- ✅ **Y-axis bounds are per-widget configurable** — finding outdated.
+  `WidgetSettings.chartYMinDB/Max` (defaults 20/110 dB) were wired in
+  M12 task-8; `FrequencySpectrumWidget` already passes them to
+  `SpectrumBandChartView`; `yAxisBoundsSection` shown in settings sheet.
+  No fix needed.
+- ✅ **EMA `leqAlpha` finding outdated** — `leqBandAlpha = 0.02` was
+  moved to `AcousticMetricsCalculator` in M14 task-3; `SpectrumBandChartView`
+  now receives pre-computed `leqThirds` and owns no EMA. The constant
+  remains in the metrics calculator (still hardcoded, but no longer a
+  view-body concern). Routed to backlog if product wants it exposed.
+- ✅ **`onAppear` print gated with `#if DEBUG`** (`AudioWidgets.swift`
+  line 83): `print("[FrequencySpectrumWidget] View appeared...")` no
+  longer fires in release builds. Landed 2026-05-28.
+- ✅ **Diagnostics gated with `#if DEBUG`** (`AudioWidgets.swift`):
+  `diagnosticsCounter`, `enableWidgetDiagnostics`, and the entire
+  `logBandDiagnosticsIfNeeded` body are now inside `#if DEBUG` blocks.
+  Release builds no longer allocate the `@State` counter, evaluate the
+  `ProcessInfo` env lookup, or compile the print path. Landed 2026-05-28.
 
 ### Pending (hardware)
 

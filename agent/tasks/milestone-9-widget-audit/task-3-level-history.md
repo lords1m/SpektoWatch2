@@ -38,26 +38,22 @@ Two layers:
   `agent/reports/2026-05-21-spectrogram-quickwins.md`). Out of scope
   here.
 - ✅ All four settings are consumed (none dead).
-- ⚠ **Conditional `freqWeighting` + `timeWeighting`** — these pickers
-  only have an effect when `historyMetric == "AUTO"`. When the user
-  picks `LCpeak` (or any explicit metric), the two pickers are
-  silently no-ops. Two ways to fix:
-  1. Disable/hide the two pickers when `historyMetric ≠ "AUTO"`
-     (clean UX, matches Apple HIG for conditional fields).
-  2. Move them inside a disclosure group labelled "AUTO-Modus".
-- ⚠ **Phon/Sone overlay uses `data.levels["LAF"]` regardless** of the
-  user's selected `historyMetric` (`LAFGraphWidget.swift:106`). If
-  the user sets `historyMetric = LCpeak`, the line graph shows
-  C-weighted peak but the phon/sone readout silently keeps
-  A-weighted fast loudness. Either:
-  1. Drive loudness off `resolvedMetricKey` so they agree.
-  2. Hide the phon/sone overlay when an explicit metric is selected.
-- ⚠ **`scrollOffset: 0.0` constant pass-through** — same dead-knob
-  pattern we removed from the spectrogram (M9 task-1). `LevelHistoryView`
-  declares `var scrollOffset: Float` and uses it at line 118
-  (`let offsetSamples = Int(scrollOffset * Float(count))`), but no
-  caller ever passes a non-zero value. Worth checking if it's a
-  playback scrubbing hook for `RecordingDetailView` or genuinely dead.
+- ✅ **Weighting pickers disabled when metric ≠ AUTO**
+  (`WidgetSettingsView.swift`): `isAutoMetric` local computed and
+  `.disabled(!isAutoMetric)` applied to the `freqWeighting` and
+  `timeWeighting` pickers in the levelHistory section. When the user
+  picks an explicit metric (LAF, LCpeak, …), the two pickers are
+  visually greyed out per Apple HIG. Landed 2026-05-28.
+- ✅ **Phon/Sone overlay hidden for explicit metrics** (`LAFGraphWidget.swift`):
+  Guard added: overlay only shows when `selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric`
+  (AUTO mode). When the user picks e.g. LCpeak, the C-weighted line
+  graph is shown without a misleading A-weighted phon/sone readout.
+  Landed 2026-05-28.
+- ✅ **Dead `scrollOffset` removed** (`LAFGraphView.swift` + `LAFGraphWidget.swift`):
+  `var scrollOffset: Float`, its init parameter, assignment, and the
+  `offsetSamples = Int(scrollOffset × count)` computation all removed.
+  `offsetSamples` is now the constant `0` (the only value ever passed).
+  No caller outside `LevelHistoryWidget` existed. Landed 2026-05-28.
 - ⚠ **Metric label string** (`metricLabel`) is just `resolvedMetricKey`
   — in AUTO mode that yields strings like `LAF` / `LAS` / `LZF` —
   same syntax as the picker's explicit options. A user who explicitly

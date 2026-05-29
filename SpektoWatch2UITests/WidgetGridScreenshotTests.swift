@@ -1,0 +1,131 @@
+import XCTest
+
+/// Captures a screenshot of every widget type at every allowed size by installing the
+/// "Screenshot-Preset: Widgetgrößen" layout and paging through the 9 resulting pages.
+///
+/// Evidence for M9 widget-audit hardware screenshot pass:
+///   agent/tasks/milestone-9-widget-audit/task-11-acceptance.md
+///
+/// Run via xcodebuild -only-testing:SpektoWatch2UITests/WidgetGridScreenshotTests
+/// or capture-screenshots.py which extracts PNGs from the xcresult bundle.
+final class WidgetGridScreenshotTests: XCTestCase {
+
+    private var app: XCUIApplication!
+    private let launchWait: TimeInterval = 60
+    private let viewWait: TimeInterval = 15
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = [
+            "-UIAnimationsDisabled", "YES",
+            "-ResetState", "YES"
+        ]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: launchWait), "App should launch")
+
+        // Wait for the dashboard control bar — either play or pause button.
+        let playVisible = app.descendants(matching: .any)["playButton"].waitForExistence(timeout: launchWait)
+        let pauseVisible = playVisible ? false
+            : app.descendants(matching: .any)["pauseButton"].waitForExistence(timeout: 5.0)
+        XCTAssertTrue(playVisible || pauseVisible, "Dashboard controls should be visible")
+    }
+
+    override func tearDownWithError() throws {
+        app = nil
+    }
+
+    // MARK: - Widget grid pass
+
+    /// Opens the Layouts confirmation dialog, installs the Widgetgrößen preset,
+    /// then pages through all 9 widget-type layouts capturing one screenshot each.
+    @MainActor
+    func testWidgetSizeGrid() throws {
+        try installWidgetSizePreset()
+
+        // AudioWidgetType.allCases order (matches DashboardManager.installWidgetSizeScreenshotPreset)
+        let pages: [(num: String, name: String)] = [
+            ("01", "Spektrogramm"),
+            ("02", "Wasserfall"),
+            ("03", "Pegelverlauf"),
+            ("04", "Frequenz-Spektrum"),
+            ("05", "Pegel-Meter"),
+            ("06", "Einzelwert"),
+            ("07", "Tongenerator"),
+            ("08", "Spektralanalyse-Labor"),
+            ("09", "Sound-Masking")
+        ]
+
+        for (index, page) in pages.enumerated() {
+            capture("M9-\(page.num)-\(page.name)-sizes")
+            if index < pages.count - 1 {
+                app.swipeLeft()
+                settle()
+            }
+        }
+    }
+
+    /// Same as testWidgetSizeGrid but also enters edit mode on each page so the
+    /// resize handles and delete circles are visible. Useful for verifying that
+    /// widget chrome doesn't obscure edit affordances at small sizes.
+    @MainActor
+    func testWidgetSizeGridEditMode() throws {
+        try installWidgetSizePreset()
+
+        let pages: [(num: String, name: String)] = [
+            ("01", "Spektrogramm"),
+            ("02", "Wasserfall"),
+            ("03", "Pegelverlauf"),
+            ("04", "Frequenz-Spektrum"),
+            ("05", "Pegel-Meter"),
+            ("06", "Einzelwert"),
+            ("07", "Tongenerator"),
+            ("08", "Spektralanalyse-Labor"),
+            ("09", "Sound-Masking")
+        ]
+
+        for (index, page) in pages.enumerated() {
+            // Enter edit mode
+            let editButton = app.descendants(matching: .any)["editDashboardButton"]
+            if editButton.waitForExistence(timeout: viewWait) {
+                editButton.tap()
+                settle()
+                capture("M9-\(page.num)-\(page.name)-edit")
+                // Exit edit mode
+                editButton.tap()
+                settle()
+            }
+
+            if index < pages.count - 1 {
+                app.swipeLeft()
+                settle()
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Opens the Layouts confirmation dialog and taps "Screenshot-Preset: Widgetgrößen".
+    /// Retries once because the dialog may be dismissed by an overlapping animation on the
+    /// first tap (observed in ScreenshotCatalogTests which also uses a two-tap pattern).
+    private func installWidgetSizePreset() throws {
+        let layoutsButton = app.descendants(matching: .any)["layoutsButton"]
+        XCTAssertTrue(layoutsButton.waitForExistence(timeout: viewWait), "layoutsButton must be visible")
+
+        // Attempt 1 — tap the layouts button and look for the preset action.
+        layoutsButton.tap()
+        let presetButton = app.buttons["Screenshot-Preset: Widgetgrößen"]
+
+        if !presetButton.waitForExistence(timeout: 4.0) {
+            // Dialog may have been dismissed by an overlapping animation; try once more.
+            XCTAssertTrue(layoutsButton.waitForExistence(timeout: viewWait), "layoutsButton must reappear")
+            layoutsButton.tap()
+            XCTAssertTrue(presetButton.waitForExistence(timeout: viewWait),
+                          "Screenshot preset button should appear in Layouts dialog")
+        }
+
+        presetButton.tap()
+        // Allow time for the 9 layout pages to be installed and the first page to render.
+        settle(1.5)
+    }
+}

@@ -6,6 +6,15 @@
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
       buildArchitectures = "Automatic">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Run Script"
+               scriptText = "&#10;#!/bin/sh&#10;&#10;#  ci_post_xcodebuild.sh&#10;#  Debug/Release build name if required&#10;#&#10;#  Created by Ankit Agarwal on 08/11/22.&#10;#&#10;&#10;AppUploadResponse=$(curl -w --location --request POST &apos;https://{simeonbrandt}:{LT_RrKJKQMMVpVt14p1fXOB8aFAJxGRlR53szBT8m1nog7FwCC}@manual-api.lambdatest.com/app/upload/realDevice&apos; --form &apos;name=&quot;{name}&quot;&apos; --form &apos;appFile=@&quot;{filePathWithNameAndExtension}&quot;&apos; --form &apos;custom_id=&quot;{custom_id}&quot;&apos;)&#10;&#10;appId=$(awk &apos;{sub(/.*\&quot;app_url\&quot;:\&quot;/,&quot;&quot;);sub(/\&quot;,\&quot;url.*/,&quot;&quot;);print}&apos; &lt;&lt;&lt; &quot;$AppUploadResponse&quot;)&#10;&#10;echo &quot;$appId&quot;&#10;&#10;TestAppUploadResponse=$(curl -w --location --request POST &apos;https://{username}:{accessKey}@manual-api.lambdatest.com/app/upload/realDevice&apos; --form &apos;name=&quot;{name}&quot;&apos; --form &apos;appFile=@&quot;{filePathWithNameAndExtension}&quot;&apos; --form &apos;custom_id=&quot;{custom_id}&quot;&apos;)&#10;&#10;testAppID=$(awk &apos;{sub(/.*\&quot;app_url\&quot;:\&quot;/,&quot;&quot;);sub(/\&quot;,\&quot;url.*/,&quot;&quot;);print}&apos; &lt;&lt;&lt; &quot;$TestAppUploadResponse&quot;)&#10;&#10;echo &quot;$testAppID&quot;&#10;&#10;TestExeuctionPayload=&quot;{\&quot;app\&quot;: \&quot;$appId\&quot;, \&quot;testSuite\&quot;: \&quot;$testAppID\&quot;, \&quot;device\&quot;: [ \&quot;iPhone X-14\&quot; ], \&quot;tunnel\&quot;: false, \&quot;network\&quot;: true, \&quot;devicelog\&quot;: true, \&quot;queueTimeout\&quot;: 3000, \&quot;idleTimeout\&quot;: 200, \&quot;build\&quot;: \&quot;otrium1\&quot;, \&quot;project\&quot;: \&quot;testerror\&quot; }&quot;&#10;&#10;echo &quot;$TestExeuctionPayload&quot;&#10;&#10;XCUITTestExecution=$(curl -w --location --request POST &apos;https://{username}:{accessKey}@mobile-api.lambdatest.com/framework/v1/xcui/build&apos; --header &apos;Content-Type: application/json&apos; --data-raw &quot;$TestExeuctionPayload&quot;)&#10;&#10;echo &quot;$XCUITTestExecution&quot;&#10;">
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"

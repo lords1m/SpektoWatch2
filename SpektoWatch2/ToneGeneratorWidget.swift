@@ -666,7 +666,6 @@ private struct PianoInputView: View {
 struct ToneGeneratorWidget: View {
     @StateObject private var toneGenerator = ToneGenerator()
     @State private var showFullscreenOscilloscope = false
-    var settings: [String: String]
     private let outerPadding: CGFloat = 10
     private let minOscilloscopeHeight: CGFloat = 100
 
@@ -679,6 +678,9 @@ struct ToneGeneratorWidget: View {
     @AppStorage(PersistenceKeys.ToneGenerator.inputMode)   private var inputModeRaw: String = InputMode.hz.rawValue
     @AppStorage(PersistenceKeys.ToneGenerator.pianoOctave) private var pianoOctave: Int = 4
     @AppStorage(PersistenceKeys.ToneGenerator.selectedMidi) private var selectedMidi: Int = -1
+    @AppStorage(PersistenceKeys.ToneGenerator.frequency)   private var storedFrequency: Double = 1000.0
+    @AppStorage(PersistenceKeys.ToneGenerator.amplitude)   private var storedAmplitude: Double = 0.5
+    @AppStorage(PersistenceKeys.ToneGenerator.waveform)    private var storedWaveformRaw: String = ToneGenerator.Waveform.sine.rawValue
 
     // Runtime-only: restored from selectedMidi on onAppear.
     @State private var selectedNote: MusicalNote? = nil
@@ -897,6 +899,10 @@ struct ToneGeneratorWidget: View {
         .padding(.vertical, outerPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
+            // Restore synthesis parameters from last session.
+            toneGenerator.frequency = Float(storedFrequency)
+            toneGenerator.amplitude = Float(storedAmplitude)
+            toneGenerator.waveform  = ToneGenerator.Waveform(rawValue: storedWaveformRaw) ?? .sine
             // Restore the last tapped piano note from its persisted MIDI number.
             if selectedMidi >= 12 && selectedMidi <= 119 {
                 let octave   = selectedMidi / 12 - 1
@@ -906,6 +912,9 @@ struct ToneGeneratorWidget: View {
                 }
             }
         }
+        .onChange(of: toneGenerator.frequency) { _, v in storedFrequency = Double(v) }
+        .onChange(of: toneGenerator.amplitude) { _, v in storedAmplitude = Double(v) }
+        .onChange(of: toneGenerator.waveform)  { _, v in storedWaveformRaw = v.rawValue }
         .onDisappear {
             toneGenerator.stop()
         }

@@ -29,7 +29,7 @@ final class AudioEngineTests: XCTestCase {
     func testInitialization() {
         XCTAssertNotNil(audioEngine, "AudioEngine should be initialized")
         XCTAssertEqual(audioEngine.engineStatus, .idle, "Initial status should be idle")
-        XCTAssertEqual(audioEngine.currentLevel, -120.0, "Initial level should be -120 dB")
+        XCTAssertEqual(audioEngine.live.currentLevel, -120.0, "Initial level should be -120 dB")
     }
 
     /// Testet Default-Werte
@@ -172,7 +172,7 @@ final class AudioEngineTests: XCTestCase {
         audioEngine.processExternalAudio(samples, sampleRate: sampleRate)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if let data = self.audioEngine.currentSpectrogramData {
+            if let data = self.audioEngine.live.currentSpectrogramData {
                 XCTAssertEqual(data.sampleRate, sampleRate, accuracy: 0.5, "Spectrogram sample rate should match external stream")
                 expectation.fulfill()
             }
@@ -190,7 +190,7 @@ final class AudioEngineTests: XCTestCase {
         audioEngine.processExternalAudio(samples)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard let data = self.audioEngine.currentSpectrogramData else {
+            guard let data = self.audioEngine.live.currentSpectrogramData else {
                 XCTFail("Expected spectrogram data")
                 expectation.fulfill()
                 return
@@ -214,7 +214,7 @@ final class AudioEngineTests: XCTestCase {
         audioEngine.processExternalAudio(samples)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard let data = self.audioEngine.currentSpectrogramData else {
+            guard let data = self.audioEngine.live.currentSpectrogramData else {
                 XCTFail("Expected spectrogram data")
                 expectation.fulfill()
                 return
@@ -236,7 +236,7 @@ final class AudioEngineTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             XCTAssertEqual(self.audioEngine.engineStatus, .running)
             XCTAssertEqual(self.audioEngine.activeMicrophoneSource, .appleWatch)
-            XCTAssertFalse(self.audioEngine.isRecordingToFile)
+            XCTAssertFalse(self.audioEngine.recording.isRecordingToFile)
 
             self.audioEngine.stopWearableLiveMode()
 
@@ -265,12 +265,12 @@ final class AudioEngineTests: XCTestCase {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             XCTAssertEqual(self.audioEngine.activeMicrophoneSource, .appleWatch)
-            XCTAssertEqual(self.audioEngine.currentSpectrogramData?.frequencies, data.frequencies)
-            XCTAssertEqual(self.audioEngine.currentSpectrogramData?.magnitudes, data.magnitudes)
-            XCTAssertEqual(self.audioEngine.currentLevel, data.broadbandLevel, accuracy: 0.001)
-            XCTAssertEqual(self.audioEngine.currentSpectrum, data.magnitudes)
-            XCTAssertEqual(self.audioEngine.currentOctaveBands.count, MeasurementDataFormat.thirdOctaveBandCount)
-            XCTAssertEqual(self.audioEngine.levelHistory.last, data.broadbandLevel)
+            XCTAssertEqual(self.audioEngine.live.currentSpectrogramData?.frequencies, data.frequencies)
+            XCTAssertEqual(self.audioEngine.live.currentSpectrogramData?.magnitudes, data.magnitudes)
+            XCTAssertEqual(self.audioEngine.live.currentLevel, data.broadbandLevel, accuracy: 0.001)
+            XCTAssertEqual(self.audioEngine.live.currentSpectrogramData?.magnitudes, data.magnitudes)
+            XCTAssertEqual(self.audioEngine.live.currentOctaveBandsZ.count, MeasurementDataFormat.thirdOctaveBandCount)
+            XCTAssertEqual(self.audioEngine.live.levelHistory.last, data.broadbandLevel)
             expectation.fulfill()
         }
 
@@ -322,7 +322,7 @@ final class AudioEngineTests: XCTestCase {
         }
 
         // History sollte begrenzt sein
-        XCTAssertLessThanOrEqual(audioEngine.levelHistory.count, 1000,
+        XCTAssertLessThanOrEqual(audioEngine.live.levelHistory.count, 1000,
                                 "Level history should be bounded to 1000 entries")
     }
 

@@ -54,3 +54,19 @@ if [ "$PNG_COUNT" -eq 0 ]; then
     # This catches xcresulttool format drift before it silently regresses.
     echo "##[warning] Zero screenshots extracted from xcresult — check xcresulttool format or UITest target configuration."
 fi
+
+# Upload to LambdaTest SmartUI when credentials are present.
+# Set LT_USERNAME, LT_ACCESS_KEY, and LT_PROJECT_TOKEN in the Xcode Cloud
+# workflow's environment variables to enable visual regression comparison.
+if [ -n "${LT_USERNAME:-}" ] && [ -n "${LT_ACCESS_KEY:-}" ] && [ -n "${LT_PROJECT_TOKEN:-}" ]; then
+    log "LambdaTest credentials found — uploading screenshots to SmartUI…"
+    UPLOAD_SCRIPT="$REPO_ROOT/lambdatest/upload-screenshots.sh"
+    if [ -f "$UPLOAD_SCRIPT" ]; then
+        BUILD_NAME="SpektoWatch2-${CI_BUILD_NUMBER:-local}-$(date +%Y%m%d)"
+        bash "$UPLOAD_SCRIPT" "$OUTPUT_DIR" "$BUILD_NAME" || log "⚠️  SmartUI upload failed (non-fatal)."
+    else
+        log "⚠️  upload-screenshots.sh not found at $UPLOAD_SCRIPT — skipping SmartUI upload."
+    fi
+else
+    log "LT_USERNAME / LT_ACCESS_KEY / LT_PROJECT_TOKEN not set — skipping SmartUI upload."
+fi

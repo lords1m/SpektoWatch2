@@ -9,6 +9,7 @@ struct MaskingEntryWidget: View {
     @EnvironmentObject private var profileManager: MaskingProfileManager
     @State private var showSheet = false
     @State private var showProfiles = false
+    @State private var showResetConfirmation = false
 
     var body: some View {
         Button(action: { showSheet = true }) {
@@ -49,8 +50,22 @@ struct MaskingEntryWidget: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("maskingWidget")
         .sheet(isPresented: $showSheet) {
             acquisitionOrSuggestionSheet
+        }
+        .confirmationDialog(
+            "Kalibrierung verwerfen?",
+            isPresented: $showResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Neu aufnehmen", role: .destructive) {
+                engine.reset()
+                showSheet = false
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Die aktuelle Kalibrierung und alle Aufnahmen gehen verloren.")
         }
     }
 
@@ -123,11 +138,9 @@ struct MaskingEntryWidget: View {
                 MaskingSuggestionView(engine: engine, suggestion: suggestion)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("Neu aufnehmen") {
-                                engine.reset()
-                                showSheet = false
+                            Button("Neu aufnehmen", role: .destructive) {
+                                showResetConfirmation = true
                             }
-                            .foregroundStyle(.red)
                         }
                         ToolbarItem(placement: .topBarTrailing) {
                             if !profileManager.profiles.isEmpty {

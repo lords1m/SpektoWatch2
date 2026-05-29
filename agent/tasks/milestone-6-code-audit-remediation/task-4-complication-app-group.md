@@ -9,12 +9,12 @@ Milestone: `milestone-6-code-audit-remediation`
 
 | Sub-item | Source finding | Result |
 |---|---|---|
-| 1. App Group entitlement | Audit #26 (Critical) | PARTIAL — `.entitlements` files + Swift App-Group helper + constants created in code; Xcode `CODE_SIGN_ENTITLEMENTS` wiring + Apple Developer Portal registration are manual follow-ups (see "Required Xcode setup" below) |
+| 1. App Group entitlement | Audit #26 (Critical) | LANDED code-side 2026-05-29 — `CODE_SIGN_ENTITLEMENTS` wired in `project.pbxproj` for Watch App + Complications (Debug + Release); Apple Developer Portal group registration still required on hardware |
 | 2. Shared state via App Group suite | Audit #26 (Critical) | **LANDED in code** — `Shared/WatchConnectivityManager.swift`, `SpektoWatch2/WatchConnectivityManager.swift`, and `SpektoWatch Complications/WatchComplicationProvider.swift` all route through `AppGroup.defaults` (= `UserDefaults(suiteName:)` with safe fallback to `.standard` until the entitlement is wired) |
 | 3. Remove iOS-only `UIBackgroundModes` from watch plist | Audit #33 (High) | **LANDED** — `SpektoWatch-Watch-App-Info.plist` |
 | 4. Complication timeline policy `.never` | Audit #34 (High) | **LANDED** — `SpektoWatch Complications/WatchComplicationProvider.swift:19-24` |
 
-3 of 4 fully landed in code, 1 partial (pending Xcode UI work that cannot be safely done via text edits to `project.pbxproj`).
+4 of 4 landed code-side. Apple Developer Portal registration of `group.BrandtAcoustics.SpektoWatch2.shared` still required before the entitlement is active on hardware.
 
 ## What Landed
 

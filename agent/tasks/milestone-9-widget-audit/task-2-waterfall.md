@@ -38,12 +38,11 @@ Plus override toggle (`useWidgetOverrides`).
 
 - ✅ No dead settings — all four settings are consumed by the widget.
 - ✅ Override toggle pattern consistent with spectrogram + level-history.
-- ⚠ **No cross-validation `minDB < maxDB`** in either the UI steppers
-  or `rebuildDataSet`. The Stepper for `Minimum:` allows up to -40
-  dB and `Maximum:` allows down to -20 dB — they can be set so
-  `minDB > maxDB`. `WaterfallDataBuilder.build` is called with the
-  values as-is. Behaviour undefined; worth a runtime check (does it
-  draw inverted? clamp? render NaN?).
+- ✅ **Cross-validation `minDB < maxDB`** — `resolvedSettings` now
+  clamps via `min(lo, hi-5)` / `max(hi, lo+5)`, matching the pattern
+  in `SpectrumBandChartView`. Landed 2026-05-28. `WaterfallDataBuilder`
+  always receives a valid range; the `max(1, …)` guard at line 531 is
+  now belt-and-suspenders only.
 - ⚠ **Throttle constant 0.12 s** (~8 Hz redraw) vs. spectrogram's 60
   fps. Visually different cadence when shown side by side; not
   necessarily wrong (waterfall slice density is the real time

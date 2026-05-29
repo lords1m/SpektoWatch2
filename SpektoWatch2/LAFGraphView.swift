@@ -8,19 +8,17 @@ struct LevelHistoryView: View {
     var settings: [String: String]
     var scrollSpeed: ScrollSpeed = .fast
     var isPaused: Bool
-    var scrollOffset: Float
 
     @State private var engineFrequencyWeighting: String
     @State private var engineTimeWeighting: String
 
-    init(audioEngine: AudioEngine, settings: [String: String], scrollSpeed: ScrollSpeed = .fast, isPaused: Bool, scrollOffset: Float) {
+    init(audioEngine: AudioEngine, settings: [String: String], scrollSpeed: ScrollSpeed = .fast, isPaused: Bool) {
         _live = ObservedObject(initialValue: audioEngine.live)
         self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
         self.timeWeightingPublisher = audioEngine.$timeWeighting
         self.settings = settings
         self.scrollSpeed = scrollSpeed
         self.isPaused = isPaused
-        self.scrollOffset = scrollOffset
         _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
         _engineTimeWeighting = State(initialValue: audioEngine.timeWeighting.rawValue)
     }
@@ -133,7 +131,7 @@ struct LevelHistoryView: View {
                     }
 
                     var path = Path()
-                    let offsetSamples = Int(scrollOffset * Float(count))
+                    let offsetSamples = 0
                     for i in 0..<count {
                         let x = chartRect.minX + chartRect.width * CGFloat(i) / CGFloat(max(count - 1, 1))
                         let index = (writeIndex + offsetSamples - i + 2 * count) % count

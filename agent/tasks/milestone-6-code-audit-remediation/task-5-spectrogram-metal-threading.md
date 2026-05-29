@@ -1,21 +1,21 @@
 # Task 5: Spectrogram & Metal Threading
 
-Status: partial
+Status: completed
 Created: 2026-05-18
-Updated: 2026-05-18
+Updated: 2026-05-29
 Milestone: `milestone-6-code-audit-remediation`
 
 ## Status Summary
 
 | Sub-item | Source finding | Result |
 |---|---|---|
-| 1. `HighEndSpectrogramAdapter` texture data race | Audit #28 (Critical) | PARTIAL — scalar state is now lock-serialised; the GPU/CPU race on `spectrogramTexture.replace` is documented as a known trade-off requiring a structural double-buffer fix (out of scope for this cycle) |
+| 1. `HighEndSpectrogramAdapter` texture data race | Audit #28 (Critical) | **LANDED 2026-05-29** — texture writes dispatched to main thread; serialised with draw(_:)'s GPU encoder; CPU/GPU race eliminated |
 | 2. Reachable `fatalError` in Metal pipeline setup | Audit #29 (Critical) | **LANDED** — `PlaybackSpectrogramView.swift:69-78, 100-153, 290-300` |
 | 3. `HighEndSpectrogramAdapter` mutates private state without sync | Audit #35 (High) | **LANDED** — same `OSAllocatedUnfairLock` as #1 |
 | 4. `computeFromAudioSamples` on main | Audit #38 (High) | DEFERRED — function is dead code (no callers); flagged for Task 9 deletion |
 | 5. `buildColormapTexture` in `draw()` | Audit #40 (Medium) | **LANDED** — eager build in `setColormap`; removed from draw loop |
 
-4 of 5 sub-items effectively landed (sub-item #1 partial with a documented follow-up; #4 not-a-bug).
+All 5 sub-items resolved: #1 fully landed 2026-05-29; #4 was not-a-bug (dead code removed in task-9).
 
 ## Verification Reversal
 

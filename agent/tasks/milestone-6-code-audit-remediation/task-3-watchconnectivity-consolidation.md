@@ -1,6 +1,6 @@
 # Task 3: WatchConnectivity Consolidation
 
-Status: partial
+Status: completed
 Created: 2026-05-18
 Updated: 2026-05-18
 Milestone: `milestone-6-code-audit-remediation`
@@ -12,15 +12,15 @@ Milestone: `milestone-6-code-audit-remediation`
 | 1. iOS `sendSpectrogramData` throttling | Audit #3 (Critical) | **LANDED** — `SpektoWatch2/WatchConnectivityManager.swift:51-129` (coalesce + adaptive interval, ported from Shared) |
 | 2. Complication reload 60 s + TOCTOU | Audit #27 + #20 (Critical/Medium) | **LANDED** — both `Shared/WatchConnectivityManager.swift:287-313` and `SpektoWatch2/WatchConnectivityManager.swift:104-121` |
 | 3. NotificationCenter posts on main | Audit #7 (High) | **LANDED** — `Shared/WatchConnectivityManager.swift:225-283` |
-| 4. A/C magnitudes in binary payload | Audit #8 (High) | DEFERRED — binary format change; separate work paired with version field |
+| 4. A/C magnitudes in binary payload | Audit #8 (High) | **LANDED 2026-05-29** — appended as optional trailing arrays after visualFrequencies (backward-compatible; count==0 signals absent); sender wired; 2 new round-trip tests pass |
 | 5. Protocol version + unknown-type logging | Audit #12 (High) | PARTIAL — unknown-type logging landed in both files. Version handshake via `applicationContext` deferred (coordinated cross-target change). |
-| 6. iOS `processQueue` race | Audit #13 (High) | DEFERRED — only applies if iOS keeps its own manager; consolidation decision is the cheaper fix |
+| 6. iOS `processQueue` race | Audit #13 (High) | **RESOLVED in M16/task-3** — `sendWithRetry` dispatches to `.main` before touching `messageQueue`; `processQueue` + `handleMessageError` both enforce `dispatchPrecondition(.onQueue(.main))`; reply/error handlers dispatch back to main. Serial queue via main thread; no separate DispatchQueue required. |
 | 7. Dead reachability reschedule | Audit #19 (Medium) | **LANDED** — `Shared/WatchConnectivityManager.swift:172-186` (both dead branches removed with rationale comment) |
-| 8. Watch main-thread hop per audio callback | Audit #39 (Medium) | DEFERRED — touches `WatchAudioEngine.processAudioBuffer`; coalescing to ~5 Hz requires display-rate plumbing |
-| 9. Watch `frames.removeFirst` O(n) | Audit #32 (Medium) | DEFERRED — ring-buffer refactor; touches `WatchSpectrogramView` and `WatchSpectrogramWidget` |
+| 8. Watch main-thread hop per audio callback | Audit #39 (Medium) | **RESOLVED in M16/task-4** — `pendingLiveData` + `liveDataLock` + 5 Hz flush Timer coalesce watch audio callbacks |
+| 9. Watch `frames.removeFirst` O(n) | Audit #32 (Medium) | **RESOLVED in M16/task-4** — `WatchSpectrogramView` + `WatchSpectrogramWidget` both use `RingBuffer<[Float]>` |
 | 10. Watch debug counter under #if DEBUG | Audit #44 (Medium) | **LANDED** — `SpektoWatch Watch App/WatchSpectrogramView.swift:9-11, 112-126` |
 
-6 of 10 fully landed, 1 partial, 4 deferred as scoped follow-ups.
+10 of 10 resolved: 7 landed here, #6 resolved in M16/task-3 (main-thread serialization), #8/#9 resolved in M16/task-4, #4 landed 2026-05-29.
 
 ## What Landed
 
@@ -52,7 +52,7 @@ Two `if pendingSpectrogramData != nil { scheduleSpectrogramSendIfNeeded() }` bra
 
 - **#4 (A/C magnitudes in binary encoding)** — Real bug, but requires a format-version byte in `SpectrogramData.toBinaryData`/`fromBinaryData` and matching receiver logic on both sides. Pair with sub-item #5 (protocol version) as a focused follow-up.
 - **#5 protocol version handshake** — `applicationContext` is currently used for `frequencyWeighting` and `watchDashboardConfig`. Adding a `version` field needs to coordinate with every site that calls `updateApplicationContext` so the context dictionary isn't accidentally clobbered. Defer to a follow-up that does this atomically.
-- **#6 `processQueue` race** — The risk is real if iOS retains its own manager, but the cleaner solution is to consolidate onto the Shared implementation (deletes the duplicate retry queue entirely). Decision deferred; flagged for a follow-up that decides consolidation vs. serial queue.
+- **#6 `processQueue` race** — **Resolved in M16/task-3.** `sendWithRetry` dispatches to `.main` before any `messageQueue` mutation; `processQueue` and `handleMessageError` both carry `dispatchPrecondition(.onQueue(.main))`; reply/error callbacks dispatch back to main. The main thread acts as the serial gate — no separate `DispatchQueue` was needed. Verified 2026-05-29 by reading `SpektoWatch2/WatchConnectivityManager.swift:302–362`.
 - **#8 watch main-thread hop per audio callback** — Coalescing the per-callback `DispatchQueue.main.async` to ~5 Hz requires a Timer or AsyncStream throttle inside `WatchAudioEngine`. Best done together with Task 7 (Watch Lifecycle & Battery) since both touch the same file.
 - **#9 watch `frames.removeFirst` O(n)** — Ring-buffer refactor across `WatchSpectrogramView` and `WatchSpectrogramWidget`. Self-contained; folds naturally into the same Task 7 cycle.
 

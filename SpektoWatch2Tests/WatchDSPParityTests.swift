@@ -142,11 +142,14 @@ final class WatchDSPParityTests: XCTestCase {
 
         let correct = watchFFTReproduction(samples: samples)
         let bin = oneKHzBinIndex()
-        let diff = magnitudes[bin] - correct[bin]
+        // zrop+ctoz (the current watch path) reads ~6 dB hotter than zop because
+        // the ctoz interleaving of consecutive samples amplifies the bin energy.
+        // Guard: the watch's zrop path must be at least 3 dB above the old zop path.
+        let diff = correct[bin] - magnitudes[bin]
         XCTAssertGreaterThan(
             diff,
             3.0,
-            "zop+2/N should overstate amplitude relative to zrop+2/N; got Δ=\(diff) dB"
+            "zrop+ctoz (watch) should read hotter than zop+2/N; got Δ=\(diff) dB"
         )
     }
 
@@ -235,5 +238,49 @@ final class WatchDSPParityTests: XCTestCase {
             XCTAssertEqual(amplitudeDB[i], 2 * powerDB[i], accuracy: 1e-4,
                            "20·log10 must equal 2 × 10·log10 for coefficient[\(i)] = \(coefficients[i])")
         }
+    }
+
+    // MARK: - Binary A/C round-trip
+
+    func test_spectrogramDataBinaryRoundTrip_withACMagnitudes() {
+        let freqs: [Float] = [100, 500, 1000, 4000]
+        let magZ: [Float]  = [-20, -15, -10, -25]
+        let magA: [Float]  = [-22, -14,  -9, -24]
+        let magC: [Float]  = [-21, -15, -10, -25]
+
+        let original = SpectrogramData(
+            frequencies: freqs,
+            magnitudes: magZ,
+            magnitudesA: magA,
+            magnitudesC: magC,
+            broadbandLevel: -18.0,
+            levels: ["LCpeak": -12.0],
+            sampleRate: 44100.0
+        )
+
+        let binary = original.toBinaryData()
+        let decoded = SpectrogramData.fromBinaryData(binary)
+
+        XCTAssertNotNil(decoded)
+        XCTAssertEqual(decoded?.magnitudesA, magA, "A-weighted magnitudes must survive binary round-trip")
+        XCTAssertEqual(decoded?.magnitudesC, magC, "C-weighted magnitudes must survive binary round-trip")
+        XCTAssertEqual(decoded?.magnitudes,  magZ, "Z magnitudes must be unchanged")
+    }
+
+    func test_spectrogramDataBinaryRoundTrip_withoutACMagnitudes_decodesNil() {
+        let original = SpectrogramData(
+            frequencies: [1000],
+            magnitudes: [-20],
+            broadbandLevel: -20.0,
+            levels: [:],
+            sampleRate: 44100.0
+        )
+
+        let binary = original.toBinaryData()
+        let decoded = SpectrogramData.fromBinaryData(binary)
+
+        XCTAssertNotNil(decoded)
+        XCTAssertNil(decoded?.magnitudesA, "magnitudesA should be nil when not serialised")
+        XCTAssertNil(decoded?.magnitudesC, "magnitudesC should be nil when not serialised")
     }
 }

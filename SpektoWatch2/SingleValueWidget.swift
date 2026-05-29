@@ -12,12 +12,11 @@ struct SingleValueWidget: View {
         self.engineStatusPublisher = audioEngine.$engineStatus
         self.settings = settings
     }
-    private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     var metricKey: String {
-        if useWidgetOverrides {
-            return settings["metric"] ?? WidgetSettings.defaultSingleValueMetric
-        }
-        return WidgetSettings.defaultSingleValueMetric
+        // Per-widget metric is always the source of truth — there is no
+        // app-global single-value metric to fall back to, and the primary
+        // use case is multiple widgets each showing a *different* metric.
+        settings["metric"] ?? WidgetSettings.defaultSingleValueMetric
     }
     
     var displayTitle: AttributedString {
@@ -79,7 +78,7 @@ struct SingleValueWidget: View {
 
     private var displayValue: String {
         guard let v = value, engineStatus == .running else {
-            return "0.0"
+            return "—"
         }
         if metricKey == "SONE" {
             return String(format: "%.2f", v)

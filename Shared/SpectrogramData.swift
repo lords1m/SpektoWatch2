@@ -140,7 +140,13 @@ public struct SpectrogramData: Codable {
         // receivers can ignore the trailing bytes and still parse measurements.
         appendFloatArray(visualMagnitudes ?? [], to: &data)
         appendFloatArray(visualFrequencies ?? [], to: &data)
-        
+
+        // Optional A/C weighted magnitudes. Appended after visualFrequencies so
+        // v1 decoders that stop reading there still parse correctly. Count == 0
+        // signals "not present" without a separate presence byte.
+        appendFloatArray(magnitudesA ?? [], to: &data)
+        appendFloatArray(magnitudesC ?? [], to: &data)
+
         return data
     }
 
@@ -282,10 +288,24 @@ public struct SpectrogramData: Codable {
             guard let values = readFloatArray(data, &offset) else { return nil }
             visualFrequencies = values.isEmpty ? nil : values
         }
-        
+
+        // Optional A/C weighted magnitudes (trailing extension, backward-compatible).
+        var magnitudesA: [Float]?
+        var magnitudesC: [Float]?
+        if offset < data.count {
+            guard let values = readFloatArray(data, &offset) else { return nil }
+            magnitudesA = values.isEmpty ? nil : values
+        }
+        if offset < data.count {
+            guard let values = readFloatArray(data, &offset) else { return nil }
+            magnitudesC = values.isEmpty ? nil : values
+        }
+
         return SpectrogramData(
             frequencies: frequencies,
             magnitudes: magnitudes,
+            magnitudesA: magnitudesA,
+            magnitudesC: magnitudesC,
             visualFrequencies: visualFrequencies,
             visualMagnitudes: visualMagnitudes,
             broadbandLevel: broadbandLevel,

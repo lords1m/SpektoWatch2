@@ -142,11 +142,17 @@ final class WatchAudioEngineTests: XCTestCase {
 
     // MARK: - Published state via Combine
 
-    func testIsRecordingPublishedOnMainThread() {
+    func testIsRecordingPublishedOnMainThread() async {
+        // Synchronous @MainActor test methods in classes with async setUp may
+        // run off the main thread in some Xcode versions.  Making this method
+        // async guarantees proper main-actor execution for both the mutation and
+        // the Thread.isMainThread check inside the Combine sink.
         let expectation = XCTestExpectation(description: "isRecording published")
 
         engine.$isRecording
             .dropFirst() // skip initial false
+            .prefix(1)   // auto-cancel after first emission so tearDown's
+                         // stopRecording() doesn't fire the sink a second time
             .sink { value in
                 XCTAssertTrue(Thread.isMainThread,
                     "isRecording changes must be published on the main thread")
@@ -155,10 +161,11 @@ final class WatchAudioEngineTests: XCTestCase {
             }
             .store(in: &cancellables)
 
-        // Directly toggle state (simulating what start would do asynchronously).
-        DispatchQueue.main.async { self.engine.isRecording = true }
+        // Run on main actor explicitly — @Published fires synchronously on the
+        // calling thread, so Thread.isMainThread will be true in the sink.
+        await MainActor.run { self.engine.isRecording = true }
 
-        wait(for: [expectation], timeout: 1.0)
+        await fulfillment(of: [expectation], timeout: 1.0)
     }
 
     // MARK: - Deinit safety

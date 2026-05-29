@@ -24,8 +24,8 @@ class FFTConfiguration: ObservableObject {
         }
     }
 
-    /// Overlap-Prozentsatz (0-87.5%)
-    @Published var overlapPercent: Float = 87.5 {
+    /// Overlap-Prozentsatz (0–75 %)
+    @Published var overlapPercent: Float = 75.0 {
         didSet {
             UserDefaults.standard.set(overlapPercent, forKey: PersistenceKeys.FFT.overlapPercent)
         }
@@ -52,7 +52,7 @@ class FFTConfiguration: ObservableObject {
 
     /// Hop-Größe basierend auf Overlap
     var hopSize: Int {
-        let overlap = min(max(overlapPercent, 0), 87.5) / 100.0
+        let overlap = min(max(overlapPercent, 0), 75.0) / 100.0
         return max(1, Int(Float(blockSize.rawValue) * (1.0 - overlap)))
     }
 
@@ -88,7 +88,7 @@ class FFTConfiguration: ObservableObject {
         if defaults.object(forKey: PersistenceKeys.FFT.overlapPercent) != nil {
             overlapPercent = defaults.float(forKey: PersistenceKeys.FFT.overlapPercent)
         }
-        overlapPercent = min(max(overlapPercent, 0), 87.5)
+        overlapPercent = min(max(overlapPercent, 0), 75.0)
 
         showExplanations = defaults.object(forKey: PersistenceKeys.FFT.showExplanations) as? Bool ?? true
     }

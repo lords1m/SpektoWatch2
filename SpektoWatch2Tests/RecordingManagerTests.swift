@@ -9,24 +9,28 @@ final class RecordingManagerTests: XCTestCase {
     var filterManager: BandstopFilterManager!
     var connectivityManager: WatchConnectivityManager!
     var audioEngine: AudioEngine!
-    
+    var tempDir: URL!
+
     override func setUp() async throws {
         try await super.setUp()
-        recordingManager = RecordingManager()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        recordingManager = RecordingManager(baseDirectory: tempDir)
         filterManager = BandstopFilterManager()
         connectivityManager = WatchConnectivityManager()
         audioEngine = AudioEngine(filterManager: filterManager, connectivityManager: connectivityManager)
     }
 
     override func tearDown() async throws {
-        if let manager = recordingManager, !manager.recordings.isEmpty {
-            let allIndices = IndexSet(integersIn: 0..<manager.recordings.count)
-            manager.deleteRecording(at: allIndices)
-        }
         audioEngine = nil
         connectivityManager = nil
         filterManager = nil
         recordingManager = nil
+        if let dir = tempDir {
+            try? FileManager.default.removeItem(at: dir)
+        }
+        tempDir = nil
         try await super.tearDown()
     }
     
@@ -50,10 +54,7 @@ final class RecordingManagerTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 2.0)
         
-        // Directory sollte existieren
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let recordingsPath = documentsPath.appendingPathComponent("Recordings")
-        
+        let recordingsPath = tempDir.appendingPathComponent("Recordings")
         XCTAssertTrue(FileManager.default.fileExists(atPath: recordingsPath.path),
                      "Recordings directory should be created")
     }
@@ -388,9 +389,7 @@ final class RecordingManagerTests: XCTestCase {
         
         let recordingID = recordingManager.recordings.first!.id
         
-        // Erstelle neuen Manager (sollte laden)
-        let newManager = RecordingManager()
-        
+        let newManager = RecordingManager(baseDirectory: tempDir)
         XCTAssertTrue(newManager.recordings.contains(where: { $0.id == recordingID }),
                      "Recordings should persist across manager instances")
     }

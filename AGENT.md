@@ -38,10 +38,8 @@ Refresh after meaningful UI changes:
 ./agent/scripts/capture-screenshots.py --platform all   # iOS + Watch
 ```
 
-The local simulator is currently broken on the primary dev machine — the
-script still works anywhere a sim is available (Xcode Cloud, another
-dev box), and the committed PNGs are what agents read on the broken-sim
-machine. See `agent/screenshots/README.md` for the full workflow.
+Local simulator is available again as of 2026-05-28. Screenshots can be
+regenerated locally. See `agent/screenshots/README.md` for the full workflow.
 
 ## Repository Context
 

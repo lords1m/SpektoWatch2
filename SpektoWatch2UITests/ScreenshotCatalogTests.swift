@@ -44,7 +44,19 @@ final class ScreenshotCatalogTests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: launchWait), "App should be running in foreground")
-        XCTAssertTrue(app.descendants(matching: .any)["playButton"].waitForExistence(timeout: launchWait), "Dashboard controls should be visible")
+
+        // Dismiss any system permission alerts before checking for controls.
+        _ = handleSystemAlertsIfNeeded(timeout: 5.0)
+
+        // The engine may already be running by the time setUp reaches this
+        // check, flipping the button identifier from "playButton" to
+        // "pauseButton". Accept either; the important invariant is that the
+        // control bar is present and interactive.
+        let playVisible = app.descendants(matching: .any)["playButton"].waitForExistence(timeout: launchWait)
+        let pauseVisible = playVisible ? false
+            : app.descendants(matching: .any)["pauseButton"].waitForExistence(timeout: 5.0)
+        XCTAssertTrue(playVisible || pauseVisible, "Dashboard controls should be visible (playButton or pauseButton)")
+
         _ = handleSystemAlertsIfNeeded(timeout: 1.0)
     }
 
@@ -127,12 +139,12 @@ final class ScreenshotCatalogTests: XCTestCase {
 
         XCTAssertTrue(app.buttons["layoutsButton"].waitForExistence(timeout: viewWait), "Layouts menu should be visible")
         tap(identifier: "layoutsButton")
-        XCTAssertTrue(app.buttons["Layouts abrufen"].waitForExistence(timeout: viewWait), "Layouts menu should open")
-        capture("08-Layouts-Menu")
-
-        app.buttons["Layouts abrufen"].tap()
+        // Retry once: the action sheet may be dismissed by an in-flight animation on first tap.
+        if !app.buttons["Neue leere Seite"].waitForExistence(timeout: 4.0) {
+            tap(identifier: "layoutsButton")
+        }
         XCTAssertTrue(app.buttons["Neue leere Seite"].waitForExistence(timeout: viewWait), "Layouts dialog should open")
-        capture("09-Layouts-Dialog")
+        capture("08-09-Layouts-Dialog")
 
         app.buttons["Neue leere Seite"].tap()
         XCTAssertTrue(app.staticTexts["Keine Widgets"].waitForExistence(timeout: viewWait), "Empty dashboard should be visible")

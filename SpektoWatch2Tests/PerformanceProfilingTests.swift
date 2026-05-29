@@ -285,6 +285,9 @@ final class PerformanceProfilingTests: XCTestCase {
     /// Misst die effektive Render-Cadence eines echten SwiftUI-Widget-Stacks (Canvas-basiert).
     /// Dieser Test ist ein Regression-Guard für sichtbares Dashboard-Rendering unter Live-Updates.
     func testWidgetRenderFPSBudget() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("FPS measurement is not meaningful on the simulator; run on device")
+        #endif
         let filterMgr = BandstopFilterManager()
         let connMgr = WatchConnectivityManager()
         let engine = AudioEngine(filterManager: filterMgr, connectivityManager: connMgr)
@@ -344,7 +347,7 @@ final class PerformanceProfilingTests: XCTestCase {
                 levels[key] = broadband + Float(index % 4) - 1.5
             }
 
-            engine.currentSpectrogramData = SpectrogramData(
+            engine.live.currentSpectrogramData = SpectrogramData(
                 frequencies: frequencies,
                 magnitudes: magnitudes,
                 magnitudesA: magnitudes,
