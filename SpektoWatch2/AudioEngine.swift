@@ -746,6 +746,7 @@ class AudioEngine: ObservableObject {
 
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
+            self.live.levelHistory.reserveCapacity(self.maxHistorySize + 64)
             self.live.currentLevel = -120.0
         }
 
@@ -1181,6 +1182,7 @@ class AudioEngine: ObservableObject {
         
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
+            self.live.levelHistory.reserveCapacity(self.maxHistorySize + 64)
             self.live.currentLevel = -120.0
             self.live.maxLevel = -120.0
             self.live.minLevel = -120.0

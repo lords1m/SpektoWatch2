@@ -181,7 +181,9 @@ struct LevelHistoryView: View {
         let updateRate = observedSampleRate / Double(max(scrollSpeed.rawValue, 1))
         let columns = Int(Double(timeSpan.rawValue) * updateRate)
         let safeColumns = max(10, columns)
-        levelBuffer = [Float](repeating: -120.0, count: safeColumns)
+        var buf = [Float](repeating: -120.0, count: safeColumns)
+        buf.reserveCapacity(safeColumns)
+        levelBuffer = buf
         writeIndex = 0
         lastUpdateTimestamp = 0
         lastBufferedLevel = -120.0
@@ -208,20 +210,29 @@ struct LevelHistoryView: View {
             return min(max(1, raw), levelBuffer.count)
         }()
 
+        // Copy once, mutate the local copy (no CoW per iteration), assign back once.
+        // Without this, each subscript write to the @State array triggers a separate
+        // CoW copy — O(n) per slot when slotsToWrite > 1.
+        var localBuffer = levelBuffer
+        var localWriteIndex = writeIndex
         let previous = lastBufferedLevel
         if slotsToWrite > 1 {
             // Interpolate intermediate slots so the buffer fills wall-clock
             // time rather than once per callback. Mirrors the
             // `reusableInterpolatedColumnData` path in the spectrogram adapter.
-            for step in 1...slotsToWrite {
-                let mix = Float(step) / Float(slotsToWrite)
-                writeIndex = (writeIndex + 1) % levelBuffer.count
-                levelBuffer[writeIndex] = previous * (1.0 - mix) + safeLevel * mix
+            localBuffer.withUnsafeMutableBufferPointer { buf in
+                for step in 1...slotsToWrite {
+                    let mix = Float(step) / Float(slotsToWrite)
+                    localWriteIndex = (localWriteIndex + 1) % buf.count
+                    buf[localWriteIndex] = previous * (1.0 - mix) + safeLevel * mix
+                }
             }
         } else {
-            writeIndex = (writeIndex + 1) % levelBuffer.count
-            levelBuffer[writeIndex] = safeLevel
+            localWriteIndex = (localWriteIndex + 1) % localBuffer.count
+            localBuffer[localWriteIndex] = safeLevel
         }
+        writeIndex = localWriteIndex
+        levelBuffer = localBuffer
 
         lastUpdateTimestamp = now
         lastBufferedLevel = safeLevel

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Floating header pill — eyebrow + title on the left, three glass icon buttons on the right.
-/// Edit-mode variant collapses to eyebrow "LAYOUT BEARBEITEN" + a single green "Done" button.
+/// Edit-mode variant collapses to eyebrow "LAYOUT BEARBEITEN" + an add-widget button and a Done button.
 struct DashboardHeaderView: View {
     @Binding var isEditMode: Bool
     var currentLayoutName: String
@@ -35,7 +35,9 @@ struct DashboardHeaderView: View {
                 if !isEditMode {
                     glassIconButton("gearshape.fill", id: "settingsButton", action: onShowSettings)
                     glassIconButton("square.stack.3d.up", id: "layoutsButton", action: onShowLayouts)
-                        .accessibilityIdentifier("layoutsButton")
+                } else {
+                    // In edit mode show an "Add Widget" button alongside the Done button.
+                    glassIconButton("plus", id: "addWidgetButton", action: onAddWidget)
                 }
 
                 Button(action: toggleEdit) {
@@ -61,6 +63,11 @@ struct DashboardHeaderView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                // Single accessibility declaration on the Button itself — an inner
+                // .accessibilityElement(children: .ignore) on the content ZStack conflicts
+                // with the Button's own representation in iOS 26 and drops the identifier
+                // from the XCUITest element tree.
+                .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("editDashboardButton")
                 .accessibilityLabel(isEditMode ? "Bearbeiten beenden" : "Layout bearbeiten")
                 .accessibilityHint(isEditMode
@@ -86,6 +93,8 @@ struct DashboardHeaderView: View {
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
+        // Single accessibility leaf on the Button — same iOS 26 fix as editDashboardButton.
+        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(id)
     }
 
@@ -94,5 +103,16 @@ struct DashboardHeaderView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             isEditMode.toggle()
         }
+    }
+}
+
+// Equatable conformance so .equatable() in ModularDashboardView can skip
+// body re-evaluation when the two values that drive visible content are
+// unchanged. Callbacks are intentionally excluded — they are stable
+// across renders and don't affect the rendered output (M19 task-5).
+extension DashboardHeaderView: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.isEditMode == rhs.isEditMode &&
+        lhs.currentLayoutName == rhs.currentLayoutName
     }
 }

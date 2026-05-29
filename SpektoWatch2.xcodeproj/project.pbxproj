@@ -24,6 +24,7 @@
 		37B51E372FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		37B51E462FBE01E50006E8C1 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC22CC22CC22CC22CC220002 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22CC22CC22CC22CC220001 /* AppGroup.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -124,6 +125,7 @@
 		9B6A1D2E9F00111100111111 /* SpektoWatch2_FullRun.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SpektoWatch2_FullRun.xctestplan; sourceTree = "<group>"; };
 		AA11AA11AA11AA11AA110001 /* SpektoWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "SpektoWatch Complications.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC22CC22CC22CC22CC220001 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -619,6 +621,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC22CC22CC22CC22CC220002 /* AppGroup.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

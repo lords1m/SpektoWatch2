@@ -164,10 +164,36 @@ struct WaterfallView: View {
 
     // MARK: Body
 
+    /// Tag enum for Canvas symbols — avoids per-frame CoreText layout for
+    /// labels that change only when the user rotates or pans the camera
+    /// (M19 task-3).
+    private enum LabelID: Hashable {
+        case viewMode, duration, leftFreq, rightFreq, maxDB, minDB
+    }
+
+    @ViewBuilder
+    private func labelText(_ str: String) -> some View {
+        Text(str).font(.caption2).foregroundColor(.white.opacity(0.72))
+    }
+
+    private func drawSymbol(_ id: LabelID, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
+        guard let symbol = context.resolveSymbol(id: id) else { return }
+        context.draw(symbol, at: point, anchor: anchor)
+    }
+
     var body: some View {
+        let visibleMaxDB = Int((dataSet.maxDB + effectiveZOffsetDB).rounded())
+        let visibleMinDB = Int((dataSet.minDB + effectiveZOffsetDB).rounded())
         GeometryReader { geometry in
             Canvas { context, size in
                 draw(in: CGRect(origin: .zero, size: size), context: &context)
+            } symbols: {
+                labelText(viewModeLabel).tag(LabelID.viewMode)
+                labelText(formatDuration(dataSet.duration)).tag(LabelID.duration)
+                labelText(formatHz(visibleLeftEdgeFreq)).tag(LabelID.leftFreq)
+                labelText(formatHz(visibleRightEdgeFreq)).tag(LabelID.rightFreq)
+                labelText("\(visibleMaxDB) dB").tag(LabelID.maxDB)
+                labelText("\(visibleMinDB) dB").tag(LabelID.minDB)
             }
             .background(Color.black)
             .overlay(alignment: .center) {
@@ -562,56 +588,54 @@ struct WaterfallView: View {
     // ========================================================================
 
     private func drawLabels(plot: CGRect, bounds: CGRect, context: inout GraphicsContext) {
-        let zShift = effectiveZOffsetDB
-        let visibleMaxDB = Int((dataSet.maxDB + zShift).rounded())
-        let visibleMinDB = Int((dataSet.minDB + zShift).rounded())
         let topLabelY = bounds.minY + 10
         let bottomLabelY = bounds.maxY - 10
 
-        // Mode tag (top-left) + duration (top-right).
-        drawText(viewModeLabel,
-                 at: CGPoint(x: bounds.minX + 4, y: topLabelY),
-                 anchor: .leading, context: &context)
-        drawText(formatDuration(dataSet.duration),
-                 at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
-                 anchor: .trailing, context: &context)
+        // Mode tag (top-left) + duration (top-right) — symbol-cached.
+        drawSymbol(.viewMode,
+                   at: CGPoint(x: bounds.minX + 4, y: topLabelY),
+                   anchor: .leading, context: &context)
+        drawSymbol(.duration,
+                   at: CGPoint(x: bounds.maxX - 4, y: topLabelY),
+                   anchor: .trailing, context: &context)
 
         switch viewMode {
         case .oblique3D:
-            drawText("\(visibleMaxDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
-                     anchor: .trailing, context: &context)
-            drawText("\(visibleMinDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
-                     anchor: .trailing, context: &context)
-            drawText(formatHz(visibleLeftEdgeFreq),
-                     at: CGPoint(x: plot.minX, y: bottomLabelY),
-                     anchor: .leading, context: &context)
-            drawText(formatHz(visibleRightEdgeFreq),
-                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
-                     anchor: .trailing, context: &context)
+            drawSymbol(.maxDB,
+                       at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                       anchor: .trailing, context: &context)
+            drawSymbol(.minDB,
+                       at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                       anchor: .trailing, context: &context)
+            drawSymbol(.leftFreq,
+                       at: CGPoint(x: plot.minX, y: bottomLabelY),
+                       anchor: .leading, context: &context)
+            drawSymbol(.rightFreq,
+                       at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                       anchor: .trailing, context: &context)
 
         case .topDown2D:
+            // "aktuell"/"älter" are static strings — CoreText's own cache handles them.
             drawText("aktuell",
                      at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
                      anchor: .trailing, context: &context)
             drawText("älter",
                      at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
                      anchor: .trailing, context: &context)
-            drawText(formatHz(visibleLeftEdgeFreq),
-                     at: CGPoint(x: plot.minX, y: bottomLabelY),
-                     anchor: .leading, context: &context)
-            drawText(formatHz(visibleRightEdgeFreq),
-                     at: CGPoint(x: plot.maxX, y: bottomLabelY),
-                     anchor: .trailing, context: &context)
+            drawSymbol(.leftFreq,
+                       at: CGPoint(x: plot.minX, y: bottomLabelY),
+                       anchor: .leading, context: &context)
+            drawSymbol(.rightFreq,
+                       at: CGPoint(x: plot.maxX, y: bottomLabelY),
+                       anchor: .trailing, context: &context)
 
         case .sideLevelHistory2D:
-            drawText("\(visibleMaxDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
-                     anchor: .trailing, context: &context)
-            drawText("\(visibleMinDB) dB",
-                     at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
-                     anchor: .trailing, context: &context)
+            drawSymbol(.maxDB,
+                       at: CGPoint(x: plot.minX - 4, y: plot.minY + 6),
+                       anchor: .trailing, context: &context)
+            drawSymbol(.minDB,
+                       at: CGPoint(x: plot.minX - 4, y: plot.maxY - 6),
+                       anchor: .trailing, context: &context)
             drawText("älter",
                      at: CGPoint(x: plot.minX, y: bottomLabelY),
                      anchor: .leading, context: &context)

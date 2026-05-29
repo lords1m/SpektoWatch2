@@ -48,14 +48,27 @@ final class ScreenshotCatalogTests: XCTestCase {
         // Dismiss any system permission alerts before checking for controls.
         _ = handleSystemAlertsIfNeeded(timeout: 5.0)
 
+        // Wait for the dashboard view to appear. This confirms ContentView is
+        // on screen (audioEngine + maskingEngine both initialised), regardless
+        // of which button state the control bar happens to be in.
+        XCTAssertTrue(
+            app.descendants(matching: .any)["dashboardView"].waitForExistence(timeout: launchWait),
+            "Dashboard view should be visible after app launch"
+        )
+
         // The engine may already be running by the time setUp reaches this
         // check, flipping the button identifier from "playButton" to
-        // "pauseButton". Accept either; the important invariant is that the
-        // control bar is present and interactive.
-        let playVisible = app.descendants(matching: .any)["playButton"].waitForExistence(timeout: launchWait)
-        let pauseVisible = playVisible ? false
-            : app.descendants(matching: .any)["pauseButton"].waitForExistence(timeout: 5.0)
-        XCTAssertTrue(playVisible || pauseVisible, "Dashboard controls should be visible (playButton or pauseButton)")
+        // "pauseButton". Accept either; also accept a match by accessibility
+        // label ("Play" / "Pause") as a fallback for iOS versions where the
+        // identifier propagation through PlainButtonStyle differs.
+        let playById    = app.descendants(matching: .any)["playButton"].waitForExistence(timeout: 5.0)
+        let pauseById   = playById ? false : app.descendants(matching: .any)["pauseButton"].waitForExistence(timeout: 2.0)
+        let playByLabel = (playById || pauseById) ? false : app.buttons["Play"].waitForExistence(timeout: 2.0)
+        let pauseByLabel = (playById || pauseById || playByLabel) ? false : app.buttons["Pause"].waitForExistence(timeout: 2.0)
+        XCTAssertTrue(
+            playById || pauseById || playByLabel || pauseByLabel,
+            "Dashboard controls should be visible (playButton or pauseButton, by id or label)"
+        )
 
         _ = handleSystemAlertsIfNeeded(timeout: 1.0)
     }
@@ -67,6 +80,15 @@ final class ScreenshotCatalogTests: XCTestCase {
     @MainActor
     func testIOSScreenshotCatalog() throws {
         capture("01-Dashboard-Default")
+
+        // Diagnostic: log all button identifiers/labels visible in the tree
+        // so we can confirm what accessibility elements actually exist.
+        let allButtons = app.buttons.allElementsBoundByIndex
+        let buttonDesc = allButtons.map { "\($0.identifier)|\($0.label)" }.joined(separator: ", ")
+        XCTContext.runActivity(named: "Accessible buttons: \(buttonDesc)") { _ in }
+        let allAny = app.descendants(matching: .any).allElementsBoundByIndex
+        let anyDesc = allAny.prefix(30).map { "\($0.elementType.rawValue):\($0.identifier)|\($0.label)" }.joined(separator: "\n  ")
+        XCTContext.runActivity(named: "First 30 elements:\n  \(anyDesc)") { _ in }
 
         tap(identifier: "editDashboardButton")
         XCTAssertTrue(app.buttons["addWidgetButton"].waitForExistence(timeout: viewWait), "Edit controls should be visible")

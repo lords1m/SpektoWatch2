@@ -353,6 +353,24 @@ milestones:
       agent/reports/2026-05-25-milestone-18-acceptance.md.
     file: agent/milestones/milestone-18-test-tooling-debt.md
 
+  M19:
+    name: Instruments Trace Performance Fixes
+    status: in_progress
+    priority: high
+    progress: 86
+    started: "2026-05-29"
+    estimated_weeks: "1.5"
+    tasks_completed: 6
+    tasks_total: 7
+    notes: >
+      Planned 2026-05-29 from Instruments Time Profiler trace (timerun3.trace,
+      76s on iPhone 12 mini). Fixes: P0 launch hang in DashboardManager.loadConfiguration
+      (573ms confirmed hang); P1 LevelHistoryView array reallocation + WaterfallView
+      CoreText layout per-frame; P2 Metal drawable stall + dashboard state split;
+      P3 SwiftUI AttributeGraph equatable guards. Acceptance: re-trace with same
+      76s Time Profiler + Hangs template.
+    file: agent/milestones/milestone-19-instruments-trace-perf-fixes.md
+
   M12:
     name: Liquid Glass Redesign
     status: in_progress
@@ -751,6 +769,15 @@ tasks:
     - { id: task-7-dashboard-view-model-flatten,       name: "Flatten DashboardViewModel nested ObservableObject", status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-7-dashboard-view-model-flatten.md, notes: "Completed 2026-05-25. @Published var → let; forwarding sink removed; DashboardManager injected; ModularDashboardView adds @ObservedObject. BUILD SUCCEEDED." }
     - { id: task-8-acceptance,                         name: "Acceptance",                                        status: completed, file: agent/tasks/milestone-17-swiftui-lifecycle-performance/task-8-acceptance.md, notes: "Completed 2026-05-25. All 5 binary outcomes confirmed. Handoff: agent/reports/2026-05-25-milestone-17-acceptance.md. Hardware scenarios pending." }
 
+  M19:
+    - { id: task-1-dashboard-manager-async-load, name: "Async DashboardManager.loadConfiguration",      status: completed,   file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-1-dashboard-manager-async-load.md, notes: "DashboardManager.init() no longer blocks main thread. Synchronous loadConfiguration() removed; replaced with startLoading() (call from .task in view), nonisolated decodeStoredConfiguration() in Task.detached, and applyLoadResult() published back via MainActor.run. didFinishLoading gate prevents default-state from overwriting saved config. ModularDashboardView wired. iOS build green; WidgetSizingMigrationTests 11/11 pass." }
+    - { id: task-2-level-history-buffer-prealloc, name: "LevelHistoryView buffer pre-allocation",        status: completed,   file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-2-level-history-buffer-prealloc.md, notes: "live.levelHistory.reserveCapacity(maxHistorySize+64) after removeAll() — prevents 0→1000 growth sequence. updateLevelBuffer: all writes now on local copy (withUnsafeMutableBufferPointer for slotsToWrite>1), single @State assign back — eliminates N CoW copies per multi-slot frame. resetBuffer() adds explicit reserveCapacity. Build green; unit tests pass." }
+    - { id: task-3-waterfall-text-cache,          name: "WaterfallView frequency-label cache",           status: completed,   file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-3-waterfall-text-cache.md, notes: "Canvas switched to symbols variant. LabelID enum (6 cases: viewMode, duration, leftFreq, rightFreq, maxDB, minDB). labelText()/drawSymbol() helpers. drawLabels() now calls drawSymbol() for all dynamic labels; static 'aktuell'/'älter' keep drawText() (CoreText internal cache handles fixed strings). Build green; all unit tests pass." }
+    - { id: task-4-metal-triple-buffer,           name: "MTKView triple-buffering + drawable off-main",  status: completed,   file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-4-metal-triple-buffer.md, notes: "Added (self.layer as? CAMetalLayer)?.maximumDrawableCount = 3 in setupMetal(). Guarantees 3-drawable pool — paired with inFlightSemaphore(value:2), nextDrawable() always has ≥1 free slot and never blocks the main thread. preferredFramesPerSecond=60, isPaused=false, enableSetNeedsDisplay=false already correct. Build green." }
+    - { id: task-5-dashboard-state-split,         name: "Split audio state from dashboard layout state", status: completed,   file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-5-dashboard-state-split.md, notes: "Root cause (audio data on DashboardManager) already resolved by M13 task-4 (LiveAcousticState extraction). Added view-side guard: DashboardHeaderView now Equatable (compares isEditMode + currentLayoutName, ignores callbacks) + .equatable() at call site in ModularDashboardView.headerBar. SwiftUI skips header body re-evaluation when those values are unchanged. Build green; all unit tests pass." }
+    - { id: task-6-swiftui-equatable-guards,      name: "SwiftUI Equatable conformances + .equatable()", status: completed,   file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-6-swiftui-equatable-guards.md, notes: "WidgetConfiguration + DashboardLayout: Equatable (synthesized). WidgetCardView: Equatable extension (compares widget + isEditMode + columnWidth; class refs excluded). .equatable() moved inside widgetCard() function body (avoids type-inference cascade at call site). DashboardHeaderView .equatable() already placed in task-5. iOS build green; all unit tests pass." }
+    - { id: task-7-acceptance,                    name: "Acceptance — Instruments re-trace",             status: pending,     file: agent/tasks/milestone-19-instruments-trace-perf-fixes/task-7-acceptance.md }
+
   M18:
     - { id: task-1-cancellation-race-fix,         name: "Cancellation test race fix (TT-2 + TT-3)",                status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-1-cancellation-race-fix.md, notes: "Task.yield() + 10K-frame fixtures + catch fallback in PDF/CSV/StoredData cancellation tests." }
     - { id: task-2-test-hygiene,                  name: "Test fixture + teardown hygiene (TT-4/7/8 + gaps 3,4)",   status: completed, file: agent/tasks/milestone-18-test-tooling-debt/task-2-test-hygiene.md, notes: "try! → throws in fixture helpers; Float.random replaced with 65.0; testBootstrap renamed; metadata backup/restore in setUp/tearDown; testBootstrapLazyFFTForZeroBinCount added." }
@@ -940,19 +967,16 @@ tasks:
 
 updated_at: 2026-05-29
 last_completed_task: M13/task-4-phase2-pilot
-current_milestone: M9
-current_task: task-11-acceptance
+current_milestone: M19
+current_task: task-7-acceptance
 last_proceed: 2026-05-29
 last_proceed_note: >
-  M9/task-11 screenshot pass: wrote WidgetGridScreenshotTests.swift with
-  testWidgetSizeGrid + testWidgetSizeGridEditMode. Installs Widgetgrößen preset
-  then pages through all 9 widget-type layouts capturing per-size screenshots.
-  Fixed stale "Layouts abrufen" assertion in ScreenshotCatalogTests (replaced
-  with robust retry on "Neue leere Seite"). Manual action: wire
-  WidgetGridScreenshotTests.swift into SpektoWatch2UITests Xcode target, then
-  run the test against iPhone 17 Pro simulator and commit extracted screenshots
-  to agent/screenshots/. Once screenshots are committed, M9 tasks can be
-  promoted to completed and M9 milestone closed.
+  M19/task-6 complete: SwiftUI Equatable guards. WidgetConfiguration +
+  DashboardLayout: Equatable (synthesized). WidgetCardView: Equatable extension
+  (widget + isEditMode + columnWidth). .equatable() inside widgetCard() body —
+  type-inference cascade avoided. DashboardHeaderView .equatable() already in
+  task-5. iOS build green; all unit tests pass. Advancing to task-7: Instruments
+  re-trace acceptance (requires hardware device).
 parked:
   - milestone: M8
     task: task-2-acceptance
@@ -985,41 +1009,21 @@ recent_reports:
   - agent/reports/2026-05-21-performance-centralization-audit.md
 active_context:
   summary: >
-    M1–M6, M11, M14, M15, M16, M17, M18 complete code-side. M12 (Liquid
-    Glass Redesign) is code-complete (7/8 tasks; task-6 acceptance hardware-
-    deferred). M13 (Architecture Hygiene) all tasks Phase-1 complete,
+    M1–M6, M11, M14, M15, M16, M17, M18 complete code-side. M19 (Instruments
+    Trace Perf Fixes) tasks 1–6 complete; task-7 acceptance is hardware-only.
+    M12 (Liquid Glass Redesign) code-complete (tasks 1–8; task-6 acceptance
+    hardware-deferred). M13 (Architecture Hygiene) all Phase-1 tasks complete,
     Phase-2 deferred. M7/M8 parked on hardware/Xcode Cloud.
     All work on branch redesign/liquid-glass.
-    M13 task-4 closed code-side 2026-05-27. Full chain landed across
-    multiple proceed passes: Phase-1 seam (LiveAcousticState +
-    forwarders + liveBridge) → Phase-2 widget migrations (7 widgets +
-    CardMetaReader observe LiveAcousticState directly) → liveBridge
-    removal → external call-site migration (audioEngine.live.X) →
-    AudioEngine internal writer migration + forwarder deletion
-    (AudioEngine.swift 1996 → 1921, -75 LOC). iOS + watchOS builds
-    green throughout. Hardware Instruments re-render comparison still
-    gated on M13 task-9.
 
-    M13 task-5 promoted to completed code-side 2026-05-27 (matches
-    M13 pattern for task-3 / 6 / 7 / 8). Phase 1.5 (forwarder
-    deletion + call-site migration) landed earlier today; Phase 2
-    (move startRecording / stopRecording into the coordinator) routed
-    to backlog — high hardware-acceptance risk, requires either tight
-    back-coupling to AudioEngine or a narrow AV-graph start/stop
-    protocol. With task-5 promoted, M13 is 8/9 code-side complete;
-    only task-9 (hardware acceptance) remains and is already parked.
-
-    Effectively M13 is code-complete. current_task points at the
-    parked task-9 for visibility, but no further code work is queued
-    inside M13. Next active milestone: pick from M9 task-11, M12
-    task-4, M13 task-9 (all hardware-gated), the M8/M7 parked items,
-    or open a new milestone for the M13 task-5 Phase 2 backlog plus
-    the misc. Phase 2 deferrals across M13 / M7 / M12.
-
-    Hardware Instruments comparison for task-4 still gated on task-9
-    (hardware acceptance).
+    TT-1 resolved (2026-05-29): SpektoWatch2Tests uses
+    PBXFileSystemSynchronizedRootGroup — all .swift files in the test
+    directory are auto-compiled. RecordingPersistenceDurabilityTests,
+    WatchDSPParityTests, StoredDataProviderTests, LCpeakComputationTests
+    all run and pass without any pbxproj changes.
 
     Hardware acceptance still open for:
+    - M19: Instruments re-trace on iPhone 12 mini (task-7).
     - M12: 8-item hardware checklist (themes/accents/presets/watch faces).
     - M13: 6 hardware-only verification items (cold-launch parity, audio
       correctness, widget render parity, recording flow, watch pairing,
@@ -1030,7 +1034,10 @@ active_context:
     - M17: UI-1…UI-7 on-device scenarios.
     - M18: Xcode Cloud run with UI tests enabled.
 
-    Manual action (TT-1): wire new test files into Xcode target.
+    Next code work: M20 (see below) or M10 (gated on App Group registration).
+    No TT-1 manual action needed — already resolved by file-system sync.
+
+    Previously noted: Manual action (TT-1): wire new test files into Xcode target.
     RecordingPersistenceDurabilityTests.swift, WatchDSPParityTests.swift,
     StoredDataProviderTests.swift, and LCpeakComputationTests.swift
     to SpektoWatch2Tests target membership in Xcode (TT-1 Critical).

@@ -152,6 +152,10 @@ struct WidgetCardView: View {
                 showSettings = true
             }
         )
+        // Single accessibility leaf on the Button — an inner .accessibilityElement
+        // conflicts with the Button's own representation in iOS 26 and drops the
+        // identifier from the XCUITest element tree.
+        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("widgetSettingsButton")
         .accessibilityLabel("Widget-Einstellungen")
     }
@@ -305,6 +309,18 @@ struct WidgetCardView: View {
                 onResize(clamped)
             }
         }
+    }
+}
+
+// Equatable conformance for .equatable() guard in dashboardGrid. Only
+// value-type inputs that affect visual output are compared; audioEngine
+// and fftConfig are class references whose identity is stable across
+// renders (M19 task-6).
+extension WidgetCardView: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.widget == rhs.widget &&
+        lhs.isEditMode == rhs.isEditMode &&
+        lhs.columnWidth == rhs.columnWidth
     }
 }
 

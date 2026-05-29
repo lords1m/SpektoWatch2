@@ -33,13 +33,16 @@ private struct PlayPauseButton: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
+                // No inner .accessibilityElement here — the outer Button is the
+                // single accessibility leaf. An inner .accessibilityElement(children:
+                // .ignore) conflicts with the Button's own representation in iOS 26
+                // and causes XCUITest to drop the identifier from the element tree.
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
-            .accessibilityLabel(state.playPauseAccessibilityLabel)
         }
         .buttonStyle(PlainButtonStyle())
         .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
+        // Single accessibility declaration on the Button itself.
+        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
         .accessibilityLabel(state.playPauseAccessibilityLabel)
     }
@@ -83,14 +86,13 @@ private struct RecordStopButton: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: isActive)
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
-            .accessibilityLabel(baseState.recordStopAccessibilityLabel)
+            // No inner .accessibilityElement — see PlayPauseButton for rationale.
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1.0 : 0.5)
         .animation(.easeInOut(duration: 0.2), value: isActive)
+        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
         .accessibilityLabel(baseState.recordStopAccessibilityLabel)
     }

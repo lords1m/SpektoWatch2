@@ -156,6 +156,13 @@ class HighEndSpectrogramAdapter: MTKView {
         self.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         self.colorPixelFormat = .bgra8Unorm
         self.sampleCount = 1
+        // Guarantee a 3-drawable pool so nextDrawable() is always non-blocking
+        // when the semaphore (value=2) limits concurrent in-flight frames to 2.
+        // Without this, iOS may provision only 2 drawables and the semaphore
+        // cannot prevent the main-thread stall seen in the M19 trace.
+        if let metalLayer = self.layer as? CAMetalLayer {
+            metalLayer.maximumDrawableCount = 3
+        }
 
         guard let queue = device.makeCommandQueue() else {
             markMetalUnavailable("Failed to create Metal command queue")

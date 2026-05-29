@@ -9,7 +9,7 @@ Milestone: `milestone-6-code-audit-remediation`
 
 | Sub-item | Source finding | Result |
 |---|---|---|
-| 1. App Group entitlement | Audit #26 (Critical) | LANDED code-side 2026-05-29 — `CODE_SIGN_ENTITLEMENTS` wired in `project.pbxproj` for Watch App + Complications (Debug + Release); Apple Developer Portal group registration still required on hardware |
+| 1. App Group entitlement | Audit #26 (Critical) | LANDED code-side 2026-05-29 — `CODE_SIGN_ENTITLEMENTS` wired in `project.pbxproj` for Watch App + Complications (Debug + Release); Apple Developer Portal group registration still required on hardware. Optional consolidation (2026-05-29): `Shared/AppGroup.swift` added as explicit `PBXFileReference` + `PBXBuildFile` to the `SpektoWatch Complications` Sources phase; `ComplicationAppGroup` private enum removed from `WatchComplicationProvider.swift`; now uses `AppGroup.defaults` + `ComplicationSharedKeys.*` directly. watchOS build green; iOS unit tests pass. |
 | 2. Shared state via App Group suite | Audit #26 (Critical) | **LANDED in code** — `Shared/WatchConnectivityManager.swift`, `SpektoWatch2/WatchConnectivityManager.swift`, and `SpektoWatch Complications/WatchComplicationProvider.swift` all route through `AppGroup.defaults` (= `UserDefaults(suiteName:)` with safe fallback to `.standard` until the entitlement is wired) |
 | 3. Remove iOS-only `UIBackgroundModes` from watch plist | Audit #33 (High) | **LANDED** — `SpektoWatch-Watch-App-Info.plist` |
 | 4. Complication timeline policy `.never` | Audit #34 (High) | **LANDED** — `SpektoWatch Complications/WatchComplicationProvider.swift:19-24` |

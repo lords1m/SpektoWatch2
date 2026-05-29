@@ -199,8 +199,12 @@ struct ModularDashboardView: View {
         .onChange(of: viewModel.watchGain) { _, newValue in
             viewModel.updateWatchGain(newValue)
         }
+        .task {
+            // Trigger async JSON decode of saved dashboard configuration
+            // (M19 task-1: avoids 573 ms main-thread hang from synchronous init).
+            dashboardManager.startLoading()
+        }
         .onAppear {
-            // Ensure audio engine is ready or started if needed
             print("[ModularDashboardView] View appeared. Widgets count: \(dashboardManager.widgets.count)")
         }
         .onChange(of: dashboardManager.isEditMode) { oldValue, newValue in
@@ -220,6 +224,7 @@ struct ModularDashboardView: View {
                 onShowLayouts: { showLayoutsDialog = true },
                 onShowSettings: { viewModel.showSettings = true }
             )
+            .equatable()
             PresetRailView(
                 presets: PresetCatalogue.all,
                 activeID: $activePresetID,
@@ -376,7 +381,7 @@ struct ModularDashboardView: View {
                 Grid(horizontalSpacing: gridSpacing, verticalSpacing: gridSpacing) {
                     ForEach(0..<rows.count, id: \.self) { rowIndex in
                         GridRow {
-                            ForEach(rows[rowIndex]) { widget in
+                            ForEach(rows[rowIndex], id: \.id) { widget in
                                 let span = viewModel.getSpan(for: widget, colCount: colCount)
                                 let card = widgetCard(widget: widget, columnWidth: columnWidth, isActiveLayout: isActiveLayout)
 
@@ -452,6 +457,7 @@ struct ModularDashboardView: View {
                 dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
             }
         )
+        .equatable()
     }
 
 }

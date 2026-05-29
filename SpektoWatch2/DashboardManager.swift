@@ -3,7 +3,7 @@ import Combine
 import UIKit
 import OSLog
 
-struct DashboardLayout: Identifiable, Codable {
+struct DashboardLayout: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var widgets: [WidgetConfiguration]
@@ -28,24 +28,125 @@ class DashboardManager: ObservableObject {
     @Published var layouts: [DashboardLayout] = []
     @Published private(set) var activeLayoutIndex: Int = 0
     @Published var isEditMode: Bool = false
+    /// True once the async load (or "no saved data" branch) has finished. Views
+    /// that call `saveConfiguration()` are gated on this flag so the default
+    /// placeholder shown during load cannot overwrite a valid saved configuration.
+    @Published private(set) var didFinishLoading: Bool = false
 
     // Keys live in PersistenceKeys (M13 task-8).
     private let userDefaultsKey = PersistenceKeys.dashboardLegacySnapshot
     private let layoutsUserDefaultsKey = PersistenceKeys.dashboardLayouts
-    /// True when saved data existed but could not be decoded; prevents silently overwriting
-    /// a corrupt save file with defaults.
     private var configurationLoadFailed = false
+    private var isLoading = false
 
     init() {
         Logger.ui.debug("DashboardManager Initializing...")
-        loadConfiguration()
-        if layouts.isEmpty && !configurationLoadFailed {
-            let defaults = Self.defaultWidgets()
-            layouts = [DashboardLayout(name: "Layout 1", widgets: defaults)]
-            widgets = defaults
-            activeLayoutIndex = 0
-            Logger.ui.info("Created default dashboard layout")
+        // Show default layout immediately; the saved configuration is loaded
+        // asynchronously via startLoading() (called from ModularDashboardView.task)
+        // to avoid the 573 ms main-thread hang from JSON decoding in init
+        // (M19 task-1).
+        let defaults = Self.defaultWidgets()
+        layouts = [DashboardLayout(name: "Layout 1", widgets: defaults)]
+        widgets = defaults
+    }
+
+    // MARK: - Async load
+
+    /// Starts background JSON decoding of the saved dashboard configuration.
+    /// Safe to call multiple times — subsequent calls are no-ops once loading
+    /// has started.  Must be called on @MainActor (e.g. from a SwiftUI .task).
+    func startLoading() {
+        guard !didFinishLoading, !isLoading else { return }
+        isLoading = true
+        Logger.ui.debug("DashboardManager.startLoading() — background decode started")
+
+        // Snapshot UserDefaults bytes on the calling thread (thread-safe, fast).
+        let layoutsData = UserDefaults.standard.data(forKey: layoutsUserDefaultsKey)
+        let legacyData   = UserDefaults.standard.data(forKey: userDefaultsKey)
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Self.decodeStoredConfiguration(layoutsData: layoutsData,
+                                                        legacyData: legacyData)
+            await MainActor.run { [weak self] in
+                self?.applyLoadResult(result)
+            }
+        }
+    }
+
+    private enum LoadResult {
+        case loaded(layouts: [DashboardLayout], activeIndex: Int, needsMigrationSave: Bool)
+        case loadFailed
+        case noSavedData
+    }
+
+    /// Pure decode — runs off @MainActor inside Task.detached.
+    nonisolated private static func decodeStoredConfiguration(
+        layoutsData: Data?,
+        legacyData: Data?
+    ) -> LoadResult {
+        let decoder = JSONDecoder()
+
+        if let data = layoutsData {
+            do {
+                let state = try decoder.decode(DashboardLayoutsState.self, from: data)
+                let hadLegacyOctaveWidgets = state.layouts.contains { layout in
+                    layout.widgets.contains { $0.type == .octaveBands }
+                }
+                var loadedLayouts = state.layouts.map { layout -> DashboardLayout in
+                    var m = layout
+                    m.widgets = normalizeWidgets(layout.widgets)
+                    return m
+                }
+                if loadedLayouts.isEmpty {
+                    loadedLayouts = [DashboardLayout(name: "Layout 1", widgets: defaultWidgets())]
+                }
+                return .loaded(layouts: loadedLayouts,
+                               activeIndex: state.activeLayoutIndex,
+                               needsMigrationSave: hadLegacyOctaveWidgets)
+            } catch {
+                Logger.ui.error("Error loading dashboard layouts: \(error.localizedDescription)")
+                return .loadFailed
+            }
+        }
+
+        if let data = legacyData {
+            do {
+                let decoded = try decoder.decode([WidgetConfiguration].self, from: data)
+                let migrated = decoded.isEmpty ? defaultWidgets() : normalizeWidgets(decoded)
+                return .loaded(
+                    layouts: [DashboardLayout(name: "Layout 1", widgets: migrated)],
+                    activeIndex: 0,
+                    needsMigrationSave: true
+                )
+            } catch {
+                Logger.ui.error("Error loading legacy dashboard configuration: \(error.localizedDescription)")
+                return .loadFailed
+            }
+        }
+
+        return .noSavedData
+    }
+
+    private func applyLoadResult(_ result: LoadResult) {
+        isLoading = false
+        // Set before saveConfiguration() calls below so the guard inside allows writes.
+        didFinishLoading = true
+
+        switch result {
+        case .loaded(let loadedLayouts, let activeIndex, let needsMigrationSave):
+            layouts = loadedLayouts
+            let clamped = max(0, min(activeIndex, loadedLayouts.count - 1))
+            activeLayoutIndex = clamped
+            widgets = loadedLayouts[clamped].widgets
+            if needsMigrationSave { saveConfiguration() }
+            Logger.ui.info("DashboardManager loaded \(loadedLayouts.count) layout(s) (active=\(clamped))")
+        case .loadFailed:
+            configurationLoadFailed = true
+            Logger.ui.error("DashboardManager load failed — keeping defaults, not overwriting save file")
+        case .noSavedData:
+            // Persist the defaults that were set in init().
             saveConfiguration()
+            Logger.ui.info("DashboardManager: no saved config — defaults persisted")
         }
     }
 
@@ -157,6 +258,12 @@ class DashboardManager: ObservableObject {
     }
     
     func saveConfiguration() {
+        guard didFinishLoading else {
+            // Load hasn't finished yet — suppress the write so the default
+            // placeholder from init() cannot overwrite a valid saved config.
+            Logger.ui.debug("saveConfiguration skipped — async load in progress")
+            return
+        }
         Logger.ui.debug("Saving configuration...")
         do {
             storeWidgetsToActiveLayout()
@@ -175,57 +282,6 @@ class DashboardManager: ObservableObject {
         }
     }
 
-    func loadConfiguration() {
-        Logger.ui.debug("Loading configuration...")
-        let decoder = JSONDecoder()
-
-        if let layoutsData = UserDefaults.standard.data(forKey: layoutsUserDefaultsKey) {
-            do {
-                let state = try decoder.decode(DashboardLayoutsState.self, from: layoutsData)
-                let hadLegacyOctaveWidgets = state.layouts.contains { layout in
-                    layout.widgets.contains(where: { $0.type == .octaveBands })
-                }
-                layouts = state.layouts.map { layout in
-                    var migratedLayout = layout
-                    migratedLayout.widgets = Self.normalizeWidgets(layout.widgets)
-                    return migratedLayout
-                }
-                if layouts.isEmpty {
-                    layouts = [DashboardLayout(name: "Layout 1", widgets: Self.defaultWidgets())]
-                }
-                activeLayoutIndex = max(0, min(state.activeLayoutIndex, layouts.count - 1))
-                widgets = layouts[activeLayoutIndex].widgets
-                if hadLegacyOctaveWidgets {
-                    saveConfiguration()
-                }
-                Logger.ui.info("Loaded dashboard layouts: \(self.layouts.count)")
-                return
-            } catch {
-                Logger.ui.error("Error loading dashboard layouts: \(error.localizedDescription)")
-                configurationLoadFailed = true
-                return
-            }
-        }
-
-        // Legacy migration (single layout)
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
-            Logger.ui.info("No saved configuration found")
-            return
-        }
-
-        do {
-            let decodedWidgets = try decoder.decode([WidgetConfiguration].self, from: data)
-            let migratedWidgets = decodedWidgets.isEmpty ? Self.defaultWidgets() : Self.normalizeWidgets(decodedWidgets)
-            layouts = [DashboardLayout(name: "Layout 1", widgets: migratedWidgets)]
-            activeLayoutIndex = 0
-            widgets = migratedWidgets
-            Logger.ui.info("Migrated legacy dashboard configuration to multi-layout format")
-            saveConfiguration()
-        } catch {
-            Logger.ui.error("Error loading legacy dashboard configuration: \(error.localizedDescription)")
-            configurationLoadFailed = true
-        }
-    }
     
     /// Reset zu Standard-Konfiguration
     func resetToDefault() {
@@ -295,7 +351,7 @@ class DashboardManager: ObservableObject {
         return "\(base) \(index)"
     }
 
-    private static func normalizeWidgets(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
+    nonisolated private static func normalizeWidgets(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
         widgets.compactMap { widget in
             // phaseMeter is deactivated (kept in the enum for legacy decode
             // only). Silently drop any persisted instances so dashboards
@@ -313,7 +369,7 @@ class DashboardManager: ObservableObject {
         }
     }
 
-    private static func defaultWidgets() -> [WidgetConfiguration] {
+    nonisolated private static func defaultWidgets() -> [WidgetConfiguration] {
         [
             WidgetConfiguration(type: .spectrogram, size: WidgetConfiguration.defaultSize(for: .spectrogram), gridPosition: GridPosition(index: 0)),
             WidgetConfiguration(type: .levelHistory, size: WidgetConfiguration.defaultSize(for: .levelHistory), gridPosition: GridPosition(index: 1))

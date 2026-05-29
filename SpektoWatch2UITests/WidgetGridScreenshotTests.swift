@@ -13,22 +13,54 @@ final class WidgetGridScreenshotTests: XCTestCase {
     private var app: XCUIApplication!
     private let launchWait: TimeInterval = 60
     private let viewWait: TimeInterval = 15
+    private let permissionButtonLabels = [
+        "Allow",
+        "Allow Once",
+        "Allow While Using App",
+        "Erlauben",
+        "Nur einmal erlauben",
+        "Beim Verwenden der App erlauben",
+        "OK"
+    ]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = [
             "-UIAnimationsDisabled", "YES",
-            "-ResetState", "YES"
+            "-ResetState", "YES",
+            "-SeedTestData", "YES",
+            "-SnapshotCatalog", "YES"
         ]
+
+        addUIInterruptionMonitor(withDescription: "System Permission Alert") { [weak self] element in
+            guard let self else { return false }
+            for label in self.permissionButtonLabels {
+                let button = element.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            if let last = element.buttons.allElementsBoundByIndex.last, last.isHittable {
+                last.tap()
+                return true
+            }
+            return false
+        }
+
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: launchWait), "App should launch")
+
+        _ = handleSystemAlertsIfNeeded(timeout: 5.0)
 
         // Wait for the dashboard control bar — either play or pause button.
         let playVisible = app.descendants(matching: .any)["playButton"].waitForExistence(timeout: launchWait)
         let pauseVisible = playVisible ? false
             : app.descendants(matching: .any)["pauseButton"].waitForExistence(timeout: 5.0)
         XCTAssertTrue(playVisible || pauseVisible, "Dashboard controls should be visible")
+
+        _ = handleSystemAlertsIfNeeded(timeout: 1.0)
     }
 
     override func tearDownWithError() throws {
@@ -114,12 +146,14 @@ final class WidgetGridScreenshotTests: XCTestCase {
 
         // Attempt 1 — tap the layouts button and look for the preset action.
         layoutsButton.tap()
+        _ = handleSystemAlertsIfNeeded(timeout: 0.5)
         let presetButton = app.buttons["Screenshot-Preset: Widgetgrößen"]
 
         if !presetButton.waitForExistence(timeout: 4.0) {
             // Dialog may have been dismissed by an overlapping animation; try once more.
             XCTAssertTrue(layoutsButton.waitForExistence(timeout: viewWait), "layoutsButton must reappear")
             layoutsButton.tap()
+            _ = handleSystemAlertsIfNeeded(timeout: 0.5)
             XCTAssertTrue(presetButton.waitForExistence(timeout: viewWait),
                           "Screenshot preset button should appear in Layouts dialog")
         }
@@ -127,5 +161,28 @@ final class WidgetGridScreenshotTests: XCTestCase {
         presetButton.tap()
         // Allow time for the 9 layout pages to be installed and the first page to render.
         settle(1.5)
+    }
+
+    @discardableResult
+    private func handleSystemAlertsIfNeeded(timeout: TimeInterval = 2.5) -> Bool {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.alerts.firstMatch
+        guard alert.exists || alert.waitForExistence(timeout: timeout) else {
+            return false
+        }
+        for label in permissionButtonLabels {
+            let button = alert.buttons[label]
+            if button.exists {
+                button.tap()
+                settle()
+                return true
+            }
+        }
+        if let last = alert.buttons.allElementsBoundByIndex.last {
+            last.tap()
+            settle()
+            return true
+        }
+        return false
     }
 }

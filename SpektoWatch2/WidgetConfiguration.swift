@@ -121,7 +121,7 @@ struct GridPosition: Codable, Equatable {
     var index: Int
 }
 
-struct WidgetConfiguration: Identifiable, Codable {
+struct WidgetConfiguration: Identifiable, Codable, Equatable {
     let id: UUID
     var type: AudioWidgetType
     var gridPosition: GridPosition
