@@ -87,11 +87,20 @@ final class ScreenshotCatalogTests: XCTestCase {
         capture("04-Widget-Picker")
         app.buttons["Abbrechen"].tap()
 
+        // Allow the Widget Picker sheet dismiss animation to complete before
+        // interacting with the header bar controls.
+        settle()
+
         XCTAssertTrue(app.buttons["editDashboardButton"].waitForExistence(timeout: viewWait), "Dashboard should return after closing widget picker")
         tap(identifier: "editDashboardButton")
         XCTAssertTrue(app.buttons["settingsButton"].waitForExistence(timeout: viewWait), "Settings button should be visible outside edit mode")
 
+        // Tap settings; retry once if the sheet doesn't appear within 4 s.
+        // The header bar DragGesture can rarely swallow the first tap.
         tap(identifier: "settingsButton")
+        if !app.navigationBars["Einstellungen"].waitForExistence(timeout: 4.0) {
+            tap(identifier: "settingsButton")
+        }
         XCTAssertTrue(app.navigationBars["Einstellungen"].waitForExistence(timeout: viewWait), "Settings should open")
         capture("05-App-Settings-Top")
         app.swipeUp()
@@ -151,23 +160,39 @@ final class ScreenshotCatalogTests: XCTestCase {
         XCTAssertTrue(app.buttons["Neue leere Seite"].waitForExistence(timeout: viewWait), "Layouts dialog should open")
         capture("08-09-Layouts-Dialog")
 
-        app.buttons["Neue leere Seite"].tap()
-        settle(1.0)
-        // addEmptyLayout() sets activeLayoutIndex to the new page but
-        // UIPageViewController (backing .page TabView) doesn't switch when
-        // both content count and selection change simultaneously (iOS 26 quirk).
-        // Work around it with a right-to-left edge drag that targets the narrow
-        // horizontal margin between the screen edge and the widget cards — this
-        // area is part of the ScrollView (not the Metal spectrogram view) so the
-        // swipe gesture propagates up to UIPageViewController.
-        if !app.staticTexts["Keine Widgets"].exists {
-            let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5))
-            let edgeEnd   = app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5))
-            edgeStart.press(forDuration: 0, thenDragTo: edgeEnd)
-            settle(1.0)
+        // Dismiss the layouts dialog via Cancel so we stay on the current
+        // layout. We'll create an empty dashboard by deleting all widgets in
+        // edit mode — this avoids the iOS 26 UIPageViewController race where
+        // addEmptyLayout() changes activeLayoutIndex but the TabView won't
+        // switch to the newly-appended page in the same render cycle.
+        let dialogCancel = app.buttons.matching(
+            NSPredicate(format: "label == 'Abbrechen' OR label == 'Cancel'")
+        ).firstMatch
+        if dialogCancel.waitForExistence(timeout: 4.0) {
+            dialogCancel.tap()
         }
+
+        // Re-enter edit mode to expose the per-widget delete buttons.
+        XCTAssertTrue(app.buttons["editDashboardButton"].waitForExistence(timeout: viewWait), "Edit button should be visible after dialog dismiss")
+        tap(identifier: "editDashboardButton")
+        XCTAssertTrue(app.buttons["addWidgetButton"].waitForExistence(timeout: viewWait), "Must be in edit mode to delete widgets")
+
+        // Delete every widget card until none remain. The seeded dashboard has
+        // 2 widgets (Spectrogram + LevelHistory). widgetDeleteButton is placed
+        // on the Image leaf of each card's delete button (iOS 26 PlainButtonStyle
+        // fix — see WidgetCardView.deleteButton).
+        let deletePred = NSPredicate(format: "identifier == 'widgetDeleteButton'")
+        let emptyLabel = app.descendants(matching: .any)["keineWidgetsLabel"]
+        for _ in 0..<10 {
+            let btn = app.descendants(matching: .any).matching(deletePred).firstMatch
+            guard btn.waitForExistence(timeout: 3.0) else { break }
+            btn.tap()
+            settle(0.5)
+            if emptyLabel.exists { break }
+        }
+
         capture("10-Dashboard-Empty")
-        XCTAssertTrue(app.staticTexts["Keine Widgets"].waitForExistence(timeout: viewWait), "Empty dashboard should be visible")
+        XCTAssertTrue(emptyLabel.waitForExistence(timeout: viewWait), "Empty dashboard should be visible")
     }
 
     private func tap(identifier: String, timeout: TimeInterval = 12) {

@@ -747,6 +747,7 @@ class HighEndSpectrogramAdapter: MTKView {
     }
 
     func setTimeSpan(_ span: Int) {
+        guard span != currentTimeSpanValue else { return }
         currentTimeSpanValue = span
         updateTimeColumns()
     }

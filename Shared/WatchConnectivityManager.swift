@@ -36,6 +36,27 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     var onMicrophoneSourceChanged: ((MicrophoneSource) -> Void)?
     private var hasLoggedUnreachability = false
 
+    #if os(iOS)
+    /// Phone-side ingest hook. Returns true once the recording is in the iOS
+    /// store (newly added OR already present — idempotent), which gates the
+    /// "synced" acknowledgement back to the watch. Wired in `AppServices`.
+    var onWatchRecordingReceived: ((Recording) -> Bool)?
+
+    /// Serializes staging-directory mutation for incoming `transferFile`s. WC
+    /// delivers `didReceive file:` on a background queue; both files of a
+    /// recording must be correlated by id before ingest.
+    private let transferIngestQueue = DispatchQueue(label: "com.spektowatch.watch-recording-ingest")
+    private var stagedTransferMetadata: [UUID: WatchRecordingMetadata] = [:]
+
+    private var transferStagingDirectory: URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("WatchSyncStaging", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+    #endif
+
     private override init() {
         super.init()
 
@@ -145,6 +166,110 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Standalone recording sync-back (M21 task-5)
+
+    #if os(watchOS)
+    /// Opportunistically push not-yet-synced standalone recordings to the phone
+    /// via `transferFile` (OS-queued — delivered when the phone is reachable;
+    /// NOT a live stream). Re-entrant-safe: only `.local`/`.syncing` entries are
+    /// transferred, and the phone dedupes by recording id so a retried transfer
+    /// never creates a duplicate. Marks each entry `.syncing` until the phone's
+    /// ack flips it to `.synced`.
+    func syncPendingRecordings() {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+
+        DispatchQueue.main.async {
+            let store = WatchRecordingStore.shared
+            let fm = FileManager.default
+            for rec in store.recordings where rec.syncState != .synced {
+                let audioURL = store.audioURL(for: rec)
+                guard fm.fileExists(atPath: audioURL.path) else { continue }
+                guard let metaData = try? JSONEncoder().encode(rec) else { continue }
+
+                store.setSyncState(.syncing, for: rec.id)
+                session.transferFile(audioURL, metadata: WatchConnectivityProtocol.makeRecordingFileTransferMetadata(
+                    id: rec.id, kind: .audio, metadata: metaData))
+
+                let measurementURL = store.measurementURL(for: rec)
+                if fm.fileExists(atPath: measurementURL.path) {
+                    session.transferFile(measurementURL, metadata: WatchConnectivityProtocol.makeRecordingFileTransferMetadata(
+                        id: rec.id, kind: .measurement, metadata: metaData))
+                }
+            }
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    /// Copies one incoming recording file out of WC's temporary location into a
+    /// staging dir keyed by recording id, then ingests once both audio + `.swr`
+    /// are present. Runs on `transferIngestQueue`. `file.fileURL` is only valid
+    /// until the delegate returns, so the copy is synchronous.
+    private func handleIncomingRecordingFile(_ file: WCSessionFile) {
+        let metadata = file.metadata ?? [:]
+        guard let id = WatchConnectivityProtocol.recordingId(fromTransfer: metadata),
+              let kind = WatchConnectivityProtocol.recordingFileKind(fromTransfer: metadata),
+              let recordingMeta = WatchConnectivityProtocol.recordingMetadata(fromTransfer: metadata) else {
+            print("[WCM] Dropping recording file with malformed metadata")
+            return
+        }
+
+        let fm = FileManager.default
+        let ext = kind == .audio ? "caf" : "swr"
+        let destination = transferStagingDirectory.appendingPathComponent("\(id.uuidString).\(ext)")
+        if fm.fileExists(atPath: destination.path) {
+            try? fm.removeItem(at: destination)
+        }
+        do {
+            try fm.copyItem(at: file.fileURL, to: destination)
+        } catch {
+            print("[WCM] Failed to stage incoming recording file: \(error)")
+            return
+        }
+
+        stagedTransferMetadata[id] = recordingMeta
+
+        let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
+        let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
+        guard fm.fileExists(atPath: audioURL.path), fm.fileExists(atPath: measurementURL.path) else {
+            return // wait for the other file
+        }
+
+        stagedTransferMetadata[id] = nil
+        ingestStagedRecording(recordingMeta, audioURL: audioURL, measurementURL: measurementURL)
+    }
+
+    private func ingestStagedRecording(_ meta: WatchRecordingMetadata, audioURL: URL, measurementURL: URL) {
+        // `addRecording` consumes absolute paths and moves the files into the
+        // iOS recordings store, renaming the sidecar to `.spekto` (same binary
+        // MeasurementDataFormat as `.swr`). Build the iOS Recording from the
+        // shared metadata; the id is preserved so dedupe is stable.
+        let recording = Recording(
+            id: meta.id,
+            name: meta.title,
+            startDate: meta.createdAt,
+            duration: meta.duration,
+            audioFileName: audioURL.path,
+            measurementDataFileName: measurementURL.path,
+            sampleRate: meta.sampleRate,
+            laeqFast: meta.laeq ?? -120.0,
+            peakLevel: meta.lcPeak ?? -120.0,
+            frequencyWeighting: meta.weighting
+        )
+
+        DispatchQueue.main.async {
+            let ingested = self.onWatchRecordingReceived?(recording) ?? false
+            guard ingested else { return }
+            // Confirm via transferUserInfo (queued + guaranteed) so the watch
+            // flips the catalog entry to `.synced` even if not reachable now.
+            WCSession.default.transferUserInfo(
+                WatchConnectivityProtocol.makeRecordingSyncedUserInfo(id: meta.id))
+        }
+    }
+    #endif
+
     private func scheduleSpectrogramSendIfNeeded() {
         guard !isSpectrogramSendScheduled else { return }
         let now = ProcessInfo.processInfo.systemUptime
@@ -216,6 +341,11 @@ extension WatchConnectivityManager: WCSessionDelegate {
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
         }
+        #if os(watchOS)
+        if activationState == .activated {
+            syncPendingRecordings()
+        }
+        #endif
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
@@ -366,6 +496,30 @@ extension WatchConnectivityManager: WCSessionDelegate {
             print("[WCM] Reachability: \(session.isReachable)")
             self.isReachable = session.isReachable
         }
+        #if os(watchOS)
+        if session.isReachable {
+            syncPendingRecordings()
+        }
+        #endif
+    }
+
+    /// Incoming standalone recording file (iOS) / ingest acknowledgement (watch).
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        #if os(iOS)
+        transferIngestQueue.async { [weak self] in
+            self?.handleIncomingRecordingFile(file)
+        }
+        #endif
+    }
+
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
+        #if os(watchOS)
+        if let id = WatchConnectivityProtocol.syncedRecordingId(fromUserInfo: userInfo) {
+            DispatchQueue.main.async {
+                WatchRecordingStore.shared.setSyncState(.synced, for: id)
+            }
+        }
+        #endif
     }
 
     #if os(iOS)

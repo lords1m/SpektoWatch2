@@ -96,6 +96,17 @@ public enum PersistenceKeys {
     /// sync is intentional — they share a single name.
     public static let watchDashboardConfig = "watchDashboardConfig"
 
+    // MARK: - Watch operating mode
+
+    public enum Watch {
+        /// User preference: operate watch-first (standalone) rather than as a
+        /// phone companion. When set, recording captures with the watch mic and
+        /// stores locally; the watch does not coordinate record start/stop with
+        /// the phone and does not subscribe to the phone spectrogram at launch.
+        /// Storage: `Bool` in `UserDefaults.standard`.
+        public static let standaloneEnabled = "watch.standaloneEnabled"
+    }
+
     // MARK: - Design tokens (@AppStorage)
     //
     // The DesignTokens / TweaksPanelView / DesignTweaksSections code

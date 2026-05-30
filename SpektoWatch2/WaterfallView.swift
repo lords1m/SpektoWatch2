@@ -904,14 +904,15 @@ struct WaterfallWidget: View {
         // surface clean leaves the mode tag drawn by `WaterfallView`
         // unambiguous.
         WaterfallView(dataSet: store.dataSet, highlightedTime: nil)
-            .onReceive(audioEngine.spectrogramSubject) { data in
-                let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
-                let frequencies = data.visualFrequencies ?? data.frequencies
-                store.append(
-                    magnitudes: magnitudes,
-                    frequencies: frequencies,
-                    timestamp: data.timestamp
-                )
+            .onReceive(audioEngine.spectrogramSubject) { [audioEngine] data in
+                // spectrogramSubject sends on the audio thread; dispatch to main
+                // so WaterfallHistoryStore's @Published writes land on the main actor.
+                DispatchQueue.main.async { [weak store] in
+                    guard let store else { return }
+                    let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
+                    let frequencies = data.visualFrequencies ?? data.frequencies
+                    store.append(magnitudes: magnitudes, frequencies: frequencies, timestamp: data.timestamp)
+                }
             }
             .onChange(of: resolvedSettings) { _, new in
                 store.update(settings: new)

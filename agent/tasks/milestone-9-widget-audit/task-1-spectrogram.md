@@ -65,6 +65,25 @@ through to `HighEndSpectrogramAdapterWithAxes` with:
 - ✅ Override toggle pattern is consistent with waterfall and
   level-history sections; no inconsistency to flag here.
 
+- ✅ **DCT/Mel render regression fixed (2026-05-29)** — Commit a0e872e
+  introduced a `cblas_sgemv` 128×1024 mel filterbank running at 86 Hz on
+  the real-time audio render thread. This caused audio-thread overrun,
+  near-zero `spectrogramSubject` publish rate, a thin strip at the
+  left edge (fill ratio ≈ 0), and a blurry mel-scale display (128 bins
+  stretched to 1024 columns). Removed `computeDBMagnitudes` from the
+  render callback; `SpectrogramData.visualFrequencies/visualMagnitudes`
+  now always `nil`. `HighEndSpectrogramAdapter.Coordinator` uses the FFT
+  path exclusively. iOS build green.
+
+- ✅ **Static render path intact (2026-05-30, simulator)** — Captured
+  `01-Dashboard-Default` on iPhone 15 Pro Max (iOS 26.5) after the DCT/Mel
+  fix. Spectrogram renders a clean log-frequency axis (20k → 31.5 Hz),
+  correct widget layout, no crash. Canvas is empty because the simulator
+  has no mic (status "Bereit"). **Limitation:** the simulator CANNOT
+  validate the live-audio regression (thin strip / blurry mel) — that was
+  an audio-thread-overrun behavior under real mic input. Live verification
+  remains hardware-gated.
+
 ### Pending (hardware)
 
 - 📸 Screenshots per allowed size (`sizeRange(for: .spectrogram)`:

@@ -352,9 +352,10 @@ class AudioEngine: ObservableObject {
         // every widget now observes `audioEngine.live` directly (or doesn't
         // need to observe live state at all), so engine-level
         // objectWillChange no longer needs to fan out live-tick updates.
-        // The 12 computed forwarders on AudioEngine still exist for
-        // legacy non-observing read sites — deletable in a follow-up
-        // pass once those callers migrate to `audioEngine.live.X`.
+        // All 17 live-metric computed forwarders (currentSpectrogramData …
+        // currentBarkBandsC) deleted 2026-05-27. Remaining @Published
+        // properties (engineStatus, timeWeighting, frequencyWeighting,
+        // scrollSpeed) are engine-settings storage, not forwarders.
 
         // Bridge for RecordingCoordinator (M13 task-5). Kept so existing
         // `@ObservedObject var audioEngine` consumers re-render when
@@ -1432,8 +1433,8 @@ class AudioEngine: ObservableObject {
 
         // Thread-sichere FFT-Verarbeitung — snapshot all three lock-protected
         // fields in one critical section to keep them mutually consistent.
-        let (currentFFTSize, localFFTProcessor, localWeightingProcessor, localVisualSpectrogramProcessor) = processingLock.withLockUnchecked {
-            (fftSize, fftProcessor, weightingProcessor, visualSpectrogramProcessor)
+        let (currentFFTSize, localFFTProcessor, localWeightingProcessor) = processingLock.withLockUnchecked {
+            (fftSize, fftProcessor, weightingProcessor)
         }
 
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
@@ -1442,12 +1443,10 @@ class AudioEngine: ObservableObject {
         // Perform FFT into reusable buffers to avoid per-frame result arrays.
         localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost, into: &fftLinearMagnitudesScratch)
         localFFTProcessor.convertToDB(fftLinearMagnitudesScratch, into: &fftDBMagnitudesScratch)
-        let visualFrequencies = localVisualSpectrogramProcessor.computeDBMagnitudes(
-            on: samples,
-            gainBoost: gainBoost,
-            calibrationOffset: cal,
-            into: &visualDBMagnitudesScratch
-        )
+        // DCT/Mel pipeline removed from the real-time audio thread (M19 regression):
+        // cblas_sgemv(128×1024) at 86 Hz was causing audio-thread overrun and a
+        // blurry mel-scale display. The spectrogram now uses the FFT path exclusively.
+        let visualFrequencies: [Float]? = nil
         
         // AE-5: Logger calls are not real-time safe (acquire internal locks, may
         // malloc on first category call). Periodic FFT-range logging removed from
@@ -1668,8 +1667,8 @@ class AudioEngine: ObservableObject {
             magnitudes: processedZ.bandMagnitudes,      // Z-weighted (linear)
             magnitudesA: processedA?.bandMagnitudes,    // A-weighted when requested
             magnitudesC: processedC?.bandMagnitudes,    // C-weighted when requested
-            visualFrequencies: visualFrequencies,
-            visualMagnitudes: visualDBMagnitudesScratch,
+            visualFrequencies: nil,
+            visualMagnitudes: nil,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: processingSampleRate,

@@ -46,6 +46,14 @@ final class AppServices: ObservableObject {
         self.recordingManager = recordingManager
         self.fftConfiguration = fftConfiguration
         self.maskingProfileManager = maskingProfileManager
+
+        // Phone-side ingest of standalone watch recordings (M21 task-5).
+        // Runs on the main actor; idempotent by recording id.
+        connectivityManager.onWatchRecordingReceived = { [weak recordingManager] recording in
+            MainActor.assumeIsolated {
+                recordingManager?.ingestWatchRecording(recording) ?? false
+            }
+        }
     }
 
     /// Convenience no-arg initializer that constructs every sub-service

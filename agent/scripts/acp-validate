@@ -114,6 +114,8 @@ case "$current_milestone_yaml" in
   M17) task_dir="agent/tasks/milestone-17-swiftui-lifecycle-performance" ;;
   M18) task_dir="agent/tasks/milestone-18-test-tooling-debt" ;;
   M19) task_dir="agent/tasks/milestone-19-instruments-trace-perf-fixes" ;;
+  M20) task_dir="agent/tasks/milestone-20-live-activities" ;;
+  M21) task_dir="agent/tasks/milestone-21-watch-standalone" ;;
   *)   task_dir="agent/tasks/$current_milestone_yaml" ;;
 esac
 

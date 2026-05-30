@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
-    @ObservedObject private var dashboardManager: DashboardManager
+    @StateObject private var dashboardManager: DashboardManager
     @EnvironmentObject private var fftConfig: FFTConfiguration
     @Environment(\.designDensity) private var density
     @State private var isHeaderVisible: Bool = true
@@ -22,7 +22,7 @@ struct ModularDashboardView: View {
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
         let dm = DashboardManager()
         _viewModel = StateObject(wrappedValue: DashboardViewModel(dashboardManager: dm, audioEngine: audioEngine, connectivityManager: connectivityManager))
-        _dashboardManager = ObservedObject(wrappedValue: dm)
+        _dashboardManager = StateObject(wrappedValue: dm)
     }
     
     var body: some View {
@@ -351,6 +351,7 @@ struct ModularDashboardView: View {
                 Text("Keine Widgets")
                     .font(isCompactWidth ? .title3 : .title2)
                     .foregroundColor(.gray)
+                    .accessibilityIdentifier("keineWidgetsLabel")
                 Button(action: viewModel.addWidget) {
                     Label("Widget hinzufügen", systemImage: "plus.circle.fill")
                         .font(.headline)

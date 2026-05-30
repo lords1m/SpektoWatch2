@@ -13,6 +13,20 @@ enum WatchConnectivityProtocol {
         /// a JSON-encoded `WatchAppState` blob under
         /// `WatchConnectivityProtocol.Key.value`.
         case appStateUpdate
+        /// Tag on a `transferFile` metadata dictionary for a standalone watch
+        /// recording's audio or `.swr` file (M21 task-5). NOT a live stream —
+        /// these are OS-queued deferred file transfers.
+        case recordingFileTransfer
+        /// Phone → watch acknowledgement (sent via `transferUserInfo`, which is
+        /// queued and guaranteed) that a recording was ingested. Lets the watch
+        /// mark the catalog entry `.synced`. Carries the recording id.
+        case recordingSynced
+    }
+
+    /// Which file of a recording a `transferFile` is carrying.
+    enum RecordingFileKind: String {
+        case audio
+        case measurement
     }
 
     enum BinaryPacketKind: UInt8 {
@@ -28,6 +42,9 @@ enum WatchConnectivityProtocol {
         static let value = "value"
         static let source = "source"
         static let config = "config"
+        static let recordingId = "recordingId"
+        static let fileKind = "fileKind"
+        static let recordingMetadata = "recordingMetadata"
     }
 
     // Watch live display data should remain fresher than one second in both
@@ -119,6 +136,53 @@ enum WatchConnectivityProtocol {
 
     static func dashboardConfigString(from message: [String: Any]) -> String? {
         message[Key.config] as? String
+    }
+
+    // MARK: - Standalone recording sync-back (M21 task-5)
+
+    /// Metadata dictionary attached to a `transferFile` for one recording file.
+    /// Carries the full `WatchRecordingMetadata` (JSON) on every transfer so the
+    /// phone can build the catalog entry from whichever file arrives first.
+    static func makeRecordingFileTransferMetadata(
+        id: UUID,
+        kind: RecordingFileKind,
+        metadata: Data
+    ) -> [String: Any] {
+        [
+            Key.type: MessageType.recordingFileTransfer.rawValue,
+            Key.recordingId: id.uuidString,
+            Key.fileKind: kind.rawValue,
+            Key.recordingMetadata: metadata
+        ]
+    }
+
+    static func recordingFileKind(fromTransfer metadata: [String: Any]) -> RecordingFileKind? {
+        guard let raw = metadata[Key.fileKind] as? String else { return nil }
+        return RecordingFileKind(rawValue: raw)
+    }
+
+    static func recordingId(fromTransfer metadata: [String: Any]) -> UUID? {
+        guard let raw = metadata[Key.recordingId] as? String else { return nil }
+        return UUID(uuidString: raw)
+    }
+
+    static func recordingMetadata(fromTransfer metadata: [String: Any]) -> WatchRecordingMetadata? {
+        guard let data = metadata[Key.recordingMetadata] as? Data else { return nil }
+        return try? JSONDecoder().decode(WatchRecordingMetadata.self, from: data)
+    }
+
+    /// Phone → watch "ingested, mark synced" acknowledgement payload.
+    static func makeRecordingSyncedUserInfo(id: UUID) -> [String: Any] {
+        [
+            Key.type: MessageType.recordingSynced.rawValue,
+            Key.recordingId: id.uuidString
+        ]
+    }
+
+    static func syncedRecordingId(fromUserInfo userInfo: [String: Any]) -> UUID? {
+        guard (userInfo[Key.type] as? String) == MessageType.recordingSynced.rawValue,
+              let raw = userInfo[Key.recordingId] as? String else { return nil }
+        return UUID(uuidString: raw)
     }
 
     static func makeSpectrogramPacket(_ data: SpectrogramData) -> Data {

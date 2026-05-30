@@ -230,3 +230,42 @@ LAF/LAeq/LCpeak calibration, widget render grid, recording flow,
 watch pairing + spectrogram data, complication updates). These cannot
 be closed in the simulator. Task stays `in_progress` / parked until
 a hardware session.
+
+## Addendum (2026-05-30) — Flicker, blank-widget, and background-thread fixes
+
+Four production bugs fixed; BUILD SUCCEEDED confirmed on iOS simulator.
+
+1. **`WaterfallView.swift` — background-thread `@Published` warning + grey flash.**
+   `spectrogramSubject.send()` fires from the audio render thread. Previous fix
+   wrapped the publisher in `.receive(on: DispatchQueue.main)`, but that creates
+   a new `Receive<>` struct on every SwiftUI body evaluation → subscription
+   cancelled/restarted every frame → grey flash. Reverted to bare
+   `spectrogramSubject` (stable `PassthroughSubject` class reference) with
+   `DispatchQueue.main.async` inside the `.onReceive` callback. Subscription is
+   now stable; `WaterfallHistoryStore` writes land on the main actor.
+
+2. **`HighEndSpectrogramAdapter.swift` — unnecessary `updateTimeColumns()` at 10 Hz.**
+   `setTimeSpan(_:)` was called every `updateUIView` cycle (driven by
+   axis-metrics updates at ~10 Hz) even when the value had not changed, creating
+   a race window with the background `updateSampleRateIfNeeded` path. Added
+   `guard span != currentTimeSpanValue else { return }`.
+
+3. **`LAFGraphView.swift` / `LAFGraphWidget.swift` — graph flickering.**
+   `LevelHistoryView` and `LevelHistoryWidget` called
+   `.onReceive(live.$currentSpectrogramData)` inline in the `body`. Because
+   `live` is a struct-scoped `@ObservedObject`, the `$currentSpectrogramData`
+   publisher expression is a fresh value-type instance each render → SwiftUI
+   re-subscribes on every parent update → dropped frames → flicker. Stored the
+   publisher as `private let spectrogramDataPublisher` in `init` (same pattern
+   already used by `SpectrogramWidget`). `frequencyWeightingPublisher` and
+   `timeWeightingPublisher` already used the stored pattern.
+
+4. **`ModularDashboardView.swift` — all widgets blank on play / record.**
+   `dashboardManager` was declared `@ObservedObject` and constructed with
+   `DashboardManager()` inside `init`. When `ContentView` re-renders on any
+   `audioEngine.objectWillChange` event (e.g. `engineStatus` change on play or
+   record), `@ObservedObject` replaces its `wrappedValue` with the new empty
+   instance before the async config load completes → all widgets vanish.
+   Changed to `@StateObject`; SwiftUI now ignores the `wrappedValue` expression
+   after first render, so `dm` is created once and both `viewModel` and
+   `dashboardManager` share the same stable instance.

@@ -12,6 +12,9 @@ struct WatchContentView: View {
             WatchDashboardView()
             WatchSpectrogramView()
             WatchLevelMeterView()
+            NavigationStack {
+                WatchRecordingsView()
+            }
         }
         .tabViewStyle(.page)
     }

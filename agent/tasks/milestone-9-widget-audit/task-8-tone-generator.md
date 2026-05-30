@@ -53,13 +53,13 @@ für diesen Widget-Typ." at line 255.
 - ⚠ **No settings sheet** — falls to "Keine Einstellungen verfügbar"
   placeholder. Either hide the cog for `.toneGenerator` or add a
   proper sheet (presets editor, default-on-load behaviour).
-- ⚠ **Preset highlighting is exact-only** — `abs(frequency - preset.1) < 1`
-  only highlights when the slider lands exactly on a preset. Drag
-  near 1000 Hz, you see no "1k" highlight. Either snap-to-preset on
-  drag-release or widen the tolerance band.
-- ⚠ **Linear amplitude slider** — `0…1` linear is perceptually wrong
-  (psychoacoustic loudness ~ logarithmic). Consider exposing as dB
-  (-60…0) or applying a `pow(x, 2)`-style mapping under the hood.
+- ✅ **Preset highlighting tolerance widened** — changed from exact `< 1 Hz`
+  to 5% relative (`abs(f - preset) / preset < 0.05`) so drag-release near
+  a preset correctly highlights it. Landed 2026-05-29.
+- ✅ **Log-scale amplitude slider** — replaced linear `Slider(value: $amplitude)`
+  with sqrt/square `Binding` transformation (get: `sqrt(amplitude)`,
+  set: `amplitude = x²`). Stored value remains 0…1 amplitude; slider
+  position is now perceptually linear. Landed 2026-05-29.
 - ⚠ **Magnification-gesture fullscreen is undiscoverable** — the
   explicit corner button is fine, but the pinch path has no visual
   cue. Either remove it (one canonical path) or document via

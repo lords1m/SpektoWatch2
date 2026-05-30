@@ -160,22 +160,18 @@ milestones:
 
   M10:
     name: iOS Standalone Widgets
-    status: pending
-    priority: medium
+    status: deferred
+    priority: low
     progress: 0
     started: null
     estimated_weeks: "2"
     tasks_completed: 0
     tasks_total: 7
     notes: >
-      Native iOS WidgetKit widgets backed by the AppGroup state that
-      M5/M6 already write. Subset only — live-audio widgets
-      (spectrogram, waterfall, level meter, frequency display, phase
-      meter, masking, spektralanalyseLab) are out of scope; widgets
-      cannot run live mic input. Initial scope: Letzte Messung,
-      Recent Recordings, Level Snapshot, optional iOS-17 Tonegenerator
-      Quick. Hard prerequisite: App Group entitlement wiring from M6
-      task-4 needs to land in Developer Portal + pbxproj first.
+      Deferred 2026-05-30 by user direction — out of scope for now.
+      Hard prerequisite (App Group Portal registration) still outstanding.
+      Revisit only when Live Activities (M20) and Standalone Watch (M21)
+      are hardware-accepted.
     file: agent/milestones/milestone-10-ios-standalone-widgets.md
 
   M11:
@@ -392,6 +388,54 @@ milestones:
       verification of themes/accents, presets, edit mode, tweaks
       persistence, transport LED, watch faces, and regression scan.
     file: agent/milestones/milestone-12-liquid-glass-redesign.md
+
+  M20:
+    name: Live Activities
+    status: in_progress
+    priority: medium
+    progress: 90
+    started: "2026-05-30"
+    estimated_weeks: "0.5"
+    tasks_completed: 1
+    tasks_total: 2
+    notes: >
+      Dynamic Island + Lock Screen Live Activity for an active measurement
+      session (live dB(weighting), peak, elapsed timer, recording/paused
+      state). Task-1 landed code-side (2026-05-30): shared
+      MeasurementActivityAttributes (#if canImport(ActivityKit) so watchOS
+      excludes it), MeasurementLiveActivityController (start/update@1Hz/end,
+      failures logged + swallowed), RecordingManager wiring (start/stop +
+      throttled metrics from the existing 0.1s timer reading
+      audioEngine.live.currentLevel/currentPeakLevel),
+      INFOPLIST_KEY_NSSupportsLiveActivities=YES on the iOS app target. iOS +
+      watchOS builds green. Widget UI staged at
+      SpektoWatchLiveActivity/MeasurementLiveActivityWidget.swift (NOT
+      compiled — outside synchronized groups). Task-2 (widget extension target
+      creation + on-device acceptance) is manual Xcode + hardware.
+    file: agent/milestones/milestone-20-live-activities.md
+  M21:
+    name: Standalone Watch App
+    status: in_progress
+    started: "2026-05-30"
+    priority: medium
+    progress: 83
+    estimated_weeks: "2.5"
+    tasks_completed: 5
+    tasks_total: 6
+    notes: >
+      Make the watch a fully usable acoustic instrument without a
+      paired/reachable phone: standalone capture, correct local metrics (real
+      LAeq/LCpeak instead of broadband placeholder), durable on-watch
+      recordings store (audio + .swr + metadata surviving relaunch), on-watch
+      browse/delete UI, and opportunistic deferred sync-back to the phone via
+      WCSession transferFile (idempotent by recording id — never raw audio
+      streaming). Realizes the WatchOperatingMode.standalone Phase-4 stub.
+      task-1 (standalone activation/UX), task-2 (share DSP/metrics → real
+      LAeq/LCpeak on watch), task-3 (durable recordings store + catalog + .swr
+      sidecar), and task-4 (watch recordings UI — list/detail/delete) are
+      code-complete (2026-05-30); all await only the hardware acceptance pass
+      (task-6). Acceptance is hardware (task-6).
+    file: agent/milestones/milestone-21-watch-standalone.md
 
 tasks:
   M1:
@@ -798,7 +842,7 @@ tasks:
     - { id: task-6-kernel-math-extraction,        name: "Kernel math extraction",                     status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-6-kernel-math-extraction.md, notes: "Landed 2026-05-21: new Managers/SpectrumBandAggregator.swift (220 LOC) centralises third-octave + octave + Bark aggregation. The M12 negative-offset bug source — two identical implementations of the third-octave power-sum (AudioEngine.computeDisplayThirdOctaveBands + SpectrumBandChartView.thirdOctaveBands) — collapsed to one. AudioEngine -77 LOC (1790→1713), AudioWidgets -104 LOC (619→515). SpectrumBandChartView.computeBandData body 70→30 LOC (57% reduction). New SpectrumBandAggregatorTests.swift (7 cases) including a regression guard for the M12 sum-vs-mean bug. Level-history clamping/axis extraction deferred (intertwined with Canvas GraphicsContext). iOS + watchOS builds green." }
     - { id: task-7-watch-protocol-versioning,     name: "Watch protocol versioning + AppState",       status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-7-watch-protocol-versioning.md, notes: "Phase 1 landed 2026-05-21. SpectrogramData.toBinaryData() now prepends a UInt8 schema version (0x01); fromBinaryData rejects unknown versions cleanly. New Shared/WatchAppState.swift (105 LOC) defines a Codable envelope (activePresetID, isRecording, designAccent, theme, optional toneGenerator, schemaVersion) with JSON encode/decode helpers and version-mismatch rejection. WatchConnectivityProtocol gains MessageType.appStateUpdate + makeAppStateUpdateMessage + appStateUpdate(from:) decoder. Both connectivity managers (iOS + watch) gained the appStateUpdate switch arm (decode-and-drop today; consumption is Phase 2). New WatchProtocolVersioningTests.swift covers 7 cases including version-byte rejection on both SpectrogramData and WatchAppState. Phase 2 (iOS broker observing accent/theme/preset/recording + watch-side store + face migration from hardcoded phosphor) deferred — crosses concerns that need hardware verification together. iOS + watchOS builds green." }
     - { id: task-8-persistence-registry,          name: "Persistence registry",                       status: completed, file: agent/tasks/milestone-13-architecture-hygiene/task-8-persistence-registry.md, notes: "Phase 1 landed 2026-05-21. New Shared/PersistenceKeys.swift (110 LOC) inventories every UserDefaults / AppGroup / @AppStorage key with tier, schema version, and migration rule. 8 files migrated from string literals to registry constants: DashboardManager, CalibrationProvider, AudioEngine, Models/FFTConfiguration, Managers/BandstopFilterManager, ControlBarView, Shared/WatchWidgetConfiguration, both WatchConnectivityManager copies. Nested PersistenceKeys.FFT + Design enums for grouped namespaces. Sunset plan for DashboardConfiguration_v5 documented in the registry file. Phase 2 (one-shot PersistenceMigrator runner + @AppStorage declaration migration + legacy key removal) deferred. iOS + watchOS builds green. After migration: zero raw key strings remain outside the registry (a leftover CSV column header in CSVExporter named 'calibrationOffset' is a false positive in different namespace)." }
-    - { id: task-9-acceptance,                    name: "Acceptance",                                 status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md, notes: "Code-side acceptance landed 2026-05-21. Handoff report agent/reports/2026-05-21-milestone-13-acceptance.md covers all 8 tasks: per-task verdict table (Phase 1 ✅ / Phase 2 deferred), 10 new files / 4 modified files / net ~477 LOC reduction, 19 new tests, architectural-pressure status (3 resolved, 2 partially reduced). 6 hardware-only verification items documented (cold-launch parity, audio correctness, widget render parity, recording flow, watch pairing, Instruments re-render). iOS + watchOS builds green at HEAD. Routing reminders: A2/M6-task-4 (entitlements) + A3/M11-task-1 (NSLock) still routed there. Phase 2 candidates (deletable forwarders) flagged for follow-up milestone if M13 promotes cleanly."}
+    - { id: task-9-acceptance,                    name: "Acceptance",                                 status: in_progress, file: agent/tasks/milestone-13-architecture-hygiene/task-9-acceptance.md, notes: "Code-side acceptance landed 2026-05-21. Handoff report agent/reports/2026-05-21-milestone-13-acceptance.md. Simulator build+test checks complete 2026-05-28 (iOS + watchOS builds green, 56/56 SpektoWatch2Tests + 56/56 SpektoWatchTests). 2026-05-30: four production bug fixes landed (background-thread publish warning + spectrogram grey flash in WaterfallView; unnecessary 10 Hz setTimeSpan calls in HighEndSpectrogramAdapter; LevelHistoryView/Widget graph flicker via stored-publisher pattern; @ObservedObject→@StateObject for dashboardManager in ModularDashboardView fixing blank-widget-on-play/record). iOS build green. 6 hardware-only verification items remain (cold-launch parity, LAF/LAeq/LCpeak calibration, widget render parity, recording flow, watch pairing, Instruments re-render)."}
 
   M12:
     - id: task-1-chrome-and-tokens
@@ -965,18 +1009,193 @@ tasks:
         #8 OKLCH→sRGB drift (low-impact). iOS + watch builds green.
         Hardware visual pass gated on task-6.
 
-updated_at: 2026-05-29
-last_completed_task: M13/task-4-phase2-pilot
-current_milestone: M19
-current_task: task-7-acceptance
-last_proceed: 2026-05-29
+  M20:
+    - id: task-1-attributes-and-controller
+      name: "Attributes, Controller & Wiring"
+      status: completed
+      file: agent/tasks/milestone-20-live-activities/task-1-attributes-and-controller.md
+      notes: "Landed 2026-05-30. Shared MeasurementActivityAttributes (ActivityKit-guarded), MeasurementLiveActivityController (start/update@1Hz/end), RecordingManager start/stop wiring + throttled metrics, NSSupportsLiveActivities Info.plist key. iOS + watchOS builds green. Widget UI staged but not compiled."
+    - id: task-2-widget-extension
+      name: "Widget Extension Target & On-Device Acceptance"
+      status: in_progress
+      file: agent/tasks/milestone-20-live-activities/task-2-widget-extension.md
+      notes: "2026-05-30: user created SpektoWatch2WidgetExtension target (sync group SpektoWatch2Widget/, embedded in app); Shared/MeasurementActivityAttributes.swift added to its membership; replaced Xcode placeholder live-activity with real MeasurementActivityAttributes UI (kept struct name SpektoWatch2WidgetLiveActivity so bundle stays valid); removed staged SpektoWatchLiveActivity/. iOS build green, .appex embeds, NSSupportsLiveActivities=true. Remaining: on-device acceptance only. (Template static widget + control widget left as placeholder scaffolding, out of scope.)"
+
+  M21:
+    - id: task-1-standalone-activation
+      name: "Standalone Activation & Phone-Absent UX"
+      status: in_progress
+      file: agent/tasks/milestone-21-watch-standalone/task-1-standalone-activation.md
+      notes: "Code landed 2026-05-30: PersistenceKeys.Watch.standaloneEnabled; WatchAudioEngine.standaloneEnabled (@Published) + setStandaloneEnabled(); init starts in .standalone (no phone subscription) when preference set; startRecording→.standalone vs .wearableMic; stopRecording stays .standalone (no companion revert) + clears live display; WatchDashboardView standaloneToggle (applewatch/iphone, disabled mid-recording) + record button skips phone coordination in standalone. WCSession audit clean (all sends isReachable-guarded, replyHandler:nil, no semaphores). watchOS build green. Remaining: hardware verify (task-6)."
+    - id: task-2-share-dsp-metrics
+      name: "Share DSP/Metrics to the Watch Target"
+      status: in_progress
+      file: agent/tasks/milestone-21-watch-standalone/task-2-share-dsp-metrics.md
+      notes: "Code-side complete 2026-05-30: git mv AcousticMetricsCalculator.swift + FrequencyWeightingProcessor.swift into Shared/ (both targets include the Shared/ sync group → compiles into iOS+watch, no pbxproj edits, no duplicate symbols). WatchAudioEngine now computes real metrics: performFFT captures linear magnitudes (memcpy) pre-dB; processAudioBuffer derives Z/A/C energy (vDSP_vsq+vDSP_sve / vDSP_dotpr vs squared weighting gains), applies calibration in energy domain, LCpeak via vDSP_vmul(C gains)+vDSP_maxv, feeds metricsCalculator.updateMetrics() → time-integrated levels; SpectrogramData carries real LAF/LAeq/LCpeak (was placeholder broadband). Watch FFT config 2048@44100. iOS + watchOS builds green (sequential). Remaining: on-device ±1.0 dB parity vs phone (task-6)."
+    - id: task-3-local-store
+      name: "Persistent Local Recordings Store"
+      status: in_progress
+      file: agent/tasks/milestone-21-watch-standalone/task-3-local-store.md
+      notes: "Code-side complete 2026-05-30: git mv MeasurementDataFormat/Writer/Reader → Shared/ (watch can now write .swr; completes the writer-sharing deferred from task-2; iOS unchanged). New Shared/WatchRecordingMetadata.swift (Codable record, stable UUID id = file basename = sync dedupe key, syncState local/syncing/synced — shared for task-5 ingest). New WatchRecordingStore (durable catalog watch_recordings_catalog.json under Application Support, NOT temporaryDirectory; loads on launch, drops missing-file entries, atomic writes, @Published recordings for task-4). Rewrote WatchRecordingSession: stable id, writes <id>.caf + <id>.swr, MeasurementDataWriter (LAF/LAeq/LCpeak, no full-FFT), finalize() returns metadata. Wired WatchAudioEngine: standalone opens session before engine.start; processAudioBuffer feeds audio+measurement frame (disk I/O off audio thread); stopRecording finalizes+registers after tap removal; existing WKExtendedRuntimeSession willExpire/didInvalidate already route to stopRecording → clean flush. iOS+watchOS builds green. Remaining: hardware relaunch-durability + no-corrupt-on-abrupt-end (task-6)."
+    - id: task-4-recordings-ui
+      name: "Watch Recordings UI"
+      status: in_progress
+      file: agent/tasks/milestone-21-watch-standalone/task-4-recordings-ui.md
+      notes: "Code-side complete 2026-05-30: new WatchRecordingsView.swift — WatchRecordingsView (List backed by WatchRecordingStore.shared @Published recordings, .carousel style, glass bg, empty state) added as a new NavigationStack page in WatchContentView's paged TabView; WatchRecordingDetailView (LAeq/LCpeak/duration/weighting/sync summary on a glass card + destructive Löschen via confirmationDialog → store.delete frees audio+.swr+catalog entry, then dismiss); WatchSyncStateBadge (local/syncing/synced glyph, ready for task-5); WatchRecordingFormat helpers. Added optional laeq/lcPeak to shared WatchRecordingMetadata, captured at finalize from the last frame (LAeq cumulative, LCpeak running max = session aggregates) so detail shows real metrics without re-reading .swr. Follows existing watch SwiftUI patterns. iOS+watchOS builds green. Remaining: on-device list/open/delete pass (task-6)."
+    - id: task-5-sync-back
+      name: "Opportunistic Sync-Back to Phone"
+      status: completed
+      file: agent/tasks/milestone-21-watch-standalone/task-5-sync-back.md
+      notes: "Code-side complete 2026-05-30. WatchConnectivityProtocol: recordingFileTransfer + recordingSynced MessageTypes + file-transfer metadata helpers + userInfo ack helpers. Watch-side (both WatchConnectivityManager copies): syncPendingRecordings() iterates .local/.syncing catalog entries, transferFile(audio+.swr) with encoded WatchRecordingMetadata attached; triggered on activationDidCompleteWith(.activated) + sessionReachabilityDidChange(isReachable). iOS-side WatchConnectivityManager: handleIncomingRecordingFile stages each file to WatchSyncStaging/, correlates both files by id, calls ingestStagedRecording; ingestStagedRecording builds a Recording from WatchRecordingMetadata, calls onWatchRecordingReceived, then transferUserInfo(recordingSynced ack). Watch-side didReceiveUserInfo: flips catalog entry to .synced via WatchRecordingStore. AppServices wires onWatchRecordingReceived → RecordingManager.ingestWatchRecording (idempotent dedupe by id). Fixed: SpektoWatch2/WatchConnectivityManager switch non-exhaustive on new cases (.recordingFileTransfer + .recordingSynced) — added decode-and-drop arms; onWatchRecordingReceived visibility: public → internal (Recording is internal). iOS + watchOS BUILD SUCCEEDED. Remaining: hardware end-to-end (task-6)."
+    - id: task-6-acceptance
+      name: "Acceptance (Hardware End-to-End)"
+      status: pending
+      file: agent/tasks/milestone-21-watch-standalone/task-6-acceptance.md
+      notes: "Hardware checklist: unpaired capture, metric correctness ±1.0 dB, persistence across relaunch, on-watch management, opportunistic sync exactly-once."
+
+updated_at: 2026-05-30
+last_completed_task: M21/task-5-sync-back
+current_milestone: M20
+current_task: task-2-widget-extension
+last_proceed: 2026-05-30
 last_proceed_note: >
-  M19/task-6 complete: SwiftUI Equatable guards. WidgetConfiguration +
-  DashboardLayout: Equatable (synthesized). WidgetCardView: Equatable extension
-  (widget + isEditMode + columnWidth). .equatable() inside widgetCard() body —
-  type-inference cascade avoided. DashboardHeaderView .equatable() already in
-  task-5. iOS build green; all unit tests pass. Advancing to task-7: Instruments
-  re-trace acceptance (requires hardware device).
+  M21 (Standalone Watch App) task-5 code-side complete (2026-05-30): opportunistic
+  sync-back to phone. All sync-back infrastructure was already implemented;
+  task-5 required one fix: SpektoWatch2/WatchConnectivityManager.swift switch on
+  MessageType was non-exhaustive after .recordingFileTransfer and .recordingSynced
+  were added to the protocol — added decode-and-drop arms for both. Also fixed
+  onWatchRecordingReceived visibility public→internal (Recording is internal).
+  iOS + watchOS BUILD SUCCEEDED. current_task → M21/task-6 (hardware acceptance
+  end-to-end: unpaired capture, metric parity ±1.0 dB, relaunch durability,
+  on-watch management, sync-back exactly-once).
+  ---
+  Previous proceed note: >
+  M21 (Standalone Watch App) task-4 code-side complete (2026-05-30): on-watch
+  recordings UI. New SpektoWatch Watch App/WatchRecordingsView.swift:
+  WatchRecordingsView is a List backed by WatchRecordingStore.shared
+  (@ObservedObject, @Published recordings), .carousel style over the glass
+  background with an empty state, added as a new NavigationStack page in
+  WatchContentView's paged TabView (list → detail). WatchRecordingDetailView
+  shows a per-recording summary (LAeq, LCpeak, duration, weighting, sync state)
+  on a watchGlassCard and a destructive Löschen button that routes through a
+  confirmationDialog (watch-standard confirmation) → store.delete(...) which
+  removes audio + .swr + catalog entry (frees disk) and dismisses.
+  WatchSyncStateBadge renders local/syncing/synced glyphs (gray up-arrow / blue
+  spinner / green check) ready for task-5; WatchRecordingFormat provides
+  duration/timestamp/subtitle helpers. To show real metrics in detail without
+  re-reading the .swr, added optional laeq/lcPeak to the shared
+  WatchRecordingMetadata and captured them at finalize from the last measurement
+  frame (LAeq is cumulative and LCpeak a running max, so the final frame holds
+  the session aggregates). Follows the existing watch SwiftUI patterns
+  (WatchAppBackground, watchGlassCard, WatchStylePalette). iOS + watchOS builds
+  both green (sequential). current_task → M21/task-4 (in_progress). Remaining for
+  task-4 is the on-device list/open/delete interaction pass (folded into
+  M21/task-6). Next code-side: M21/task-5 (opportunistic sync-back — WCSession
+  transferFile of audio + .swr + a typed protocol message, phone-side ingest
+  into RecordingManager, idempotent dedupe by recording id; no raw audio
+  streaming).
+  ---
+  M21 (Standalone Watch App) task-3 code-side complete (2026-05-30): durable
+  on-watch recordings store. Shared the .swr I/O by git mv'ing
+  MeasurementDataFormat.swift + MeasurementDataWriter.swift +
+  MeasurementDataReader.swift from SpektoWatch2/ into Shared/ (both targets
+  include the Shared/ sync group, so they compile into iOS+watch with iOS
+  behavior unchanged and no duplicate symbols; all Foundation-only) — this also
+  closes the writer-sharing portion that task-2 deferred. New
+  Shared/WatchRecordingMetadata.swift: Codable/Identifiable WatchRecordingMetadata
+  whose stable UUID id is the file basename AND the sync-back dedupe key, plus
+  WatchRecordingSyncState (local/syncing/synced) — shared so the phone ingest in
+  task-5 reuses the same record. New SpektoWatch Watch App/WatchRecordingStore.swift:
+  durable catalog (watch_recordings_catalog.json) under Application Support (NOT
+  temporaryDirectory) — loads on launch, drops catalog entries whose audio file
+  is missing (partial-write recovery), atomic catalog writes,
+  register/update/setSyncState/delete + per-recording audio/measurement URLs,
+  @Published recordings (newest-first) for task-4; shared singleton with an
+  immutable let directory the audio thread can read safely. Rewrote
+  WatchRecordingSession.swift: stable id; writes <id>.caf + <id>.swr under the
+  store dir; opens a MeasurementDataWriter (metricKeys LAF/LAeq/LCpeak,
+  fps = sampleRate/bufferSize, no full-FFT payload); writeMeasurementFrame
+  projects the calculator levels dict onto the fixed key order; finalize(title:)
+  flushes both files and returns durable metadata (idempotent). Wired
+  WatchAudioEngine: standalone startRecording opens the session BEFORE
+  audioEngine.start() (captures first frames); processAudioBuffer feeds audio +
+  one measurement frame per buffer (the writer dispatches disk I/O off the audio
+  thread); stopRecording finalizes + registers in the catalog AFTER the tap is
+  removed (no frame race, no double-finalize); the existing
+  WKExtendedRuntimeSession willExpire/didInvalidate handlers already route to
+  stopRecording on main, so an expired/missed session flushes cleanly.
+  Companion/wearableMic keep activeRecordingSession nil (phone owns storage).
+  iOS + watchOS builds both green (sequential; shared DerivedData rejects
+  concurrent builds). current_task → M21/task-3 (in_progress). Remaining for
+  task-3 is hardware relaunch-durability + no-corrupt-on-abrupt-end (folded into
+  M21/task-6). Next code-side: M21/task-4 (watch recordings UI — list/detail/
+  delete backed by WatchRecordingStore, sync-state indicators).
+  ---
+  M21 (Standalone Watch App) task-2 code-side complete (2026-05-30): shared the
+  DSP/metrics implementation to the watch and replaced its broadband placeholder
+  with real IEC 61672 metrics. git mv'd AcousticMetricsCalculator.swift (from
+  SpektoWatch2/Managers/) and FrequencyWeightingProcessor.swift (from
+  SpektoWatch2/Processing/) into Shared/ — both the iOS app and SpektoWatch Watch
+  App targets include the Shared/ synchronized group, so the files now compile
+  into both platforms from one source with no pbxproj edits and no duplicate
+  symbols (verified each symbol — MetricsResult, TimeWeighting,
+  AcousticMetricsCalculator, FrequencyWeighting, FrequencyWeightingProcessor — is
+  defined exactly once; watch had no competing definition). WatchAudioEngine now
+  computes real metrics: performFFT captures linear magnitudes (memcpy into a
+  preallocated buffer) before the dB conversion; processAudioBuffer derives Z/A/C
+  band energy via vDSP_vsq + vDSP_sve (Z) and vDSP_dotpr against the processor's
+  squared weighting gains (A, C), applies the mic calibration offset in the
+  energy domain (pow(10, offset/10)), computes LCpeak via vDSP_vmul(C gains) +
+  vDSP_maxv, then feeds metricsCalculator.updateMetrics() for time-integrated
+  levels; SpectrogramData now carries the real LAF/LAeq/LCpeak dictionary instead
+  of ["LAF": levelSPL, "LAeq": levelSPL]. Removed now-unused lafEnergy /
+  linearPowerScratch. Watch FFT config: 2048 @ 44100 Hz. All scratch buffers
+  preallocated — audio render thread stays real-time-safe. iOS + watchOS builds
+  both green (run sequentially; shared DerivedData rejects concurrent builds).
+  current_task → M21/task-2 (in_progress). Remaining for task-2 is the on-device
+  ±1.0 dB parity check vs the phone (folded into M21/task-6). Next code-side:
+  M21/task-3 (durable on-watch recordings store — catalog + metadata + .swr
+  writer outside temporaryDirectory, relaunch durability, WKExtendedRuntimeSession
+  flush, stable recording id).
+  ---
+  M21 (Standalone Watch App) task-1 code-side landed (2026-05-30): standalone
+  activation + phone-absent UX. New PersistenceKeys.Watch.standaloneEnabled;
+  WatchAudioEngine gains @Published standaloneEnabled + setStandaloneEnabled()
+  (persists, re-points idle live-data source, no-op while recording). init no
+  longer unconditionally subscribes to the phone — when standalone is the saved
+  preference it starts in .standalone and skips the subscription (launch never
+  assumes/waits on a phone). startRecording → .standalone vs .wearableMic by
+  preference; stopRecording stays .standalone (clears live display) instead of
+  reverting to .companion. WatchDashboardView adds a standaloneToggle
+  (applewatch/iphone glyph, disabled mid-recording) and the record button skips
+  requestWearableRecording{Start,Stop} in standalone. WCSession no-blocking-wait
+  audit clean (all sends isReachable-guarded + replyHandler:nil; no semaphores).
+  watchOS build green. Remaining for task-1 is hardware verify (folded into
+  M21/task-6). current_task → M21/task-1 (in_progress). Next code-side: M21/task-2
+  (share AcousticMetricsCalculator + MeasurementDataFormat to the watch target
+  for real LAeq/LCpeak).
+  ---
+  M20 (Live Activities) task-2 code-side complete (2026-05-30): user created the
+  SpektoWatch2WidgetExtension target (synchronized root group SpektoWatch2Widget/,
+  embedded in the app); Shared/MeasurementActivityAttributes.swift added to its
+  membership via a pbxproj membership exception. Replaced Xcode's placeholder
+  SpektoWatch2WidgetLiveActivity.swift with the real measurement Live Activity on
+  MeasurementActivityAttributes (Lock Screen + Dynamic Island compact/minimal/
+  expanded: live dB(weighting), peak, .timer elapsed, recording/paused); kept the
+  struct name so SpektoWatch2WidgetBundle stays valid. Stripped the generated
+  template static widget + Control Center widget (deleted SpektoWatch2Widget.swift,
+  SpektoWatch2WidgetControl.swift, AppIntent.swift; bundle now lists only the live
+  activity). Removed the redundant staged SpektoWatchLiveActivity/ file. iOS app
+  scheme builds green; SpektoWatch2WidgetExtension.appex embeds in
+  SpektoWatch2.app/PlugIns and host NSSupportsLiveActivities=true. ONLY REMAINING:
+  on-device acceptance (hardware) — Lock Screen + Dynamic Island render, ~1 Hz
+  updates, elapsed timer counts smoothly, ends on stop, no ActivityKit budget
+  errors. No further code-side work available; M20/task-2 is hardware-gated.
+  Prior (2026-05-29): DCT/Mel visual spectrogram pipeline (cblas_sgemv
+  128×1024 at 86 Hz, commit a0e872e) removed from the audio render thread;
+  SpectrogramData.visualFrequencies/visualMagnitudes now always nil; spectrogram
+  uses the FFT path exclusively. M9/task-8: preset highlight tolerance → 5%
+  relative; amplitude slider → perceptual sqrt/square mapping.
 parked:
   - milestone: M8
     task: task-2-acceptance
@@ -1016,11 +1235,16 @@ active_context:
     Phase-2 deferred. M7/M8 parked on hardware/Xcode Cloud.
     All work on branch redesign/liquid-glass.
 
+    Critical regression fixed (2026-05-29): DCT/Mel visual spectrogram pipeline
+    (cblas_sgemv 128×1024 at 86 Hz on the audio render thread) removed.
+    Introduced in commit a0e872e; caused audio-thread overrun + blurry display.
+    AudioEngine.swift no longer calls computeDBMagnitudes; SpectrogramData
+    always has visualFrequencies/visualMagnitudes = nil. Spectrogram now uses
+    FFT path exclusively. iOS BUILD SUCCEEDED.
+
     TT-1 resolved (2026-05-29): SpektoWatch2Tests uses
     PBXFileSystemSynchronizedRootGroup — all .swift files in the test
-    directory are auto-compiled. RecordingPersistenceDurabilityTests,
-    WatchDSPParityTests, StoredDataProviderTests, LCpeakComputationTests
-    all run and pass without any pbxproj changes.
+    directory are auto-compiled. No pbxproj changes needed.
 
     Hardware acceptance still open for:
     - M19: Instruments re-trace on iPhone 12 mini (task-7).
@@ -1034,13 +1258,11 @@ active_context:
     - M17: UI-1…UI-7 on-device scenarios.
     - M18: Xcode Cloud run with UI tests enabled.
 
-    Next code work: M20 (see below) or M10 (gated on App Group registration).
-    No TT-1 manual action needed — already resolved by file-system sync.
-
-    Previously noted: Manual action (TT-1): wire new test files into Xcode target.
-    RecordingPersistenceDurabilityTests.swift, WatchDSPParityTests.swift,
-    StoredDataProviderTests.swift, and LCpeakComputationTests.swift
-    to SpektoWatch2Tests target membership in Xcode (TT-1 Critical).
+    M10 (iOS Standalone Widgets) deferred 2026-05-30 by user direction.
+    Active focus: M20 (Live Activities) on-device acceptance (task-2) and
+    M21 (Standalone Watch) hardware acceptance (task-6). Consider regenerating
+    simulator screenshots now that local simulator is available
+    (agent/scripts/capture-screenshots.py).
 
     Parked / gated tracks:
     - M8 task-2 acceptance: gated on hardware/Xcode Cloud validation.

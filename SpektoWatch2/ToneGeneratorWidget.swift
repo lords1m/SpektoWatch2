@@ -311,15 +311,17 @@ struct OscilloscopeView: View {
     var layoutMode: LayoutMode = .fill
     var tiltOffsetNormalized: Float = 0.0
 
-    @State private var phase: Double = 0.0
     @State private var accumulatedScrollPoints: Double = 0.0
     @State private var dragTranslationPoints: Double = 0.0
-    private let timer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
+    /// Wall-clock time when playback last started. Phase = elapsed × frequency × 2π,
+    /// derived at draw time rather than accumulated via timer ticks — no drift, no
+    /// subscription-restart flicker when the parent view re-renders.
+    @State private var animationStartDate: Date = .distantPast
     private let speedOfSoundMetersPerSecond: Double = 344.0
 
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         let traitCollection = UITraitCollection { mutableTraits in
             mutableTraits.displayScale = displayScale
@@ -327,17 +329,27 @@ struct OscilloscopeView: View {
         let pointsPerMillimeter = Double(PhysicalScopeScale.pointsPerMillimeter(for: traitCollection))
         let cornerRadius: CGFloat = 10
 
-        return Group {
-            switch layoutMode {
-            case .physicalFixed:
-                let scopeSize = PhysicalScopeScale.scopeSizePoints(for: traitCollection)
-                scopeContent(viewportSize: scopeSize, pointsPerMillimeter: pointsPerMillimeter)
-                    .frame(width: scopeSize.width, height: scopeSize.height)
-                    .frame(maxWidth: .infinity)
-            case .fill:
-                GeometryReader { geometry in
-                    scopeContent(viewportSize: geometry.size, pointsPerMillimeter: pointsPerMillimeter)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+        // TimelineView drives animation without a per-struct Combine subscription.
+        // When the parent re-renders (e.g. isPlaying toggles), the TimelineView
+        // schedule is preserved by the view graph — no subscription cancel/restart
+        // = no dropped animation frame = no flicker.
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isPlaying)) { context in
+            let phase = isPlaying
+                ? context.date.timeIntervalSince(animationStartDate) * Double(frequency) * 2.0 * .pi
+                : 0.0
+
+            Group {
+                switch layoutMode {
+                case .physicalFixed:
+                    let scopeSize = PhysicalScopeScale.scopeSizePoints(for: traitCollection)
+                    scopeContent(phase: phase, viewportSize: scopeSize, pointsPerMillimeter: pointsPerMillimeter)
+                        .frame(width: scopeSize.width, height: scopeSize.height)
+                        .frame(maxWidth: .infinity)
+                case .fill:
+                    GeometryReader { geometry in
+                        scopeContent(phase: phase, viewportSize: geometry.size, pointsPerMillimeter: pointsPerMillimeter)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
                 }
             }
         }
@@ -370,16 +382,8 @@ struct OscilloscopeView: View {
                     dragTranslationPoints = 0
                 }
         )
-        .onReceive(timer) { _ in
-            if isPlaying {
-                // Animate phase - move waveform to simulate real-time playback
-                // Phase increment per frame at 60fps
-                let phaseIncrement = 2.0 * .pi * Double(frequency) / 60.0
-                phase += phaseIncrement
-                if phase > 2.0 * .pi * 1000 {
-                    phase = phase.truncatingRemainder(dividingBy: 2.0 * .pi)
-                }
-            }
+        .onChange(of: isPlaying) { _, playing in
+            if playing { animationStartDate = Date() }
         }
     }
 
@@ -422,7 +426,7 @@ struct OscilloscopeView: View {
         .allowsHitTesting(false)
     }
 
-    private func scopeContent(viewportSize: CGSize, pointsPerMillimeter: Double) -> some View {
+    private func scopeContent(phase: Double, viewportSize: CGSize, pointsPerMillimeter: Double) -> some View {
         let totalDistanceMm = Double(viewportSize.width) / pointsPerMillimeter
         let tiltScrollPoints = Double(tiltOffsetNormalized) * Double(viewportSize.width) * 1.5
         let scrollPoints = accumulatedScrollPoints - dragTranslationPoints + tiltScrollPoints
@@ -446,7 +450,7 @@ struct OscilloscopeView: View {
                 for x in stride(from: 0, to: Double(size.width), by: 1) {
                     let sampleX = x + scrollPoints
                     let cyclePosition = sampleX / wavelengthPoints
-                    let currentPhase = (cyclePosition * 2.0 * .pi) + (isPlaying ? phase : 0)
+                    let currentPhase = (cyclePosition * 2.0 * .pi) + phase
 
                     let sample: Double
                     switch waveform {
@@ -617,46 +621,55 @@ private struct PianoInputView: View {
             let blackW = whiteW * 0.62
             let blackH = geo.size.height * 0.60
 
-            ZStack(alignment: .topLeading) {
-                // White keys
-                ForEach(0..<7, id: \.self) { i in
+            // Canvas renders all keys in one pass — avoids the ZStack+offset
+            // hit-testing bug where .offset moves pixels but not the tap region.
+            Canvas { ctx, size in
+                for i in 0..<7 {
                     let note = MusicalNote(name: whiteNames[i], octave: octave)
                     let isSelected = selectedNote == note
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(isSelected ? Color.blue.opacity(0.75) : Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5)
-                        )
-                        .overlay(alignment: .bottom) {
-                            if isSelected {
-                                Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 6, height: 6)
-                                    .padding(.bottom, 4)
-                            }
-                        }
-                        .frame(width: whiteW, height: geo.size.height)
-                        .offset(x: CGFloat(i) * (whiteW + spacing))
-                        .contentShape(Rectangle())
-                        .onTapGesture { onNoteSelected(note) }
+                    let x = CGFloat(i) * (whiteW + spacing)
+                    let rect = CGRect(x: x, y: 0, width: whiteW, height: size.height)
+                    let path = Path(roundedRect: rect, cornerRadius: 3, style: .continuous)
+                    ctx.fill(path, with: .color(isSelected ? Color.blue.opacity(0.75) : Color.white))
+                    ctx.stroke(path, with: .color(.black.opacity(0.25)), lineWidth: 0.5)
+                    if isSelected {
+                        let r: CGFloat = 3
+                        let dot = Path(ellipseIn: CGRect(
+                            x: x + whiteW / 2 - r, y: size.height - 4 - r * 2,
+                            width: r * 2, height: r * 2))
+                        ctx.fill(dot, with: .color(.blue))
+                    }
                 }
-
-                // Black keys (drawn on top)
-                ForEach(0..<blackKeys.count, id: \.self) { idx in
-                    let (leftIdx, name) = (blackKeys[idx].0, blackKeys[idx].1)
+                for (leftIdx, name) in blackKeys {
                     let note = MusicalNote(name: name, octave: octave)
                     let isSelected = selectedNote == note
-                    let xPos = CGFloat(leftIdx) * (whiteW + spacing)
-                               + whiteW + spacing / 2 - blackW / 2
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(isSelected ? Color.blue : Color.black)
-                        .frame(width: blackW, height: blackH)
-                        .offset(x: xPos)
-                        .contentShape(Rectangle())
-                        .onTapGesture { onNoteSelected(note) }
+                    let xPos = CGFloat(leftIdx) * (whiteW + spacing) + whiteW + spacing / 2 - blackW / 2
+                    let rect = CGRect(x: xPos, y: 0, width: blackW, height: blackH)
+                    let path = Path(roundedRect: rect, cornerRadius: 2, style: .continuous)
+                    ctx.fill(path, with: .color(isSelected ? Color.blue : Color.black))
                 }
             }
+            // Single gesture checks black keys first (they sit on top visually).
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
+                        let hit = value.location
+                        for (leftIdx, name) in blackKeys {
+                            let xPos = CGFloat(leftIdx) * (whiteW + spacing) + whiteW + spacing / 2 - blackW / 2
+                            if CGRect(x: xPos, y: 0, width: blackW, height: blackH).contains(hit) {
+                                onNoteSelected(MusicalNote(name: name, octave: octave))
+                                return
+                            }
+                        }
+                        for i in 0..<7 {
+                            let xPos = CGFloat(i) * (whiteW + spacing)
+                            if CGRect(x: xPos, y: 0, width: whiteW, height: geo.size.height).contains(hit) {
+                                onNoteSelected(MusicalNote(name: whiteNames[i], octave: octave))
+                                return
+                            }
+                        }
+                    }
+            )
         }
     }
 }
@@ -667,7 +680,7 @@ struct ToneGeneratorWidget: View {
     @StateObject private var toneGenerator = ToneGenerator()
     @State private var showFullscreenOscilloscope = false
     private let outerPadding: CGFloat = 10
-    private let minOscilloscopeHeight: CGFloat = 100
+    private let minOscilloscopeHeight: CGFloat = 50
 
     private enum InputMode: String {
         case hz = "Hz"
@@ -730,7 +743,7 @@ struct ToneGeneratorWidget: View {
                     isPlaying: toneGenerator.isPlaying
                 )
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: minOscilloscopeHeight, maxHeight: .infinity)
+                .frame(height: minOscilloscopeHeight)
                 .gesture(
                     MagnificationGesture()
                         .onEnded { scale in
@@ -807,7 +820,10 @@ struct ToneGeneratorWidget: View {
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(
-                                        abs(toneGenerator.frequency - preset.1) < 1 ?
+                                        // 5 % relative tolerance so drag-release near a
+                                        // preset highlights correctly (1 Hz was too tight
+                                        // on the log-scaled slider — M9 task-8 finding).
+                                        abs(toneGenerator.frequency - preset.1) / preset.1 < 0.05 ?
                                         Color.blue : Color.gray.opacity(0.3)
                                     )
                                     .foregroundColor(.white)
@@ -871,8 +887,16 @@ struct ToneGeneratorWidget: View {
                     Image(systemName: "speaker.fill")
                         .font(.caption)
                         .foregroundColor(.gray)
-                    Slider(value: $toneGenerator.amplitude, in: 0...1)
-                        .frame(width: 80)
+                    // sqrt/square mapping: slider position is perceptually linear
+                    // (loudness ≈ amplitude²); stored value remains 0…1 amplitude
+                    Slider(
+                        value: Binding(
+                            get: { sqrt(max(0, toneGenerator.amplitude)) },
+                            set: { toneGenerator.amplitude = $0 * $0 }
+                        ),
+                        in: 0...1
+                    )
+                    .frame(width: 80)
                     Image(systemName: "speaker.wave.3.fill")
                         .font(.caption)
                         .foregroundColor(.gray)

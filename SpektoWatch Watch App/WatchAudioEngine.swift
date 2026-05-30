@@ -10,6 +10,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// Widgets observe `$liveData` instead of branching on `isRecording`.
     @Published private(set) var operatingMode: WatchOperatingMode = .companion
 
+    /// User preference: operate watch-first (standalone) instead of as a phone
+    /// companion. Persisted in `UserDefaults`. When set, a recording captures
+    /// with the watch mic into `.standalone` mode (local storage, no phone
+    /// coordination); when clear, recording uses `.wearableMic` and hands the
+    /// mic back to the phone (`.companion`) on stop.
+    @Published private(set) var standaloneEnabled: Bool
+
     private var phoneSpectrogramSubscription: AnyCancellable?
     private var audioEngine: AVAudioEngine
     private let bufferSize: AVAudioFrameCount = 4096
@@ -33,6 +40,11 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var imagOut: [Float]              // N/2
     private var window: [Float]
     private var fftMagnitudes: [Float]
+    // Linear-amplitude copy of the FFT magnitudes, captured before the dB
+    // conversion in `performFFT`. Reused for weighted-energy + LCpeak math so
+    // the watch produces real IEC 61672 metrics (LAeq, LCpeak) rather than a
+    // broadband-as-LAeq placeholder. Preallocated — no audio-thread allocation.
+    private var fftLinearMagnitudes: [Float]
     private let visualDCT: vDSP.DCT
     private var visualWindowedSamples: [Float]
     private var visualCoefficients: [Float]
@@ -41,14 +53,28 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     #if DEBUG
     private var debugFrameCount = 0
     #endif
-    private var lafEnergy: Float = 1e-12
     private let watchMicCalibrationOffset: Float = 100.0
 
-    // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate)
-    // and a scratch buffer for converting magnitude-dB to linear power for energy summation.
+    // Real IEC 61672 metrics on the watch (M21/task-2). Shared with iOS via
+    // `Shared/`. `weightingProcessor` supplies the precomputed A/C gain curves;
+    // `metricsCalculator` integrates LAeq and holds LCpeak across the session.
+    private let weightingProcessor: FrequencyWeightingProcessor
+    private let metricsCalculator: AcousticMetricsCalculator
+    private var fftEnergyScratch: [Float]
+    private var lcPeakScratch: [Float]
+    /// Set on the main thread at recording start; read on the audio thread to
+    /// derive the running recording duration for the calculator's Taktmaximal.
+    private var recordingStartDate: Date?
+
+    /// Active durable recording (standalone only). Created before the engine
+    /// starts so the first audio frames are captured; the audio thread feeds it
+    /// per buffer and `stopRecording` finalizes + registers it in the catalog.
+    /// `nil` in companion/wearableMic modes where the phone owns storage.
+    private var activeRecordingSession: WatchRecordingSession?
+
+    // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate).
     private let binFrequencies: [Float]
     private let displayVisualFrequencies: [Float]
-    private var linearPowerScratch: [Float]
 
     // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
     // and `Array(samples.prefix(fftSize))` allocations.
@@ -79,6 +105,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
     init(connectivityManager: WatchConnectivityManager) {
         self.connectivityManager = connectivityManager
+        self.standaloneEnabled = UserDefaults.standard.bool(forKey: PersistenceKeys.Watch.standaloneEnabled)
         audioEngine = AVAudioEngine()
         
         // FFT Setup initialisieren
@@ -98,12 +125,16 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         imagOut = [Float](repeating: 0, count: fftSize / 2)
         window = [Float](repeating: 0, count: fftSize)
         fftMagnitudes = [Float](repeating: 0, count: fftSize / 2)
+        fftLinearMagnitudes = [Float](repeating: 0, count: fftSize / 2)
+        fftEnergyScratch = [Float](repeating: 0, count: fftSize / 2)
+        lcPeakScratch = [Float](repeating: 0, count: fftSize / 2)
+        weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: sampleRate)
+        metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
         visualWindowedSamples = [Float](repeating: 0, count: fftSize)
         visualCoefficients = [Float](repeating: 0, count: fftSize)
         visualMagnitudes = [Float](repeating: 0, count: fftSize)
         displayVisualMagnitudes = [Float](repeating: -180.0, count: Self.displayVisualBinCount)
         fftInputScratch = [Float](repeating: 0, count: fftSize)
-        linearPowerScratch = [Float](repeating: 0, count: fftSize / 2)
 
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_DENORM))
 
@@ -121,7 +152,16 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // Companion mode by default: forward phone spectrogram into liveData.
         // The subscription is replaced when we transition into wearableMic mode
         // so we don't pay for two streams at once.
-        subscribeToPhoneSpectrogram()
+        //
+        // Phone-absent UX (M21/task-1): if the user has chosen standalone, the
+        // watch is the source of truth — start in `.standalone` and do NOT
+        // subscribe to the phone. Launch never blocks on or assumes a present
+        // phone in this mode.
+        if standaloneEnabled {
+            operatingMode = .standalone
+        } else {
+            subscribeToPhoneSpectrogram()
+        }
 
         NotificationCenter.default.addObserver(
             self,
@@ -172,13 +212,31 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         print("[WatchAudioEngine] Gain set to \(self.gain)")
     }
 
+    /// Toggle the watch-first (standalone) preference. Persists the choice and,
+    /// when idle, re-points the live-data source: standalone drops the phone
+    /// subscription (watch-first), companion re-subscribes. A no-op while
+    /// recording — the active capture finishes in its current mode and the new
+    /// preference takes effect on the next start/stop.
+    func setStandaloneEnabled(_ enabled: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard enabled != standaloneEnabled else { return }
+        standaloneEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        guard !isRecording else { return }
+        transition(to: enabled ? .standalone : .companion)
+    }
+
     func startRecording() {
         print("[WatchAudioEngine] Starting...")
         let session = AVAudioSession.sharedInstance()
         
         let handlePermission: (Bool) -> Void = { [weak self] granted in
             guard granted, let self = self else { return }
-            
+
+            // Fresh integration window for LAeq/LCpeak each session.
+            self.metricsCalculator.reset()
+            self.recordingStartDate = Date()
+
             do {
                 // Configure audio session BEFORE querying inputNode format or installing tap,
                 // otherwise the tap may be installed with the wrong sample rate/channel layout.
@@ -188,6 +246,23 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                 let inputNode = self.audioEngine.inputNode
                 inputNode.removeTap(onBus: 0) // Remove existing tap to prevent crash
                 let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+                // Standalone: open a durable on-watch recording (audio + .swr)
+                // BEFORE the engine starts so the first frames are captured. In
+                // companion/wearableMic the phone owns storage — no local file.
+                if self.standaloneEnabled {
+                    let fps = Float(self.sampleRate) / Float(self.bufferSize)
+                    do {
+                        self.activeRecordingSession = try WatchRecordingSession(
+                            format: recordingFormat,
+                            directory: WatchRecordingStore.shared.directory,
+                            weighting: "A",
+                            fps: fps)
+                    } catch {
+                        print("[WatchAudioEngine] failed to open recording session: \(error)")
+                        self.activeRecordingSession = nil
+                    }
+                }
 
                 inputNode.installTap(onBus: 0, bufferSize: self.bufferSize, format: recordingFormat) { [weak self] buffer, _ in
                     self?.processAudioBuffer(buffer)
@@ -202,10 +277,12 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
                 DispatchQueue.main.async {
                     self.isRecording = true
-                    // Watch mic is now driving — switch into wearableMic mode and
+                    // Watch mic is now driving — switch into the watch-mic mode and
                     // detach the phone-spectrogram subscription so liveData reflects
-                    // the local FFT exclusively.
-                    self.transition(to: .wearableMic)
+                    // the local FFT exclusively. Standalone keeps the recording
+                    // phone-independent (local storage, opportunistic later sync);
+                    // wearableMic coordinates with a present phone.
+                    self.transition(to: self.standaloneEnabled ? .standalone : .wearableMic)
                 }
                 print("[WatchAudioEngine] Started successfully")
             } catch {
@@ -229,10 +306,35 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         session?.invalidate()
         session = nil
 
+        // The tap is removed — no more audio frames. Flush both files to disk
+        // and add the recording to the durable catalog. Done before clearing
+        // isRecording so a missed/expired runtime session can't double-finalize.
+        if let recordingSession = activeRecordingSession {
+            activeRecordingSession = nil
+            let title = WatchAudioEngine.defaultRecordingTitle(for: recordingSession.startDate)
+            let metadata = recordingSession.finalize(title: title)
+            WatchRecordingStore.shared.register(metadata)
+            // Opportunistically offer the fresh recording to the phone. The
+            // transfer is OS-queued, so this is safe even if not reachable yet;
+            // reachability/activation also retry via syncPendingRecordings.
+            connectivityManager.syncPendingRecordings()
+        }
+
         isRecording = false
-        // Hand the microphone back to the phone — re-enter companion mode
-        // and resubscribe to phone spectrogram updates.
-        transition(to: .companion)
+        // Hand the microphone back to the phone — re-enter companion mode and
+        // resubscribe to phone spectrogram updates. In standalone the user is
+        // watch-first: stay phone-independent (no resubscribe), just clear the
+        // live display.
+        if standaloneEnabled {
+            transition(to: .standalone)
+            // transition() is a no-op when already in `.standalone`; clear the
+            // live display directly so a stopped recording doesn't leave the
+            // last frame frozen on screen.
+            currentSpectrogramData = nil
+            liveData = nil
+        } else {
+            transition(to: .companion)
+        }
         print("[WatchAudioEngine] Stopped")
     }
 
@@ -323,28 +425,60 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         performFFT(fftInputScratch)
         performVisualDCT(fftInputScratch)
 
-        // LAF energy: convert dB → linear power, then sum with vDSP_sve.
-        // 10^(magDB/10) is equivalent to exp(magDB * ln(10) / 10).
-        var scale = Float(log(10.0) / 10.0)
-        let n = vDSP_Length(fftMagnitudes.count)
-        vDSP_vsmul(fftMagnitudes, 1, &scale, &linearPowerScratch, 1, n)
-        vForce.exp(linearPowerScratch, result: &linearPowerScratch)
-        var frameEnergy: Float = 0
-        vDSP_sve(linearPowerScratch, 1, &frameEnergy, n)
+        // Real IEC 61672 metrics (M21/task-2), mirroring the iOS AudioEngine:
+        // square the linear spectrum to per-bin energy, then derive Z/A/C frame
+        // energies via dot-products with the precomputed (squared) weighting
+        // gains. Calibration is applied in the energy domain so the calculator
+        // emits dB SPL directly.
+        let energyCount = min(fftLinearMagnitudes.count,
+                              min(weightingProcessor.aWeightingGainsSq.count,
+                                  weightingProcessor.cWeightingGainsSq.count))
+        vDSP_vsq(fftLinearMagnitudes, 1, &fftEnergyScratch, 1, vDSP_Length(energyCount))
 
-        // EMA: τ = 125 ms (IEC 61672 "F"), dt = fftSize / sampleRate ≈ 46 ms
+        var energyZ: Float = 0
+        var energyA: Float = 0
+        var energyC: Float = 0
+        vDSP_sve(fftEnergyScratch, 1, &energyZ, vDSP_Length(energyCount))
+        vDSP_dotpr(fftEnergyScratch, 1, weightingProcessor.aWeightingGainsSq, 1, &energyA, vDSP_Length(energyCount))
+        vDSP_dotpr(fftEnergyScratch, 1, weightingProcessor.cWeightingGainsSq, 1, &energyC, vDSP_Length(energyCount))
+
+        let calibrationFactor = pow(Float(10.0), watchMicCalibrationOffset / 10.0)
+        energyZ *= calibrationFactor
+        energyA *= calibrationFactor
+        energyC *= calibrationFactor
+
+        // LCpeak: per-bin C-weighted amplitude peak → dB SPL (frequency-domain
+        // peak detector; same approach as iOS).
+        let cGains = weightingProcessor.getWeightingGains(for: .c)
+        let lcPeakCount = min(fftLinearMagnitudes.count, cGains.count)
+        vDSP_vmul(fftLinearMagnitudes, 1, cGains, 1, &lcPeakScratch, 1, vDSP_Length(lcPeakCount))
+        var cPeakLinear: Float = 0
+        vDSP_maxv(lcPeakScratch, 1, &cPeakLinear, vDSP_Length(lcPeakCount))
+        let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + watchMicCalibrationOffset
+
         let dt: Float = Float(fftSize) / Float(sampleRate)
-        let alpha = 1.0 - exp(-dt / 0.125)
-        lafEnergy = (1.0 - alpha) * lafEnergy + alpha * frameEnergy
-        let levelDBFS = 10.0 * log10(lafEnergy + 1e-12)
-        let levelSPL = levelDBFS + watchMicCalibrationOffset
+        let recordingDuration = recordingStartDate.map { Date().timeIntervalSince($0) } ?? 0
 
-        // Compute phon + sone using the shared static ISO 226 helpers.
-        // No instance allocation — static lookup table precomputed at class load.
-        let dominantFreq = LoudnessCalculator.dominantFrequency(
-            frequencies: binFrequencies, magnitudes: fftMagnitudes)
-        let phonVal = LoudnessCalculator.phon(spl: Double(levelSPL), frequency: dominantFreq)
-        let soneVal = LoudnessCalculator.sone(phon: phonVal)
+        let metricsResult = metricsCalculator.updateMetrics(
+            energyZ: energyZ,
+            energyA: energyA,
+            energyC: energyC,
+            peakLevel: lcPeak,
+            dt: dt,
+            recordingDuration: recordingDuration,
+            frequencies: binFrequencies,
+            magnitudes: fftMagnitudes)
+        let levels = metricsResult.levels
+        let levelSPL = levels["LAF"] ?? -120.0
+
+        // Durable standalone capture: persist this buffer's audio + metrics.
+        // The session's writers are internally thread-safe (the .swr writer
+        // dispatches disk I/O off this audio thread); audioFile.write is the
+        // same call the engine already makes for live FFT.
+        if let session = activeRecordingSession {
+            session.writeBuffer(buffer)
+            session.writeMeasurementFrame(levels: levels, timestamp: Float(recordingDuration))
+        }
 
         // `binFrequencies` is a single immutable property — no per-frame rebuild.
         let data = SpectrogramData(frequencies: binFrequencies,
@@ -352,10 +486,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                                    visualFrequencies: displayVisualFrequencies,
                                    visualMagnitudes: displayVisualMagnitudes,
                                    broadbandLevel: levelSPL,
-                                   levels: ["LAF": levelSPL,
-                                            "LAeq": levelSPL,
-                                            "PHON": Float(phonVal),
-                                            "SONE": Float(soneVal)],
+                                   levels: levels,
                                    sampleRate: sampleRate)
 
         if connectivityManager.selectedMicrophoneSource == .appleWatch {
@@ -448,6 +579,15 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         var scale: Float = 2.0 / Float(fftSize)
         vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
 
+        // Capture the linear-amplitude spectrum before the dB conversion below.
+        // Preallocated destination → no audio-thread allocation. Used for the
+        // weighted-energy and LCpeak math in `processAudioBuffer`.
+        fftLinearMagnitudes.withUnsafeMutableBufferPointer { dst in
+            fftMagnitudes.withUnsafeBufferPointer { src in
+                memcpy(dst.baseAddress!, src.baseAddress!, dst.count * MemoryLayout<Float>.stride)
+            }
+        }
+
         // Epsilon addieren um log(0) = -inf zu vermeiden
         var epsilon: Float = 1e-9
         vDSP_vsadd(fftMagnitudes, 1, &epsilon, &fftMagnitudes, 1, vDSP_Length(fftMagnitudes.count))
@@ -527,6 +667,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
     }
     
+    /// Human-readable default title for a freshly captured recording.
+    private static func defaultRecordingTitle(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy HH:mm"
+        return "Aufnahme \(formatter.string(from: date))"
+    }
+
     // MARK: - WKExtendedRuntimeSessionDelegate
 
     func extendedRuntimeSession(_ session: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: Error?) {

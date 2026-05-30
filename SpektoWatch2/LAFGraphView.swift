@@ -5,6 +5,7 @@ struct LevelHistoryView: View {
     @ObservedObject private var live: LiveAcousticState
     private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
     private let timeWeightingPublisher: Published<TimeWeighting>.Publisher
+    private let spectrogramDataPublisher: Published<SpectrogramData?>.Publisher
     var settings: [String: String]
     var scrollSpeed: ScrollSpeed = .fast
     var isPaused: Bool
@@ -16,6 +17,7 @@ struct LevelHistoryView: View {
         _live = ObservedObject(initialValue: audioEngine.live)
         self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
         self.timeWeightingPublisher = audioEngine.$timeWeighting
+        self.spectrogramDataPublisher = audioEngine.live.$currentSpectrogramData
         self.settings = settings
         self.scrollSpeed = scrollSpeed
         self.isPaused = isPaused
@@ -162,7 +164,7 @@ struct LevelHistoryView: View {
             }
             .drawingGroup()
         }
-        .onReceive(live.$currentSpectrogramData) { data in
+        .onReceive(spectrogramDataPublisher) { data in
             guard let data = data, !isPaused else { return }
             observedSampleRate = data.sampleRate
             let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel

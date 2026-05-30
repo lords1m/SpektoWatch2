@@ -117,6 +117,7 @@ struct WatchDashboardView: View {
                         .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
                         .frame(width: 4, height: 4)
                         .animation(.easeInOut(duration: 0.3), value: isRecording)
+                    standaloneToggle
                     Spacer()
                     recordButton
                 }
@@ -158,13 +159,35 @@ struct WatchDashboardView: View {
         }
     }
 
+    /// Watch-first vs companion toggle. In standalone the watch captures and
+    /// stores locally without coordinating record start/stop with the phone.
+    /// Disabled mid-recording — the preference applies to the next session.
+    private var standaloneToggle: some View {
+        Button(action: {
+            audioEngine.setStandaloneEnabled(!audioEngine.standaloneEnabled)
+            WKInterfaceDevice.current().play(.click)
+        }) {
+            Image(systemName: audioEngine.standaloneEnabled ? "applewatch" : "iphone")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(audioEngine.standaloneEnabled ? WatchStylePalette.accentBlue : .gray)
+        }
+        .buttonStyle(.plain)
+        .disabled(isRecording)
+        .accessibilityIdentifier("watchStandaloneToggle")
+        .accessibilityLabel(audioEngine.standaloneEnabled ? "Standalone mode" : "Companion mode")
+    }
+
     private var recordButton: some View {
         Button(action: {
             if isRecording {
                 audioEngine.stopRecording()
-                connectivityManager.requestWearableRecordingStop()
+                if !audioEngine.standaloneEnabled {
+                    connectivityManager.requestWearableRecordingStop()
+                }
             } else {
-                connectivityManager.requestWearableRecordingStart()
+                if !audioEngine.standaloneEnabled {
+                    connectivityManager.requestWearableRecordingStart()
+                }
                 audioEngine.startRecording()
             }
             WKInterfaceDevice.current().play(.success)

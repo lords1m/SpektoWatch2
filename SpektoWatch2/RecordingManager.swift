@@ -55,11 +55,29 @@ final class RecordingManager: NSObject, ObservableObject {
         currentRecordingDuration = 0
         pendingAudioURL = createPlaceholderRecordingFile()
 
+        #if canImport(ActivityKit)
+        MeasurementLiveActivityController.shared.start(
+            sessionTitle: "Messung",
+            weighting: audioEngine.frequencyWeighting.rawValue,
+            startedAt: recordingStartTime ?? Date()
+        )
+        #endif
+
         let startTime = recordingStartTime
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self, weak audioEngine] _ in
             guard let self, let start = startTime else { return }
             Task { @MainActor in
                 self.currentRecordingDuration = Date().timeIntervalSince(start)
+                #if canImport(ActivityKit)
+                if let audioEngine {
+                    MeasurementLiveActivityController.shared.update(
+                        currentLevel: Double(audioEngine.live.currentLevel),
+                        peakLevel: Double(audioEngine.live.currentPeakLevel),
+                        weighting: audioEngine.frequencyWeighting.rawValue,
+                        isPaused: false
+                    )
+                }
+                #endif
             }
         }
         return true
@@ -78,6 +96,10 @@ final class RecordingManager: NSObject, ObservableObject {
         recordingStartTime = nil
         timer?.invalidate()
         timer = nil
+
+        #if canImport(ActivityKit)
+        MeasurementLiveActivityController.shared.end()
+        #endif
 
         let engineURL = audioEngine.lastRecordingURL
         let url = engineURL ?? pendingAudioURL
@@ -105,6 +127,20 @@ final class RecordingManager: NSObject, ObservableObject {
 
         recordings.insert(stored, at: 0)
         saveRecordings()
+    }
+
+    /// Ingests a standalone watch recording transferred via WatchConnectivity
+    /// ([[task-5-sync-back]]). Idempotent by id: if a recording with the same id
+    /// is already present, this is a no-op that still reports success so the
+    /// watch ack flips its catalog entry to `.synced`. Returns true when the
+    /// recording is in the store (added now or already present).
+    @discardableResult
+    func ingestWatchRecording(_ recording: Recording) -> Bool {
+        if recordings.contains(where: { $0.id == recording.id }) {
+            return true
+        }
+        addRecording(recording)
+        return true
     }
 
     func updateRecording(_ recording: Recording) {

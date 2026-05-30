@@ -6,6 +6,7 @@ struct LevelHistoryWidget: View {
     @ObservedObject private var live: LiveAcousticState
     private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
     private let timeWeightingPublisher: Published<TimeWeighting>.Publisher
+    private let spectrogramDataPublisher: Published<SpectrogramData?>.Publisher
     var settings: [String: String]
     @State private var phonValue: Double?
     @State private var soneValue: Double?
@@ -17,6 +18,7 @@ struct LevelHistoryWidget: View {
         _live = ObservedObject(initialValue: audioEngine.live)
         self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
         self.timeWeightingPublisher = audioEngine.$timeWeighting
+        self.spectrogramDataPublisher = audioEngine.live.$currentSpectrogramData
         self.settings = settings
         _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
         _engineTimeWeighting = State(initialValue: audioEngine.timeWeighting.rawValue)
@@ -86,7 +88,7 @@ struct LevelHistoryWidget: View {
                 .padding(4)
             }
         }
-        .onReceive(live.$currentSpectrogramData) { data in
+        .onReceive(spectrogramDataPublisher) { data in
             guard let data = data else {
                 phonValue = nil
                 soneValue = nil
