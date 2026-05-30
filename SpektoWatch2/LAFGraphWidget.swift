@@ -54,6 +54,8 @@ struct LevelHistoryWidget: View {
         resolvedMetricKey
     }
     
+    @State private var showFullscreen = false
+
     var body: some View {
         LevelHistoryView(
             audioEngine: audioEngine,
@@ -72,21 +74,32 @@ struct LevelHistoryWidget: View {
                 .padding(4)
         }
         .overlay(alignment: .topTrailing) {
-            // Phon/sone are A-weighted perceptual units; showing them alongside
-            // an explicit non-A metric (e.g. LCpeak) would be misleading.
-            if let phon = phonValue, let sone = soneValue,
-               selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(String(format: "%.1f phon", phon))
-                    Text(String(format: "%.2f sone", sone))
+            HStack(alignment: .top, spacing: 4) {
+                // Phon/sone are A-weighted perceptual units; showing them alongside
+                // an explicit non-A metric (e.g. LCpeak) would be misleading.
+                if let phon = phonValue, let sone = soneValue,
+                   selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(String(format: "%.1f phon", phon))
+                        Text(String(format: "%.2f sone", sone))
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.white)
+                    .padding(4)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(4)
                 }
-                .font(.caption2)
-                .foregroundColor(.white)
-                .padding(4)
-                .background(Color.black.opacity(0.5))
-                .cornerRadius(4)
-                .padding(4)
+
+                Button { showFullscreen = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Color.black.opacity(0.5)))
+                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
             }
+            .padding(4)
         }
         .onReceive(spectrogramDataPublisher) { data in
             guard let data = data else {
@@ -98,6 +111,9 @@ struct LevelHistoryWidget: View {
         }
         .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
         .onReceive(timeWeightingPublisher) { engineTimeWeighting = $0.rawValue }
+        .fullScreenCover(isPresented: $showFullscreen) {
+            LevelHistoryFullscreenView(audioEngine: audioEngine, settings: settings)
+        }
     }
 
     private func updateLoudness(from data: SpectrogramData) {
@@ -107,6 +123,32 @@ struct LevelHistoryWidget: View {
         } else {
             phonValue = nil
             soneValue = nil
+        }
+    }
+}
+
+private struct LevelHistoryFullscreenView: View {
+    @Environment(\.dismiss) private var dismiss
+    let audioEngine: AudioEngine
+    let settings: [String: String]
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            LevelHistoryView(
+                audioEngine: audioEngine,
+                settings: settings,
+                scrollSpeed: .fast,
+                isPaused: false
+            )
+            .ignoresSafeArea()
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .padding(12)
         }
     }
 }

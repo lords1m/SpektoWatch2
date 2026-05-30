@@ -918,59 +918,6 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
 }
 
 // ============================================================================
-// MARK: - Reusable Components (Widgets)
-// ============================================================================
-
-struct SpectrogramWidgetView: View {
-    var audioEngine: AudioEngine
-    var colormapType: Int
-    var timeSpan: SpectrogramTimeSpan
-    var scrollSpeed: ScrollSpeed
-    var isPaused: Bool
-    var freqWeighting: String = "Z"
-    var sensitivity: Float = 90.0
-    var frequencySmoothing: Float = 0.0
-    var noiseFloor: Float = -120.0
-
-    let axisFrequencies: [Double] = [20000, 16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
-    let axisWidth: CGFloat = 35
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 4) {
-                ZStack(alignment: .topTrailing) {
-                    ForEach(axisFrequencies, id: \.self) { freq in
-                        Text(frequencyLabel(freq))
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                            .frame(width: axisWidth, alignment: .trailing)
-                            .position(x: axisWidth / 2, y: yPosition(for: freq, height: geometry.size.height))
-                            .offset(y: freq == 20000 ? 6 : 0)
-                    }
-                }
-                .frame(width: axisWidth, height: geometry.size.height)
-                .clipped()
-
-                HighEndSpectrogramAdapterView(audioEngine: audioEngine, colormapType: colormapType, timeSpan: timeSpan, scrollSpeed: scrollSpeed, isPaused: isPaused, freqWeighting: freqWeighting, sensitivity: sensitivity, frequencySmoothing: frequencySmoothing, noiseFloor: noiseFloor)
-                    .cornerRadius(10)
-            }
-        }
-    }
-    
-    private func yPosition(for freq: Double, height: CGFloat) -> CGFloat {
-        let minF = 20.0
-        let maxF = 20000.0
-        let clamped = max(minF, min(maxF, freq))
-        let normalized = (log10(clamped) - log10(minF)) / (log10(maxF) - log10(minF))
-        return height * (1.0 - CGFloat(normalized))
-    }
-
-    private func frequencyLabel(_ freq: Double) -> String {
-        freq >= 1000 ? String(format: "%.0f k", freq / 1000) : String(format: "%.0f", freq)
-    }
-}
-
-// ============================================================================
 // MARK: - Container with Axis Labels
 // ============================================================================
 
@@ -1117,35 +1064,18 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     }
 
     private func yPosition(for freq: Double, height: CGFloat) -> CGFloat {
-        let minF = 20.0
-        let maxF = 20000.0
-        let clamped = max(minF, min(maxF, freq))
-        let normalized = (log10(clamped) - log10(minF)) / (log10(maxF) - log10(minF))
-        return height * (1.0 - CGFloat(normalized))
+        SpectrogramAxisMath.yPosition(for: freq, height: height)
     }
 
     private func xAxisTickStep(for visibleRange: Double) -> Double {
-        guard visibleRange > 0 else { return 0.1 }
-        let rough = visibleRange / 4.0
-        let candidates: [Double] = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60]
-        for c in candidates where rough <= c { return c }
-        return 60
+        SpectrogramAxisMath.xAxisTickStep(for: visibleRange)
     }
 
     private func formatAxisTime(_ seconds: Double) -> String {
-        if seconds < 10 { return String(format: "%.1f", seconds) }
-        if seconds < 60 { return String(format: "%.0f", seconds) }
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
+        SpectrogramAxisMath.formatAxisTime(seconds)
     }
 
     private func frequencyLabel(_ freq: Double) -> String {
-        if freq >= 1000 {
-            return String(format: "%.0f k", freq / 1000)
-        } else if freq.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", freq)
-        } else {
-            return String(format: "%.1f", freq)
-        }
+        SpectrogramAxisMath.frequencyLabel(freq)
     }
 }

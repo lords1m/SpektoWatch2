@@ -32,12 +32,21 @@ final class MeasurementLiveActivityController {
 
     /// Begins a Live Activity for a measurement session. No-op if one is
     /// already running or the feature is disabled.
-    func start(sessionTitle: String, weighting: String, startedAt: Date = Date()) {
-        guard isAvailable else {
+    /// - Returns: `nil` on success, a human-readable reason string on failure.
+    @discardableResult
+    func start(sessionTitle: String, weighting: String, startedAt: Date = Date()) -> String? {
+        let available = isAvailable
+        print("[LiveActivity] start() — areActivitiesEnabled=\(available), existingActivity=\(activity?.id ?? "none")")
+        guard available else {
+            let reason = "Live Activities disabled — enable in Settings → \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "app") → Live Activities"
             logger.info("Live Activities disabled; skipping start.")
-            return
+            print("[LiveActivity] SKIPPED: \(reason)")
+            return reason
         }
-        guard activity == nil else { return }
+        guard activity == nil else {
+            print("[LiveActivity] Already running (\(activity!.id)); skipping.")
+            return nil
+        }
 
         let attributes = MeasurementActivityAttributes(
             sessionTitle: sessionTitle,
@@ -57,8 +66,12 @@ final class MeasurementLiveActivityController {
             )
             lastUpdate = .distantPast
             logger.info("Started Live Activity \(self.activity?.id ?? "?", privacy: .public).")
+            print("[LiveActivity] Started: id=\(self.activity?.id ?? "?")")
+            return nil
         } catch {
             logger.error("Failed to start Live Activity: \(error.localizedDescription, privacy: .public)")
+            print("[LiveActivity] ERROR: \(error)")
+            return "Live Activity failed: \(error.localizedDescription)"
         }
     }
 

@@ -9,10 +9,12 @@ final class RecordingManager: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var currentRecordingDuration: TimeInterval = 0
     @Published var recordings: [Recording] = []
+    @Published var liveActivityError: String? = nil
 
     private var timer: Timer?
     private var recordingStartTime: Date?
     private var pendingAudioURL: URL?
+    private weak var liveActivityAudioEngine: AudioEngine?
     private let fileManager = FileManager.default
     private let baseDirectory: URL?
 
@@ -56,7 +58,8 @@ final class RecordingManager: NSObject, ObservableObject {
         pendingAudioURL = createPlaceholderRecordingFile()
 
         #if canImport(ActivityKit)
-        MeasurementLiveActivityController.shared.start(
+        liveActivityAudioEngine = audioEngine
+        liveActivityError = MeasurementLiveActivityController.shared.start(
             sessionTitle: "Messung",
             weighting: audioEngine.frequencyWeighting.rawValue,
             startedAt: recordingStartTime ?? Date()
@@ -64,12 +67,12 @@ final class RecordingManager: NSObject, ObservableObject {
         #endif
 
         let startTime = recordingStartTime
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self, weak audioEngine] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self, let start = startTime else { return }
             Task { @MainActor in
                 self.currentRecordingDuration = Date().timeIntervalSince(start)
                 #if canImport(ActivityKit)
-                if let audioEngine {
+                if let audioEngine = self.liveActivityAudioEngine {
                     MeasurementLiveActivityController.shared.update(
                         currentLevel: Double(audioEngine.live.currentLevel),
                         peakLevel: Double(audioEngine.live.currentPeakLevel),
@@ -99,6 +102,7 @@ final class RecordingManager: NSObject, ObservableObject {
 
         #if canImport(ActivityKit)
         MeasurementLiveActivityController.shared.end()
+        liveActivityAudioEngine = nil
         #endif
 
         let engineURL = audioEngine.lastRecordingURL

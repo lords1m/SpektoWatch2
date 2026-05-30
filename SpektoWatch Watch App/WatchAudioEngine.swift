@@ -584,7 +584,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // weighted-energy and LCpeak math in `processAudioBuffer`.
         fftLinearMagnitudes.withUnsafeMutableBufferPointer { dst in
             fftMagnitudes.withUnsafeBufferPointer { src in
-                memcpy(dst.baseAddress!, src.baseAddress!, dst.count * MemoryLayout<Float>.stride)
+                _ = memcpy(dst.baseAddress!, src.baseAddress!, dst.count * MemoryLayout<Float>.stride)
             }
         }
 

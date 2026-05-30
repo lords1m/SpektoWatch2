@@ -456,19 +456,16 @@ struct MelSpectrogramProcessor {
         filterBank.withUnsafeBufferPointer { filterPtr in
             linearMagnitudes.withUnsafeBufferPointer { inputPtr in
                 output.withUnsafeMutableBufferPointer { outputPtr in
-                    cblas_sgemv(
-                        CblasRowMajor,
-                        CblasNoTrans,
-                        Int32(filterBankCount),
-                        Int32(fftBinCount),
-                        1.0,
+                    vDSP_mmul(
                         filterPtr.baseAddress!,
-                        Int32(fftBinCount),
+                        1,
                         inputPtr.baseAddress!,
                         1,
-                        0.0,
                         outputPtr.baseAddress!,
-                        1
+                        1,
+                        vDSP_Length(filterBankCount),
+                        1,
+                        vDSP_Length(fftBinCount)
                     )
                 }
             }

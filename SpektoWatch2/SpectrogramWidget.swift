@@ -72,24 +72,86 @@ struct SpectrogramWidget: View {
 
     var noiseFloor: Float { WidgetSettings.noiseFloorDB(settings) }
 
+    @State private var showFullscreen = false
+
     var body: some View {
-        HighEndSpectrogramAdapterWithAxes(
-            audioEngine: audioEngine,
-            colormapType: colormapType,
-            timeSpan: timeSpan,
-            scrollSpeed: scrollSpeed,
-            isPaused: engineStatus != .running,
-            freqWeighting: freqWeighting,
-            sensitivity: sensitivity,
-            frequencySmoothing: frequencySmoothing,
-            noiseFloor: noiseFloor
-        )
+        ZStack(alignment: .topTrailing) {
+            HighEndSpectrogramAdapterWithAxes(
+                audioEngine: audioEngine,
+                colormapType: colormapType,
+                timeSpan: timeSpan,
+                scrollSpeed: scrollSpeed,
+                isPaused: engineStatus != .running,
+                freqWeighting: freqWeighting,
+                sensitivity: sensitivity,
+                frequencySmoothing: frequencySmoothing,
+                noiseFloor: noiseFloor
+            )
+
+            Button { showFullscreen = true } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+            }
+            .padding(8)
+        }
         .onReceive(scrollSpeedPublisher) { engineScrollSpeed = $0 }
         .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
         .onReceive(spectrogramFrequencySmoothingPublisher) { engineSpectrogramFrequencySmoothing = $0 }
         .onReceive(engineStatusPublisher) { engineStatus = $0 }
-        .onAppear {
-            print("[SpectrogramWidget] View appeared with colormap: \(colormapType), timeSpan: \(timeSpan), sensitivity: \(sensitivity), override=\(useWidgetOverrides)")
+        .fullScreenCover(isPresented: $showFullscreen) {
+            SpectrogramFullscreenView(
+                audioEngine: audioEngine,
+                colormapType: colormapType,
+                timeSpan: timeSpan,
+                scrollSpeed: scrollSpeed,
+                freqWeighting: freqWeighting,
+                sensitivity: sensitivity,
+                frequencySmoothing: frequencySmoothing,
+                noiseFloor: noiseFloor,
+                engineStatus: engineStatus
+            )
+        }
+    }
+}
+
+private struct SpectrogramFullscreenView: View {
+    @Environment(\.dismiss) private var dismiss
+    let audioEngine: AudioEngine
+    let colormapType: Int
+    let timeSpan: SpectrogramTimeSpan
+    let scrollSpeed: ScrollSpeed
+    let freqWeighting: String
+    let sensitivity: Float
+    let frequencySmoothing: Float
+    let noiseFloor: Float
+    let engineStatus: EngineStatus
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            HighEndSpectrogramAdapterWithAxes(
+                audioEngine: audioEngine,
+                colormapType: colormapType,
+                timeSpan: timeSpan,
+                scrollSpeed: scrollSpeed,
+                isPaused: engineStatus != .running,
+                freqWeighting: freqWeighting,
+                sensitivity: sensitivity,
+                frequencySmoothing: frequencySmoothing,
+                noiseFloor: noiseFloor
+            )
+            .ignoresSafeArea()
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .padding(12)
         }
     }
 }

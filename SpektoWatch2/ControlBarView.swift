@@ -109,6 +109,7 @@ struct ControlBarView: View {
     @Environment(\.designNumerals) private var numerals
 
     @State private var showRecordingsList = false
+    @State private var liveActivityAlert = false
 
     private let footerVerticalPadding: CGFloat = 10
     private let regularControlDiameter: CGFloat = 50
@@ -172,6 +173,14 @@ struct ControlBarView: View {
         }
         .onAppear {
             audioEngine.prewarmAudioSession()
+        }
+        .onChange(of: recordingManager.liveActivityError) { _, error in
+            if error != nil { liveActivityAlert = true }
+        }
+        .alert("Live Activity", isPresented: $liveActivityAlert) {
+            Button("OK") { recordingManager.liveActivityError = nil }
+        } message: {
+            Text(recordingManager.liveActivityError ?? "")
         }
         // NOTE: No .accessibilityIdentifier("controlBarView") here — in iOS 26,
         // named container identifiers are inherited by all PlainButtonStyle descendant

@@ -217,15 +217,15 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
         case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:
-            return WidgetSize(columns: 3, rows: 3)
-        case .levelHistory, .frequencyDisplay, .octaveBands:
             return WidgetSize(columns: 3, rows: 2)
+        case .levelHistory, .frequencyDisplay, .octaveBands:
+            return WidgetSize(columns: 3, rows: 1)
         case .levelMeter, .phaseMeter:
-            return WidgetSize(columns: 1, rows: 2)
+            return WidgetSize(columns: 1, rows: 1)
         case .singleValue:
             return WidgetSize(columns: 1, rows: 1)
         case .masking:
-            return WidgetSize(columns: 2, rows: 2)
+            return WidgetSize(columns: 2, rows: 1)
         }
     }
 }

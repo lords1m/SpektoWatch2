@@ -1446,8 +1446,6 @@ class AudioEngine: ObservableObject {
         // DCT/Mel pipeline removed from the real-time audio thread (M19 regression):
         // cblas_sgemv(128×1024) at 86 Hz was causing audio-thread overrun and a
         // blurry mel-scale display. The spectrogram now uses the FFT path exclusively.
-        let visualFrequencies: [Float]? = nil
-        
         // AE-5: Logger calls are not real-time safe (acquire internal locks, may
         // malloc on first category call). Periodic FFT-range logging removed from
         // the audio render thread. Use os_signpost or Instruments if spectrum
@@ -1492,14 +1490,6 @@ class AudioEngine: ObservableObject {
                 sampleRate: processingSampleRate,
                 smoothingTrack: .c
             )
-        }
-
-        // Use selected weighting for octave bands and spectrum
-        let processed: SpectrogramProcessor.Result
-        switch frequencyWeighting {
-        case .a: processed = processedA ?? processedZ
-        case .c: processed = processedC ?? processedZ
-        case .z: processed = processedZ
         }
 
         let displayOctaveBandsZ = computeDisplayThirdOctaveBands(

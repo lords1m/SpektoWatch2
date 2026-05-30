@@ -39,6 +39,43 @@ private enum TurboColormap {
 }
 
 // ============================================================================
+// MARK: - Camera projection
+// ============================================================================
+
+/// Orthographic 3D-to-2D projection. World box is [-0.5, 0.5]^3;
+/// output is in normalized screen space [-0.5, 0.5] (caller scales).
+///
+/// File-level (internal) rather than nested so the projection math is
+/// unit-testable via `@testable import`.
+struct WaterfallCameraProjection {
+    let pitchRad: Float
+    let yawRad: Float
+
+    func project(_ p: SIMD3<Float>) -> (x: Float, y: Float, depth: Float) {
+        // Yaw around world Y (vertical / amplitude).
+        let cy = cos(yawRad), sy = sin(yawRad)
+        let x1 = p.x * cy + p.z * sy
+        let y1 = p.y
+        let z1 = -p.x * sy + p.z * cy
+
+        // Pitch around world X (horizontal / frequency).
+        let cp = cos(pitchRad), sp = sin(pitchRad)
+        let y2 = y1 * cp - z1 * sp
+        let z2 = y1 * sp + z1 * cp
+
+        // Mild orthographic-with-perspective: scale x/y by a factor
+        // that grows with depth so closer slices look slightly larger
+        // than far ones. Keeps the projection invertible-ish without
+        // a true perspective divide (which would clip at the camera
+        // plane). Closer (higher depth, since after pitch the newest
+        // slice has positive z) gets ~1.15× scale; farther ~0.85×.
+        let perspective = 1.0 + 0.30 * z2
+
+        return (x: x1 * perspective, y: -y2 * perspective, depth: z2)
+    }
+}
+
+// ============================================================================
 // MARK: - WaterfallView (renderer)
 // ============================================================================
 
@@ -363,7 +400,7 @@ struct WaterfallView: View {
 
         let pitchRad = Float(effectivePitch) * .pi / 2
         let yawRad   = Float(effectiveYaw) * .pi / 2
-        let camera = CameraProjection(pitchRad: pitchRad, yawRad: yawRad)
+        let camera = WaterfallCameraProjection(pitchRad: pitchRad, yawRad: yawRad)
 
         let sliceCount = slices.count
         let lastIndex = sliceCount - 1
@@ -447,7 +484,7 @@ struct WaterfallView: View {
         let zWorld = t - 0.5
         let pitchRad = Float(effectivePitch) * .pi / 2
         let yawRad   = Float(effectiveYaw) * .pi / 2
-        let camera = CameraProjection(pitchRad: pitchRad, yawRad: yawRad)
+        let camera = WaterfallCameraProjection(pitchRad: pitchRad, yawRad: yawRad)
 
         let leftWorld  = SIMD3<Float>(-0.5, 0, zWorld)
         let rightWorld = SIMD3<Float>(+0.5, 0, zWorld)
@@ -467,36 +504,6 @@ struct WaterfallView: View {
         path.move(to: p0)
         path.addLine(to: p1)
         context.stroke(path, with: .color(.white.opacity(0.78)), lineWidth: 1.4)
-    }
-
-    /// Orthographic 3D-to-2D projection. World box is [-0.5, 0.5]^3;
-    /// output is in normalized screen space [-0.5, 0.5] (caller scales).
-    private struct CameraProjection {
-        let pitchRad: Float
-        let yawRad: Float
-
-        func project(_ p: SIMD3<Float>) -> (x: Float, y: Float, depth: Float) {
-            // Yaw around world Y (vertical / amplitude).
-            let cy = cos(yawRad), sy = sin(yawRad)
-            let x1 = p.x * cy + p.z * sy
-            let y1 = p.y
-            let z1 = -p.x * sy + p.z * cy
-
-            // Pitch around world X (horizontal / frequency).
-            let cp = cos(pitchRad), sp = sin(pitchRad)
-            let y2 = y1 * cp - z1 * sp
-            let z2 = y1 * sp + z1 * cp
-
-            // Mild orthographic-with-perspective: scale x/y by a factor
-            // that grows with depth so closer slices look slightly larger
-            // than far ones. Keeps the projection invertible-ish without
-            // a true perspective divide (which would clip at the camera
-            // plane). Closer (higher depth, since after pitch the newest
-            // slice has positive z) gets ~1.15× scale; farther ~0.85×.
-            let perspective = 1.0 + 0.30 * z2
-
-            return (x: x1 * perspective, y: -y2 * perspective, depth: z2)
-        }
     }
 
     // ========================================================================
@@ -672,9 +679,15 @@ struct WaterfallView: View {
     private func frequencyAt(binFrac: CGFloat) -> Float {
         let freqs = dataSet.frequencies
         guard !freqs.isEmpty else { return 0 }
+        guard freqs.count > 1 else { return freqs[0] }
         let clamped = max(0, min(1, binFrac))
-        let idx = Int((clamped * CGFloat(freqs.count - 1)).rounded())
-        return freqs[min(max(0, idx), freqs.count - 1)]
+        // Linearly interpolate between adjacent bins so edge labels track the
+        // exact window position instead of snapping to the nearest bin center.
+        let pos = clamped * CGFloat(freqs.count - 1)
+        let lower = Int(pos)
+        let upper = min(lower + 1, freqs.count - 1)
+        let t = Float(pos - CGFloat(lower))
+        return freqs[lower] + (freqs[upper] - freqs[lower]) * t
     }
 
     private func sampledLevel(binFrac: CGFloat, sliceFrac: CGFloat) -> Float {
@@ -759,8 +772,12 @@ final class WaterfallHistoryStore: ObservableObject {
     }
 
     func update(settings new: Settings) {
+        // Capture all change flags BEFORE reassigning `settings`, otherwise the
+        // comparisons below would always be false (we'd be comparing `new`
+        // against itself).
         let capacityChanged = new.capacity != settings.capacity
         let dbChanged = new.minDB != settings.minDB || new.maxDB != settings.maxDB
+        let sliceCountChanged = new.sliceCount != settings.sliceCount
         settings = new
         if capacityChanged {
             history = RingBuffer(capacity: max(8, new.capacity))
@@ -769,7 +786,7 @@ final class WaterfallHistoryStore: ObservableObject {
             dataSet = WaterfallDataSet.empty.with(minDB: new.minDB, maxDB: new.maxDB)
             return
         }
-        if dbChanged || new.sliceCount != settings.sliceCount {
+        if dbChanged || sliceCountChanged {
             rebuild(force: true)
         }
     }
@@ -845,12 +862,16 @@ private extension WaterfallDataSet {
 struct WaterfallWidget: View {
     private let audioEngine: AudioEngine
     var settings: [String: String]
+    /// When true (the fullscreen instance), the expand button is suppressed
+    /// so it can't open a second `fullScreenCover` on top of itself.
+    private let isFullscreen: Bool
 
     @StateObject private var store = WaterfallHistoryStore()
 
-    init(audioEngine: AudioEngine, settings: [String: String]) {
+    init(audioEngine: AudioEngine, settings: [String: String], isFullscreen: Bool = false) {
         self.audioEngine = audioEngine
         self.settings = settings
+        self.isFullscreen = isFullscreen
     }
 
     // Settings derivation. With the mel visual pipeline `visualMagnitudes`
@@ -898,34 +919,69 @@ struct WaterfallWidget: View {
         )
     }
 
+    @State private var showFullscreen = false
+
     var body: some View {
-        // No widget-level header overlay: the card chrome
-        // (`WidgetCardView`) already labels the widget. Keeping the canvas
-        // surface clean leaves the mode tag drawn by `WaterfallView`
-        // unambiguous.
-        WaterfallView(dataSet: store.dataSet, highlightedTime: nil)
-            .onReceive(audioEngine.spectrogramSubject) { [audioEngine] data in
-                // spectrogramSubject sends on the audio thread; dispatch to main
-                // so WaterfallHistoryStore's @Published writes land on the main actor.
-                DispatchQueue.main.async { [weak store] in
-                    guard let store else { return }
-                    let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
-                    let frequencies = data.visualFrequencies ?? data.frequencies
-                    store.append(magnitudes: magnitudes, frequencies: frequencies, timestamp: data.timestamp)
+        ZStack(alignment: .topTrailing) {
+            WaterfallView(dataSet: store.dataSet, highlightedTime: nil)
+                .onReceive(audioEngine.spectrogramSubject) { [audioEngine] data in
+                    DispatchQueue.main.async { [weak store] in
+                        guard let store else { return }
+                        let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
+                        let frequencies = data.visualFrequencies ?? data.frequencies
+                        store.append(magnitudes: magnitudes, frequencies: frequencies, timestamp: data.timestamp)
+                    }
                 }
-            }
-            .onChange(of: resolvedSettings) { _, new in
-                store.update(settings: new)
-            }
-            .onAppear {
-                store.update(settings: resolvedSettings)
-                if let current = audioEngine.live.currentSpectrogramData {
-                    let m = current.visualMagnitudes ?? current.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
-                    let f = current.visualFrequencies ?? current.frequencies
-                    store.append(magnitudes: m, frequencies: f, timestamp: current.timestamp)
+                .onChange(of: resolvedSettings) { _, new in
+                    store.update(settings: new)
                 }
+                .onAppear {
+                    store.update(settings: resolvedSettings)
+                    if let current = audioEngine.live.currentSpectrogramData {
+                        let m = current.visualMagnitudes ?? current.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
+                        let f = current.visualFrequencies ?? current.frequencies
+                        store.append(magnitudes: m, frequencies: f, timestamp: current.timestamp)
+                    }
+                }
+                .accessibilityIdentifier("waterfallWidget")
+
+            if !isFullscreen {
+                Button { showFullscreen = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Color.black.opacity(0.5)))
+                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
+                .padding(8)
+                .accessibilityIdentifier("waterfallExpandButton")
             }
-            .accessibilityIdentifier("waterfallWidget")
+        }
+        .fullScreenCover(isPresented: $showFullscreen) {
+            WaterfallFullscreenView(audioEngine: audioEngine, settings: settings)
+        }
+    }
+}
+
+private struct WaterfallFullscreenView: View {
+    @Environment(\.dismiss) private var dismiss
+    let audioEngine: AudioEngine
+    let settings: [String: String]
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            WaterfallWidget(audioEngine: audioEngine, settings: settings, isFullscreen: true)
+                .ignoresSafeArea()
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .padding(12)
+        }
     }
 }
 

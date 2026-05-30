@@ -69,6 +69,9 @@ struct LevelHistoryView: View {
     // Wall-clock advance state — see updateLevelBuffer() for the rationale.
     @State private var lastUpdateTimestamp: TimeInterval = 0
     @State private var lastBufferedLevel: Float = -120.0
+    // CACurrentMediaTime() stamp of the last buffer advance, used by the
+    // TimelineView to interpolate a sub-pixel scroll phase between callbacks.
+    @State private var lastUpdateCATime: Double = 0
     
     var body: some View {
         GeometryReader { geometry in

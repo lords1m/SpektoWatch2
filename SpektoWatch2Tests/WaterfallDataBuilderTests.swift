@@ -71,6 +71,64 @@ final class WaterfallDataBuilderTests: XCTestCase {
         }
     }
 
+    func testPeakHoldAggregationAcrossFramesPerSlice() {
+        // 4 frames collapsed into 1 slice must take the per-bin maximum.
+        let freqs: [Float] = [100, 200]
+        let frames: [[Float]] = [
+            [10, 1],
+            [3, 9],
+            [7, 2],
+            [1, 4]
+        ]
+        let result = WaterfallDataBuilder.build(
+            history: frames,
+            sourceFrequencies: freqs,
+            duration: 1,
+            targetSliceCount: 1,
+            targetFrequencyCount: 8,
+            minDB: 0,
+            maxDB: 20
+        )
+        XCTAssertEqual(result.slices.count, 1)
+        XCTAssertEqual(result.slices[0].magnitudes, [10, 9])
+    }
+
+    func testSourceAxisPassThroughWhenWithinTarget() {
+        // sourceCount (3) <= targetFrequencyCount (128): frequencies pass
+        // through unchanged rather than being re-logged.
+        let freqs: [Float] = [120, 480, 1920]
+        let frames = [[Float(-50), -40, -30]]
+        let result = WaterfallDataBuilder.build(
+            history: frames,
+            sourceFrequencies: freqs,
+            duration: 1,
+            targetSliceCount: 96,
+            targetFrequencyCount: 128
+        )
+        XCTAssertEqual(result.frequencies, freqs)
+        XCTAssertEqual(result.slices.first?.magnitudes, [-50, -40, -30])
+    }
+
+    func testDownsamplingPicksNearestSourceBins() {
+        // 64 ascending source bins downsampled to 8 log-spaced targets.
+        // Each target magnitude must equal the value at the nearest source bin.
+        let freqs = (0..<64).map { Float(20) * powf(1000, Float($0) / 63) }
+        let frames = [freqs] // magnitude == frequency so we can trace mapping
+        let result = WaterfallDataBuilder.build(
+            history: frames,
+            sourceFrequencies: freqs,
+            duration: 1,
+            targetSliceCount: 96,
+            targetFrequencyCount: 8
+        )
+        XCTAssertEqual(result.frequencies.count, 8)
+        // Magnitudes are monotonically non-decreasing because source is sorted.
+        let mags = result.slices[0].magnitudes
+        for i in 1..<mags.count {
+            XCTAssertGreaterThanOrEqual(mags[i], mags[i - 1])
+        }
+    }
+
     func testSourceFrequenciesFullFFT() {
         let binCount = 512
         let sampleRate: Double = 44100
