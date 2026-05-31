@@ -637,9 +637,12 @@ class HighEndSpectrogramAdapter: MTKView {
         var totalOffset = Float(displayScrollPosition.truncatingRemainder(dividingBy: Double(timeColumns))) / Float(timeColumns)
         let fillRatio = min(1.0, Float(snapTotalColumnsWritten) / Float(max(timeColumns, 1)))
 
-        // Push axis metrics at ~30 Hz
+        // Push axis metrics at ~30 Hz. The label x-positions are extrapolated
+        // from CACurrentMediaTime() between pushes, so a sparse 10 Hz cadence
+        // left a 100 ms gap that made each re-anchor visibly snap (choppy axis).
+        // Pushing at 30 Hz shrinks the gap and the per-correction jump.
         let nowUptime = ProcessInfo.processInfo.systemUptime
-        if nowUptime - lastAxisMetricsPushUptime >= (1.0 / 10.0) {
+        if nowUptime - lastAxisMetricsPushUptime >= (1.0 / 30.0) {
             lastAxisMetricsPushUptime = nowUptime
             let recordingTime: Double
             if let first = snapFirstDataTimestamp {

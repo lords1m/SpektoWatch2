@@ -255,11 +255,24 @@ enum WidgetSettings {
     /// Waterfall: floor is minDB; soft-knee is always on (fixed 6 dB, no key needed).
     /// Chart widgets: floor is chartYMinDB; no separate key.
     static let defaultNoiseFloor: Float = -120.0
+    /// Spectrogram-specific default threshold (dB SPL). Unlike the generic
+    /// −120 "off" default, the spectrogram gates softly at 10 dB by default
+    /// so quiet noise below the floor is suppressed out of the box.
+    static let defaultSpectrogramNoiseFloor: Float = 10.0
 
     static func noiseFloorDB(_ settings: [String: String]) -> Float {
         guard usesWidgetOverrides(settings),
               let raw = settings["noiseFloor"],
               let v = Float(raw) else { return defaultNoiseFloor }
+        return v
+    }
+
+    /// Noise floor for the spectrogram widget. Falls back to
+    /// `defaultSpectrogramNoiseFloor` (10 dB) when no per-widget override.
+    static func spectrogramNoiseFloorDB(_ settings: [String: String]) -> Float {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["noiseFloor"],
+              let v = Float(raw) else { return defaultSpectrogramNoiseFloor }
         return v
     }
 

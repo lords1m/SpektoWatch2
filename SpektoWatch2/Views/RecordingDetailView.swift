@@ -29,6 +29,11 @@ struct RecordingDetailView: View {
 
     @State private var recording: Recording
     @State private var selectedTab: DetailTab = .overview
+    /// User's global colormap preference (shared with the live spectrogram via
+    /// the Design tweaks). Mapped to the Metal `ColormapType` raw value below so
+    /// the playback spectrogram matches what the user sees live, instead of the
+    /// previous hardcoded `0` (Turbo).
+    @AppStorage("design.colormap") private var designColormap: String = Colormap.viridis.rawValue
     @StateObject private var audioPlayer = AudioPlayerManager()
     @StateObject private var playbackAnalyzer = PlaybackAnalyzer()
     @StateObject private var playbackFFTConfig = FFTConfiguration()
@@ -36,6 +41,12 @@ struct RecordingDetailView: View {
     @State private var isDraggingSlider = false
     @State private var spectrogramHistory: [[Float]] = []
     @State private var rawSpectrogramHistory: [[Float]] = []
+    /// Whether `rawSpectrogramHistory` uses a log-spaced frequency axis (the
+    /// streaming/promoted path, see `computeSpectrogramHistoryStreaming`) rather
+    /// than the linear FFT-bin axis of the full-FFT stored provider. The
+    /// frequency-weighting step must know this to map each bin to the correct
+    /// frequency; assuming linear bins for log-spaced data mis-weights A/C.
+    @State private var rawHistoryIsLogSpaced = false
     @State private var isLoadingSpectrogram = false
     @State private var storedDataProvider: StoredDataProvider?
     /// Tracks the background load (StoredDataProvider bootstrap or FFT fallback)
@@ -48,11 +59,24 @@ struct RecordingDetailView: View {
     @State private var selectedMetrics: Set<String> = []
     @State private var analysisStartTime: TimeInterval = 0
     @State private var analysisEndTime: TimeInterval = 0
+    /// Cached result of `provider.rows(in:step:)` for the current analysis
+    /// range. `rows(in:)` iterates the entire stored frame array, and the
+    /// metrics table sits inside the same body that re-renders ~30×/s during
+    /// playback (the playhead binding). Recomputing it per render pegged the
+    /// CPU on long recordings, so we recompute only when the range actually
+    /// changes (see `refreshMetricTableRows`).
+    @State private var cachedMetricRows: [StoredMetricRow] = []
     @State private var playbackWidgets: [WidgetConfiguration] = []
     @State private var playbackWeighting: FrequencyWeighting = .z
     @State private var weightedSpectrogramCache: [FrequencyWeighting: [[Float]]] = [:]
     @State private var isPromotingSpectrogramResolution = false
     @State private var waterfallSliceCount: Double = 96
+    // dB range for the playback waterfall. Intentionally differs from the live
+    // WaterfallWidget defaults (30…110, WidgetSettings.defaultWaterfall{Min,Max}DB):
+    // the live widget plots calibrated SPL, whereas the playback view renders the
+    // stored spectrogram history, which is uncalibrated dBFS (≤ 0). A negative
+    // floor is therefore correct here — do NOT "align" these two without first
+    // converting the stored data to SPL via the recording's calibrationOffset.
     @State private var waterfallMinDB: Double = -110
     @State private var waterfallMaxDB: Double = 20
     @State private var waterfallDataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: -110, maxDB: 20)
@@ -73,8 +97,10 @@ struct RecordingDetailView: View {
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 12) {
+        // No NavigationView/NavigationStack here: this view is always pushed
+        // onto the recordings list's stack, so the title and toolbar attach to
+        // the parent bar. Wrapping it again nested two navigation containers.
+        VStack(spacing: 12) {
                 Picker("Tab", selection: $selectedTab) {
                     ForEach(DetailTab.allCases) { tab in
                         Text(tab.rawValue).tag(tab)
@@ -135,11 +161,7 @@ struct RecordingDetailView: View {
                     }
                 }
 
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Fertig") { dismiss() }
-                }
             }
-        }
         .sheet(isPresented: $showShareSheet) {
             ActivityView(activityItems: shareItems)
         }
@@ -159,13 +181,18 @@ struct RecordingDetailView: View {
         .onAppear {
             reloadRecordingState()
             let audioURL = recordingManager.url(for: recording)
-            audioPlayer.loadAudio(url: audioURL)
+            if !audioPlayer.loadAudio(url: audioURL) {
+                showExportError(
+                    title: "Wiedergabe nicht möglich",
+                    message: "Die Audiodatei dieser Aufnahme konnte nicht geladen werden. Sie ist möglicherweise beschädigt oder wurde verschoben."
+                )
+            }
 
             // PlaybackAnalyzer suspends the live mic engine and routes
             // playback samples through the shared pipeline (M14/R1).
             playbackAnalyzer.start(engine: audioEngine, recording: recording)
-            audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples in
-                playbackAnalyzer?.processSamples(samples, sampleRate: recording.sampleRate)
+            audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples, sampleRate in
+                playbackAnalyzer?.processSamples(samples, sampleRate: sampleRate)
             }
             if let weighting = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
                 playbackWeighting = weighting
@@ -323,6 +350,17 @@ struct RecordingDetailView: View {
         .glassCard(cornerRadius: 14)
     }
 
+    /// Maps the design-token `Colormap` (viridis/inferno/magma) to the Metal
+    /// `ColormapType` raw value the spectrogram views expect. Falls back to
+    /// viridis (2) for any unknown stored value.
+    private var playbackColormapType: Int {
+        switch Colormap(rawValue: designColormap) ?? .viridis {
+        case .viridis: return ColormapType.viridis.rawValue
+        case .inferno: return ColormapType.inferno.rawValue
+        case .magma: return ColormapType.magma.rawValue
+        }
+    }
+
     private var audioPlayerCard: some View {
         VStack(spacing: 16) {
             playbackWeightingPicker
@@ -334,7 +372,7 @@ struct RecordingDetailView: View {
                     ),
                     duration: max(audioPlayer.duration, recording.duration),
                     magnitudeHistory: spectrogramHistory,
-                    colormapType: 0,
+                    colormapType: playbackColormapType,
                     sampleRate: Float(recording.sampleRate),
                     calibrationOffset: recording.calibrationOffset,
                     markers: recording.markers ?? [],
@@ -667,6 +705,7 @@ struct RecordingDetailView: View {
                     if newValue > analysisEndTime {
                         analysisEndTime = newValue
                     }
+                    refreshMetricTableRows()
                 }
 
             Text("Ende: \(formatTime(analysisEndTime))")
@@ -676,6 +715,7 @@ struct RecordingDetailView: View {
                     if newValue < analysisStartTime {
                         analysisStartTime = newValue
                     }
+                    refreshMetricTableRows()
                 }
         }
         .padding()
@@ -723,11 +763,20 @@ struct RecordingDetailView: View {
         .glassCard(cornerRadius: 14)
     }
 
+    /// Recomputes `cachedMetricRows` for the current analysis range. Called when
+    /// the range changes or a provider becomes available — never from `body`.
+    private func refreshMetricTableRows() {
+        guard let provider = storedDataProvider else {
+            cachedMetricRows = []
+            return
+        }
+        cachedMetricRows = provider.rows(in: analysisStartTime...analysisEndTime, step: 4)
+    }
+
     private func metricsTableCard(provider: StoredDataProvider) -> some View {
-        let range = analysisStartTime...analysisEndTime
         let effectiveMetrics = selectedMetrics.isEmpty ? Set(provider.metricKeys.prefix(6)) : selectedMetrics
         let orderedMetrics = Array(effectiveMetrics).sorted()
-        let rows = provider.rows(in: range, step: 4)
+        let rows = cachedMetricRows
         let timeColumnWidth: CGFloat = 72
         let metricColumnWidth: CGFloat = 84
         let spacing: CGFloat = 12
@@ -911,12 +960,17 @@ struct RecordingDetailView: View {
                     storedDataProvider = provider
                     hasMeasurementData = true
                     rawSpectrogramHistory = visualHistory
+                    // Provider overview bins are linear FFT bins. (Non-Z
+                    // weighting on non-full-FFT data is handled by promotion,
+                    // which re-flags this as log-spaced.)
+                    rawHistoryIsLogSpaced = false
                     weightedSpectrogramCache.removeAll()
                     applyPlaybackWeighting(playbackWeighting)
                     if selectedMetrics.isEmpty {
                         selectedMetrics = Set(provider.metricKeys.prefix(6))
                     }
                     analysisEndTime = max(analysisEndTime, provider.duration)
+                    refreshMetricTableRows()
                     isLoadingSpectrogram = false
                 case .failure(let error):
                     print("[RecordingDetailView] Failed to load stored measurement data: \(error)")
@@ -943,6 +997,7 @@ struct RecordingDetailView: View {
                 switch result {
                 case .success(let history):
                     rawSpectrogramHistory = history
+                    rawHistoryIsLogSpaced = true   // streaming history is log-spaced
                     weightedSpectrogramCache.removeAll()
                     applyPlaybackWeighting(playbackWeighting)
                 case .failure:
@@ -1221,7 +1276,22 @@ struct RecordingDetailView: View {
         let fftSize = binCount * 2
         let processor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: sampleRate)
         let nyquist = Float(sampleRate / 2.0)
-        let frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
+        // Build the per-bin frequency axis that matches how the history was
+        // produced. The streaming/promoted path lays bins out log-spaced
+        // (20 Hz … min(nyquist, 20 kHz)); the full-FFT provider path is linear.
+        // Using a linear ramp for log-spaced data mis-maps every bin and
+        // corrupts A/C weighting.
+        let frequencies: [Float]
+        if rawHistoryIsLogSpaced {
+            let minFreq: Float = 20.0
+            let maxFreq: Float = min(nyquist, 20_000.0)
+            let denom = Float(max(binCount - 1, 1))
+            frequencies = (0..<binCount).map { i in
+                minFreq * powf(maxFreq / minFreq, Float(i) / denom)
+            }
+        } else {
+            frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
+        }
         let source = rawSpectrogramHistory
 
         weightingTask?.cancel()
@@ -1237,7 +1307,12 @@ struct RecordingDetailView: View {
             let snapshot = weightedHistory
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                weightedSpectrogramCache[weighting] = snapshot
+                // Keep only the weighting we just computed. Each entry is a full
+                // copy of the spectrogram history; holding one per visited
+                // weighting let memory grow unbounded as the user toggled A/C/…
+                // Re-weighting is cheap relative to that footprint, so we cache
+                // just the active one and recompute on switch.
+                weightedSpectrogramCache = [weighting: snapshot]
                 if playbackWeighting == weighting {
                     spectrogramHistory = snapshot
                 }
@@ -1272,6 +1347,7 @@ struct RecordingDetailView: View {
                 switch result {
                 case .success(let history):
                     rawSpectrogramHistory = history
+                    rawHistoryIsLogSpaced = true   // streaming history is log-spaced
                     weightedSpectrogramCache.removeAll()
                     isPromotingSpectrogramResolution = false
                     applyPlaybackWeighting(weighting)

@@ -20,7 +20,15 @@ struct WidgetSettingsView: View {
     /// The waterfall's floor is its minDB stepper; chart widgets use chartYMinDB.
     @ViewBuilder
     private var noiseFloorSection: some View {
-        let raw = Float(settings["noiseFloor"] ?? "-120") ?? -120.0
+        // The spectrogram gates softly at 10 dB SPL out of the box (see
+        // WidgetSettings.spectrogramNoiseFloorDB), so its baseline when no
+        // override key is set is the spectrogram default — not the generic
+        // −120 "off" used by the SingleValue display guard. Reflecting the
+        // right default here keeps the toggle in sync with the render.
+        let defaultFloor = widget.type == .spectrogram
+            ? WidgetSettings.defaultSpectrogramNoiseFloor
+            : WidgetSettings.defaultNoiseFloor
+        let raw = Float(settings["noiseFloor"] ?? String(Int(defaultFloor))) ?? defaultFloor
         let isActive = raw > -119
         Section(header: Text("Grundrauschen")) {
             Toggle("Untergrenze aktivieren", isOn: Binding(

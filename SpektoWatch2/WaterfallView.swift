@@ -112,8 +112,8 @@ struct WaterfallView: View {
 
     // MARK: Constants
 
-    private static let defaultPitch: CGFloat = 0.4
-    private static let defaultYaw: CGFloat = 0.35
+    private static let defaultPitch: CGFloat = 0.28
+    private static let defaultYaw: CGFloat = 0.20
     private static let defaultZoom: CGFloat = 1.0
     private static let defaultZOffsetDB: Float = 0
     private static let defaultXPanFrac: Float = 0
@@ -420,7 +420,11 @@ struct WaterfallView: View {
 
         let plotCenterX = plot.midX
         let plotCenterY = plot.midY
-        let plotScaleX = plot.width
+        // Yaw mixes the frequency (x) and time (z) axes, expanding the projected
+        // x range beyond [-0.5, 0.5]. Dividing by the expansion factor keeps the
+        // full frequency span visible without side-clipping at any rotation angle.
+        let yawExpansion = max(1.0, abs(cos(yawRad)) + abs(sin(yawRad)))
+        let plotScaleX = plot.width * CGFloat(1.0 / yawExpansion)
         let plotScaleY = plot.height * effectiveZoom
 
         // In top-down mode the amplitude axis collapses — pixels can no
@@ -447,7 +451,11 @@ struct WaterfallView: View {
                     let peak = slice.magnitudes.max() ?? dataSet.minDB
                     return normalizedLevel(peak)
                 }
-                return 0.20 + (1 - age) * 0.75 // 0.20 (cool) → 0.95 (warm)
+                // 3D: 70% peak amplitude + 30% recency so loud spikes
+                // immediately show as warm regardless of their age.
+                let peak = slice.magnitudes.max() ?? dataSet.minDB
+                let peakNorm = normalizedLevel(peak)
+                return 0.15 + peakNorm * 0.70 + (1 - age) * 0.15
             }()
             let strokeColor = TurboColormap.color(for: tintT)
                 .opacity(baseOpacity)
@@ -473,6 +481,49 @@ struct WaterfallView: View {
             let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
             context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
         }
+
+        // Second pass: amplitude-coloured dots at local frequency peaks.
+        // Skipped in side mode where x is time, not frequency.
+        guard viewMode != .sideLevelHistory2D else { return }
+        for displayIndex in drawOrder {
+            let slice = slices[displayIndex]
+            // Interior local maxima require at least 3 bins; fewer would make the
+            // `1..<mags.count - 1` peak loop trap (e.g. count == 1 -> 1..<0).
+            guard slice.magnitudes.count > 2 else { continue }
+            let zWorld = Float(displayIndex) / Float(max(lastIndex, 1)) - 0.5
+            let age = Float(lastIndex - displayIndex) / Float(max(lastIndex, 1))
+            let peakOpacity = Double(0.50 + 0.50 * (1 - age))
+            let mags = slice.magnitudes
+            let sliceAvg = mags.reduce(0.0, +) / Float(mags.count)
+
+            var peaks: [(binIndex: Int, level: Float)] = []
+            for i in 1..<mags.count - 1
+                where mags[i] > mags[i - 1] && mags[i] > mags[i + 1] && mags[i] > sliceAvg + 3 {
+                let norm = normalizedLevel(mags[i])
+                if norm >= 0.35 { peaks.append((i, norm)) }
+            }
+            let dotRadius: CGFloat = displayIndex == lastIndex ? 3.0 : 2.0
+
+            for peak in peaks.sorted(by: { $0.level > $1.level }).prefix(8) {
+                let binFrac = Float(peak.binIndex) / Float(max(lastBinIndex, 1))
+                let projected = camera.project(SIMD3(
+                    (binFrac - panFrac) - 0.5,
+                    peak.level - 0.5,
+                    zWorld
+                ))
+                let screen = CGPoint(
+                    x: plotCenterX + CGFloat(projected.x) * plotScaleX,
+                    y: plotCenterY + CGFloat(projected.y) * plotScaleY
+                )
+                context.fill(
+                    Path(ellipseIn: CGRect(x: screen.x - dotRadius,
+                                          y: screen.y - dotRadius,
+                                          width: dotRadius * 2,
+                                          height: dotRadius * 2)),
+                    with: .color(TurboColormap.color(for: peak.level).opacity(peakOpacity))
+                )
+            }
+        }
     }
 
     /// Draws a horizontal segment in world space at the time matching
@@ -493,7 +544,8 @@ struct WaterfallView: View {
 
         let plotCenterX = plot.midX
         let plotCenterY = plot.midY
-        let scaleX = plot.width
+        let yawExpansion = max(1.0, abs(cos(yawRad)) + abs(sin(yawRad)))
+        let scaleX = plot.width * CGFloat(1.0 / yawExpansion)
         let scaleY = plot.height * effectiveZoom
 
         let p0 = CGPoint(x: plotCenterX + CGFloat(left.x) * scaleX,

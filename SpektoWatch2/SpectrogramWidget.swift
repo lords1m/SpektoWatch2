@@ -70,7 +70,7 @@ struct SpectrogramWidget: View {
         return Float(raw) ?? 0.0
     }
 
-    var noiseFloor: Float { WidgetSettings.noiseFloorDB(settings) }
+    var noiseFloor: Float { WidgetSettings.spectrogramNoiseFloorDB(settings) }
 
     @State private var showFullscreen = false
 

@@ -17,7 +17,12 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published var duration: TimeInterval = 0
     @Published var scrubTime: TimeInterval = 0
 
-    var onAudioSamples: (([Float]) -> Void)?
+    /// Forwards decoded playback samples together with the sample rate of the
+    /// tap buffer. The rate is taken from the buffer's own format (the engine
+    /// mixer rate), which can differ from the recording's file sample rate, so
+    /// downstream frequency analysis must use this value rather than assuming
+    /// the recording rate.
+    var onAudioSamples: (([Float], Double) -> Void)?
 
     private var engine = AVAudioEngine()
     private var playerNode = AVAudioPlayerNode()
@@ -46,13 +51,18 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             guard let self, self.isPlaying, let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+            let bufferSampleRate = buffer.format.sampleRate
             self.processingQueue.async {
-                self.onAudioSamples?(samples)
+                self.onAudioSamples?(samples, bufferSampleRate)
             }
         }
     }
 
-    func loadAudio(url: URL) {
+    /// Loads an audio file for playback. Returns `true` on success. On failure
+    /// the caller is expected to surface the error to the user — previously this
+    /// only logged, so a missing/corrupt file left the play button silently dead.
+    @discardableResult
+    func loadAudio(url: URL) -> Bool {
         do {
             audioFile = try AVAudioFile(forReading: url)
             if let file = audioFile {
@@ -60,8 +70,11 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
                 duration = Double(file.length) / sampleRate
             }
             isLoaded = true
+            return true
         } catch {
             print("[AudioPlayerManager] ERROR loading audio: \(error.localizedDescription)")
+            isLoaded = false
+            return false
         }
     }
 
@@ -153,7 +166,7 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     private func startTimer() {
         stopTimer()
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
             guard let self, self.isPlaying else { return }
             if let nodeTime = self.playerNode.lastRenderTime,
                let playerTime = self.playerNode.playerTime(forNodeTime: nodeTime) {
@@ -163,6 +176,11 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
                 self.currentTime += 0.03
             }
         }
+        // Add to .common modes so the playhead keeps advancing while the user
+        // scrolls the detail view (UITracking run-loop mode). With the default
+        // scheduledTimer the timer pauses during scrolling and playback time freezes.
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
     }
 
     private func stopTimer() {

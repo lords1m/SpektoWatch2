@@ -25,6 +25,11 @@ final class StoredDataProvider: AudioDataProvider {
     private let reader: MeasurementDataReader
     private var playTimer: Timer?
     private var frameDuration: TimeInterval
+    // Intended playback position, advanced by the timer independent of whether a
+    // frame read succeeds. Keeping play() off this cursor (rather than the stored
+    // frame timestamp in `currentTime`) avoids stalling on a bad frame and avoids
+    // drift when stored per-frame timestamps are not on a uniform fps grid.
+    private var playCursor: TimeInterval = 0
 
     private static let thirdOctaveCenters: [Float] = [
         20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
@@ -54,7 +59,7 @@ final class StoredDataProvider: AudioDataProvider {
         pause()
         playTimer = Timer.scheduledTimer(withTimeInterval: frameDuration, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let next = self.currentTime + self.frameDuration
+            let next = self.playCursor + self.frameDuration
             if next >= self.duration {
                 self.scrub(to: self.duration)
                 self.pause()
@@ -72,6 +77,9 @@ final class StoredDataProvider: AudioDataProvider {
     func scrub(to time: TimeInterval) {
         guard reader.frameCount > 0 else { return }
         let clamped = max(0, min(time, duration))
+        // Advance the play cursor to the requested time up front so playback keeps
+        // progressing even if the frame read below fails.
+        playCursor = clamped
         let index = min(max(Int(clamped / max(frameDuration, 1e-6)), 0), reader.frameCount - 1)
 
         do {

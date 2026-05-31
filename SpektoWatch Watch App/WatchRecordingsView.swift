@@ -112,22 +112,31 @@ struct WatchRecordingDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirm = false
 
+    // Read the entry live from the store so mutations (e.g. sync-state transitions)
+    // reflect while the detail view is open, instead of showing the snapshot that
+    // was captured when the NavigationLink was built. Falls back to that snapshot
+    // if the entry has since been removed.
+    private var current: WatchRecordingMetadata {
+        store.recordings.first { $0.id == recording.id } ?? recording
+    }
+
     var body: some View {
         ZStack {
             WatchAppBackground().ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    metric("LAeq", value: recording.laeq, unit: "dB")
-                    metric("LCpeak", value: recording.lcPeak, unit: "dB")
-                    row("Dauer", WatchRecordingFormat.duration(recording.duration))
-                    row("Bewertung", recording.weighting)
+                    let live = current
+                    metric("LAeq", value: live.laeq, unit: "dB")
+                    metric("LCpeak", value: live.lcPeak, unit: "dB")
+                    row("Dauer", WatchRecordingFormat.duration(live.duration))
+                    row("Bewertung", live.weighting)
                     HStack {
                         Text("Sync")
                             .font(.system(size: 11))
                             .foregroundColor(.gray)
                         Spacer()
-                        WatchSyncStateBadge(state: recording.syncState)
+                        WatchSyncStateBadge(state: live.syncState)
                     }
 
                     Button(role: .destructive) {
@@ -189,7 +198,13 @@ struct WatchRecordingDetailView: View {
 enum WatchRecordingFormat {
     static func duration(_ interval: TimeInterval) -> String {
         let total = Int(interval.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     static func subtitle(for recording: WatchRecordingMetadata) -> String {
