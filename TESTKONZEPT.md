@@ -11,15 +11,19 @@ Dieses Dokument beschreibt das systematische Testkonzept für die SpektoWatch Au
 ### 1.1 Hardware
 | Gerät | Mindestanforderung | Empfohlen |
 |-------|-------------------|-----------|
-| iPhone | iPhone 11 (iOS 16+) | iPhone 14 Pro oder neuer |
-| Apple Watch | Series 6 (watchOS 9+) | Series 8/Ultra oder neuer |
+| iPhone | iOS 18+ | iPhone 12 oder neuer |
+| Apple Watch | watchOS 11+ | Auf echter Hardware verifizieren |
 | Referenz-Schallpegelmesser | Klasse 2 (IEC 61672) | Klasse 1 |
 | Kalibrator | 94 dB @ 1 kHz | 94 dB @ 1 kHz |
 
 ### 1.2 Software
-- Xcode 15+ mit iOS 17 SDK
-- macOS Sonoma oder neuer
-- Testflight für Beta-Tests
+- Xcode 26.5 oder kompatible neuere Version
+- iOS 18+ SDK und watchOS 11+ SDK
+- TestFlight für externe Beta-Tests
+
+Die Texte für externe Tester werden in `TESTFLIGHT_EXTERNAL_TESTING.md`
+versioniert. Die stabile Beta-App-Beschreibung und die buildbezogenen
+Testhinweise (`What to Test`) werden getrennt gepflegt.
 
 ### 1.3 Testumgebungen
 | Umgebung | Beschreibung | Verwendung |
@@ -264,12 +268,16 @@ Dieses Dokument beschreibt das systematische Testkonzept für die SpektoWatch Au
 | 3 | iPhone: Lautstärke ändern | Watch zeigt Änderung |
 | 4 | Latenz messen | < 200ms |
 
-#### TEST-INT-003: Datenübertragung Watch → iPhone
+#### TEST-INT-003: Eigenständige Watch-Aufnahme und Synchronisierung
 | Schritt | Aktion | Erwartetes Ergebnis |
 |---------|--------|---------------------|
-| 1 | Watch: Mikrofon-Quelle "Watch" wählen | Befehl wird gesendet |
-| 2 | iPhone: Quelle prüfen | Zeigt "Watch Mikrofon" |
-| 3 | Watch: Aufnahme starten | iPhone empfängt Audio |
+| 1 | Watch: Eigenständigen Betriebsmodus aktivieren | Watch nutzt das lokale Mikrofon |
+| 2 | Watch: Aufnahme ohne erreichbares iPhone starten und stoppen | Aufnahme wird lokal gespeichert |
+| 3 | iPhone wieder erreichbar machen | Audio und Messdaten werden einmalig synchronisiert |
+
+**Pass-Kriterien:** Live werden nur kompakte verarbeitete Daten übertragen. Die
+Audioaufnahme wird erst nach Abschluss per `WCSession.transferFile`
+synchronisiert.
 
 #### TEST-INT-004: Dashboard-Konfiguration Sync
 | Schritt | Aktion | Erwartetes Ergebnis |
@@ -277,6 +285,20 @@ Dieses Dokument beschreibt das systematische Testkonzept für die SpektoWatch Au
 | 1 | iPhone: Dashboard-Config ändern | Änderung wird gesendet |
 | 2 | Watch: Config prüfen | Neue Config aktiv |
 | 3 | Watch App neu starten | Config bleibt erhalten |
+
+#### TEST-INT-005: Live Activity
+| Schritt | Aktion | Erwartetes Ergebnis |
+|---------|--------|---------------------|
+| 1 | iPhone: Aufnahme starten | Live Activity erscheint auf dem Sperrbildschirm |
+| 2 | Dynamic Island öffnen | Pegel, Spitzenpegel und Laufzeit sind sichtbar |
+| 3 | Aufnahme stoppen | Live Activity wird beendet |
+
+#### TEST-INT-006: Watch-Komplikationen
+| Schritt | Aktion | Erwartetes Ergebnis |
+|---------|--------|---------------------|
+| 1 | SpektoWatch-Komplikation zu einem Watch Face hinzufügen | Komplikation ist auswählbar |
+| 2 | Live-Messung starten | Angezeigter Pegel aktualisiert sich |
+| 3 | Corner-, Inline-, Circular- und Rectangular-Variante prüfen | Darstellung passt zum Slot |
 
 ---
 
@@ -445,6 +467,9 @@ Dieses Dokument beschreibt das systematische Testkonzept für die SpektoWatch Au
 | TEST-IE-011 | Blockgröße-Wechsel | ✓ |
 | TEST-WA-001 | Watch Aufnahme | ✓ |
 | TEST-INT-001 | Verbindung | ✓ |
+| TEST-INT-003 | Watch Sync-Back | ✓ |
+| TEST-INT-005 | Live Activity | ✓ |
+| TEST-INT-006 | Watch-Komplikationen | ✓ |
 | TEST-INT-010 | Parallelbetrieb | ✓ |
 
 ### 7.2 Vor jedem Release
@@ -479,10 +504,14 @@ Signatur: _______________
 
 ## 9. Bekannte Einschränkungen
 
-1. **Apple Watch Mikrofon-Qualität**: Begrenzte Frequenzauflösung unter 100 Hz
-2. **Bluetooth-Latenz**: Watch-Daten haben ~100-200ms Verzögerung
-3. **Extended Runtime**: Max. 30 Minuten Hintergrund-Audio auf Watch
-4. **Simulator**: Kein echtes Audio, nur Test-Generator
+1. **Orientierungswerte**: Integrierte iPhone- und Apple-Watch-Mikrofone
+   ersetzen keine kalibrierte Schallpegelmessung.
+2. **Apple Watch Mikrofon-Qualität**: Begrenzte Frequenzauflösung unter 100 Hz.
+3. **Bluetooth-Latenz**: Watch-Daten haben typischerweise eine Verzögerung.
+4. **Extended Runtime**: watchOS begrenzt Hintergrundlaufzeit und Verhalten
+   systemseitig.
+5. **Simulator**: Mikrofon-, WatchConnectivity- und Live-Activity-Verhalten
+   müssen abschließend auf echter Hardware geprüft werden.
 
 ---
 

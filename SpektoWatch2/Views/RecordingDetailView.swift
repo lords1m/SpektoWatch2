@@ -403,16 +403,22 @@ struct RecordingDetailView: View {
             HStack(spacing: 20) {
                 Button(action: { audioPlayer.seek(by: -5) }) {
                     Image(systemName: "gobackward.5").font(.title2)
-                }.disabled(!audioPlayer.isLoaded)
+                }
+                .disabled(!audioPlayer.isLoaded)
+                .accessibilityLabel("5 Sekunden zurück")
 
                 Button(action: togglePlayback) {
                     Image(systemName: audioPlayer.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 58))
-                }.disabled(!audioPlayer.isLoaded)
+                }
+                .disabled(!audioPlayer.isLoaded)
+                .accessibilityLabel(audioPlayer.isPlaying ? "Wiedergabe pausieren" : "Wiedergabe starten")
 
                 Button(action: { audioPlayer.seek(by: 5) }) {
                     Image(systemName: "goforward.5").font(.title2)
-                }.disabled(!audioPlayer.isLoaded)
+                }
+                .disabled(!audioPlayer.isLoaded)
+                .accessibilityLabel("5 Sekunden vor")
             }
             .foregroundColor(.blue)
 
@@ -496,7 +502,7 @@ struct RecordingDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             HStack {
-                Text("\(waterfallDataSet.slices.count) Slices")
+                Text("\(waterfallDataSet.slices.count) Zeitabschnitte")
                 Spacer()
                 Text("\(Int(waterfallDataSet.minDB))...\(Int(waterfallDataSet.maxDB)) dB")
             }
@@ -513,7 +519,7 @@ struct RecordingDetailView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Slices: \(Int(waterfallSliceCount))")
+                Text("Zeitabschnitte: \(Int(waterfallSliceCount))")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Slider(value: $waterfallSliceCount, in: 32...160, step: 8)

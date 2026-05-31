@@ -25,7 +25,6 @@
 		37B51E352FBDFAFC0006E8C1 /* SnapshotTestingCustomDump in Frameworks */ = {isa = PBXBuildFile; productRef = 37B51E342FBDFAFC0006E8C1 /* SnapshotTestingCustomDump */; };
 		37B51E362FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; };
 		37B51E372FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		37B51E462FBE01E50006E8C1 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 37DC2D8C2F35596900DEE817 /* TestPlan.xctestplan */; };
 		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CC22CC22CC22CC22CC220002 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22CC22CC22CC22CC220001 /* AppGroup.swift */; };
 /* End PBXBuildFile section */
@@ -167,13 +166,6 @@
 			);
 			target = 3741BDB42FCA4A4400E9335E /* SpektoWatch2WidgetExtension */;
 		};
-		37B51E472FBEF6F80006E8C1 /* Exceptions for "SpektoWatch2Tests" folder in "SpektoWatch2Tests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				__Snapshots__/PDFReportSnapshotTests/README.txt,
-			);
-			target = 37969D312F2E096A009D1923 /* SpektoWatch2Tests */;
-		};
 		37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -247,9 +239,6 @@
 		};
 		37969D332F2E096B009D1923 /* SpektoWatch2Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				37B51E472FBEF6F80006E8C1 /* Exceptions for "SpektoWatch2Tests" folder in "SpektoWatch2Tests" target */,
-			);
 			path = SpektoWatch2Tests;
 			sourceTree = "<group>";
 		};
@@ -645,7 +634,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				37B51E462FBE01E50006E8C1 /* TestPlan.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -783,7 +771,7 @@
 				DEVELOPMENT_TEAM = L22A8M5245;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpektoWatch2Widget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch2Widget;
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -817,7 +805,7 @@
 				DEVELOPMENT_TEAM = L22A8M5245;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpektoWatch2Widget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch2Widget;
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -989,9 +977,10 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "SpektoWatch2-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren für UX-Effekte und zur bestimmung von Körnperschall ";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpektoWatch verwendet das Mikrofon, um Live-Spektrogramme und Schallpegelmessungen zu erstellen und Aufnahmen zu speichern.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch verwendet Bewegungssensoren, um Spektrogramme per Neigung zu verschieben und die Oszilloskop-Ansicht zu steuern.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -1052,9 +1041,10 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "SpektoWatch2-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diese App benötigt Zugriff auf das Mikrofon, um ein Live-Spektrogramm der Audiodaten zu erstellen.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch nutzt Bewegungssensoren für UX-Effekte und zur bestimmung von Körnperschall ";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpektoWatch verwendet das Mikrofon, um Live-Spektrogramme und Schallpegelmessungen zu erstellen und Aufnahmen zu speichern.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "SpektoWatch verwendet Bewegungssensoren, um Spektrogramme per Neigung zu verschieben und die Oszilloskop-Ansicht zu steuern.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -1268,7 +1258,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = testtext;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpektoWatch verwendet das Mikrofon für Live-Pegel, Spektrogramme und Aufnahmen direkt auf der Apple Watch.";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = BrandtAcoustics.SpektoWatchTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1291,7 +1281,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = testtext;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpektoWatch verwendet das Mikrofon für Live-Pegel, Spektrogramme und Aufnahmen direkt auf der Apple Watch.";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = BrandtAcoustics.SpektoWatchTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -195,7 +195,7 @@ struct TriggerAcquisitionView: View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("TAP-TO-MARK")
+                    Text("TRIGGER MARKIEREN")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -227,7 +227,7 @@ struct TriggerAcquisitionView: View {
                     Text(engine.state == .marking ? "AUFZEICHNUNG LÄUFT" : "AUFNAHME-BUTTON DRÜCKEN")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(engine.state == .marking ? .red : Color(red: 0.0, green: 0.85, blue: 1.0))
-                    Text(engine.state == .marking ? "Erneut drücken wenn Trigger endet" : "Drücken wenn Trigger beginnt")
+                    Text(engine.state == .marking ? "Erneut drücken, wenn der Trigger endet" : "Drücken, wenn der Trigger beginnt")
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -260,7 +260,7 @@ struct TriggerAcquisitionView: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.30))
             }
-            Text("Masker-Vorschlag wurde berechnet.\nDieses Fenster schließen um ihn anzusehen.")
+            Text("Masker-Vorschlag wurde berechnet.\nSchließe dieses Fenster, um ihn anzusehen.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

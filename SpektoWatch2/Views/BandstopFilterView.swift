@@ -200,8 +200,8 @@ struct BandstopFilterEditView: View {
         ("Netzbrummen 60Hz", 58, 62),
         ("Oberwellen 100Hz", 98, 102),
         ("Oberwellen 150Hz", 148, 152),
-        ("Tiefpass < 100Hz", 20, 100),
-        ("Hochpass > 8kHz", 8000, 20000),
+        ("Tieffrequenzen < 100Hz ausblenden", 20, 100),
+        ("Hochfrequenzen > 8kHz ausblenden", 8000, 20000),
         ("Sprachbereich", 300, 3400),
         ("Subwoofer", 20, 80),
     ]

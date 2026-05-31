@@ -8,10 +8,9 @@ xcresult bundle and exportable by `agent/scripts/capture-screenshots.py`.
 | Argument | Value | Effect |
 |---|---|---|
 | `-SeedTestData` | `YES` | Seeds pre-built recordings into the app so screenshot tests don't need a live microphone. |
-| `-SeedRecordingState` | `running` | (Future) Seeds the recording-in-progress state for live-meter screenshots. |
-| `-UIAnimationsDisabled` | `YES` | Disables UIKit animations for faster, deterministic screenshots. |
+| `-UIAnimationsDisabled` | `YES` | Passed by screenshot tests for future deterministic-animation handling. The app does not currently consume it. |
 | `-ResetState` | `YES` | Clears any persisted state before launch. |
-| `-SnapshotCatalog` | `YES` | Activates the full screenshot catalog path in `ScreenshotCatalogTests`. |
+| `-SnapshotCatalog` | `YES` | Reserved screenshot-catalog marker. The app does not currently consume it. |
 
 ## Screenshot tests
 
@@ -21,6 +20,7 @@ xcresult bundle and exportable by `agent/scripts/capture-screenshots.py`.
 | `RecordingFlowScreenshotTests.swift` | Recording lifecycle: idle → start tap → in-progress → stop → recordings list → detail (~5 shots) |
 | `ExportFlowScreenshotTests.swift` | Export overlays: PDF, CSV, spectrogram PNG (open + dismiss each; ~6 shots) |
 | `WeightingPickerScreenshotTests.swift` | Playback weighting picker: Z → A → C → Z (~4 shots) |
+| `WidgetGridScreenshotTests.swift` | Widget-size grid pages and allowed widget dimensions |
 | `WatchAppScreenshotTests.swift` | Watch app states (requires watchOS simulator) |
 
 ## Running locally

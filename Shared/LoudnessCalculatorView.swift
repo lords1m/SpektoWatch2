@@ -132,7 +132,7 @@ struct LoudnessCalculatorView: View {
                     
                     Text("• Bei 1000 Hz: dB SPL = Phon (Referenz)")
                     Text("• +10 Phon = Verdopplung der Lautheit")
-                    Text("• Basiert auf ISO 226:2003 (Equal-Loudness-Kurven)")
+                    Text("• Näherung mit ISO-226:2003-Referenzdaten")
                     Text("• Stevens' Power Law: S = 2^((P-40)/10)")
                 }
                 .font(.caption)

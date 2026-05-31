@@ -89,7 +89,7 @@ private struct LockScreenView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("PEAK")
+                    Text("SPITZENPEGEL")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Text("\(Int(context.state.peakLevel)) dB")

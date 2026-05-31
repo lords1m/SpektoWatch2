@@ -38,7 +38,7 @@ struct LevelCornerWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("SpektoWatch Level (Corner)")
-        .description("Pegelanzeige für Ecken-Slots.")
+        .description("Pegelanzeige für Komplikationen in den Ecken.")
         .supportedFamilies([.accessoryCorner])
     }
 }

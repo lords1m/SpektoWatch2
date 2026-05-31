@@ -89,6 +89,7 @@ struct WatchLevelMeterView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
     }
 
     // Höhe der X-Achsen-Zeile (Record-Button-Inset 22 + Schriftgröße ~9)

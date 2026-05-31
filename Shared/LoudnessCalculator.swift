@@ -2,7 +2,7 @@
 //  LoudnessCalculator.swift
 //  SpektoWatch2
 //
-//  Lautheit-Rechner basierend auf ISO 226:2003 und ISO 532
+//  Lautheit-Rechner: ISO-226:2003-Referenzdaten und vereinfachte Sone-Näherung
 //  Konvertierung: dB SPL → Phon → Sone
 //
 
@@ -35,7 +35,7 @@ class LoudnessCalculator: ObservableObject {
         return staticInterpolatePhon(spl: spl, freqIdx: fi)
     }
 
-    /// Phon → Sone conversion (Stevens' Power Law, ISO 532).
+    /// Phon → Sone conversion (simplified Stevens relationship).
     static func sone(phon phonVal: Double) -> Double {
         let p = max(0.0, phonVal)
         return p >= 40 ? pow(2.0, (p - 40.0) / 10.0) : pow(p / 40.0, 2.642)

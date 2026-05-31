@@ -1,7 +1,7 @@
 # SpektoWatch2 Fullstack-Übersicht
 
-Stand: 2026-05-06  
-Repo: `SpektoWatch2` (iOS + watchOS, Swift/SwiftUI, ohne externe Package-Dependencies)
+Stand: 2026-05-31
+Repo: `SpektoWatch2` (iOS + watchOS, Swift/SwiftUI)
 
 ## 1) Stack auf einen Blick
 
@@ -11,14 +11,16 @@ Repo: `SpektoWatch2` (iOS + watchOS, Swift/SwiftUI, ohne externe Package-Depende
 - Kommunikation: WatchConnectivity
 - State/Reactive: Combine, `@Published`, `EnvironmentObject`
 - Logging/Profiling: `OSLog`, `os_signpost`, Diagnose-Flags via Scheme-Env
-- Tests: XCTest (Unit, Integration, UI), `.xctestplan`, `run_tests.sh`
+- Tests: XCTest (Unit, Integration, UI), SnapshotTesting, `.xctestplan`, `run_tests.sh`
 
 ## 2) Targets und Projektstruktur
 
 ### Targets
 - `SpektoWatch2` (iOS App)
 - `SpektoWatch Watch App` (watchOS App)
-- `SpektoWatch2Tests` / `SpektoWatch2UITests`
+- `SpektoWatch2WidgetExtension` (iOS Live Activity)
+- `SpektoWatch Complications` (watchOS WidgetKit Extension)
+- `SpektoWatch2Tests` / `SpektoWatch2UITests` / `SpektoWatchTests`
 
 ### Hauptordner
 - `SpektoWatch2/` iOS-UI, AudioEngine, DSP, Renderer, Widget-System
@@ -89,7 +91,7 @@ Damit werden einzelne Dateien trotz gleicher Namen gezielt aus Targets ausgeschl
 ```mermaid
 flowchart LR
     WMic["Watch Mic"] --> WAE["WatchAudioEngine"]
-    WAE -->|AudioData| WC["WatchConnectivity"]
+    WAE -->|kompakte Spektrogrammdaten| WC["WatchConnectivity"]
     WC --> IAE["iOS AudioEngine"]
     IAE --> DSP["FFT + Weighting + Metrics"]
     DSP --> SD["SpectrogramData"]
@@ -100,7 +102,11 @@ flowchart LR
 - Watch App Entry: `SpektoWatch Watch App/SpektoWatchApp.swift`
 - Lokale Watch-Verarbeitung:
   - `WatchAudioEngine` macht zusätzlich eine lokale FFT für sofortige Anzeige auf der Uhr.
-  - Parallel wird Audio an iPhone gesendet, wo die Hauptverarbeitung läuft.
+  - Im Wearable- und Standalone-Modus berechnet die Watch lokale Pegelmetriken.
+  - Live übertragen werden kompakte, verarbeitete Spektrogrammdaten, kein
+    kontinuierlicher Raw-Audio-Stream.
+  - Standalone-Aufnahmen werden lokal persistiert und später per
+    `WCSession.transferFile` an das iPhone synchronisiert.
 
 ## 6) Datenmodelle, Persistenz und Konfig-Priorität
 
@@ -139,21 +145,25 @@ Hinweis: Bei einigen Widget-Parametern (z. B. Colormap/TimeSpan/Sensitivity) ist
 - `SPEKTO_DEBUG_WIDGET_SPECTRUM=1`  
   -> loggt `[SpectrumWidgetDiag] ...` aus `AudioWidgets`
 
-## 8) Redundanzen und potenzielle Konflikte
+## 8) Wartungshinweise
 
-### Vorhandene Duplikate (historisch/legacy)
-- `SpektoWatch2/RecordingManager.swift` und `SpektoWatch2/Managers/RecordingManager.swift`
-- `SpektoWatch2/WatchConnectivityManager.swift` und `Shared/WatchConnectivityManager.swift`
+### Plattformgetrennte Konnektivität
+- `SpektoWatch2/WatchConnectivityManager.swift` enthält die iOS-Seite.
+- `Shared/WatchConnectivityManager.swift` enthält die watchOS-Seite.
 
-Diese Doppelungen sind teilweise per Target-Exceptions entschärft, erhöhen aber Wartungsrisiko und Verwechslungsgefahr.
+Die Implementierungen teilen das typisierte Protokoll aus
+`Shared/WatchConnectivityProtocol.swift`, bleiben aber plattformspezifisch.
 
 ### Harte Samplerate-Annahmen
 - Einzelne Komponenten rechnen weiterhin implizit mit 44.1 kHz (z. B. in bestimmten Zeitachsen-/Buffergrößen-Berechnungen).
 - Der zentrale Live-DSP-Pfad in `AudioEngine` arbeitet bereits mit dynamischer `processingSampleRate`.
 
-## 9) Bekannte Performance-Schulden (Swift-Seite, Audit Mai 2026)
+## 9) Historischer Performance-Audit (Mai 2026)
 
-Der Metal/Shader-Pfad wurde Jan 2026 optimiert (→ `SPECTROGRAM_REFERENCE.md`). Der folgende Audit identifiziert die verbleibenden Bottlenecks auf der **Swift-Seite** des Audio-Hot-Paths. Der Processing-Thread läuft bei ≈ 86 FFTs/s — jede skalare Schleife multipliziert sich entsprechend.
+Der folgende Abschnitt dokumentiert den Ausgangspunkt des Performance-Audits
+und ist kein aktueller Backlog. Der Großteil dieser Punkte wurde in späteren
+Meilensteinen umgesetzt. Für den aktuellen Status sind `agent/progress.yaml`
+und die zugehörigen Acceptance-Reports maßgeblich.
 
 Detaillierte Fixes mit Codebeispielen: `PERFORMANCE_REVIEW.md`
 
@@ -216,5 +226,7 @@ flowchart TD
 - Die Live-Analyse ist zentral in `AudioEngine` gebündelt und wird von den iOS-Widgets gemeinsam genutzt.
 - Watch unterstützt Hybridbetrieb (lokale Sofort-FFT + iPhone-Hauptverarbeitung).
 - Metal/Shader-Seite ist optimiert (Jan 2026) — Performance ist im Budget.
-- Der nächste Optimierungsblock liegt auf der **Swift-DSP-Seite**: skalare Schleifen, redundante A/C/Z-Berechnung und synchrone Disk-Writes (→ Abschnitt 9, `PERFORMANCE_REVIEW.md`).
-- Struktureller Schuldenblock: Legacy-Duplikate (`RecordingManager`, `WatchConnectivityManager`) und einzelne verbleibende 44,1-kHz-Hardcodes außerhalb des Kernpfads.
+- Der historische Swift-DSP-Audit bleibt in Abschnitt 9 als Referenz erhalten;
+  der aktuelle Stand wird in `agent/progress.yaml` gepflegt.
+- Einzelne verbleibende 44,1-kHz-Annahmen außerhalb des Kernpfads sollten bei
+  Änderungen an Zeitachsen und Buffergrößen erneut geprüft werden.

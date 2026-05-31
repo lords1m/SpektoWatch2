@@ -1,4 +1,4 @@
-# Lautheit-Rechner (ISO 226/532)
+# Lautheit-Rechner (ISO-226-Näherung)
 
 Interaktives Widget zur Konvertierung von Schalldruckpegel (dB SPL) zu psychoakustischen Maßen (Phon und Sone).
 
@@ -6,9 +6,13 @@ Interaktives Widget zur Konvertierung von Schalldruckpegel (dB SPL) zu psychoaku
 
 Dieses Widget demonstriert den fundamentalen Unterschied zwischen physikalischer Schallmessung (dB SPL) und menschlicher Wahrnehmung (Phon/Sone). Es basiert auf:
 
-- **ISO 226:2003**: Equal-Loudness-Konturen (Fletcher-Munson-Kurven)
-- **ISO 532**: Zwicker-Methode für Lautheitsberechnung
-- **Stevens' Power Law**: Phon-zu-Sone-Konversion
+- **ISO 226:2003**: Referenzdaten für Equal-Loudness-Konturen
+- **Stevens' Power Law**: vereinfachte Phon-zu-Sone-Konversion
+
+Das Widget ist eine psychoakustische Orientierungshilfe. Es implementiert
+nicht die vollständige Zwicker-Methode nach ISO 532-1:2017 und erhebt keinen
+Anspruch auf Normkonformität. ISO 226:2003 wurde durch ISO 226:2023 ersetzt;
+die aktuelle Implementierung verwendet weiterhin die 2003er Referenzdaten.
 
 ## Dateien
 
@@ -200,9 +204,8 @@ struct ExampleView: View {
 ## Technische Details
 
 ### ISO 226 Stützpunkte
-Das Widget verwendet tabellarische ISO 226:2003 Daten für folgende Frequenzen:
-- 100, 200, 500, 1000, 2000, 4000, 8000 Hz
-- Phon-Level: 20, 40, 60, 80, 100
+Das Widget verwendet tabellarische ISO-226:2003-Parameter für 29 Frequenzen
+von 20 Hz bis 12.500 Hz und Phon-Stufen von 0 bis 90 in 10er-Schritten.
 
 Für andere Frequenzen wird linear interpoliert oder eine vereinfachte Approximation verwendet.
 
@@ -212,7 +215,8 @@ Für andere Frequenzen wird linear interpoliert oder eine vereinfachte Approxima
 
 ## Referenzen
 
-- ISO 226:2003 - Acoustics — Normal equal-loudness-level contours
+- ISO 226:2023 - Acoustics — Normal equal-loudness-level contours
+- ISO 226:2003 - frühere Ausgabe; Referenzdaten der aktuellen Implementierung
 - ISO 532-1:2017 - Acoustics — Methods for calculating loudness (Zwicker method)
 - Stevens, S.S. (1957). "On the psychophysical law". Psychological Review, 64(3), 153–181
 

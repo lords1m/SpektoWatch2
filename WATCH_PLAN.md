@@ -1,5 +1,11 @@
 # SpektoWatch — watchOS Plan
 
+> **Historischer Planungsstand:** Dieses Dokument enthält den Ausgangsplan und
+> Statusnotizen aus Mai 2026. Komplikationen, Live Activities und eigenständige
+> Watch-Aufnahmen sind inzwischen implementiert beziehungsweise
+> hardware-gated. Der aktuelle Status steht in `agent/progress.yaml` sowie in
+> den Milestones M20 und M21.
+
 A roadmap for the Apple Watch part of SpektoWatch: where it is now, what it
 should become, and how to get there in phases that don't break each other.
 
@@ -382,7 +388,7 @@ Shared/Watch/                             // moved out of Shared/
 
 ---
 
-## 8 · The single most-recommended next step
+## 8 · Historical recommendation
 
 If only one thing gets done from this plan, do **Phase 3 (complications)**.
 Reason: an acoustic instrument on the wrist with no presence on the watch
@@ -397,5 +403,5 @@ still coupled to observable state.
 
 ---
 
-*Plan written May 2026 against the current `main` branch. Rechecked against the
-workspace on May 10, 2026.*
+*Plan written in May 2026. For current implementation status, use
+`agent/progress.yaml`.*

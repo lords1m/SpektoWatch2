@@ -152,7 +152,7 @@ private struct ParametersSection: View {
                     HStack {
                         Image(systemName: "square.on.square")
                             .foregroundStyle(.orange)
-                        Text("Overlap")
+                        Text("Überlappung")
                             .font(.headline)
                         Spacer()
                         Text("\(Int(fftConfig.overlapPercent))%")
@@ -376,7 +376,7 @@ private struct ResolutionSection: View {
 
                         Text("""
                         Mit Δf = \(String(format: "%.2f", fftConfig.frequencyResolution)) Hz \
-                        \(canDistinguish ? "kannst" : "kannst du NICHT") du A4 (440 Hz) von A#4 (466 Hz) unterscheiden.
+                        \(canDistinguish ? "kannst du" : "kannst du NICHT") A4 (440 Hz) von A#4 (466 Hz) unterscheiden.
 
                         Für Musik-Tuning (±1 Hz Genauigkeit) brauchst du mindestens 8192 Samples.
                         Für Sprache reichen oft 2048 Samples.

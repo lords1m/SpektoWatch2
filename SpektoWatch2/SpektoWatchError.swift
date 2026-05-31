@@ -34,7 +34,7 @@ enum SpektoWatchError: LocalizedError, Equatable {
     var recoverySuggestion: String? {
         switch self {
         case .microphonePermissionDenied:
-            return "Öffnen Sie die iOS-Einstellungen > Datenschutz > Mikrofon und aktivieren Sie SpektoWatch."
+            return "Öffnen Sie Einstellungen > Datenschutz & Sicherheit > Mikrofon und erlauben Sie SpektoWatch den Zugriff."
         case .watchNotReachable:
             return "Stellen Sie sicher, dass die Watch in Reichweite ist und die App dort geöffnet ist."
         case .audioEngineFailure:

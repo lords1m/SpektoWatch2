@@ -48,7 +48,7 @@ struct WatchDashboardSettingsView: View {
             Button(action: {
                 viewModel.resetToDefault(connectivityManager: connectivityManager)
             }) {
-                Text("Auf Standard zurüccksetzen")
+                Text("Auf Standard zurücksetzen")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -132,7 +132,7 @@ struct WatchRecordingDetailView: View {
                     row("Dauer", WatchRecordingFormat.duration(live.duration))
                     row("Bewertung", live.weighting)
                     HStack {
-                        Text("Sync")
+                        Text("Synchronisierung")
                             .font(.system(size: 11))
                             .foregroundColor(.gray)
                         Spacer()

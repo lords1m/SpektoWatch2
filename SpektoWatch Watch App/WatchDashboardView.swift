@@ -174,7 +174,7 @@ struct WatchDashboardView: View {
         .buttonStyle(.plain)
         .disabled(isRecording)
         .accessibilityIdentifier("watchStandaloneToggle")
-        .accessibilityLabel(audioEngine.standaloneEnabled ? "Standalone mode" : "Companion mode")
+        .accessibilityLabel(audioEngine.standaloneEnabled ? "Betriebsmodus: eigenständig" : "Betriebsmodus: mit iPhone")
     }
 
     private var recordButton: some View {
@@ -205,5 +205,6 @@ struct WatchDashboardView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
     }
 }

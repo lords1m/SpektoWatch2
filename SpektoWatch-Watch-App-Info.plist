@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Wir benötigen Zugriff auf das Mikrofon für die Spektrogramm-Analyse auf der Apple Watch</string>
+	<string>SpektoWatch verwendet das Mikrofon der Apple Watch, um Live-Spektrogramme und Schallpegelmessungen zu erstellen und eigenständige Aufnahmen zu speichern.</string>
 </dict>
 </plist>

@@ -6,7 +6,7 @@ Das Bandsperre-Filter-System ermöglicht das gezielte Herausfiltern von Frequenz
 - **Netzbrummen** (50/60 Hz)
 - **Störgeräusche** mit bekannter Frequenz
 - **Fokussierung** auf relevante Frequenzbereiche
-- **Messnorm-Konformität** durch Filterung nicht relevanter Bereiche
+- **Explorative Analyse** durch Ausblenden nicht relevanter Bereiche
 
 ---
 
@@ -165,8 +165,8 @@ Button("Bandsperre konfigurieren") {
 | **Netzbrummen 60Hz** | 58 Hz | 62 Hz | US/Japan-Stromnetz |
 | **Oberwelle 100Hz** | 98 Hz | 102 Hz | 2. Harmonische (50Hz) |
 | **Oberwelle 150Hz** | 148 Hz | 152 Hz | 3. Harmonische (50Hz) |
-| **Tiefpass < 100Hz** | 20 Hz | 100 Hz | Infraschall filtern |
-| **Hochpass > 8kHz** | 8 kHz | 20 kHz | Hochfrequenz-Rauschen |
+| **Tieffrequenzen < 100Hz ausblenden** | 20 Hz | 100 Hz | Tieffrequente Störungen filtern |
+| **Hochfrequenzen > 8kHz ausblenden** | 8 kHz | 20 kHz | Hochfrequenz-Rauschen filtern |
 | **Sprachbereich** | 300 Hz | 3.4 kHz | Telefon-Bandbreite |
 | **Subwoofer** | 20 Hz | 80 Hz | Bass-Bereich |
 
@@ -224,7 +224,8 @@ func attenuationFactor(for frequency: Float) -> Float {
 4. Im Spektrogramm erscheinen rote Markierungen
 5. LAeq-Wert ist jetzt **ohne** Netzbrummen
 
-**Vorteil**: Messung entspricht DIN 45641 (Arbeitslärm ohne technische Störungen)
+**Hinweis**: Das Filter dient der explorativen Analyse. Gefilterte Werte sind
+nicht automatisch normkonforme Messwerte.
 
 ---
 

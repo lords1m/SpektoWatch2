@@ -1012,6 +1012,7 @@ private struct WaveformFullscreenView: View {
                                 .frame(width: 28, height: 28)
                                 .background(Circle().fill(Color.black.opacity(0.55)))
                         }
+                        .accessibilityLabel("Bewegungssteuerung kalibrieren")
 
                         ZStack {
                             RoundedRectangle(cornerRadius: 2)
@@ -1042,7 +1043,7 @@ private struct WaveformFullscreenView: View {
                                     .stroke(movementManager.isActive ? Color.orange.opacity(0.6) : Color.clear, lineWidth: 1)
                             )
                     }
-                    .accessibilityLabel("Bewegungssteuerung")
+                    .accessibilityLabel(movementManager.isActive ? "Bewegungssteuerung deaktivieren" : "Bewegungssteuerung aktivieren")
                 }
 
                 Button {
@@ -1052,6 +1053,7 @@ private struct WaveformFullscreenView: View {
                         .font(.system(size: 28))
                         .foregroundStyle(.white.opacity(0.9))
                 }
+                .accessibilityLabel("Vollbild schließen")
             }
             .padding(.top, 16)
             .padding(.trailing, 16)

@@ -169,6 +169,7 @@ struct WatchSpectrogramView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(audioEngine.isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
     }
 
     private func processSpectrogramData(_ data: SpectrogramData) {
