@@ -20,10 +20,15 @@ Milestone: `milestone-20-live-activities`
 - iOS app scheme builds green; `SpektoWatch2WidgetExtension.appex` embeds and
   host app `NSSupportsLiveActivities = true`.
 
-Remaining: on-device acceptance (below). Xcode also generated template
-`SpektoWatch2Widget.swift` (static widget) + `SpektoWatch2WidgetControl.swift`
-(Control Center) still showing placeholder content — flesh out or drop from the
-bundle separately; out of scope for the Live Activity.
+- Dropped the Xcode-generated template files (`SpektoWatch2Widget.swift`
+  static widget, `SpektoWatch2WidgetControl.swift` Control Center,
+  `AppIntent.swift`); `SpektoWatch2WidgetBundle` now declares only
+  `SpektoWatch2WidgetLiveActivity()`. Verified 2026-05-31 — none of those
+  placeholder files remain under `SpektoWatch2Widget/`.
+
+Remaining: **on-device acceptance only** (below). No code-side work is left for
+this task — the extension target, bundle, shared attributes membership, and
+Live Activity UI are all in place and the app scheme builds green.
 
 ## Why this is manual
 

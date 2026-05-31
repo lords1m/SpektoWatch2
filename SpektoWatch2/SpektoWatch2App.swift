@@ -17,6 +17,11 @@ struct SpektoWatch2App: App {
         UITestLaunchConfiguration.applyIfNeeded()
         UITestSeedConfiguration.applyIfNeeded()
 #endif
+        // Run the one-shot persistence migrations before any service
+        // (AppServices and its sub-services) reads a key. After a UI-test
+        // -ResetState wipe this just stamps the current schema version on an
+        // empty defaults domain. (M13 task-8 Phase 2.)
+        PersistenceMigrator.runMigrationsIfNeeded()
     }
 
     var body: some Scene {

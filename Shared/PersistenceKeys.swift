@@ -29,6 +29,15 @@ import Foundation
 ///   `task-8-persistence-registry.md` Phase 2.
 public enum PersistenceKeys {
 
+    // MARK: - App-level persistence schema
+
+    /// Monotonic version of the *cross-cutting* UserDefaults layout, owned by
+    /// `PersistenceMigrator`. Distinct from the per-subsystem schema markers
+    /// (`Calibration.version`, `FFT.configVersion`) which each type self-heals
+    /// on load. The migrator stamps this once it has run every pending step.
+    /// Storage: `Int` in `UserDefaults.standard` (absent / 0 = pre-migrator).
+    public static let persistenceSchemaVersion = "persistence.schemaVersion"
+
     // MARK: - Dashboard
 
     /// Legacy single-layout snapshot of the active dashboard.
@@ -52,15 +61,18 @@ public enum PersistenceKeys {
 
     // MARK: - Calibration
 
-    /// Schema marker for the calibration persistence layout.
-    /// Bump when `calibrationOffset` changes meaning.
-    public static let calibrationVersion = "calibrationVersion"
+    public enum Calibration {
+        /// Schema marker for the calibration persistence layout.
+        /// Bump when `offset` changes meaning.
+        public static let version = "calibrationVersion"
 
-    /// Last user-set or device-default microphone calibration offset
-    /// (dB). Storage: `Float` via `setObject`.
-    public static let calibrationOffset = "calibrationOffset"
+        /// Last user-set or device-default microphone calibration offset
+        /// (dB). Storage: `Float` via `setObject`.
+        public static let offset = "calibrationOffset"
 
-    public static let calibrationCurrentSchemaVersion = 2
+        /// Schema version for the calibration persistence layout.
+        public static let currentVersion = 2
+    }
 
     // MARK: - Spectrogram smoothing knobs
 
@@ -105,6 +117,15 @@ public enum PersistenceKeys {
         /// the phone and does not subscribe to the phone spectrogram at launch.
         /// Storage: `Bool` in `UserDefaults.standard`.
         public static let standaloneEnabled = "watch.standaloneEnabled"
+    }
+
+    // MARK: - Recordings list
+
+    public enum RecordingsList {
+        /// Persisted sort order for the stored-recordings list.
+        /// Storage: @AppStorage, `UserDefaults.standard`. The declaration in
+        /// `RecordingsListView` still embeds the literal (see Design note).
+        public static let sortOption = "recordingsList.sortOption"
     }
 
     // MARK: - Design tokens (@AppStorage)

@@ -103,21 +103,70 @@ What's not in this commit:
   through the same keys, so cold-launch behaviour for an existing
   user is bit-identical to pre-M13.
 
+## Landed (2026-05-31) — Phase 2: migration runner
+
+### New files
+
+- `Shared/PersistenceMigrator.swift` — one-shot, ordered, idempotent
+  `UserDefaults` runner. `runMigrationsIfNeeded(defaults:)` reads
+  `PersistenceKeys.persistenceSchemaVersion`, runs each pending step in
+  order, then stamps `currentSchemaVersion` (1). Foundation-only; lives in
+  `Shared/` next to the registry (compiles into iOS + watch, only wired on
+  iOS for now).
+- `SpektoWatch2Tests/PersistenceMigratorTests.swift` — 5 tests, all green on
+  iPhone 17 Pro (iOS 26 sim): fresh-install stamp, superseded-key removal,
+  idempotent double-run, already-current short-circuit, and a live-key-safety
+  invariant (calibration / FFT / smoothing / watch keys untouched).
+
+### Migration step v0 → v1
+
+Garbage-collects the orphaned single-layout dashboard snapshots
+`DashboardConfiguration_v1 … _v4` (history confirms `_v2` shipped; the
+current app reads only `_v5` = `dashboardLegacySnapshot` and
+`DashboardLayouts_v1`). `removeObject` on absent keys is a no-op, so the
+range is safe for every user. Active keys are deliberately untouched. The
+per-type self-healing checks in `CalibrationProvider.resolveStartupOffset`
+and `FFTConfiguration.loadSavedSettings` are intentionally left in place —
+this runner handles cross-cutting cleanup only.
+
+### Registry additions
+
+- `PersistenceKeys.persistenceSchemaVersion` (`"persistence.schemaVersion"`)
+  — owned by the migrator.
+- `PersistenceKeys.RecordingsList.sortOption` — closed an inventory gap; the
+  `@AppStorage("recordingsList.sortOption")` in `RecordingsListView` was not
+  registered.
+
+### Wiring
+
+- `SpektoWatch2App.init()` calls `PersistenceMigrator.runMigrationsIfNeeded()`
+  after the DEBUG `-ResetState` path and before `AppServices` (and its
+  sub-services) read any key.
+
+### Validation
+
+- iOS build (generic simulator) → BUILD SUCCEEDED.
+- watchOS build (generic simulator) → exit 0.
+- `PersistenceMigratorTests` → 5/5 passed.
+
 ## Acceptance status
 
 - [x] PersistenceKeys.swift inventory exists and covers every
   UserDefaults / AppGroup / @AppStorage key currently in use.
+  (Closed the `recordingsList.sortOption` gap 2026-05-31.)
 - [x] Every UserDefaults string-literal call site migrated to a
   registry constant.
 - [x] iOS + watchOS builds green.
 - [x] Removal plan for `DashboardConfiguration_v5` documented (in
   the registry file's doc comment).
+- [x] Single `PersistenceMigrator` migration runner — **landed
+  2026-05-31** (Phase 2). Ordered/idempotent/version-stamped; v1 step
+  garbage-collects superseded dashboard snapshots; 5 unit tests green.
 - [ ] @AppStorage declarations migrated to registry constants —
   **deferred** (ripples across ~5 view files, scope kept tight).
-- [ ] Single `PersistenceMigrator` migration runner — **deferred**
-  (current ad-hoc version checks still work; consolidation is a
-  separate refactor).
-- [ ] Cold-launch with simulated pre-M13 UserDefaults state — gated
-  on hardware (task-9).
+- [ ] Cold-launch with simulated pre-M13 UserDefaults state — covered in
+  simulator by `PersistenceMigratorTests`; on-device cold-launch parity
+  still gated on hardware (task-9).
 
-Task stays in_progress pending Phase 2 + hardware acceptance.
+Task stays in_progress: runner landed; @AppStorage declaration migration
+and hardware cold-launch acceptance remain.
