@@ -19,33 +19,32 @@ struct WaterfallDataSet {
 }
 
 enum WaterfallDataBuilder {
-    static let thirdOctaveCenters: [Float] = [
-        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-    ]
+    static let thirdOctaveCenters = SpectrogramHistoryAxis.thirdOctaveCenterFrequencies
+    static let octaveCenters: [Float] = [31.5, 63, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000]
+    static let barkCenters: [Float] = zip(SpectrumBandAggregator.barkEdges.dropFirst(), SpectrumBandAggregator.barkEdges).map {
+        ($0 + $1) / 2
+    }
 
     static func sourceFrequencies(
         binCount: Int,
         sampleRate: Double,
-        storedProviderHasFullFFT: Bool
+        axis: SpectrogramHistoryAxisKind,
+        storedProviderHasFullFFT: Bool = false,
+        fftBinCount: Int = 0
     ) -> [Float] {
-        guard binCount > 0 else { return [] }
+        let resolvedAxis: SpectrogramHistoryAxisKind
         if binCount == thirdOctaveCenters.count {
-            return thirdOctaveCenters
+            resolvedAxis = .thirdOctave
+        } else if storedProviderHasFullFFT, binCount == fftBinCount {
+            resolvedAxis = .linearFFT
+        } else {
+            resolvedAxis = axis
         }
-
-        let nyquist = Float(sampleRate / 2.0)
-        if storedProviderHasFullFFT {
-            return (0..<binCount).map { Float($0) * nyquist / Float(max(binCount - 1, 1)) }
-        }
-
-        let minFrequency: Float = 20
-        let maxFrequency = min(nyquist, 20_000)
-        let denominator = Float(max(binCount - 1, 1))
-        return (0..<binCount).map { index in
-            let t = Float(index) / denominator
-            return minFrequency * powf(maxFrequency / minFrequency, t)
-        }
+        return SpectrogramHistoryAxis.frequencyAxis(
+            kind: resolvedAxis,
+            binCount: binCount,
+            sampleRate: sampleRate
+        )
     }
 
     static func build(
@@ -53,7 +52,7 @@ enum WaterfallDataBuilder {
         sourceFrequencies: [Float],
         duration: TimeInterval,
         targetSliceCount: Int = 96,
-        targetFrequencyCount: Int = 160,
+        targetFrequencyCount: Int = WidgetSettings.defaultWaterfallTargetFrequencyCount,
         minDB: Float = -110,
         maxDB: Float = 20
     ) -> WaterfallDataSet {
@@ -116,6 +115,29 @@ enum WaterfallDataBuilder {
             minDB: minDB,
             maxDB: maxDB
         )
+    }
+
+    static func remapHistory(
+        history: [[Float]],
+        sourceFrequencies: [Float],
+        mode: WaterfallSpectrumMode
+    ) -> (history: [[Float]], frequencies: [Float]) {
+        guard !history.isEmpty, !sourceFrequencies.isEmpty else {
+            return (history, sourceFrequencies)
+        }
+        switch mode {
+        case .continuous:
+            return (history, sourceFrequencies)
+        case .thirdOctave:
+            let mapped = history.map { SpectrumBandAggregator.thirdOctaveBands(frequencies: sourceFrequencies, spectrum: $0) }
+            return (mapped, thirdOctaveCenters)
+        case .bark:
+            let mapped = history.map { SpectrumBandAggregator.barkBands(frequencies: sourceFrequencies, spectrum: $0) }
+            return (mapped, barkCenters)
+        case .octave:
+            let mapped = history.map { SpectrumBandAggregator.octaveBands(frequencies: sourceFrequencies, spectrum: $0) }
+            return (mapped, octaveCenters)
+        }
     }
 
     private static func makeTargetFrequencies(sourceFrequencies: [Float], targetCount: Int) -> [Float] {

@@ -10,6 +10,10 @@ final class RecordingManager: NSObject, ObservableObject {
     @Published var currentRecordingDuration: TimeInterval = 0
     @Published var recordings: [Recording] = []
     @Published var liveActivityError: String? = nil
+    @Published var persistenceError: String? = nil
+
+    /// Wall-clock start of the active phone recording session.
+    var recordingStartDate: Date? { recordingStartTime }
 
     private var timer: Timer?
     private var recordingStartTime: Date?
@@ -129,8 +133,11 @@ final class RecordingManager: NSObject, ObservableObject {
             stored.measurementDataFileName = movedMeasurement.lastPathComponent
         }
 
+        stored.spectralDataAvailable = probeSpectralAvailability(for: stored)
+
         recordings.insert(stored, at: 0)
         saveRecordings()
+        removeOrphanedRecordingFiles()
     }
 
     /// Ingests a standalone watch recording transferred via WatchConnectivity
@@ -172,6 +179,7 @@ final class RecordingManager: NSObject, ObservableObject {
         }
         recordings.removeAll { ids.contains($0.id) }
         saveRecordings()
+        removeOrphanedRecordingFiles()
     }
 
     /// Buffer of recordings just removed from `recordings` whose files
@@ -228,6 +236,7 @@ final class RecordingManager: NSObject, ObservableObject {
         }
         pendingSoftDeletes.removeAll()
         clearPendingSoftDeleteSidecar()
+        removeOrphanedRecordingFiles()
     }
 
     // MARK: - Soft-delete sidecar persistence
@@ -381,7 +390,8 @@ final class RecordingManager: NSObject, ObservableObject {
             widgetConfigurations: source.widgetConfigurations,
             markers: source.markers,
             calibrationOffset: source.calibrationOffset,
-            fftBlockSize: source.fftBlockSize
+            fftBlockSize: source.fftBlockSize,
+            spectralDataAvailable: source.spectralDataAvailable
         )
         recordings.insert(duplicate, at: 0)
         saveRecordings()
@@ -506,9 +516,23 @@ final class RecordingManager: NSObject, ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(recordings)
             try data.write(to: metadataURL, options: .atomic)
+            persistenceError = nil
         } catch {
-            print("[RecordingManager] Metadata save failed: \(error)")
+            persistenceError = error.localizedDescription
+            Logger.recording.error("Metadata save failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    nonisolated static func resolvedRecordingDuration(
+        audioURL: URL,
+        measurementURL: URL?,
+        fallback: TimeInterval
+    ) -> TimeInterval {
+        RecordingDurationResolver.resolved(
+            audioURL: audioURL,
+            measurementURL: measurementURL,
+            fallback: fallback
+        )
     }
 
     private func loadRecordings() {
@@ -529,9 +553,72 @@ final class RecordingManager: NSObject, ObservableObject {
             if dropped > 0 {
                 Logger.recording.warning("Skipped \(dropped) malformed recording metadata entr\(dropped == 1 ? "y" : "ies")")
             }
+            backfillSpectralFlagsIfNeeded()
+            removeOrphanedRecordingFiles()
         } catch {
             print("[RecordingManager] Metadata load failed: \(error)")
         }
+    }
+
+    private func probeSpectralAvailability(for recording: Recording) -> Bool? {
+        guard let url = measurementURL(for: recording) else { return nil }
+        return MeasurementSpectralAvailability.hasUsableSpectralData(fileURL: url)
+    }
+
+    private func backfillSpectralFlagsIfNeeded() {
+        var changed = false
+        for index in recordings.indices where recordings[index].spectralDataAvailable == nil {
+            recordings[index].spectralDataAvailable = probeSpectralAvailability(for: recordings[index])
+            changed = true
+        }
+        if changed {
+            saveRecordings()
+        }
+    }
+
+    private func referencedRecordingFileNames() -> Set<String> {
+        var names: Set<String> = []
+        func add(_ pathOrName: String) {
+            let trimmed = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            if trimmed.contains("/") {
+                names.insert(URL(fileURLWithPath: trimmed).lastPathComponent)
+            } else {
+                names.insert(trimmed)
+            }
+        }
+
+        for recording in recordings {
+            add(recording.audioFileName)
+            if let measurement = recording.measurementDataFileName {
+                add(measurement)
+            }
+            for photo in recording.photoFileNames {
+                add(photo)
+            }
+        }
+        for recording in pendingSoftDeletes.values {
+            add(recording.audioFileName)
+            if let measurement = recording.measurementDataFileName {
+                add(measurement)
+            }
+            for photo in recording.photoFileNames {
+                add(photo)
+            }
+        }
+        if let pendingAudioURL {
+            add(pendingAudioURL.path)
+        }
+        return names
+    }
+
+    @discardableResult
+    private func removeOrphanedRecordingFiles() -> Int {
+        RecordingOrphanCleanup.removeOrphans(
+            in: recordingsDirectory,
+            referencedFileNames: referencedRecordingFileNames(),
+            fileManager: fileManager
+        )
     }
 }
 

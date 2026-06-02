@@ -63,7 +63,12 @@ final class SpectrogramImageExporterTests: XCTestCase {
     func testExportSuccessWritesPNGFile() throws {
         let audioURL = try makeSyntheticAudioFile(durationSeconds: 1.0, sampleRate: 44100)
         let exporter = SpectrogramImageExporter()
-        let outputURL = try exporter.export(audioURL: audioURL, recordingID: UUID().uuidString)
+        let outputURL = try exporter.export(
+            audioURL: audioURL,
+            recordingID: UUID().uuidString,
+            fftSize: 4096,
+            calibrationOffset: 94
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
         XCTAssertEqual(outputURL.pathExtension, "png")
         let data = try Data(contentsOf: outputURL)
@@ -74,14 +79,24 @@ final class SpectrogramImageExporterTests: XCTestCase {
         let audioURL = try makeSyntheticAudioFile(durationSeconds: 0.5, sampleRate: 44100)
         let recordingID = UUID().uuidString
         let exporter = SpectrogramImageExporter()
-        let outputURL = try exporter.export(audioURL: audioURL, recordingID: recordingID)
+        let outputURL = try exporter.export(
+            audioURL: audioURL,
+            recordingID: recordingID,
+            fftSize: 4096,
+            calibrationOffset: 94
+        )
         XCTAssertTrue(outputURL.lastPathComponent.contains(recordingID))
     }
 
     func testExportFailsWhenAudioFileMissing() {
         let missing = tempDirectory.appendingPathComponent("missing.caf")
         let exporter = SpectrogramImageExporter()
-        XCTAssertThrowsError(try exporter.export(audioURL: missing, recordingID: UUID().uuidString)) { error in
+        XCTAssertThrowsError(try exporter.export(
+            audioURL: missing,
+            recordingID: UUID().uuidString,
+            fftSize: 4096,
+            calibrationOffset: 94
+        )) { error in
             guard let exportError = error as? SpectrogramImageExporter.ExportError,
                   case .audioNotFound = exportError else {
                 XCTFail("Expected ExportError.audioNotFound, got \(error)")

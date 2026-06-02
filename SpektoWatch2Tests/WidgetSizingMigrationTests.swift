@@ -151,17 +151,19 @@ final class WidgetSizingMigrationTests: XCTestCase {
         XCTAssertEqual(decoded.settings, original.settings)
     }
 
+    #if DEBUG
     @MainActor
     func testWidgetSizeScreenshotPresetCreatesOneLayoutPerVisibleType() {
         let manager = DashboardManager()
         manager.installWidgetSizeScreenshotPreset()
 
-        XCTAssertEqual(manager.layouts.count, AudioWidgetType.allCases.count)
-        XCTAssertEqual(manager.activeLayoutIndex, 0)
+        XCTAssertEqual(manager.customLayouts.count, AudioWidgetType.allCases.count)
+        XCTAssertTrue(manager.isCustomMode)
 
-        for (index, type) in AudioWidgetType.allCases.enumerated() {
-            XCTAssertEqual(manager.layouts[index].name, "Preset: \(type.rawValue)")
-            XCTAssertTrue(manager.layouts[index].widgets.allSatisfy { $0.type == type })
+        for type in AudioWidgetType.allCases {
+            let layout = manager.customLayouts.first { $0.name == "Screenshot: \(type.rawValue)" }
+            XCTAssertNotNil(layout)
+            XCTAssertTrue(layout?.widgets.allSatisfy { $0.type == type } ?? false)
         }
 
         manager.resetToDefault()
@@ -173,7 +175,7 @@ final class WidgetSizingMigrationTests: XCTestCase {
         manager.installWidgetSizeScreenshotPreset()
 
         for type in AudioWidgetType.allCases {
-            let layout = try XCTUnwrap(manager.layouts.first { $0.name == "Preset: \(type.rawValue)" })
+            let layout = try XCTUnwrap(manager.customLayouts.first { $0.name == "Screenshot: \(type.rawValue)" })
             let range = WidgetConfiguration.sizeRange(for: type)
             let expectedSizes = Set(
                 (range.min.rows...range.max.rows).flatMap { rows in
@@ -190,4 +192,5 @@ final class WidgetSizingMigrationTests: XCTestCase {
 
         manager.resetToDefault()
     }
+    #endif
 }

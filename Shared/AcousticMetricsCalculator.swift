@@ -73,9 +73,9 @@ class AcousticMetricsCalculator: @unchecked Sendable {
     private var lzfEnergy: Float = 1e-12
     private var lzsEnergy: Float = 1e-12
 
-    // Equivalent level calculation
-    private var laeqAccumulator: Double = 0.0
-    private var laeqCount: Int = 0
+    // LAeq: time-integrated A-weighted energy (IEC Leq = 10·log10(∫E·dt / T)).
+    private var laeqEnergyIntegral: Double = 0.0
+    private var laeqTotalTime: Double = 0.0
 
     // Min/Max tracking
     private var lafMin: Float = 1000.0
@@ -143,6 +143,8 @@ class AcousticMetricsCalculator: @unchecked Sendable {
     ///             A-weighting is not active this frame.
     ///   - bandsC: 31 third-octave band levels (dB, C-weighted). Pass empty when
     ///             C-weighting is not active this frame.
+    ///   - loudnessReferenceKey: Broadband level key used for PHON/SONE (e.g. `"LAF"`,
+    ///             `"LCF"`, `"LZF"`). Should match the active frequency weighting.
     /// - Returns: `MetricsResult` containing broadband levels and smoothed per-band Leq.
     func updateMetrics(
         energyZ: Float,
@@ -155,7 +157,8 @@ class AcousticMetricsCalculator: @unchecked Sendable {
         magnitudes: [Float] = [],
         bandsZ: [Float] = [],
         bandsA: [Float] = [],
-        bandsC: [Float] = []
+        bandsC: [Float] = [],
+        loudnessReferenceKey: String = "LAF"
     ) -> MetricsResult {
 
         var result = lock.withLockUnchecked { () -> MetricsResult in
@@ -173,9 +176,12 @@ class AcousticMetricsCalculator: @unchecked Sendable {
             lzfEnergy = (1.0 - alphaFast) * lzfEnergy + alphaFast * energyZ
             lzsEnergy = (1.0 - alphaSlow) * lzsEnergy + alphaSlow * energyZ
 
-            // Update equivalent level accumulator
-            laeqAccumulator += Double(energyA)
-            laeqCount += 1
+            // Time-integrated LAeq (A-weighted frame energy × hop duration).
+            let frameDt = Double(max(dt, 0))
+            if frameDt > 0 {
+                laeqEnergyIntegral += Double(energyA) * frameDt
+                laeqTotalTime += frameDt
+            }
 
             // Calculate broadband level (LAF)
             let broadbandLevel = 10.0 * log10(lafEnergy + 1e-12)
@@ -209,7 +215,9 @@ class AcousticMetricsCalculator: @unchecked Sendable {
                 "LCS": 10.0 * log10(lcsEnergy + 1e-12),
                 "LZF": 10.0 * log10(lzfEnergy + 1e-12),
                 "LZS": 10.0 * log10(lzsEnergy + 1e-12),
-                "LAeq": laeqCount > 0 ? Float(10.0 * log10(laeqAccumulator / Double(laeqCount) + 1e-12)) : -120.0,
+                "LAeq": laeqTotalTime > 0
+                    ? Float(10.0 * log10(laeqEnergyIntegral / laeqTotalTime + 1e-12))
+                    : -120.0,
                 "LAFmin": lafMin,
                 "LAFmax": lafMax,
                 "LCpeak": lcPeakHold,
@@ -281,7 +289,11 @@ class AcousticMetricsCalculator: @unchecked Sendable {
         // allocation occurs on the audio render thread.
         if !frequencies.isEmpty && !magnitudes.isEmpty {
             let freq = LoudnessCalculator.dominantFrequency(frequencies: frequencies, magnitudes: magnitudes)
-            let spl  = Double(result.levels["LAF"] ?? -120.0)
+            let spl = Double(
+                result.levels[loudnessReferenceKey]
+                    ?? result.levels["LAF"]
+                    ?? -120.0
+            )
             let phonVal = LoudnessCalculator.phon(spl: spl, frequency: freq)
             result.levels["PHON"] = Float(phonVal)
             result.levels["SONE"] = Float(LoudnessCalculator.sone(phon: phonVal))
@@ -302,8 +314,8 @@ class AcousticMetricsCalculator: @unchecked Sendable {
             lzfEnergy = 1e-12
             lzsEnergy = 1e-12
 
-            laeqAccumulator = 0.0
-            laeqCount = 0
+            laeqEnergyIntegral = 0.0
+            laeqTotalTime = 0.0
 
             lafMin = 1000.0
             lafMax = -1000.0

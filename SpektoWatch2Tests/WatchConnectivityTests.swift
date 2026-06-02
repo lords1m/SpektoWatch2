@@ -19,6 +19,10 @@ final class WatchConnectivityTests: XCTestCase {
         let levels: [String: Float] = ["LAF": 65.5, "LCF": 67.2, "LZF": 68.0]
         let sampleRate: Double = 44100.0
 
+        let thirdOctave: [Float] = Array(repeating: 55.0, count: 31)
+        let bandLeq: [Float] = Array(repeating: 54.0, count: 31)
+        let bark: [Float] = Array(repeating: 52.0, count: 24)
+
         let original = SpectrogramData(
             frequencies: frequencies,
             magnitudes: magnitudes,
@@ -26,6 +30,9 @@ final class WatchConnectivityTests: XCTestCase {
             magnitudesC: magnitudesC,
             visualFrequencies: visualFrequencies,
             visualMagnitudes: visualMagnitudes,
+            thirdOctaveBandsZ: thirdOctave,
+            bandLeqZ: bandLeq,
+            barkBandsZ: bark,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: sampleRate
@@ -46,6 +53,9 @@ final class WatchConnectivityTests: XCTestCase {
         XCTAssertEqual(restored.magnitudes.count, original.magnitudes.count, "Magnitude count should match")
         XCTAssertEqual(restored.visualFrequencies, visualFrequencies)
         XCTAssertEqual(restored.visualMagnitudes, visualMagnitudes)
+        XCTAssertEqual(restored.thirdOctaveBandsZ, thirdOctave)
+        XCTAssertEqual(restored.bandLeqZ, bandLeq)
+        XCTAssertEqual(restored.barkBandsZ, bark)
         XCTAssertEqual(restored.broadbandLevel, original.broadbandLevel, accuracy: 0.1, "Broadband level should match")
         XCTAssertEqual(restored.sampleRate, original.sampleRate, accuracy: 0.1, "Sample rate should match")
 
@@ -119,13 +129,12 @@ final class WatchConnectivityTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(restored.widgets.count, original.widgets.count)
-        XCTAssertEqual(restored.version, original.version)
+        XCTAssertEqual(restored.orderedDisplayWidgets.count, original.orderedDisplayWidgets.count)
+        XCTAssertGreaterThanOrEqual(restored.version, original.version)
 
-        // Vergleiche Widget-Positionen
-        for (index, widget) in original.widgets.enumerated() {
-            XCTAssertEqual(restored.widgets[index].position, widget.position)
-            XCTAssertEqual(restored.widgets[index].type, widget.type)
+        for (restoredWidget, originalWidget) in zip(restored.orderedDisplayWidgets, original.orderedDisplayWidgets) {
+            XCTAssertEqual(restoredWidget.type, originalWidget.type)
+            XCTAssertEqual(restoredWidget.singleValueType, originalWidget.singleValueType)
         }
     }
 

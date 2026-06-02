@@ -17,56 +17,83 @@ struct DashboardLayout: Identifiable, Codable, Equatable {
     }
 }
 
-private struct DashboardLayoutsState: Codable {
+private struct DashboardLayoutsStateV1: Codable {
     var layouts: [DashboardLayout]
     var activeLayoutIndex: Int
 }
 
 @MainActor
 class DashboardManager: ObservableObject {
+    @Published var presetSlots: [PresetSlot] = []
+    @Published var customLayouts: [DashboardLayout] = []
+    @Published var navigation: DashboardNavigation = .preset(activePresetID: "overview")
     @Published var widgets: [WidgetConfiguration] = []
-    @Published var layouts: [DashboardLayout] = []
-    @Published private(set) var activeLayoutIndex: Int = 0
     @Published var isEditMode: Bool = false
-    /// True once the async load (or "no saved data" branch) has finished. Views
-    /// that call `saveConfiguration()` are gated on this flag so the default
-    /// placeholder shown during load cannot overwrite a valid saved configuration.
     @Published private(set) var didFinishLoading: Bool = false
 
-    // Keys live in PersistenceKeys (M13 task-8).
     private let userDefaultsKey = PersistenceKeys.dashboardLegacySnapshot
-    private let layoutsUserDefaultsKey = PersistenceKeys.dashboardLayouts
+    private let layoutsV1Key = PersistenceKeys.dashboardLayouts
+    private let layoutsV2Key = PersistenceKeys.dashboardLayoutsV2
     private var configurationLoadFailed = false
     private var isLoading = false
 
     init() {
         Logger.ui.debug("DashboardManager Initializing...")
-        // Show default layout immediately; the saved configuration is loaded
-        // asynchronously via startLoading() (called from ModularDashboardView.task)
-        // to avoid the 573 ms main-thread hang from JSON decoding in init
-        // (M19 task-1).
-        let defaults = Self.defaultWidgets()
-        layouts = [DashboardLayout(name: "Layout 1", widgets: defaults)]
-        widgets = defaults
+        let state = DashboardStateFactory.defaultState()
+        applyState(state)
     }
+
+    // MARK: - Mode
+
+    var isCustomMode: Bool {
+        if case .custom = navigation { return true }
+        return false
+    }
+
+    var activePresetID: String {
+        get {
+            if case .preset(let id) = navigation { return id }
+            return PresetCatalogue.all.first?.id ?? "overview"
+        }
+    }
+
+    /// Index into `PresetCatalogue.all` / `presetSlots` for TabView paging.
+    var activePresetIndex: Int {
+        get {
+            DashboardStateFactory.presetIndex(for: activePresetID) ?? 0
+        }
+    }
+
+    /// Legacy property used by a few tests — preset page index when in preset mode.
+    var activeLayoutIndex: Int { activePresetIndex }
+
+    /// Legacy: custom layouts only (DEBUG/tests that enumerate saved pages).
+    var layouts: [DashboardLayout] { customLayouts }
+
+    var currentLayoutName: String {
+        switch navigation {
+        case .preset(let id):
+            return PresetCatalogue.all.first { $0.id == id }?.label ?? id
+        case .custom(let layoutID):
+            return customLayouts.first { $0.id == layoutID }?.name ?? "Layout"
+        }
+    }
+
+    var headerEyebrowIsCustom: Bool { isCustomMode }
 
     // MARK: - Async load
 
-    /// Starts background JSON decoding of the saved dashboard configuration.
-    /// Safe to call multiple times — subsequent calls are no-ops once loading
-    /// has started.  Must be called on @MainActor (e.g. from a SwiftUI .task).
     func startLoading() {
         guard !didFinishLoading, !isLoading else { return }
         isLoading = true
         Logger.ui.debug("DashboardManager.startLoading() — background decode started")
 
-        // Snapshot UserDefaults bytes on the calling thread (thread-safe, fast).
-        let layoutsData = UserDefaults.standard.data(forKey: layoutsUserDefaultsKey)
-        let legacyData   = UserDefaults.standard.data(forKey: userDefaultsKey)
+        let v2Data = UserDefaults.standard.data(forKey: layoutsV2Key)
+        let v1Data = UserDefaults.standard.data(forKey: layoutsV1Key)
+        let legacyData = UserDefaults.standard.data(forKey: userDefaultsKey)
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Self.decodeStoredConfiguration(layoutsData: layoutsData,
-                                                        legacyData: legacyData)
+            let result = Self.decodeStoredConfiguration(v2Data: v2Data, v1Data: v1Data, legacyData: legacyData)
             await MainActor.run { [weak self] in
                 self?.applyLoadResult(result)
             }
@@ -74,37 +101,41 @@ class DashboardManager: ObservableObject {
     }
 
     private enum LoadResult {
-        case loaded(layouts: [DashboardLayout], activeIndex: Int, needsMigrationSave: Bool)
+        case loadedV2(DashboardStateV2, needsMigrationSave: Bool)
         case loadFailed
         case noSavedData
     }
 
-    /// Pure decode — runs off @MainActor inside Task.detached.
     nonisolated private static func decodeStoredConfiguration(
-        layoutsData: Data?,
+        v2Data: Data?,
+        v1Data: Data?,
         legacyData: Data?
     ) -> LoadResult {
         let decoder = JSONDecoder()
 
-        if let data = layoutsData {
+        if let data = v2Data {
             do {
-                let state = try decoder.decode(DashboardLayoutsState.self, from: data)
-                let hadLegacyOctaveWidgets = state.layouts.contains { layout in
-                    layout.widgets.contains { $0.type == .octaveBands }
-                }
-                var loadedLayouts = state.layouts.map { layout -> DashboardLayout in
-                    var m = layout
-                    m.widgets = normalizeWidgets(layout.widgets)
-                    return m
-                }
-                if loadedLayouts.isEmpty {
-                    loadedLayouts = [DashboardLayout(name: "Layout 1", widgets: defaultWidgets())]
-                }
-                return .loaded(layouts: loadedLayouts,
-                               activeIndex: state.activeLayoutIndex,
-                               needsMigrationSave: hadLegacyOctaveWidgets)
+                var state = try decoder.decode(DashboardStateV2.self, from: data)
+                state = reconcileSlots(state)
+                let hadLegacyOctave = state.presetSlots.contains { slot in
+                    slot.widgets.contains { $0.type == .octaveBands }
+                } || state.customLayouts.contains { $0.widgets.contains { $0.type == .octaveBands } }
+                return .loadedV2(state, needsMigrationSave: hadLegacyOctave)
             } catch {
-                Logger.ui.error("Error loading dashboard layouts: \(error.localizedDescription)")
+                Logger.ui.error("Error loading dashboard v2: \(error.localizedDescription)")
+                return .loadFailed
+            }
+        }
+
+        if let data = v1Data {
+            do {
+                let v1 = try decoder.decode(DashboardLayoutsStateV1.self, from: data)
+                let migrated = DashboardStateMigration.migrateFromV1(
+                    DashboardV1Snapshot(layouts: v1.layouts, activeLayoutIndex: v1.activeLayoutIndex)
+                )
+                return .loadedV2(reconcileSlots(migrated), needsMigrationSave: true)
+            } catch {
+                Logger.ui.error("Error loading dashboard v1: \(error.localizedDescription)")
                 return .loadFailed
             }
         }
@@ -112,14 +143,10 @@ class DashboardManager: ObservableObject {
         if let data = legacyData {
             do {
                 let decoded = try decoder.decode([WidgetConfiguration].self, from: data)
-                let migrated = decoded.isEmpty ? defaultWidgets() : normalizeWidgets(decoded)
-                return .loaded(
-                    layouts: [DashboardLayout(name: "Layout 1", widgets: migrated)],
-                    activeIndex: 0,
-                    needsMigrationSave: true
-                )
+                let migrated = DashboardStateMigration.migrateFromLegacyWidgets(decoded)
+                return .loadedV2(reconcileSlots(migrated), needsMigrationSave: true)
             } catch {
-                Logger.ui.error("Error loading legacy dashboard configuration: \(error.localizedDescription)")
+                Logger.ui.error("Error loading legacy dashboard: \(error.localizedDescription)")
                 return .loadFailed
             }
         }
@@ -127,222 +154,307 @@ class DashboardManager: ObservableObject {
         return .noSavedData
     }
 
+    /// Ensures slot count/order matches catalogue (e.g. after adding phase preset).
+    nonisolated static func reconcileSlots(_ state: DashboardStateV2) -> DashboardStateV2 {
+        var result = state
+        let byID = Dictionary(uniqueKeysWithValues: result.presetSlots.map { ($0.presetID, $0) })
+        result.presetSlots = PresetCatalogue.all.map { preset in
+            if let existing = byID[preset.id] {
+                return PresetSlot(presetID: preset.id, widgets: normalizeWidgetsPublic(existing.widgets))
+            }
+            return PresetSlot(presetID: preset.id, widgets: PresetCompositions.widgets(forPresetID: preset.id))
+        }
+        result.customLayouts = result.customLayouts.map { layout in
+            var copy = layout
+            copy.widgets = normalizeWidgetsPublic(layout.widgets)
+            return copy
+        }
+        switch result.navigation {
+        case .preset(let id):
+            result.navigation = .preset(activePresetID: DashboardStateFactory.clampPresetID(id))
+        case .custom(let layoutID):
+            if !result.customLayouts.contains(where: { $0.id == layoutID }) {
+                result.navigation = .preset(activePresetID: "overview")
+            }
+        }
+        return result
+    }
+
     private func applyLoadResult(_ result: LoadResult) {
         isLoading = false
-        // Set before saveConfiguration() calls below so the guard inside allows writes.
         didFinishLoading = true
 
         switch result {
-        case .loaded(let loadedLayouts, let activeIndex, let needsMigrationSave):
-            layouts = loadedLayouts
-            let clamped = max(0, min(activeIndex, loadedLayouts.count - 1))
-            activeLayoutIndex = clamped
-            widgets = loadedLayouts[clamped].widgets
+        case .loadedV2(let state, let needsMigrationSave):
+            applyState(state)
             if needsMigrationSave { saveConfiguration() }
-            Logger.ui.info("DashboardManager loaded \(loadedLayouts.count) layout(s) (active=\(clamped))")
+            Logger.ui.info("DashboardManager loaded v2 (\(self.presetSlots.count) presets, \(self.customLayouts.count) custom)")
         case .loadFailed:
             configurationLoadFailed = true
-            Logger.ui.error("DashboardManager load failed — keeping defaults, not overwriting save file")
+            Logger.ui.error("DashboardManager load failed — keeping defaults")
         case .noSavedData:
-            // Persist the defaults that were set in init().
             saveConfiguration()
             Logger.ui.info("DashboardManager: no saved config — defaults persisted")
         }
     }
 
-    var currentLayoutName: String {
-        guard activeLayoutIndex >= 0, activeLayoutIndex < layouts.count else { return "Layout" }
-        return layouts[activeLayoutIndex].name
+    private func applyState(_ state: DashboardStateV2) {
+        presetSlots = state.presetSlots
+        customLayouts = state.customLayouts
+        navigation = state.navigation
+        reloadWidgetsFromNavigation()
     }
 
-    func widgets(forLayoutAt index: Int) -> [WidgetConfiguration] {
-        guard index >= 0, index < layouts.count else { return [] }
-        if index == activeLayoutIndex { return widgets }
-        return layouts[index].widgets
+    private func reloadWidgetsFromNavigation() {
+        switch navigation {
+        case .preset(let id):
+            if let slot = presetSlots.first(where: { $0.presetID == id }) {
+                widgets = slot.widgets
+            } else {
+                widgets = PresetCompositions.widgets(forPresetID: id)
+            }
+        case .custom(let layoutID):
+            widgets = customLayouts.first { $0.id == layoutID }?.widgets ?? []
+        }
     }
+
+    func widgets(forPresetIndex index: Int) -> [WidgetConfiguration] {
+        guard index >= 0, index < presetSlots.count else { return [] }
+        let slot = presetSlots[index]
+        if isCustomMode { return slot.widgets }
+        if index == activePresetIndex { return widgets }
+        return slot.widgets
+    }
+
+    // MARK: - Navigation
+
+    func selectPreset(id: String) {
+        let clamped = DashboardStateFactory.clampPresetID(id)
+        storeWidgetsToActiveContext()
+        navigation = .preset(activePresetID: clamped)
+        reloadWidgetsFromNavigation()
+        saveConfiguration()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    func setActivePresetIndex(_ index: Int) {
+        guard index >= 0, index < PresetCatalogue.all.count else { return }
+        selectPreset(id: PresetCatalogue.all[index].id)
+    }
+
+    /// Alias for preset rail — switches preset page without resetting widgets.
+    func applyPreset(id: String) {
+        selectPreset(id: id)
+    }
+
+    func returnToPresets(presetID: String? = nil) {
+        let id = presetID.map { DashboardStateFactory.clampPresetID($0) } ?? activePresetID
+        selectPreset(id: id)
+    }
+
+    func openCustomLayout(id: UUID) {
+        guard let layout = customLayouts.first(where: { $0.id == id }) else { return }
+        storeWidgetsToActiveContext()
+        navigation = .custom(activeLayoutID: id)
+        widgets = layout.widgets
+        saveConfiguration()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    func resetActivePresetToDefault() {
+        guard case .preset(let id) = navigation else { return }
+        resetPresetToDefault(id: id)
+    }
+
+    func resetPresetToDefault(id: String) {
+        let clamped = DashboardStateFactory.clampPresetID(id)
+        let composition = PresetCompositions.widgets(forPresetID: clamped)
+        guard !composition.isEmpty else { return }
+        if let index = presetSlots.firstIndex(where: { $0.presetID == clamped }) {
+            presetSlots[index].widgets = composition
+        }
+        if case .preset(let active) = navigation, active == clamped {
+            widgets = composition
+        }
+        saveConfiguration()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    // MARK: - Custom layouts
+
+    func addCustomLayout(empty: Bool = true) {
+        storeWidgetsToActiveContext()
+        let name = uniqueCustomLayoutName(basedOn: "Layout \(customLayouts.count + 1)")
+        let newLayout = DashboardLayout(
+            name: name,
+            widgets: empty ? [] : widgets
+        )
+        customLayouts.append(newLayout)
+        navigation = .custom(activeLayoutID: newLayout.id)
+        widgets = newLayout.widgets
+        saveConfiguration()
+    }
+
+    func duplicateCurrentAsCustomLayout() {
+        storeWidgetsToActiveContext()
+        let base = currentLayoutName
+        let name = uniqueCustomLayoutName(basedOn: "\(base) Kopie")
+        let newLayout = DashboardLayout(name: name, widgets: widgets)
+        customLayouts.append(newLayout)
+        navigation = .custom(activeLayoutID: newLayout.id)
+        saveConfiguration()
+    }
+
+    func renameCustomLayout(id: UUID, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = customLayouts.firstIndex(where: { $0.id == id }) else { return }
+        customLayouts[index].name = trimmed
+        saveConfiguration()
+    }
+
+    func deleteCustomLayout(id: UUID) {
+        guard let index = customLayouts.firstIndex(where: { $0.id == id }) else { return }
+        customLayouts.remove(at: index)
+        if case .custom(let activeID) = navigation, activeID == id {
+            returnToPresets()
+        }
+        saveConfiguration()
+    }
+
+    // MARK: - Legacy layout APIs (map to custom / preset)
 
     func setActiveLayout(index: Int) {
-        guard !layouts.isEmpty else { return }
-        storeWidgetsToActiveLayout()
-        let clamped = max(0, min(index, layouts.count - 1))
-        activeLayoutIndex = clamped
-        widgets = layouts[clamped].widgets
-        saveConfiguration()
+        setActivePresetIndex(index)
     }
 
     func addEmptyLayout() {
-        storeWidgetsToActiveLayout()
-        let name = "Layout \(layouts.count + 1)"
-        layouts.append(DashboardLayout(name: name, widgets: []))
-        activeLayoutIndex = layouts.count - 1
-        widgets = []
-        saveConfiguration()
+        addCustomLayout(empty: true)
     }
 
     func saveCurrentAsNewLayout() {
-        storeWidgetsToActiveLayout()
-        let base = currentLayoutName
-        let name = uniqueLayoutName(basedOn: "\(base) Kopie")
-        layouts.append(DashboardLayout(name: name, widgets: widgets))
-        activeLayoutIndex = layouts.count - 1
-        saveConfiguration()
+        duplicateCurrentAsCustomLayout()
     }
 
     func renameLayout(at index: Int, name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, index >= 0, index < layouts.count else { return }
-        layouts[index].name = trimmed
-        saveConfiguration()
+        guard index >= 0, index < customLayouts.count else { return }
+        renameCustomLayout(id: customLayouts[index].id, name: name)
     }
 
     func deleteLayout(at index: Int) {
-        guard layouts.count > 1, index >= 0, index < layouts.count else { return }
-        storeWidgetsToActiveLayout()
-        layouts.remove(at: index)
-        if activeLayoutIndex >= layouts.count {
-            activeLayoutIndex = max(0, layouts.count - 1)
-        }
-        widgets = layouts[activeLayoutIndex].widgets
-        saveConfiguration()
+        guard index >= 0, index < customLayouts.count else { return }
+        deleteCustomLayout(id: customLayouts[index].id)
     }
-    
+
+    func widgets(forLayoutAt index: Int) -> [WidgetConfiguration] {
+        widgets(forPresetIndex: index)
+    }
+
+    // MARK: - Widget mutations
+
     func addWidget(type: AudioWidgetType, at position: GridPosition? = nil) {
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        
-        Logger.ui.info("Adding widget of type: \(type.rawValue)")
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         let size = WidgetConfiguration.defaultSize(for: type)
         let pos = position ?? GridPosition(index: widgets.count)
-        let newWidget = WidgetConfiguration(type: type, size: size, gridPosition: pos)
-        widgets.append(newWidget)
-        Logger.ui.debug("Widget added. Total widgets: \(self.widgets.count)")
+        widgets.append(WidgetConfiguration(type: type, size: size, gridPosition: pos))
         saveConfiguration()
     }
-    
+
     func removeWidget(id: UUID) {
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.warning)
-        
-        Logger.ui.info("Removing widget with ID: \(id)")
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
         widgets.removeAll { $0.id == id }
-        Logger.ui.debug("Widget removed. Total widgets: \(self.widgets.count)")
         saveConfiguration()
     }
-    
+
+    func restoreWidget(_ widget: WidgetConfiguration, at index: Int) {
+        let safeIndex = max(0, min(index, widgets.count))
+        widgets.insert(widget, at: safeIndex)
+        saveConfiguration()
+    }
+
     func moveWidget(from source: IndexSet, to destination: Int) {
-        Logger.ui.debug("Moving widget from \(source) to \(destination)")
         widgets.move(fromOffsets: source, toOffset: destination)
         saveConfiguration()
     }
-    
+
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
-        guard let index = widgets.firstIndex(where: { $0.id == id }) else {
-            Logger.ui.error("Widget with ID \(id) not found for resizing")
-            return
-        }
-        // Clamp to the type's allowed size range (M8 — single source of
-        // truth lives in `WidgetConfiguration.sizeRange(for:)`).
+        guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
         let range = WidgetConfiguration.sizeRange(for: widgets[index].type)
-        let safeSize = newSize.clamped(min: range.min, max: range.max)
-        Logger.ui.debug("Resizing widget \(id) to \(safeSize.columns)x\(safeSize.rows)")
-        widgets[index].size = safeSize
+        widgets[index].size = newSize.clamped(min: range.min, max: range.max)
         saveConfiguration()
     }
-    
+
     func updateWidgetSettings(id: UUID, settings: [String: String]) {
-        Logger.ui.debug("Updating settings for widget \(id)")
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].settings = settings
             saveConfiguration()
         }
     }
-    
+
     func saveConfiguration() {
         guard didFinishLoading else {
-            // Load hasn't finished yet — suppress the write so the default
-            // placeholder from init() cannot overwrite a valid saved config.
             Logger.ui.debug("saveConfiguration skipped — async load in progress")
             return
         }
-        Logger.ui.debug("Saving configuration...")
+        storeWidgetsToActiveContext()
         do {
-            storeWidgetsToActiveLayout()
+            let state = DashboardStateV2(
+                presetSlots: presetSlots,
+                customLayouts: customLayouts,
+                navigation: navigation
+            )
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
-            let state = DashboardLayoutsState(layouts: layouts, activeLayoutIndex: activeLayoutIndex)
             let data = try encoder.encode(state)
-            UserDefaults.standard.set(data, forKey: layoutsUserDefaultsKey)
+            UserDefaults.standard.set(data, forKey: layoutsV2Key)
 
-            // legacy snapshot for features reading the old key (e.g. recording metadata snapshot)
-            let currentLayoutData = try encoder.encode(widgets)
-            UserDefaults.standard.set(currentLayoutData, forKey: userDefaultsKey)
-            Logger.ui.info("Configuration saved successfully (\(self.layouts.count) layouts, active=\(self.activeLayoutIndex))")
+            let legacyWidgets = try encoder.encode(widgets)
+            UserDefaults.standard.set(legacyWidgets, forKey: userDefaultsKey)
+            Logger.ui.info("Configuration saved (v2, \(self.presetSlots.count) presets, \(self.customLayouts.count) custom)")
         } catch {
-            Logger.ui.error("Error saving dashboard configuration: \(error.localizedDescription)")
+            Logger.ui.error("Error saving dashboard: \(error.localizedDescription)")
         }
     }
 
-    
-    /// Reset zu Standard-Konfiguration
     func resetToDefault() {
-        Logger.ui.info("Resetting to default configuration...")
-        layouts = [DashboardLayout(name: "Layout 1", widgets: Self.defaultWidgets())]
-        activeLayoutIndex = 0
-        widgets = layouts[0].widgets
+        applyState(DashboardStateFactory.defaultState())
         saveConfiguration()
-        
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
-    /// Applies a redesign preset by routing into a dedicated "Preset"
-    /// layout (created on first use) — does NOT overwrite the user's
-    /// existing custom layouts. If the Preset slot already exists, its
-    /// widgets are replaced; otherwise a new slot is appended.
-    /// Persists immediately.
-    func applyPreset(id: String) {
-        let composition = PresetCompositions.widgets(forPresetID: id)
-        guard !composition.isEmpty else { return }
-        Logger.ui.info("Applying preset '\(id)' (\(composition.count) widgets)")
-
-        storeWidgetsToActiveLayout()
-
-        let presetName = "Preset: \(id)"
-        if let existing = layouts.firstIndex(where: { $0.name == presetName }) {
-            layouts[existing].widgets = composition
-            activeLayoutIndex = existing
-        } else {
-            layouts.append(DashboardLayout(name: presetName, widgets: composition))
-            activeLayoutIndex = layouts.count - 1
-        }
-        widgets = composition
-        saveConfiguration()
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-    }
-
+    #if DEBUG
     func installWidgetSizeScreenshotPreset() {
-        Logger.ui.info("Installing widget size screenshot preset...")
-        layouts = AudioWidgetType.allCases.map { type in
+        Logger.ui.info("Installing widget size screenshot preset (custom layouts)...")
+        customLayouts = AudioWidgetType.allCases.map { type in
             DashboardLayout(
-                name: "Preset: \(type.rawValue)",
+                name: "Screenshot: \(type.rawValue)",
                 widgets: Self.sizeCatalogWidgets(for: type)
             )
         }
-        activeLayoutIndex = 0
-        widgets = layouts.first?.widgets ?? []
+        if let first = customLayouts.first {
+            navigation = .custom(activeLayoutID: first.id)
+            widgets = first.widgets
+        }
         saveConfiguration()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+    #endif
 
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
+    private func storeWidgetsToActiveContext() {
+        switch navigation {
+        case .preset(let id):
+            if let index = presetSlots.firstIndex(where: { $0.presetID == id }) {
+                presetSlots[index].widgets = widgets
+            }
+        case .custom(let layoutID):
+            if let index = customLayouts.firstIndex(where: { $0.id == layoutID }) {
+                customLayouts[index].widgets = widgets
+            }
+        }
     }
 
-    private func storeWidgetsToActiveLayout() {
-        guard activeLayoutIndex >= 0, activeLayoutIndex < layouts.count else { return }
-        layouts[activeLayoutIndex].widgets = widgets
-    }
-
-    private func uniqueLayoutName(basedOn base: String) -> String {
-        let existing = Set(layouts.map(\.name))
+    private func uniqueCustomLayoutName(basedOn base: String) -> String {
+        let existing = Set(customLayouts.map(\.name))
         if !existing.contains(base) { return base }
         var index = 2
         while existing.contains("\(base) \(index)") {
@@ -351,13 +463,12 @@ class DashboardManager: ObservableObject {
         return "\(base) \(index)"
     }
 
+    nonisolated static func normalizeWidgetsPublic(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
+        normalizeWidgets(widgets)
+    }
+
     nonisolated private static func normalizeWidgets(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
         widgets.compactMap { widget in
-            // phaseMeter is deactivated (kept in the enum for legacy decode
-            // only). Silently drop any persisted instances so dashboards
-            // from older builds load cleanly without the unsupported widget.
-            if widget.type == .phaseMeter { return nil }
-
             var normalized = widget
             if normalized.type == .octaveBands {
                 normalized.type = .frequencyDisplay
@@ -370,31 +481,25 @@ class DashboardManager: ObservableObject {
     }
 
     nonisolated private static func defaultWidgets() -> [WidgetConfiguration] {
-        [
-            WidgetConfiguration(type: .spectrogram, size: WidgetConfiguration.defaultSize(for: .spectrogram), gridPosition: GridPosition(index: 0)),
-            WidgetConfiguration(type: .levelHistory, size: WidgetConfiguration.defaultSize(for: .levelHistory), gridPosition: GridPosition(index: 1))
-        ]
+        PresetCompositions.widgets(forPresetID: "overview")
     }
 
     private static func sizeCatalogWidgets(for type: AudioWidgetType) -> [WidgetConfiguration] {
         let range = WidgetConfiguration.sizeRange(for: type)
-        var widgets: [WidgetConfiguration] = []
+        var result: [WidgetConfiguration] = []
         var index = 0
-
         for rows in range.min.rows...range.max.rows {
             for columns in range.min.columns...range.max.columns {
-                let size = WidgetSize(columns: columns, rows: rows)
-                widgets.append(
+                result.append(
                     WidgetConfiguration(
                         type: type,
-                        size: size,
+                        size: WidgetSize(columns: columns, rows: rows),
                         gridPosition: GridPosition(index: index)
                     )
                 )
                 index += 1
             }
         }
-
-        return widgets
+        return result
     }
 }

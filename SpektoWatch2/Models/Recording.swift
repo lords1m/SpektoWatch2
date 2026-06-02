@@ -61,7 +61,9 @@ struct Recording: Identifiable, Codable {
     var markers: [MeasurementMarker]?  // Benutzer-Marker
     var calibrationOffset: Float
     var fftBlockSize: Int
-    
+    /// `nil` = not yet probed; `false` = sidecar has metrics only (e.g. legacy watch capture).
+    var spectralDataAvailable: Bool?
+
     // Computed property für location
     var location: CLLocationCoordinate2D? {
         get { _location?.coordinate }
@@ -90,6 +92,7 @@ struct Recording: Identifiable, Codable {
         case markers
         case calibrationOffset
         case fftBlockSize
+        case spectralDataAvailable
     }
     
     init(
@@ -113,7 +116,8 @@ struct Recording: Identifiable, Codable {
         widgetConfigurations: Data? = nil,
         markers: [MeasurementMarker]? = nil,
         calibrationOffset: Float = 94.0,
-        fftBlockSize: Int = 4096
+        fftBlockSize: Int = 4096,
+        spectralDataAvailable: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -136,6 +140,7 @@ struct Recording: Identifiable, Codable {
         self.markers = markers
         self.calibrationOffset = calibrationOffset
         self.fftBlockSize = fftBlockSize
+        self.spectralDataAvailable = spectralDataAvailable
     }
     
     /// Formatierte Anzeige der Dauer. Stellt sich bei langen Sessions auf
@@ -201,5 +206,6 @@ struct Recording: Identifiable, Codable {
         markers = try container.decodeIfPresent([MeasurementMarker].self, forKey: .markers)
         calibrationOffset = try container.decodeIfPresent(Float.self, forKey: .calibrationOffset) ?? 94.0
         fftBlockSize = try container.decodeIfPresent(Int.self, forKey: .fftBlockSize) ?? 4096
+        spectralDataAvailable = try container.decodeIfPresent(Bool.self, forKey: .spectralDataAvailable)
     }
 }

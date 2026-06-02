@@ -800,7 +800,7 @@ final class WaterfallHistoryStore: ObservableObject {
             minDB: WidgetSettings.defaultWaterfallMinDB,
             maxDB: WidgetSettings.defaultWaterfallMaxDB,
             rebuildInterval: 0.12,
-            targetFrequencyCount: 128
+            targetFrequencyCount: WidgetSettings.defaultWaterfallTargetFrequencyCount
         )
     }
 
@@ -855,12 +855,17 @@ final class WaterfallHistoryStore: ObservableObject {
         // Bin-count drift (e.g. FFT-size change, mel/linear toggle) makes
         // older frames meaningless against the new axis. Drop history
         // rather than rendering an axis-misaligned stripe.
-        if lastBinCount != 0, magnitudes.count != lastBinCount {
+        let axisDrift = lastBinCount != 0 && magnitudes.count != lastBinCount
+        if axisDrift {
             history.removeAll()
         }
         history.append(Frame(magnitudes: magnitudes, timestamp: timestamp))
         lastBinCount = magnitudes.count
         lastFrequencies = frequencies
+        if axisDrift {
+            // Rebuild immediately — throttling would leave the previous axis on screen.
+            lastRebuild = 0
+        }
         rebuildIfDue()
     }
 
@@ -908,6 +913,23 @@ private extension WaterfallDataSet {
 }
 
 // ============================================================================
+// MARK: - Spectral frame selection (testable)
+// ============================================================================
+
+enum WaterfallSpectralFrame {
+    /// Mel/visual magnitudes when present; otherwise band magnitudes for `freqWeighting`.
+    static func magnitudesAndFrequencies(
+        from data: SpectrogramData,
+        freqWeighting: String
+    ) -> (magnitudes: [Float], frequencies: [Float]) {
+        if let visual = data.visualMagnitudes, !visual.isEmpty {
+            return (visual, data.visualFrequencies ?? data.frequencies)
+        }
+        return (data.magnitudes(for: freqWeighting), data.frequencies)
+    }
+}
+
+// ============================================================================
 // MARK: - WaterfallWidget (data plumbing)
 // ============================================================================
 
@@ -918,57 +940,57 @@ struct WaterfallWidget: View {
     /// so it can't open a second `fullScreenCover` on top of itself.
     private let isFullscreen: Bool
 
+    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
+
     @StateObject private var store = WaterfallHistoryStore()
+    @State private var engineFrequencyWeighting: String
 
     init(audioEngine: AudioEngine, settings: [String: String], isFullscreen: Bool = false) {
         self.audioEngine = audioEngine
         self.settings = settings
         self.isFullscreen = isFullscreen
+        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
+        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
     }
 
-    // Settings derivation. With the mel visual pipeline `visualMagnitudes`
-    // is always present and weighting-agnostic, so the per-widget weighting
-    // override is intentionally not threaded into the store any more.
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
 
-    private var sliceCount: Int {
-        guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallSliceCount }
-        return Int(settings["waterfallSlices"] ?? "") ?? WidgetSettings.defaultWaterfallSliceCount
+    private var freqWeighting: String {
+        if useWidgetOverrides {
+            return settings["freqWeighting"] ?? engineFrequencyWeighting
+        }
+        return engineFrequencyWeighting
     }
 
-    private var minDB: Float {
-        guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallMinDB }
-        let raw = Float(settings["waterfallMinDB"] ?? "") ?? WidgetSettings.defaultWaterfallMinDB
-        // Pre-2026-05 settings stored dBFS-style negatives; fall back to default.
-        return raw < 0 ? WidgetSettings.defaultWaterfallMinDB : raw
-    }
-
-    private var maxDB: Float {
-        guard useWidgetOverrides else { return WidgetSettings.defaultWaterfallMaxDB }
-        let raw = Float(settings["waterfallMaxDB"] ?? "") ?? WidgetSettings.defaultWaterfallMaxDB
-        return raw <= 0 ? WidgetSettings.defaultWaterfallMaxDB : raw
+    private var displaySettings: WaterfallDisplaySettings {
+        WaterfallDisplaySettings.fromWidgetSettings(settings, engineWeighting: engineFrequencyWeighting)
     }
 
     /// History capacity sized for ~6 seconds at 86 Hz — long enough to
     /// give the time axis meaningful depth without paying for a huge
     /// ring buffer.
     private var capacity: Int {
-        max(120, sliceCount * 6)
+        max(120, displaySettings.sliceCount * 6)
     }
 
     private var resolvedSettings: WaterfallHistoryStore.Settings {
-        // Cross-validate: if user sets min ≥ max via the steppers, clamp so
-        // there is always at least 5 dB of range (same pattern as SpectrumBandChartView).
-        let lo = minDB
-        let hi = maxDB
-        return WaterfallHistoryStore.Settings(
-            capacity: capacity,
-            sliceCount: sliceCount,
-            minDB: min(lo, hi - 5),
-            maxDB: max(hi, lo + 5),
-            rebuildInterval: 0.12,
-            targetFrequencyCount: 128
+        displaySettings.historyStoreSettings(capacity: capacity)
+    }
+
+    private static func appendSpectrogramFrame(
+        _ data: SpectrogramData,
+        to store: WaterfallHistoryStore,
+        weighting: String,
+        mode: WaterfallSpectrumMode
+    ) {
+        let frame = WaterfallSpectralFrame.magnitudesAndFrequencies(from: data, freqWeighting: weighting)
+        let remapped = WaterfallDataBuilder.remapHistory(
+            history: [frame.magnitudes],
+            sourceFrequencies: frame.frequencies,
+            mode: mode
         )
+        guard let mapped = remapped.history.first, !mapped.isEmpty, !remapped.frequencies.isEmpty else { return }
+        store.append(magnitudes: mapped, frequencies: remapped.frequencies, timestamp: data.timestamp)
     }
 
     @State private var showFullscreen = false
@@ -976,40 +998,54 @@ struct WaterfallWidget: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             WaterfallView(dataSet: store.dataSet, highlightedTime: nil)
-                .onReceive(audioEngine.spectrogramSubject) { [audioEngine] data in
+                .onReceive(audioEngine.spectrogramSubject) { data in
+                    let weighting = freqWeighting
+                    let mode = displaySettings.spectrumMode
                     DispatchQueue.main.async { [weak store] in
                         guard let store else { return }
-                        let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
-                        let frequencies = data.visualFrequencies ?? data.frequencies
-                        store.append(magnitudes: magnitudes, frequencies: frequencies, timestamp: data.timestamp)
+                        Self.appendSpectrogramFrame(data, to: store, weighting: weighting, mode: mode)
                     }
                 }
+                .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
                 .onChange(of: resolvedSettings) { _, new in
                     store.update(settings: new)
+                }
+                .onChange(of: freqWeighting) { _, _ in
+                    store.reset()
+                }
+                .onChange(of: displaySettings.spectrumMode) { _, _ in
+                    store.reset()
                 }
                 .onAppear {
                     store.update(settings: resolvedSettings)
                     if let current = audioEngine.live.currentSpectrogramData {
-                        let m = current.visualMagnitudes ?? current.magnitudes(for: audioEngine.frequencyWeighting.rawValue)
-                        let f = current.visualFrequencies ?? current.frequencies
-                        store.append(magnitudes: m, frequencies: f, timestamp: current.timestamp)
+                        Self.appendSpectrogramFrame(
+                            current,
+                            to: store,
+                            weighting: freqWeighting,
+                            mode: displaySettings.spectrumMode
+                        )
                     }
                 }
                 .accessibilityIdentifier("waterfallWidget")
+                .accessibilityLabel("Wasserfall")
+                .accessibilityHint("Doppeltippen setzt die Ansicht zurück. In 2D-Ansicht Einzeltipp für Messwerte.")
 
             if !isFullscreen {
                 Button { showFullscreen = true } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.white.opacity(0.9))
-                        .frame(width: 28, height: 28)
+                        .frame(width: 44, height: 44)
                         .background(Circle().fill(Color.black.opacity(0.5)))
                         .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
                 }
                 .padding(8)
+                .accessibilityLabel("Wasserfall vergrößern")
                 .accessibilityIdentifier("waterfallExpandButton")
             }
         }
+        .innerCanvas(cornerRadius: 0)
         .fullScreenCover(isPresented: $showFullscreen) {
             WaterfallFullscreenView(audioEngine: audioEngine, settings: settings)
         }

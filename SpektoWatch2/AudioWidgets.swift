@@ -2,12 +2,14 @@ import SwiftUI
 
 // MARK: - Spectrum Band Mode
 enum SpectrumBandMode: String, CaseIterable {
+    case continuous = "Linie"
     case bark = "Bark"
     case octave = "Oktav"
     case thirdOctave = "Terz"
 
     init(settingValue: String) {
         switch settingValue.lowercased() {
+        case "continuous", "line", "linie": self = .continuous
         case "bark": self = .bark
         case "octave", "oktav": self = .octave
         case "terz", "thirdoctave", "third_octave": self = .thirdOctave
@@ -58,6 +60,13 @@ struct FrequencySpectrumWidget: View {
         default: return live.bandLeqZ
         }
     }
+    private var bandLeqOctaveForWeighting: [Float] {
+        switch weighting.uppercased() {
+        case "A": return live.bandLeqOctaveA
+        case "C": return live.bandLeqOctaveC
+        default: return live.bandLeqOctaveZ
+        }
+    }
     private var barkBandsForWeighting: [Float] {
         switch weighting.uppercased() {
         case "A": return live.currentBarkBandsA
@@ -74,10 +83,14 @@ struct FrequencySpectrumWidget: View {
             precomputedThirdOctave: weightedThirdOctaveBands,
             precomputedBark: barkBandsForWeighting,
             leqThirds: bandLeqForWeighting,
+            precomputedOctaveLeq: bandLeqOctaveForWeighting,
             weightingLabel: weighting,
+            showGrid: WidgetSettings.chartShowGrid(settings),
+            showLeqOverlay: WidgetSettings.spectrumShowLeq(settings),
             yMinDB: Double(WidgetSettings.chartYMinDB(settings)),
             yMaxDB: Double(WidgetSettings.chartYMaxDB(settings))
         )
+        .innerCanvas(cornerRadius: 0)
         .onAppear {
             #if DEBUG
             print("[FrequencySpectrumWidget] View appeared (\(weighting), \(bandMode.rawValue), override=\(useWidgetOverrides))")
@@ -105,7 +118,11 @@ private struct SpectrumBandChartView: View {
     /// Pre-smoothed per-band Leq values (31 third-octave, dB).
     /// Computed by `AcousticMetricsCalculator`; this view reads them directly.
     let leqThirds: [Float]
+    /// Pre-aggregated octave Leq (10 bands) from `AudioEngine` / `LiveAcousticState`.
+    let precomputedOctaveLeq: [Float]
     let weightingLabel: String
+    var showGrid: Bool = true
+    var showLeqOverlay: Bool = true
     var yMinDB: Double = 20
     var yMaxDB: Double = 110
 
@@ -144,55 +161,73 @@ private struct SpectrumBandChartView: View {
             let majorTicks = ScientificAxis.majorTicks(min: minDB, max: maxDB, targetTicks: 9)
             let minorTicks = ScientificAxis.minorTicks(major: majorTicks, subdivisions: 2)
 
-            for tick in minorTicks where tick >= minDB && tick <= maxDB {
-                let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
-                let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
-                var path = Path()
-                path.move(to: CGPoint(x: chartRect.minX, y: y))
-                path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
-                context.stroke(path, with: .color(ScientificChartPalette.gridMinor), lineWidth: 0.5)
+            if showGrid {
+                for tick in minorTicks where tick >= minDB && tick <= maxDB {
+                    let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
+                    let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                    var path = Path()
+                    path.move(to: CGPoint(x: chartRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                    context.stroke(path, with: .color(ScientificChartPalette.gridMinor), lineWidth: 0.5)
+                }
+                for tick in majorTicks where tick >= minDB && tick <= maxDB {
+                    let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
+                    let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                    var path = Path()
+                    path.move(to: CGPoint(x: chartRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                    context.stroke(path, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.7)
+                    context.draw(
+                        Text("\(Int(tick))").font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        at: CGPoint(x: chartRect.minX - 14, y: y)
+                    )
+                }
+            } else {
+                for tick in majorTicks where tick >= minDB && tick <= maxDB {
+                    let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
+                    let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
+                    context.draw(
+                        Text("\(Int(tick))").font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        at: CGPoint(x: chartRect.minX - 14, y: y)
+                    )
+                }
             }
 
-            for tick in majorTicks where tick >= minDB && tick <= maxDB {
-                let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
-                let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
-                var path = Path()
-                path.move(to: CGPoint(x: chartRect.minX, y: y))
-                path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
-                context.stroke(path, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.7)
-                context.draw(
-                    Text("\(Int(tick))").font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
-                    at: CGPoint(x: chartRect.minX - 14, y: y)
-                )
-            }
-
-            let barCount = bands.count
-            let barWidth = chartRect.width / CGFloat(max(barCount, 1))
-            let barGap: CGFloat = (mode == .octave) ? 3 : 1
-
-            for i in 0..<barCount {
-                let val = bands[i]
-                let normalized = CGFloat(ScientificAxis.normalized(Double(val), min: minDB, max: maxDB))
-                let clamped = max(0, min(1, normalized))
-                let barHeight = clamped * chartRect.height
-                let x = chartRect.minX + CGFloat(i) * barWidth
-                let barRect = CGRect(
-                    x: x + barGap / 2,
-                    y: chartRect.maxY - barHeight,
-                    width: max(0, barWidth - barGap),
-                    height: barHeight
-                )
-
-                context.fill(Path(barRect), with: .color(ScientificChartPalette.series.opacity(0.85)))
-
-                if i < leqValues.count {
-                    let leqNorm = CGFloat(ScientificAxis.normalized(Double(leqValues[i]), min: minDB, max: maxDB))
-                    let leqClamped = max(0, min(1, leqNorm))
-                    let leqY = chartRect.maxY - leqClamped * chartRect.height
-                    var leqPath = Path()
-                    leqPath.move(to: CGPoint(x: x + barGap / 2, y: leqY))
-                    leqPath.addLine(to: CGPoint(x: x + barWidth - barGap / 2, y: leqY))
-                    context.stroke(leqPath, with: .color(ScientificChartPalette.secondarySeries), lineWidth: 1.4)
+            if mode == .continuous {
+                var linePath = Path()
+                for i in 0..<bands.count {
+                    let x = chartRect.minX + chartRect.width * CGFloat(i) / CGFloat(max(bands.count - 1, 1))
+                    let normalized = CGFloat(ScientificAxis.normalized(Double(bands[i]), min: minDB, max: maxDB))
+                    let y = chartRect.maxY - max(0, min(1, normalized)) * chartRect.height
+                    if i == 0 { linePath.move(to: CGPoint(x: x, y: y)) } else { linePath.addLine(to: CGPoint(x: x, y: y)) }
+                }
+                context.stroke(linePath, with: .color(ScientificChartPalette.series), lineWidth: 1.8)
+            } else {
+                let barCount = bands.count
+                let barWidth = chartRect.width / CGFloat(max(barCount, 1))
+                let barGap: CGFloat = (mode == .octave) ? 3 : 1
+                for i in 0..<barCount {
+                    let val = bands[i]
+                    let normalized = CGFloat(ScientificAxis.normalized(Double(val), min: minDB, max: maxDB))
+                    let clamped = max(0, min(1, normalized))
+                    let barHeight = clamped * chartRect.height
+                    let x = chartRect.minX + CGFloat(i) * barWidth
+                    let barRect = CGRect(
+                        x: x + barGap / 2,
+                        y: chartRect.maxY - barHeight,
+                        width: max(0, barWidth - barGap),
+                        height: barHeight
+                    )
+                    context.fill(Path(barRect), with: .color(ScientificChartPalette.series.opacity(0.85)))
+                    if showLeqOverlay, i < leqValues.count {
+                        let leqNorm = CGFloat(ScientificAxis.normalized(Double(leqValues[i]), min: minDB, max: maxDB))
+                        let leqClamped = max(0, min(1, leqNorm))
+                        let leqY = chartRect.maxY - leqClamped * chartRect.height
+                        var leqPath = Path()
+                        leqPath.move(to: CGPoint(x: x + barGap / 2, y: leqY))
+                        leqPath.addLine(to: CGPoint(x: x + barWidth - barGap / 2, y: leqY))
+                        context.stroke(leqPath, with: .color(ScientificChartPalette.secondarySeries), lineWidth: 1.4)
+                    }
                 }
             }
 
@@ -202,12 +237,26 @@ private struct SpectrumBandChartView: View {
             axisPath.addLine(to: CGPoint(x: chartRect.maxX, y: chartRect.maxY))
             context.stroke(axisPath, with: .color(ScientificChartPalette.axis), lineWidth: 1.0)
 
-            for i in stride(from: 0, to: bandData.labels.count, by: max(1, bandData.labelStride)) {
-                let x = chartRect.minX + CGFloat(i) * barWidth + barWidth / 2
+            if mode == .continuous {
                 context.draw(
-                    Text(bandData.labels[i]).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
-                    at: CGPoint(x: x, y: height - bottomPadding / 2)
+                    Text(formatHz(frequencies.first ?? 0)).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                    at: CGPoint(x: chartRect.minX, y: height - bottomPadding / 2),
+                    anchor: .leading
                 )
+                context.draw(
+                    Text(formatHz(frequencies.last ?? 0)).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                    at: CGPoint(x: chartRect.maxX, y: height - bottomPadding / 2),
+                    anchor: .trailing
+                )
+            } else {
+                let barWidth = chartRect.width / CGFloat(max(bands.count, 1))
+                for i in stride(from: 0, to: bandData.labels.count, by: max(1, bandData.labelStride)) {
+                    let x = chartRect.minX + CGFloat(i) * barWidth + barWidth / 2
+                    context.draw(
+                        Text(bandData.labels[i]).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        at: CGPoint(x: x, y: height - bottomPadding / 2)
+                    )
+                }
             }
         }
         .drawingGroup()
@@ -225,15 +274,19 @@ private struct SpectrumBandChartView: View {
     /// third-octave Leq array produced by `AcousticMetricsCalculator`.
     ///
     /// - For `.thirdOctave`: returns `leqThirds` directly (31 values).
-    /// - For `.octave`: aggregates the 31 thirds into 10 octave bands using
-    ///   power-sum, matching `SpectrumBandAggregator.octaveBands(fromThirds:)`.
+    /// - For `.octave`: uses `precomputedOctaveLeq` from the engine when available.
     /// - For `.bark`: returns `[]` (no Leq overlay in bark mode).
     private func computeLeqBandData(mode: SpectrumBandMode, leqThirds: [Float]) -> [Float] {
         guard leqThirds.count == SpectrumBandAggregator.thirdOctaveCenters.count else { return [] }
         switch mode {
+        case .continuous:
+            return []
         case .thirdOctave:
             return leqThirds
         case .octave:
+            if precomputedOctaveLeq.count == SpectrumBandAggregator.octaveLabels.count {
+                return precomputedOctaveLeq
+            }
             return SpectrumBandAggregator.octaveBands(frequencies: [], spectrum: [], fromThirds: leqThirds)
         case .bark:
             return []
@@ -245,6 +298,8 @@ private struct SpectrumBandChartView: View {
         // (M13 task-6). View is responsible only for picking the mode and
         // bundling labels.
         switch mode {
+        case .continuous:
+            return SpectrumBandData(values: spectrum, labels: [], labelStride: 1)
         case .thirdOctave:
             let values: [Float]
             if precomputedThirdOctave.count == SpectrumBandAggregator.thirdOctaveCenters.count {
@@ -285,6 +340,11 @@ private struct SpectrumBandChartView: View {
                 labelStride: 3
             )
         }
+    }
+
+    private func formatHz(_ hz: Float) -> String {
+        if hz >= 1000 { return String(format: "%.1fk", hz / 1000) }
+        return String(format: "%.0f", hz)
     }
 
     private func logBandDiagnosticsIfNeeded(_ bandData: SpectrumBandData) {
@@ -390,6 +450,7 @@ struct LevelMeterWidget: View {
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .innerCanvas(cornerRadius: 0)
         .onAppear {
             #if DEBUG
             print("[LevelMeterWidget] View appeared")
@@ -428,6 +489,7 @@ struct OctaveBandWidget: View {
             precomputedThirdOctave: weightedOctaveBands,
             precomputedBark: [],  // OctaveBandWidget always uses .thirdOctave
             leqThirds: bandLeqForWeighting,
+            precomputedOctaveLeq: [],
             weightingLabel: weighting
         )
         .onAppear {
@@ -443,11 +505,14 @@ struct PhaseMeterWidget: View {
     @ObservedObject var audioEngine: AudioEngine
 
     var body: some View {
-        if audioEngine.live.isStereoActive {
-            stereoContent
-        } else {
-            monoPlaceholder
+        Group {
+            if audioEngine.live.isStereoActive {
+                stereoContent
+            } else {
+                monoPlaceholder
+            }
         }
+        .innerCanvas(cornerRadius: 0)
     }
 
     // MARK: Stereo view

@@ -101,11 +101,16 @@ final class ScreenshotCatalogTests: XCTestCase {
         if !app.navigationBars["Einstellungen"].waitForExistence(timeout: 4.0) {
             tap(identifier: "settingsButton")
         }
-        XCTAssertTrue(app.navigationBars["Einstellungen"].waitForExistence(timeout: viewWait), "Settings should open")
-        capture("05-App-Settings-Top")
-        app.swipeUp()
-        settle()
-        capture("06-App-Settings-Bottom")
+        XCTAssertTrue(app.navigationBars["Einstellungen"].waitForExistence(timeout: viewWait), "Settings hub should open")
+        capture("05-App-Settings-Hub")
+        let measurementLink = app.buttons["Messung & Audio"]
+        if measurementLink.waitForExistence(timeout: 4.0) {
+            measurementLink.tap()
+            XCTAssertTrue(app.navigationBars["Messung & Audio"].waitForExistence(timeout: viewWait), "Measurement settings should open")
+            capture("06-App-Settings-Measurement")
+            app.navigationBars["Messung & Audio"].buttons.element(boundBy: 0).tap()
+            settle()
+        }
         app.buttons["Fertig"].tap()
 
         XCTAssertTrue(app.buttons["recordingsListButton"].waitForExistence(timeout: viewWait), "Recordings button should be visible")
@@ -154,22 +159,17 @@ final class ScreenshotCatalogTests: XCTestCase {
         XCTAssertTrue(app.buttons["layoutsButton"].waitForExistence(timeout: viewWait), "Layouts menu should be visible")
         tap(identifier: "layoutsButton")
         // Retry once: the action sheet may be dismissed by an in-flight animation on first tap.
-        if !app.buttons["Neue leere Seite"].waitForExistence(timeout: 4.0) {
+        if !app.buttons["layoutsNewCustom"].waitForExistence(timeout: 4.0) {
             tap(identifier: "layoutsButton")
         }
-        XCTAssertTrue(app.buttons["Neue leere Seite"].waitForExistence(timeout: viewWait), "Layouts dialog should open")
+        XCTAssertTrue(app.buttons["layoutsNewCustom"].waitForExistence(timeout: viewWait), "Layouts sheet should open")
         capture("08-09-Layouts-Dialog")
 
-        // Dismiss the layouts dialog via Cancel so we stay on the current
-        // layout. We'll create an empty dashboard by deleting all widgets in
-        // edit mode — this avoids the iOS 26 UIPageViewController race where
-        // addEmptyLayout() changes activeLayoutIndex but the TabView won't
-        // switch to the newly-appended page in the same render cycle.
-        let dialogCancel = app.buttons.matching(
-            NSPredicate(format: "label == 'Abbrechen' OR label == 'Cancel'")
-        ).firstMatch
-        if dialogCancel.waitForExistence(timeout: 4.0) {
-            dialogCancel.tap()
+        let dismissLayouts = app.buttons["layoutsDismiss"]
+        if dismissLayouts.waitForExistence(timeout: 4.0) {
+            dismissLayouts.tap()
+        } else if app.buttons["Fertig"].exists {
+            app.buttons["Fertig"].tap()
         }
 
         // Re-enter edit mode to expose the per-widget delete buttons.

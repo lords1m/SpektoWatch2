@@ -9,12 +9,7 @@ struct WatchContentView: View {
             WatchPegelmesserFace()
             WatchModularFace()
             WatchTonegeneratorFace()
-            WatchDashboardView()
-            WatchSpectrogramView()
-            WatchLevelMeterView()
-            NavigationStack {
-                WatchRecordingsView()
-            }
+            WatchMoreFacesView()
         }
         .tabViewStyle(.page)
     }

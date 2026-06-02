@@ -39,6 +39,7 @@ struct AdvancedAnalysisView: View {
                     }
                 }
             }
+            .polishedFormChrome()
             .navigationTitle("Spektralanalyse")
             .navigationBarTitleDisplayMode(.inline)
             // Übertrage Änderungen an den AudioEngine

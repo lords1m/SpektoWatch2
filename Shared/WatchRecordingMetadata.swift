@@ -32,6 +32,14 @@ public struct WatchRecordingMetadata: Codable, Identifiable, Sendable, Equatable
     /// time-integrated LAeq and running LCpeak). `nil` if no frame was written.
     public var laeq: Float?
     public var lcPeak: Float?
+    /// dB offset applied at capture (watch mic). Optional for older catalog rows.
+    public var calibrationOffset: Float?
+    /// IEC time weighting label, e.g. `"Fast"`.
+    public var timeWeighting: String?
+    /// FFT block size used for spectral bands at capture.
+    public var fftBlockSize: Int?
+    /// Session minimum broadband level (LAF), when captured.
+    public var minLevel: Float?
 
     public init(
         id: UUID = UUID(),
@@ -44,7 +52,11 @@ public struct WatchRecordingMetadata: Codable, Identifiable, Sendable, Equatable
         measurementFileName: String,
         syncState: WatchRecordingSyncState = .local,
         laeq: Float? = nil,
-        lcPeak: Float? = nil
+        lcPeak: Float? = nil,
+        calibrationOffset: Float? = nil,
+        timeWeighting: String? = nil,
+        fftBlockSize: Int? = nil,
+        minLevel: Float? = nil
     ) {
         self.id = id
         self.title = title
@@ -57,5 +69,9 @@ public struct WatchRecordingMetadata: Codable, Identifiable, Sendable, Equatable
         self.syncState = syncState
         self.laeq = laeq
         self.lcPeak = lcPeak
+        self.calibrationOffset = calibrationOffset
+        self.timeWeighting = timeWeighting
+        self.fftBlockSize = fftBlockSize
+        self.minLevel = minLevel
     }
 }

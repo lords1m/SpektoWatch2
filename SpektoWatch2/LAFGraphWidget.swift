@@ -63,7 +63,7 @@ struct LevelHistoryWidget: View {
             scrollSpeed: .fast,
             isPaused: false
         )
-        .cornerRadius(10)
+        .innerCanvas(cornerRadius: 0)
         .overlay(alignment: .topLeading) {
             Text(metricLabel)
                 .font(.caption)

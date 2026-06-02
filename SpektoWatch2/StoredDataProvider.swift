@@ -14,11 +14,17 @@ struct SpectrogramFrameWindow {
 }
 
 final class StoredDataProvider: AudioDataProvider {
+    /// Upper bound on decimated level-history points loaded at open.
+    private static let maxBootstrapRows = 4_000
+    /// Cap rows returned per `rows(in:)` query (disk-backed).
+    private static let maxRowsPerQuery = 500
+
     @Published private(set) var currentSpectrogramData: SpectrogramData?
     @Published private(set) var levelHistory: [Float] = []
     @Published private(set) var currentOctaveBands: [Float] = Array(repeating: -120.0, count: MeasurementDataFormat.thirdOctaveBandCount)
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
+    /// Decimated overview only; metric tables use `rows(in:)` (disk-backed).
     @Published private(set) var metricRows: [StoredMetricRow] = []
 
     private let fileURL: URL
@@ -31,10 +37,7 @@ final class StoredDataProvider: AudioDataProvider {
     // drift when stored per-frame timestamps are not on a uniform fps grid.
     private var playCursor: TimeInterval = 0
 
-    private static let thirdOctaveCenters: [Float] = [
-        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-    ]
+    private static let thirdOctaveCenters = SpectrogramHistoryAxis.thirdOctaveCenterFrequencies
 
     var metricKeys: [String] {
         reader.header.metricKeys
@@ -106,7 +109,10 @@ final class StoredDataProvider: AudioDataProvider {
         }
     }
 
-    func spectrogramFrames(in range: Range<Int>) async throws -> SpectrogramFrameWindow {
+    func spectrogramFrames(
+        in range: Range<Int>,
+        weighting: FrequencyWeighting = .z
+    ) async throws -> SpectrogramFrameWindow {
         try Task.checkCancellation()
 
         let frameCount = reader.frameCount
@@ -127,13 +133,16 @@ final class StoredDataProvider: AudioDataProvider {
                 try Task.checkCancellation()
             }
             let frame = try reader.readFrame(at: index)
-            bins.append(frame.fullFFT.isEmpty ? frame.thirdOctaveZ : frame.fullFFT)
+            bins.append(Self.spectralBins(from: frame, weighting: weighting))
         }
 
         return SpectrogramFrameWindow(startFrame: start, frameCount: bins.count, bins: bins)
     }
 
-    func spectrogramOverview(maxFrameCount requestedMaxFrameCount: Int) async throws -> SpectrogramFrameWindow {
+    func spectrogramOverview(
+        maxFrameCount requestedMaxFrameCount: Int,
+        weighting: FrequencyWeighting = .z
+    ) async throws -> SpectrogramFrameWindow {
         try Task.checkCancellation()
 
         let totalFrameCount = reader.frameCount
@@ -158,46 +167,109 @@ final class StoredDataProvider: AudioDataProvider {
             let position = Double(outputIndex) / denominator
             let sourceIndex = Int((position * Double(totalFrameCount - 1)).rounded())
             let frame = try reader.readFrame(at: sourceIndex)
-            bins.append(frame.fullFFT.isEmpty ? frame.thirdOctaveZ : frame.fullFFT)
+            bins.append(Self.spectralBins(from: frame, weighting: weighting))
         }
 
         return SpectrogramFrameWindow(startFrame: 0, frameCount: bins.count, bins: bins)
     }
 
+    private static func spectralBins(from frame: MeasurementFrame, weighting: FrequencyWeighting) -> [Float] {
+        WaterfallSpectrogramBins.bins(
+            from: frame,
+            weighting: weighting,
+            preferFullFFT: !frame.fullFFT.isEmpty
+        )
+    }
+
+    /// Reads metric rows for a time window directly from disk (not from bootstrap cache).
     func rows(in range: ClosedRange<TimeInterval>, step: Int = 1) -> [StoredMetricRow] {
-        guard !metricRows.isEmpty else { return [] }
-        let stride = max(step, 1)
-        return metricRows.enumerated().compactMap { (index, row) in
-            guard index % stride == 0 else { return nil }
-            let time = TimeInterval(row.time)
-            return range.contains(time) ? row : nil
+        guard reader.frameCount > 0 else { return [] }
+
+        let startFrame = frameIndex(for: range.lowerBound)
+        let endFrame = frameIndex(for: range.upperBound)
+        guard startFrame <= endFrame else { return [] }
+
+        let userStep = max(step, 1)
+        let frameSpan = endFrame - startFrame + 1
+        let frameStride = max(
+            userStep,
+            max(1, (frameSpan + Self.maxRowsPerQuery - 1) / Self.maxRowsPerQuery)
+        )
+
+        var rows: [StoredMetricRow] = []
+        rows.reserveCapacity(min(frameSpan / frameStride + 1, Self.maxRowsPerQuery + 1))
+
+        var index = startFrame
+        while index <= endFrame {
+            if let row = try? metricRow(atFrameIndex: index) {
+                rows.append(row)
+            }
+            index += frameStride
         }
+
+        if endFrame > startFrame, (endFrame - startFrame) % frameStride != 0 {
+            if let row = try? metricRow(atFrameIndex: endFrame), rows.last?.time != row.time {
+                rows.append(row)
+            }
+        }
+
+        return rows
     }
 
     private func bootstrap() throws {
+        metricRows = []
         guard reader.frameCount > 0 else {
             duration = 0
+            levelHistory = []
             return
         }
 
-        metricRows.removeAll(keepingCapacity: true)
-        levelHistory.removeAll(keepingCapacity: true)
-        metricRows.reserveCapacity(reader.frameCount)
-        levelHistory.reserveCapacity(reader.frameCount)
+        try loadDecimatedLevelHistory()
 
-        for index in 0..<reader.frameCount {
+        let last = try reader.readFrameSummary(at: reader.frameCount - 1)
+        duration = TimeInterval(last.timestamp)
+        scrub(to: 0)
+    }
+
+    private func loadDecimatedLevelHistory() throws {
+        levelHistory.removeAll(keepingCapacity: true)
+
+        let totalFrames = reader.frameCount
+        let stride = bootstrapStride(frameCount: totalFrames)
+        let reserved = min(totalFrames, Self.maxBootstrapRows + 1)
+        levelHistory.reserveCapacity(reserved)
+
+        var lastAppendedIndex = -1
+        for index in Swift.stride(from: 0, to: totalFrames, by: stride) {
             let frame = try reader.readFrameSummary(at: index)
             levelHistory.append(frame.broadbandLevel)
-
-            var valueMap: [String: Float] = [:]
-            for (metricIndex, key) in reader.header.metricKeys.enumerated() where metricIndex < frame.metrics.count {
-                valueMap[key] = frame.metrics[metricIndex]
-            }
-            valueMap["broadband"] = frame.broadbandLevel
-            metricRows.append(StoredMetricRow(time: frame.timestamp, values: valueMap))
+            lastAppendedIndex = index
         }
 
-        duration = TimeInterval(metricRows.last?.time ?? 0)
-        scrub(to: 0)
+        let finalIndex = totalFrames - 1
+        if finalIndex > lastAppendedIndex {
+            let frame = try reader.readFrameSummary(at: finalIndex)
+            levelHistory.append(frame.broadbandLevel)
+        }
+    }
+
+    private func bootstrapStride(frameCount: Int) -> Int {
+        guard frameCount > Self.maxBootstrapRows else { return 1 }
+        return max(1, (frameCount + Self.maxBootstrapRows - 1) / Self.maxBootstrapRows)
+    }
+
+    private func frameIndex(for time: TimeInterval) -> Int {
+        let clamped = max(0, min(time, duration))
+        return min(max(Int(clamped / max(frameDuration, 1e-6)), 0), max(reader.frameCount - 1, 0))
+    }
+
+    private func metricRow(atFrameIndex index: Int) throws -> StoredMetricRow {
+        let frame = try reader.readFrameSummary(at: index)
+        var valueMap: [String: Float] = [:]
+        for (metricIndex, key) in reader.header.metricKeys.enumerated() where metricIndex < frame.metrics.count {
+            valueMap[key] = frame.metrics[metricIndex]
+        }
+        valueMap["broadband"] = frame.broadbandLevel
+        return StoredMetricRow(time: frame.timestamp, values: valueMap)
     }
 }

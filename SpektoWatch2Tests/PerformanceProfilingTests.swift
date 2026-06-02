@@ -173,6 +173,24 @@ final class PerformanceProfilingTests: XCTestCase {
             "SpectrogramProcessor regression: \(String(format: "%.2f", fullUs/1000.0)) ms > 8 ms budget")
     }
 
+    /// Binned spectrogram columns must power-sum sub-bins, not average dB.
+    func testSpectrogramBinningAggregatesInPowerDomain() {
+        let processor = Self.sharedSpectProc
+        processor.binningFactor = 2
+        processor.temporalSmoothingIntensity = 0
+
+        let freqs: [Float] = [100, 200, 300, 400]
+        let mags: [Float] = [60, 60, 60, 60]
+        let result = processor.process(
+            frequencies: freqs,
+            dbMagnitudes: mags,
+            sampleRate: sampleRate,
+            smoothingTrack: .z
+        )
+        XCTAssertEqual(result.bandMagnitudes.count, 2)
+        XCTAssertEqual(result.bandMagnitudes[0], 63.0, accuracy: 0.15)
+    }
+
     // MARK: - Stage 5: HighEndSpectrogramAdapter CPU Work
 
     /// Misst Mapping-Cache-Aufbau und gecachte Texture-Writes (CPU-Seite).

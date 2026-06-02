@@ -3,13 +3,11 @@ import Foundation
 /// Centralized 1/3-octave, octave, and Bark band aggregation for
 /// display widgets.
 ///
-/// Extracted from `SpectrumBandChartView` as part of M13 task-6
-/// (DSP out of view bodies). The math was previously duplicated
-/// between `AudioEngine.computeDisplayThirdOctaveBands` (the engine
-/// pre-computes a 31-band Z/A/C array) and the widget's local
-/// `thirdOctaveBands` fallback — that duplication was the source of
-/// the M12 "negative offset" bug (one site used mean-of-linear-power,
-/// the other used sum-of-linear-power before the fix).
+/// Shared between iOS and watch targets. Extracted from
+/// `SpectrumBandChartView` as part of M13 task-6 (DSP out of view
+/// bodies). The math was previously duplicated between the engine
+/// pre-compute path and the widget fallback — that drift caused the
+/// M12 "negative offset" bug.
 ///
 /// Conventions
 /// -----------

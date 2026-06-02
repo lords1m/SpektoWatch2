@@ -45,6 +45,26 @@ final class SpectrumBandAggregatorTests: XCTestCase {
         XCTAssertEqual(bark.count, 24)
     }
 
+    /// Two equal-power bins in one third-octave band must sum to +3 dB vs a single bin.
+    func testThirdOctavePowerSumTwoEqualBins() {
+        let center: Float = 1000
+        let lower = center * pow(2.0 as Float, -1.0 / 6.0)
+        let upper = center * pow(2.0 as Float, 1.0 / 6.0)
+        var frequencies: [Float] = []
+        var spectrum: [Float] = []
+        for f in stride(from: lower + 10, through: upper - 10, by: 40) {
+            frequencies.append(f)
+            spectrum.append(60)
+        }
+        let bands = SpectrumBandAggregator.thirdOctaveBands(frequencies: frequencies, spectrum: spectrum)
+        guard let idx = centers.firstIndex(of: center) else {
+            XCTFail("Missing 1 kHz center")
+            return
+        }
+        let expected = 60 + 10 * log10(Float(frequencies.count))
+        XCTAssertEqual(bands[idx], expected, accuracy: 0.2)
+    }
+
     // MARK: - Aggregation math (M12 regression guard)
 
     func testThirdOctavePowerSum_HigherThanPerBinForMultiBinBands() {

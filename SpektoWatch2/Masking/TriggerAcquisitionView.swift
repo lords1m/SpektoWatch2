@@ -29,6 +29,7 @@ struct TriggerAcquisitionView: View {
 
                 Spacer(minLength: 0)
             }
+            .polishedFormChrome()
             .navigationTitle("Trigger aufnehmen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

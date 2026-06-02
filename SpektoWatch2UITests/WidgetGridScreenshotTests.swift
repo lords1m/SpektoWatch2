@@ -147,7 +147,7 @@ final class WidgetGridScreenshotTests: XCTestCase {
         // Attempt 1 — tap the layouts button and look for the preset action.
         layoutsButton.tap()
         _ = handleSystemAlertsIfNeeded(timeout: 0.5)
-        let presetButton = app.buttons["Screenshot-Preset: Widgetgrößen"]
+        let presetButton = app.buttons["layoutsScreenshotPreset"]
 
         if !presetButton.waitForExistence(timeout: 4.0) {
             // Dialog may have been dismissed by an overlapping animation; try once more.

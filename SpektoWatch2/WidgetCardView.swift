@@ -86,14 +86,16 @@ struct WidgetCardView: View {
         }
         .overlay(alignment: .topTrailing) {
             if isEditMode {
-                HStack(spacing: 6) {
-                    settingsButton
-                    deleteButton
-                }
-                .padding(8)
+                deleteButton
+                    .padding(8)
             }
         }
         .editJiggle(active: isEditMode, phase: jigglePhase)
+        .onLongPressGesture(minimumDuration: 0.55) {
+            guard !isEditMode else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showSettings = true
+        }
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
         }
@@ -112,7 +114,12 @@ struct WidgetCardView: View {
             Spacer(minLength: 6)
             // Meta readout is isolated in its own view so only it (not the
             // whole card chrome) re-renders on the 15 Hz audio publish.
-            CardMetaReader(widgetType: widget.type, live: audioEngine.live, numerals: numerals)
+            CardMetaReader(
+                widgetType: widget.type,
+                live: audioEngine.live,
+                numerals: numerals,
+                dimmed: isEditMode
+            )
         }
         .padding(.horizontal, 4)
     }
@@ -278,7 +285,7 @@ struct WidgetCardView: View {
         // clamped against the widget type's allowed range.
         let range = WidgetConfiguration.sizeRange(for: widget.type)
         let columnStride = columnWidth + 12 // grid spacing
-        let rowStride: CGFloat = 200 + 12   // baseHeight + spacing (see WidgetSize.height)
+        let rowStride: CGFloat = WidgetConfiguration.baseRowHeight(for: widget.type) + 12
 
         var newCols = widget.size.columns
         var newRows = widget.size.rows
@@ -333,6 +340,7 @@ private struct CardMetaReader: View {
     let widgetType: AudioWidgetType
     @ObservedObject var live: LiveAcousticState
     let numerals: NumeralStyle
+    var dimmed: Bool = false
 
     var body: some View {
         if let meta = metaText {
@@ -350,6 +358,7 @@ private struct CardMetaReader: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(Color.black.opacity(0.35)))
+            .opacity(dimmed ? 0.35 : 1)
         }
     }
 

@@ -5,6 +5,26 @@ import Combine
 import Accelerate
 import os
 
+/// Audio-thread snapshot assembled on each FFT frame; DCT/visual work runs on
+/// the main thread inside `flushPendingLiveData` (not on the render callback).
+private struct PendingWatchAudioFrame {
+    let magnitudesZ: [Float]
+    let magnitudesA: [Float]
+    let magnitudesC: [Float]
+    let thirdOctaveZ: [Float]
+    let thirdOctaveA: [Float]
+    let thirdOctaveC: [Float]
+    let bandLeqZ: [Float]
+    let bandLeqA: [Float]
+    let bandLeqC: [Float]
+    let barkZ: [Float]
+    let levels: [String: Float]
+    let broadbandLevel: Float
+    let sampleRate: Double
+    let timestamp: Date
+    let visualSamples: [Float]
+}
+
 class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDelegate {
     /// Single source of truth for what the watch is doing.
     /// Widgets observe `$liveData` instead of branching on `isRecording`.
@@ -98,7 +118,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // Coalesce updates to ~5 Hz: store the latest data, schedule a single
     // flush, drop anything that arrives before the flush fires.
     private let liveDataLock = OSAllocatedUnfairLock()
-    private var pendingLiveData: SpectrogramData?
+    private var pendingAudioFrame: PendingWatchAudioFrame?
     private var isLiveDataFlushScheduled = false
     private static let liveDataFlushInterval: TimeInterval = 0.2  // 5 Hz
     private static let displayVisualBinCount = 40
@@ -257,7 +277,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                             format: recordingFormat,
                             directory: WatchRecordingStore.shared.directory,
                             weighting: "A",
-                            fps: fps)
+                            fps: fps,
+                            fftBlockSize: self.fftSize,
+                            calibrationOffset: self.watchMicCalibrationOffset
+                        )
                     } catch {
                         print("[WatchAudioEngine] failed to open recording session: \(error)")
                         self.activeRecordingSession = nil
@@ -423,7 +446,29 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             }
         }
         performFFT(fftInputScratch)
-        performVisualDCT(fftInputScratch)
+
+        let splMagnitudesZ = calibratedSPL(fromDBFS: fftMagnitudes)
+        let dbA = weightingProcessor.applyWeighting(
+            to: fftMagnitudes, frequencies: binFrequencies, weighting: .a
+        )
+        let dbC = weightingProcessor.applyWeighting(
+            to: fftMagnitudes, frequencies: binFrequencies, weighting: .c
+        )
+        let splMagnitudesA = calibratedSPL(fromDBFS: dbA)
+        let splMagnitudesC = calibratedSPL(fromDBFS: dbC)
+
+        let thirdOctaveZ = SpectrumBandAggregator.thirdOctaveBands(
+            frequencies: binFrequencies, spectrum: splMagnitudesZ
+        )
+        let thirdOctaveA = SpectrumBandAggregator.thirdOctaveBands(
+            frequencies: binFrequencies, spectrum: splMagnitudesA
+        )
+        let thirdOctaveC = SpectrumBandAggregator.thirdOctaveBands(
+            frequencies: binFrequencies, spectrum: splMagnitudesC
+        )
+        let barkZ = SpectrumBandAggregator.barkBands(
+            frequencies: binFrequencies, spectrum: splMagnitudesZ
+        )
 
         // Real IEC 61672 metrics (M21/task-2), mirroring the iOS AudioEngine:
         // square the linear spectrum to per-bin energy, then derive Z/A/C frame
@@ -467,44 +512,79 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             dt: dt,
             recordingDuration: recordingDuration,
             frequencies: binFrequencies,
-            magnitudes: fftMagnitudes)
+            magnitudes: splMagnitudesZ,
+            bandsZ: thirdOctaveZ,
+            bandsA: thirdOctaveA,
+            bandsC: thirdOctaveC,
+            loudnessReferenceKey: "LAF"
+        )
         let levels = metricsResult.levels
         let levelSPL = levels["LAF"] ?? -120.0
 
         // Durable standalone capture: persist this buffer's audio + metrics.
-        // The session's writers are internally thread-safe (the .swr writer
-        // dispatches disk I/O off this audio thread); audioFile.write is the
-        // same call the engine already makes for live FFT.
         if let session = activeRecordingSession {
             session.writeBuffer(buffer)
-            session.writeMeasurementFrame(levels: levels, timestamp: Float(recordingDuration))
+            session.writeMeasurementFrame(
+                levels: levels,
+                timestamp: Float(recordingDuration),
+                thirdOctaveZ: thirdOctaveZ,
+                thirdOctaveA: thirdOctaveA,
+                thirdOctaveC: thirdOctaveC
+            )
         }
 
-        // `binFrequencies` is a single immutable property — no per-frame rebuild.
-        let data = SpectrogramData(frequencies: binFrequencies,
-                                   magnitudes: fftMagnitudes,
-                                   visualFrequencies: displayVisualFrequencies,
-                                   visualMagnitudes: displayVisualMagnitudes,
-                                   broadbandLevel: levelSPL,
-                                   levels: levels,
-                                   sampleRate: sampleRate)
-
-        if connectivityManager.selectedMicrophoneSource == .appleWatch {
-            connectivityManager.sendSpectrogramData(phoneExportData(from: data))
+        var visualSamples = [Float](repeating: 0, count: fftSize)
+        fftInputScratch.withUnsafeBufferPointer { src in
+            visualSamples.withUnsafeMutableBufferPointer { dst in
+                _ = memcpy(dst.baseAddress!, src.baseAddress!, fftSize * MemoryLayout<Float>.stride)
+            }
         }
 
-        // Coalesced flush to main — see `liveDataLock` block above for the
-        // rationale. This replaces a per-callback `DispatchQueue.main.async`
-        // that delivered 1024-float copies at the FFT framerate.
-        scheduleLiveDataFlush(data)
+        let pending = PendingWatchAudioFrame(
+            magnitudesZ: splMagnitudesZ,
+            magnitudesA: splMagnitudesA,
+            magnitudesC: splMagnitudesC,
+            thirdOctaveZ: thirdOctaveZ,
+            thirdOctaveA: thirdOctaveA,
+            thirdOctaveC: thirdOctaveC,
+            bandLeqZ: metricsResult.bandLeqZ,
+            bandLeqA: metricsResult.bandLeqA,
+            bandLeqC: metricsResult.bandLeqC,
+            barkZ: barkZ,
+            levels: levels,
+            broadbandLevel: levelSPL,
+            sampleRate: sampleRate,
+            timestamp: Date(),
+            visualSamples: visualSamples
+        )
+
+        // Coalesced flush to main (~5 Hz): DCT/visual + phone export run there,
+        // not on the audio render thread (matches iOS RT-safety policy).
+        scheduleLiveDataFlush(pending)
+    }
+
+    private func calibratedSPL(fromDBFS dbfs: [Float]) -> [Float] {
+        var result = dbfs
+        var offset = watchMicCalibrationOffset
+        vDSP_vsadd(result, 1, &offset, &result, 1, vDSP_Length(result.count))
+        return result
     }
 
     private func phoneExportData(from data: SpectrogramData) -> SpectrogramData {
         SpectrogramData(
             frequencies: data.frequencies,
-            magnitudes: addCalibrationOffset(to: data.magnitudes),
+            magnitudes: data.magnitudes,
+            magnitudesA: data.magnitudesA,
+            magnitudesC: data.magnitudesC,
             visualFrequencies: data.visualFrequencies,
-            visualMagnitudes: data.visualMagnitudes.map { addCalibrationOffset(to: $0) },
+            visualMagnitudes: data.visualMagnitudes,
+            thirdOctaveBandsZ: data.thirdOctaveBandsZ,
+            thirdOctaveBandsA: data.thirdOctaveBandsA,
+            thirdOctaveBandsC: data.thirdOctaveBandsC,
+            bandLeqZ: data.bandLeqZ,
+            bandLeqA: data.bandLeqA,
+            bandLeqC: data.bandLeqC,
+            barkBandsZ: data.barkBandsZ,
             broadbandLevel: data.broadbandLevel,
             levels: data.levels,
             sampleRate: data.sampleRate,
@@ -512,16 +592,31 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         )
     }
 
-    private func addCalibrationOffset(to values: [Float]) -> [Float] {
-        var result = values
-        var offset = watchMicCalibrationOffset
-        vDSP_vsadd(result, 1, &offset, &result, 1, vDSP_Length(result.count))
-        return result
+    private func spectrogramData(from frame: PendingWatchAudioFrame) -> SpectrogramData {
+        SpectrogramData(
+            frequencies: binFrequencies,
+            magnitudes: frame.magnitudesZ,
+            magnitudesA: frame.magnitudesA,
+            magnitudesC: frame.magnitudesC,
+            visualFrequencies: displayVisualFrequencies,
+            visualMagnitudes: displayVisualMagnitudes,
+            thirdOctaveBandsZ: frame.thirdOctaveZ,
+            thirdOctaveBandsA: frame.thirdOctaveA,
+            thirdOctaveBandsC: frame.thirdOctaveC,
+            bandLeqZ: frame.bandLeqZ,
+            bandLeqA: frame.bandLeqA,
+            bandLeqC: frame.bandLeqC,
+            barkBandsZ: frame.barkZ,
+            broadbandLevel: frame.broadbandLevel,
+            levels: frame.levels,
+            sampleRate: frame.sampleRate,
+            timestamp: frame.timestamp
+        )
     }
 
-    private func scheduleLiveDataFlush(_ data: SpectrogramData) {
+    private func scheduleLiveDataFlush(_ frame: PendingWatchAudioFrame) {
         let scheduleNow: Bool = liveDataLock.withLockUnchecked {
-            pendingLiveData = data
+            pendingAudioFrame = frame
             guard !isLiveDataFlushScheduled else { return false }
             isLiveDataFlushScheduled = true
             return true
@@ -533,15 +628,22 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     private func flushPendingLiveData() {
-        let data = liveDataLock.withLockUnchecked { () -> SpectrogramData? in
-            let pending = pendingLiveData
-            pendingLiveData = nil
+        let frame = liveDataLock.withLockUnchecked { () -> PendingWatchAudioFrame? in
+            let pending = pendingAudioFrame
+            pendingAudioFrame = nil
             isLiveDataFlushScheduled = false
             return pending
         }
-        guard let data else { return }
+        guard let frame else { return }
+
+        performVisualDCT(frame.visualSamples)
+        let data = spectrogramData(from: frame)
+
+        if connectivityManager.selectedMicrophoneSource == .appleWatch {
+            connectivityManager.sendSpectrogramData(phoneExportData(from: data))
+        }
+
         currentSpectrogramData = data
-        // Surface to the unified stream when the local mic owns the truth.
         if operatingMode.watchMicIsActive {
             liveData = data
         }

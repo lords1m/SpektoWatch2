@@ -110,12 +110,14 @@ struct ControlBarView: View {
 
     @State private var showRecordingsList = false
     @State private var liveActivityAlert = false
+    @State private var showPersistenceError = false
+    @State private var persistenceErrorMessage = ""
 
     private let footerVerticalPadding: CGFloat = 10
-    private let regularControlDiameter: CGFloat = 50
-    private let regularControlIconSize: CGFloat = 40
-    private let compactControlDiameter: CGFloat = 44
-    private let compactControlIconSize: CGFloat = 34
+    private let regularControlDiameter: CGFloat = 38
+    private let regularControlIconSize: CGFloat = 22
+    private let compactControlDiameter: CGFloat = 36
+    private let compactControlIconSize: CGFloat = 20
 
     // Computed properties für reaktive Updates
     private var state: ControlBarState {
@@ -168,14 +170,26 @@ struct ControlBarView: View {
         .sheet(isPresented: $showRecordingsList) {
             RecordingsListView()
                 .environmentObject(recordingManager)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .polishedSheetChrome()
         }
         .onAppear {
             audioEngine.prewarmAudioSession()
         }
+        .onChange(of: recordingManager.persistenceError) { _, error in
+            guard let error else { return }
+            showPersistenceError = true
+            persistenceErrorMessage = error
+        }
         .onChange(of: recordingManager.liveActivityError) { _, error in
             if error != nil { liveActivityAlert = true }
+        }
+        .alert("Speichern fehlgeschlagen", isPresented: $showPersistenceError) {
+            Button("OK") {
+                recordingManager.persistenceError = nil
+                showPersistenceError = false
+            }
+        } message: {
+            Text(persistenceErrorMessage)
         }
         .alert("Live Activity", isPresented: $liveActivityAlert) {
             Button("OK") { recordingManager.liveActivityError = nil }
@@ -240,17 +254,17 @@ struct ControlBarView: View {
     }
 
     private func recordingsButton(font: Font, badgeOffsetX: CGFloat, badgeOffsetY: CGFloat) -> some View {
-        Button(action: {
+        let diameter: CGFloat = font == .title2 ? 38 : 36
+        return Button(action: {
             showRecordingsList = true
         }) {
-            // Identifier directly on the Image leaf — same iOS 26 PlainButtonStyle fix:
-            // .accessibilityElement(children: .ignore) on a ZStack inside a plain-style
-            // Button triggers parent-identifier inheritance in iOS 26. Instead, set the
-            // identifier on the Image itself (a natural leaf, no children: .ignore needed).
             ZStack {
                 Image(systemName: "folder.fill")
-                    .font(font)
-                    .foregroundColor(.blue)
+                    .font(.system(size: font == .title2 ? 18 : 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: diameter, height: diameter)
+                    .background(Circle().fill(.thinMaterial))
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
                     .accessibilityIdentifier("recordingsListButton")
                     .accessibilityLabel("Aufnahmen")
 
@@ -370,13 +384,22 @@ struct ControlBarView: View {
                     // Automatisch speichern mit Zeitstempel als Name
                     let dateFormatter = DateFormatter()
                     dateFormatter.dateFormat = "dd.MM.yyyy HH:mm"
-                    let timestamp = dateFormatter.string(from: Date())
-                    
+                    let saveDate = Date()
+                    let timestamp = dateFormatter.string(from: saveDate)
+                    let startDate = recordingManager.recordingStartDate
+                        ?? saveDate.addingTimeInterval(-recordedDuration)
+                    let measurementURL = audioEngine.lastMeasurementDataURL
+                    let duration = RecordingManager.resolvedRecordingDuration(
+                        audioURL: url,
+                        measurementURL: measurementURL,
+                        fallback: recordedDuration
+                    )
+
                     var recording = Recording(
                         name: "Messung \(timestamp)",
                         description: "",
-                        startDate: Date().addingTimeInterval(-recordedDuration),
-                        duration: recordedDuration,
+                        startDate: startDate,
+                        duration: duration,
                         audioFileName: url.path,
                         measurementDataFileName: audioEngine.lastMeasurementDataURL?.path,
                         sampleRate: audioEngine.live.currentSpectrogramData?.sampleRate ?? 44100.0,

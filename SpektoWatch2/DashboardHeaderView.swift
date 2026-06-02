@@ -4,6 +4,7 @@ import SwiftUI
 /// Edit-mode variant collapses to eyebrow "LAYOUT BEARBEITEN" + an add-widget button and a Done button.
 struct DashboardHeaderView: View {
     @Binding var isEditMode: Bool
+    var isCustomLayout: Bool = false
     var currentLayoutName: String
     var onAddWidget: () -> Void
     var onAddLayout: () -> Void
@@ -16,7 +17,7 @@ struct DashboardHeaderView: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(isEditMode ? "LAYOUT BEARBEITEN" : "DASHBOARD · LIVE")
+                Text(headerEyebrow)
                     .font(.eyebrow(size: 9))
                     .tracking(1.6)
                     .foregroundStyle(.secondary)
@@ -83,6 +84,12 @@ struct DashboardHeaderView: View {
         // as ControlBarView: named container identifiers override leaf button identifiers.
     }
 
+    private var headerEyebrow: String {
+        if isEditMode { return "LAYOUT BEARBEITEN" }
+        if isCustomLayout { return "BENUTZERDEFINIERT · LIVE" }
+        return "DASHBOARD · LIVE"
+    }
+
     private func glassIconButton(_ symbol: String, id: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             // Identifier directly on the Image leaf — .accessibilityElement(children: .ignore)
@@ -115,6 +122,7 @@ struct DashboardHeaderView: View {
 extension DashboardHeaderView: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.isEditMode == rhs.isEditMode &&
+        lhs.isCustomLayout == rhs.isCustomLayout &&
         lhs.currentLayoutName == rhs.currentLayoutName
     }
 }

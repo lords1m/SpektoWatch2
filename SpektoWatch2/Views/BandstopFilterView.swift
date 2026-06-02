@@ -367,7 +367,7 @@ struct BandstopFilterSettingsView: View {
     var onFilterChanged: ((BandstopFilter) -> Void)? = nil
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     // Info-Header
@@ -423,7 +423,7 @@ struct BandstopFilterSettingsView: View {
                 }
                 .padding()
             }
-            .background(Color(UIColor.systemGroupedBackground))
+            .polishedFormChrome()
             .navigationTitle("Bandsperre")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -67,11 +67,10 @@ struct WidgetSize: Codable, Equatable {
         self._rows = max(WidgetSize.absoluteMinimum, rows)
     }
 
-    /// Base height per row (pt). The 200-pt baseline is a UX choice carried
-    /// over from the pre-M8 implementation — kept stable to avoid shifting
-    /// every dashboard's vertical footprint on the migration.
+    /// Legacy, type-agnostic row height fallback (pt). Prefer per-type
+    /// `frameHeight` for rendering so compact defaults can differ by widget.
     var height: CGFloat {
-        let baseHeight: CGFloat = 200
+        let baseHeight: CGFloat = 150
         let spacing: CGFloat = 12
         return CGFloat(rows) * baseHeight + CGFloat(max(0, rows - 1)) * spacing
     }
@@ -192,16 +191,15 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         }
     }
 
-    /// Base height (pt) for a single row of this widget type. Most widgets
-    /// keep the historical 200pt baseline so chart/spectrogram layouts stay
-    /// untouched; compact value-readout widgets get a shorter baseline so
-    /// `1×1` cells don't waste vertical space around a single number.
+    /// Base height (pt) for a single row of this widget type. Lowered from
+    /// the old 200pt default to keep first-load dashboards denser and reduce
+    /// excess vertical whitespace on phone screens.
     static func baseRowHeight(for type: AudioWidgetType) -> CGFloat {
         switch type {
         case .singleValue, .levelMeter, .phaseMeter:
-            return 110
+            return 96
         default:
-            return 200
+            return 150
         }
     }
 
@@ -237,6 +235,8 @@ enum WidgetSettings {
     static let defaultSpectrogramSensitivity: Float = 90.0
     static let defaultSpectrumBandMode = "terz"
     static let defaultWaterfallSliceCount = 96
+    /// Live and playback waterfalls resample to this many frequency bins.
+    static let defaultWaterfallTargetFrequencyCount = 128
     // Magnitudes from AudioEngine are already calibrated dB SPL
     // (dBFS + calibrationOffset, see AudioEngine.swift line ~1303),
     // so the waterfall range lives in positive SPL space, not dBFS.
@@ -244,12 +244,17 @@ enum WidgetSettings {
     static let defaultWaterfallMaxDB: Float = 110
     static let defaultSingleValueMetric = "LAF"
     static let defaultLevelHistoryMetric = "AUTO"
+    static let defaultWaterfallSpectrumMode = "continuous"
     // Shared Y-axis range defaults (dB SPL). Used by chart widgets
     // (LevelHistory, FrequencySpectrum) when no per-widget override
     // is configured. Waterfall uses its own range keys (waterfallMinDB
     // / waterfallMaxDB) — kept separate to preserve legacy decoding.
     static let defaultChartYMinDB: Float = 20
     static let defaultChartYMaxDB: Float = 110
+    static let defaultChartShowGrid = true
+    static let defaultHistorySmoothing: Float = 0
+    static let defaultSpectrumShowLeq = true
+    static let defaultLevelMeterShowPeak = true
     /// Per-widget noise floor in dB SPL. −120 means off (no suppression).
     /// Spectrogram: soft-knee gate below the floor. SingleValue: display guard.
     /// Waterfall: floor is minDB; soft-knee is always on (fixed 6 dB, no key needed).
@@ -295,5 +300,30 @@ enum WidgetSettings {
             return false
         }
         return rawValue == "1" || rawValue == "true" || rawValue == "yes" || rawValue == "on"
+    }
+
+    static func chartShowGrid(_ settings: [String: String]) -> Bool {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["chartShowGrid"]?.lowercased() else { return defaultChartShowGrid }
+        return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+    }
+
+    static func historySmoothing(_ settings: [String: String]) -> Float {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["historySmoothing"],
+              let v = Float(raw) else { return defaultHistorySmoothing }
+        return max(0, min(5, v))
+    }
+
+    static func spectrumShowLeq(_ settings: [String: String]) -> Bool {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["spectrumShowLeq"]?.lowercased() else { return defaultSpectrumShowLeq }
+        return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+    }
+
+    static func levelMeterShowPeak(_ settings: [String: String]) -> Bool {
+        guard usesWidgetOverrides(settings),
+              let raw = settings["levelMeterShowPeak"]?.lowercased() else { return defaultLevelMeterShowPeak }
+        return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
     }
 }

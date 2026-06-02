@@ -51,6 +51,10 @@ final class LiveAcousticState: ObservableObject {
     @Published var bandLeqZ: [Float] = Array(repeating: -120.0, count: 31)
     @Published var bandLeqA: [Float] = Array(repeating: -120.0, count: 31)
     @Published var bandLeqC: [Float] = Array(repeating: -120.0, count: 31)
+    /// Octave-band Leq (10 bands), derived from `bandLeq*` in the engine.
+    @Published var bandLeqOctaveZ: [Float] = []
+    @Published var bandLeqOctaveA: [Float] = []
+    @Published var bandLeqOctaveC: [Float] = []
 
     /// Pre-aggregated Bark bands (24 critical bands).
     /// Empty when no widget requests Bark mode — zero-cost in that case.

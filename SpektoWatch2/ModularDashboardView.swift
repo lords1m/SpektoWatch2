@@ -9,11 +9,9 @@ struct ModularDashboardView: View {
     @State private var isHeaderVisible: Bool = true
     @State private var isFooterVisible: Bool = true
     @State private var dropTargetWidgetID: UUID?
-    @State private var showLayoutsDialog = false
-    @State private var showRenameAlert = false
-    @State private var renameText = ""
+    @State private var showLayoutsSheet = false
     @State private var lastScrollOffset: CGFloat? = nil
-    @State private var scrollOffset: CGFloat = 0
+    @State private var footerBarHeight: CGFloat = 0
     @AppStorage("dashboard.activePreset") private var activePresetID: String = "overview"
     private let barSwipeThreshold: CGFloat = 36
     private let handleDragThreshold: CGFloat = 12
@@ -24,7 +22,7 @@ struct ModularDashboardView: View {
         _viewModel = StateObject(wrappedValue: DashboardViewModel(dashboardManager: dm, audioEngine: audioEngine, connectivityManager: connectivityManager))
         _dashboardManager = StateObject(wrappedValue: dm)
     }
-    
+
     var body: some View {
         DesignTokensReader { _ in
             mainBody
@@ -33,62 +31,20 @@ struct ModularDashboardView: View {
 
     private var mainBody: some View {
         ZStack {
-            GeometryReader { geo in
-                let selection = Binding<Int>(
-                    get: { dashboardManager.activeLayoutIndex },
-                    set: { dashboardManager.setActiveLayout(index: $0) }
-                )
-
-                TabView(selection: selection) {
-                    ForEach(Array(dashboardManager.layouts.indices), id: \.self) { index in
-                        let isCompactWidth = geo.size.width <= 390
-                        let verticalInset: CGFloat = isCompactWidth ? 6 : 8
-                        ScrollView {
-                            GeometryReader { scrollGeo in
-                                Color.clear.preference(
-                                    key: ScrollOffsetPreferenceKey.self,
-                                    value: scrollGeo.frame(in: .named("scroll")).minY
-                                )
-                            }
-                            .frame(height: 0)
-                            
-                            VStack(spacing: 0) {
-                                dashboardGrid(
-                                    geo: geo,
-                                    widgets: dashboardManager.widgets(forLayoutAt: index),
-                                    isActiveLayout: index == dashboardManager.activeLayoutIndex
-                                )
-                                .padding(.top, verticalInset)
-                                .padding(.bottom, verticalInset)
-                            }
-                        }
-                        .coordinateSpace(name: "scroll")
-                        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                            handleScrollChange(value)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-            }
+            dashboardContent
 
             if !isHeaderVisible {
                 VStack {
                     hiddenHandle(systemImage: "chevron.down")
                         .padding(.top, 8)
                         .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                isHeaderVisible = true
-                            }
+                            withAnimation(.easeInOut(duration: 0.22)) { isHeaderVisible = true }
                         }
                         .gesture(
                             DragGesture(minimumDistance: 4)
                                 .onEnded { value in
                                     if abs(value.translation.height) > handleDragThreshold {
-                                        withAnimation(.easeInOut(duration: 0.22)) {
-                                            isHeaderVisible = true
-                                        }
+                                        withAnimation(.easeInOut(duration: 0.22)) { isHeaderVisible = true }
                                     }
                                 }
                         )
@@ -103,22 +59,28 @@ struct ModularDashboardView: View {
                     hiddenHandle(systemImage: "chevron.up")
                         .padding(.bottom, 8)
                         .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                isFooterVisible = true
-                            }
+                            withAnimation(.easeInOut(duration: 0.22)) { isFooterVisible = true }
                         }
                         .gesture(
                             DragGesture(minimumDistance: 4)
                                 .onEnded { value in
                                     if abs(value.translation.height) > handleDragThreshold {
-                                        withAnimation(.easeInOut(duration: 0.22)) {
-                                            isFooterVisible = true
-                                        }
+                                        withAnimation(.easeInOut(duration: 0.22)) { isFooterVisible = true }
                                     }
                                 }
                         )
                 }
                 .transition(.opacity)
+            }
+
+            if let toast = viewModel.widgetUndoToast {
+                VStack {
+                    Spacer()
+                    widgetUndoSnackbar(toast)
+                        .padding(.bottom, isFooterVisible ? footerBarHeight + 12 : 40)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(10)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -135,58 +97,33 @@ struct ModularDashboardView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: isHeaderVisible)
         .animation(.easeInOut(duration: 0.22), value: isFooterVisible)
-        // Keep the preset-rail highlight in sync with the active layout.
-        // PresetRailView's activeID is its own @AppStorage value (so it
-        // survives cold launch), but TabView swipes only change
-        // `activeLayoutIndex`. Without this onChange the rail chip stays
-        // on the previously selected preset after swiping.
-        .onChange(of: dashboardManager.activeLayoutIndex) { _, _ in
-            syncActivePresetFromLayout()
+        .animation(.easeInOut(duration: 0.2), value: viewModel.widgetUndoToast?.id)
+        .onChange(of: dashboardManager.activePresetIndex) { _, _ in
+            syncActivePresetStorage()
         }
-        .onAppear { syncActivePresetFromLayout() }
+        .onChange(of: dashboardManager.navigation) { _, _ in
+            syncActivePresetStorage()
+        }
+        .onPreferenceChange(FooterBarHeightPreferenceKey.self) { value in
+            footerBarHeight = value
+        }
+        .onAppear { syncActivePresetStorage() }
         .sheet(isPresented: $viewModel.showWidgetPicker) {
             WidgetPickerView(dashboardManager: viewModel.dashboardManager)
+                .polishedSheetChrome()
         }
-        .confirmationDialog("Layouts", isPresented: $showLayoutsDialog, titleVisibility: .visible) {
-            Button("Aktuelle Seite speichern") {
-                dashboardManager.saveCurrentAsNewLayout()
-            }
-            Button("Neue leere Seite") {
-                dashboardManager.addEmptyLayout()
-            }
-            Button("Screenshot-Preset: Widgetgrößen") {
-                dashboardManager.installWidgetSizeScreenshotPreset()
-            }
-            Button("Seite umbenennen") {
-                renameText = dashboardManager.currentLayoutName
-                showRenameAlert = true
-            }
-
-            ForEach(Array(dashboardManager.layouts.enumerated()), id: \.element.id) { index, layout in
-                Button("Öffnen: \(layout.name)") {
-                    dashboardManager.setActiveLayout(index: index)
-                }
-            }
-
-            if dashboardManager.layouts.count > 1 {
-                Button("Aktuelle Seite löschen", role: .destructive) {
-                    dashboardManager.deleteLayout(at: dashboardManager.activeLayoutIndex)
-                }
-            }
-        }
-        .alert("Seite umbenennen", isPresented: $showRenameAlert) {
-            TextField("Name", text: $renameText)
-            Button("Umbenennen") {
-                dashboardManager.renameLayout(at: dashboardManager.activeLayoutIndex, name: renameText)
-            }
-            Button("Abbrechen", role: .cancel) {}
+        .sheet(isPresented: $showLayoutsSheet) {
+            LayoutsManagementView(dashboardManager: dashboardManager)
         }
         .sheet(isPresented: $viewModel.showSettings) {
-            SpectrogramSettingsView(
+            SettingsRootView(
                 selectedMicrophoneSource: $viewModel.selectedMicrophoneSource,
                 watchGain: $viewModel.watchGain,
                 audioEngine: viewModel.audioEngine
             )
+            .environmentObject(fftConfig)
+            .environmentObject(viewModel.connectivityManager)
+            .polishedSheetChrome()
         }
         .onChange(of: viewModel.selectedMicrophoneSource) { _, newSource in
             viewModel.handleMicrophoneSourceChange(newSource)
@@ -200,43 +137,78 @@ struct ModularDashboardView: View {
             viewModel.updateWatchGain(newValue)
         }
         .task {
-            // Trigger async JSON decode of saved dashboard configuration
-            // (M19 task-1: avoids 573 ms main-thread hang from synchronous init).
             dashboardManager.startLoading()
         }
-        .onAppear {
-            print("[ModularDashboardView] View appeared. Widgets count: \(dashboardManager.widgets.count)")
-        }
-        .onChange(of: dashboardManager.isEditMode) { oldValue, newValue in
-            print("[ModularDashboardView] Edit mode changed: \(oldValue) -> \(newValue)")
-        }
-        // NOTE: Do NOT apply .accessibilityIdentifier("dashboardView") to this outer
-        // ZStack. In iOS 26, a named container's identifier is inherited by all
-        // PlainButtonStyle children, causing every button to report "dashboardView"
-        // as its identifier instead of its own. The setUp test finds the dashboard
-        // by checking controlBarView, which is in the footer bar's VStack.
+    }
 
+    @ViewBuilder
+    private var dashboardContent: some View {
+        GeometryReader { geo in
+            if dashboardManager.isCustomMode {
+                scrollableDashboard(geo: geo, widgets: dashboardManager.widgets, isActive: true)
+            } else {
+                let selection = Binding<Int>(
+                    get: { dashboardManager.activePresetIndex },
+                    set: { dashboardManager.setActivePresetIndex($0) }
+                )
+                TabView(selection: selection) {
+                    ForEach(Array(PresetCatalogue.all.indices), id: \.self) { index in
+                        scrollableDashboard(
+                            geo: geo,
+                            widgets: dashboardManager.widgets(forPresetIndex: index),
+                            isActive: index == dashboardManager.activePresetIndex
+                        )
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+            }
+        }
+    }
+
+    private func scrollableDashboard(geo: GeometryProxy, widgets: [WidgetConfiguration], isActive: Bool) -> some View {
+        let isCompactWidth = geo.size.width <= 390
+        let verticalInset: CGFloat = isCompactWidth ? 6 : 8
+        return ScrollView {
+            GeometryReader { scrollGeo in
+                Color.clear.preference(
+                    key: ScrollOffsetPreferenceKey.self,
+                    value: scrollGeo.frame(in: .named("scroll")).minY
+                )
+            }
+            .frame(height: 0)
+
+            VStack(spacing: 0) {
+                dashboardGrid(geo: geo, widgets: widgets, isActiveLayout: isActive)
+                    .padding(.top, verticalInset)
+                    .padding(.bottom, verticalInset)
+            }
+        }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { handleScrollChange($0) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var headerBar: some View {
         VStack(spacing: 6) {
             DashboardHeaderView(
                 isEditMode: $dashboardManager.isEditMode,
+                isCustomLayout: dashboardManager.isCustomMode,
                 currentLayoutName: dashboardManager.currentLayoutName,
                 onAddWidget: viewModel.addWidget,
-                onAddLayout: { dashboardManager.addEmptyLayout() },
-                onSaveLayout: { dashboardManager.saveCurrentAsNewLayout() },
-                onShowLayouts: { showLayoutsDialog = true },
+                onAddLayout: { dashboardManager.addCustomLayout(empty: true) },
+                onSaveLayout: { dashboardManager.duplicateCurrentAsCustomLayout() },
+                onShowLayouts: { showLayoutsSheet = true },
                 onShowSettings: { viewModel.showSettings = true }
             )
             .equatable()
             PresetRailView(
                 presets: PresetCatalogue.all,
-                activeID: $activePresetID,
+                activeID: presetRailActiveID,
                 dimmed: dashboardManager.isEditMode,
                 onSelect: { preset in
                     withAnimation(.easeInOut(duration: 0.25)) {
-                        dashboardManager.applyPreset(id: preset.id)
+                        dashboardManager.selectPreset(id: preset.id)
                     }
                 }
             )
@@ -248,44 +220,52 @@ struct ModularDashboardView: View {
                 .onEnded { value in
                     guard isHeaderVisible else { return }
                     if value.translation.height < -barSwipeThreshold {
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            isHeaderVisible = false
-                        }
+                        withAnimation(.easeInOut(duration: 0.22)) { isHeaderVisible = false }
                     }
                 }
         )
     }
 
+    /// Empty string when in custom mode so no preset chip appears selected.
+    private var presetRailActiveID: Binding<String> {
+        Binding(
+            get: {
+                dashboardManager.isCustomMode ? "" : dashboardManager.activePresetID
+            },
+            set: { newID in
+                guard !newID.isEmpty else { return }
+                activePresetID = newID
+            }
+        )
+    }
+
     private var footerBar: some View {
         ControlBarView(audioEngine: viewModel.audioEngine)
+            .opacity(dashboardManager.isEditMode ? 0.35 : 1)
+            .allowsHitTesting(isFooterVisible && !dashboardManager.isEditMode)
+            .animation(.easeInOut(duration: 0.2), value: dashboardManager.isEditMode)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: FooterBarHeightPreferenceKey.self, value: geo.size.height)
+                }
+            )
             .contentShape(Rectangle())
-            .allowsHitTesting(isFooterVisible)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 10)
                     .onEnded { value in
-                        guard isFooterVisible else { return }
+                        guard isFooterVisible, !dashboardManager.isEditMode else { return }
                         if value.translation.height > barSwipeThreshold {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                isFooterVisible = false
-                            }
+                            withAnimation(.easeInOut(duration: 0.22)) { isFooterVisible = false }
                         }
                     }
             )
     }
-    
-    /// Derives the active preset ID from the active layout's name and
-    /// writes it back into `@AppStorage("dashboard.activePreset")` so the
-    /// PresetRailView chip highlight matches what the TabView is showing.
-    /// Layouts created via `DashboardManager.applyPreset(id:)` are named
-    /// `"Preset: <id>"`; user-created layouts don't match the prefix and
-    /// leave the rail highlight untouched (no preset is "active").
-    private func syncActivePresetFromLayout() {
-        let name = dashboardManager.currentLayoutName
-        let prefix = "Preset: "
-        guard name.hasPrefix(prefix) else { return }
-        let derivedID = String(name.dropFirst(prefix.count))
-        if activePresetID != derivedID {
-            activePresetID = derivedID
+
+    private func syncActivePresetStorage() {
+        guard !dashboardManager.isCustomMode else { return }
+        let id = dashboardManager.activePresetID
+        if activePresetID != id {
+            activePresetID = id
         }
     }
 
@@ -294,17 +274,13 @@ struct ModularDashboardView: View {
             lastScrollOffset = offset
             return
         }
-
         let delta = offset - previous
-
-        // Bei jeder signifikanten Scroll-Bewegung (egal in welche Richtung) ausblenden
         if abs(delta) > scrollThreshold && (isHeaderVisible || isFooterVisible) {
             withAnimation(.easeInOut(duration: 0.22)) {
                 isHeaderVisible = false
                 isFooterVisible = false
             }
         }
-
         lastScrollOffset = offset
     }
 
@@ -320,20 +296,14 @@ struct ModularDashboardView: View {
         .padding(.horizontal, 14)
         .frame(height: 28)
         .background(.thinMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color.primary.opacity(0.18), lineWidth: 1)
-        )
+        .overlay(Capsule().stroke(Color.primary.opacity(0.18), lineWidth: 1))
         .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 4)
         .contentShape(Rectangle())
     }
-    
+
     @ViewBuilder
     private func dashboardGrid(geo: GeometryProxy, widgets: [WidgetConfiguration], isActiveLayout: Bool) -> some View {
         let isCompactWidth = geo.size.width <= 390
-        // Density token maps to redesign spec (compact 10/8, standard 14/12,
-        // airy 18/16). Tighten by 2pt on iPhone-compact widths to keep
-        // pre-token visual density on small screens.
         let compactAdjust: CGFloat = isCompactWidth ? -2 : 0
         let horizontalPadding: CGFloat = max(8, density.cardPadding + compactAdjust)
         let topPadding: CGFloat = horizontalPadding
@@ -358,9 +328,6 @@ struct ModularDashboardView: View {
                         .padding(.horizontal, 18)
                         .padding(.vertical, 12)
                         .background(.regularMaterial, in: Capsule())
-                        .overlay(
-                            Capsule().stroke(Color.white.opacity(0.28), lineWidth: 1)
-                        )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -368,22 +335,23 @@ struct ModularDashboardView: View {
             .padding(.top, isCompactWidth ? 32 : 50)
         } else {
             VStack(spacing: stackSpacing) {
+                if dashboardManager.isCustomMode && !dashboardManager.isEditMode {
+                    Text("Benutzerdefiniert · Layouts zum Wechseln der Presets")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if dashboardManager.isEditMode && isActiveLayout {
                     Text("Widgets verschieben oder skalieren")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if !isActiveLayout {
-                    Text("Swipe für Layout-Wechsel")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                let colCount = 3  // Fest 3 Spalten
+
+                let colCount = 3
                 let rows = viewModel.computeRows(widgets: widgets, columns: colCount)
                 let columnWidth = (availableWidth - CGFloat(colCount - 1) * gridSpacing) / CGFloat(colCount)
-                
+
                 Grid(horizontalSpacing: gridSpacing, verticalSpacing: gridSpacing) {
                     ForEach(0..<rows.count, id: \.self) { rowIndex in
                         GridRow {
@@ -416,30 +384,52 @@ struct ModularDashboardView: View {
                                                     style: StrokeStyle(lineWidth: 2, dash: [6, 5])
                                                 )
                                         )
-                                        .transition(WidgetAnimations.cardTransition)
                                 } else {
                                     card
                                         .gridCellColumns(span)
                                         .onLongPressGesture(minimumDuration: 0.45) {
                                             guard isActiveLayout else { return }
-                                            let generator = UIImpactFeedbackGenerator(style: .medium)
-                                            generator.impactOccurred()
+                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                                 dashboardManager.isEditMode = true
                                             }
                                         }
-                                        .transition(WidgetAnimations.cardTransition)
                                 }
                             }
                         }
                     }
                 }
                 .animation(WidgetAnimations.reorderAnimation, value: widgets.map(\.id))
+
+                if dashboardManager.isEditMode && isActiveLayout {
+                    addWidgetDashedButton
+                        .padding(.top, 4)
+                }
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.top, topPadding)
             .padding(.bottom, bottomPadding)
         }
+    }
+
+    private var addWidgetDashedButton: some View {
+        Button(action: viewModel.addWidget) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Widget hinzufügen")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .foregroundStyle(Color.accentColor)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.65), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("addWidgetDashedButton")
     }
 
     private func widgetCard(widget: WidgetConfiguration, columnWidth: CGFloat, isActiveLayout: Bool) -> some View {
@@ -450,9 +440,7 @@ struct ModularDashboardView: View {
             isEditMode: dashboardManager.isEditMode && isActiveLayout,
             columnWidth: columnWidth,
             onDelete: {
-                withAnimation(.spring()) {
-                    viewModel.deleteWidget(widget)
-                }
+                viewModel.deleteWidget(widget)
             },
             onResize: { newSize in
                 withAnimation(.spring()) {
@@ -466,9 +454,34 @@ struct ModularDashboardView: View {
         .equatable()
     }
 
+    private func widgetUndoSnackbar(_ toast: WidgetUndoToast) -> some View {
+        HStack(spacing: 12) {
+            Text("Widget entfernt")
+                .font(.subheadline.weight(.medium))
+            Spacer()
+            Button("Rückgängig") {
+                viewModel.undoWidgetDelete()
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        .padding(.horizontal, 20)
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+        .accessibilityIdentifier("widgetUndoSnackbar")
+    }
 }
 
 private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct FooterBarHeightPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
@@ -498,7 +511,6 @@ struct WidgetDropDelegate: DropDelegate {
         if draggedItem.id != item.id {
             guard let from = items.firstIndex(where: { $0.id == draggedItem.id }),
                   let to = items.firstIndex(where: { $0.id == item.id }) else { return }
-            
             if items[to].id != draggedItem.id {
                 withAnimation {
                     items.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)

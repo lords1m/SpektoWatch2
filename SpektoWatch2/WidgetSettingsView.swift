@@ -98,7 +98,7 @@ struct WidgetSettingsView: View {
     }
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 if supportsOverrideToggle {
                     Section {
@@ -213,6 +213,16 @@ struct WidgetSettingsView: View {
                             Text("96").tag("96")
                             Text("160").tag("160")
                         }
+
+                        Picker("Spektrum", selection: Binding(
+                            get: { settings["waterfallSpectrumMode"] ?? WidgetSettings.defaultWaterfallSpectrumMode },
+                            set: { settings["waterfallSpectrumMode"] = $0 }
+                        )) {
+                            Text("Linie").tag("continuous")
+                            Text("Terz").tag("thirdOctave")
+                            Text("Bark").tag("bark")
+                            Text("Oktav").tag("octave")
+                        }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
 
@@ -293,6 +303,28 @@ struct WidgetSettingsView: View {
 
                     yAxisBoundsSection
                         .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    Section(header: Text("Erweitert")) {
+                        Toggle("Gitter anzeigen", isOn: Binding(
+                            get: { WidgetSettings.chartShowGrid(settings) },
+                            set: { settings["chartShowGrid"] = $0 ? "1" : "0" }
+                        ))
+                        let smoothing = WidgetSettings.historySmoothing(settings)
+                        VStack(alignment: .leading) {
+                            Text("Glättung: \(String(format: "%.1f", smoothing))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Slider(
+                                value: Binding(
+                                    get: { Double(WidgetSettings.historySmoothing(settings)) },
+                                    set: { settings["historySmoothing"] = String(format: "%.1f", $0) }
+                                ),
+                                in: 0...5,
+                                step: 0.5
+                            )
+                        }
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .frequencyDisplay {
                     Section(header: Text("Spektrum Einstellungen")) {
                         Picker("Frequenzbewertung", selection: Binding(
@@ -308,8 +340,9 @@ struct WidgetSettingsView: View {
                             get: { settings["frequencyBands"] ?? WidgetSettings.defaultSpectrumBandMode },
                             set: { settings["frequencyBands"] = $0 }
                         )) {
+                            Text("Linie").tag("continuous")
                             Text("Bark").tag("bark")
-                            Text("Oktav").tag("octave")
+                            Text("Oktav (optional)").tag("octave")
                             Text("Terz").tag("terz")
                         }
                     }
@@ -317,9 +350,28 @@ struct WidgetSettingsView: View {
 
                     yAxisBoundsSection
                         .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    Section(header: Text("Erweitert")) {
+                        Toggle("Gitter anzeigen", isOn: Binding(
+                            get: { WidgetSettings.chartShowGrid(settings) },
+                            set: { settings["chartShowGrid"] = $0 ? "1" : "0" }
+                        ))
+                        Toggle("Leq-Overlay anzeigen", isOn: Binding(
+                            get: { WidgetSettings.spectrumShowLeq(settings) },
+                            set: { settings["spectrumShowLeq"] = $0 ? "1" : "0" }
+                        ))
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .levelMeter {
                     yAxisBoundsSection
                         .disabled(supportsOverrideToggle && !useWidgetOverrides)
+                    Section(header: Text("Erweitert")) {
+                        Toggle("Peak-Hold Marker", isOn: Binding(
+                            get: { WidgetSettings.levelMeterShowPeak(settings) },
+                            set: { settings["levelMeterShowPeak"] = $0 ? "1" : "0" }
+                        ))
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .singleValue {
                     Section(header: Text("Anzeige")) {
                         Picker("Messwert", selection: Binding(
@@ -347,7 +399,9 @@ struct WidgetSettingsView: View {
                     Text("Keine Einstellungen verfügbar für diesen Widget-Typ.")
                 }
             }
+            .polishedFormChrome()
             .navigationTitle(widget.type.rawValue)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {

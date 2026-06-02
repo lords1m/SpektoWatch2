@@ -47,6 +47,8 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     /// recording must be correlated by id before ingest.
     private let transferIngestQueue = DispatchQueue(label: "com.spektowatch.watch-recording-ingest")
     private var stagedTransferMetadata: [UUID: WatchRecordingMetadata] = [:]
+    private var stagedTransferFirstSeenAt: [UUID: Date] = [:]
+    private static let stagedTransferTimeout: TimeInterval = 120
 
     private var transferStagingDirectory: URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("WatchSyncStaging", isDirectory: true)
@@ -183,7 +185,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             let store = WatchRecordingStore.shared
             let fm = FileManager.default
-            for rec in store.recordings where rec.syncState != .synced {
+            for rec in store.recordings where rec.syncState == .local {
                 let audioURL = store.audioURL(for: rec)
                 guard fm.fileExists(atPath: audioURL.path) else { continue }
                 guard let metaData = try? JSONEncoder().encode(rec) else { continue }
@@ -208,6 +210,8 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     /// are present. Runs on `transferIngestQueue`. `file.fileURL` is only valid
     /// until the delegate returns, so the copy is synchronous.
     private func handleIncomingRecordingFile(_ file: WCSessionFile) {
+        purgeStaleStagedTransfersIfNeeded()
+
         let metadata = file.metadata ?? [:]
         guard let id = WatchConnectivityProtocol.recordingId(fromTransfer: metadata),
               let kind = WatchConnectivityProtocol.recordingFileKind(fromTransfer: metadata),
@@ -230,6 +234,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         }
 
         stagedTransferMetadata[id] = recordingMeta
+        stagedTransferFirstSeenAt[id] = stagedTransferFirstSeenAt[id] ?? Date()
 
         let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
         let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
@@ -238,7 +243,26 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         }
 
         stagedTransferMetadata[id] = nil
+        stagedTransferFirstSeenAt[id] = nil
         ingestStagedRecording(recordingMeta, audioURL: audioURL, measurementURL: measurementURL)
+    }
+
+    private func purgeStaleStagedTransfersIfNeeded() {
+        let now = Date()
+        let fm = FileManager.default
+        let staleIds = stagedTransferFirstSeenAt.compactMap { id, firstSeen in
+            now.timeIntervalSince(firstSeen) > Self.stagedTransferTimeout ? id : nil
+        }
+        guard !staleIds.isEmpty else { return }
+        for id in staleIds {
+            stagedTransferMetadata[id] = nil
+            stagedTransferFirstSeenAt[id] = nil
+            let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
+            let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
+            if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
+            if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
+            print("[WCM] Purged stale staged transfer for recording \(id)")
+        }
     }
 
     private func ingestStagedRecording(_ meta: WatchRecordingMetadata, audioURL: URL, measurementURL: URL) {
@@ -246,17 +270,27 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         // iOS recordings store, renaming the sidecar to `.spekto` (same binary
         // MeasurementDataFormat as `.swr`). Build the iOS Recording from the
         // shared metadata; the id is preserved so dedupe is stable.
+        let duration = RecordingDurationResolver.resolved(
+            audioURL: audioURL,
+            measurementURL: measurementURL,
+            fallback: meta.duration
+        )
         let recording = Recording(
             id: meta.id,
             name: meta.title,
             startDate: meta.createdAt,
-            duration: meta.duration,
+            duration: duration,
             audioFileName: audioURL.path,
             measurementDataFileName: measurementURL.path,
             sampleRate: meta.sampleRate,
             laeqFast: meta.laeq ?? -120.0,
             peakLevel: meta.lcPeak ?? -120.0,
-            frequencyWeighting: meta.weighting
+            minLevel: meta.minLevel ?? -120.0,
+            timeWeighting: meta.timeWeighting ?? "Fast",
+            frequencyWeighting: meta.weighting,
+            calibrationOffset: meta.calibrationOffset ?? 100.0,
+            fftBlockSize: meta.fftBlockSize ?? 2048,
+            spectralDataAvailable: MeasurementSpectralAvailability.hasUsableSpectralData(fileURL: measurementURL)
         )
 
         DispatchQueue.main.async {

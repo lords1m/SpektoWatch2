@@ -1,6 +1,12 @@
 import SwiftUI
 import Combine
 
+struct WidgetUndoToast: Equatable, Identifiable {
+    let id = UUID()
+    let widget: WidgetConfiguration
+    let index: Int
+}
+
 @MainActor
 class DashboardViewModel: ObservableObject {
     // UI State
@@ -8,6 +14,9 @@ class DashboardViewModel: ObservableObject {
     @Published var showWidgetPicker = false
     @Published var draggedWidget: WidgetConfiguration?
     @Published var showSettings = false
+    @Published var widgetUndoToast: WidgetUndoToast?
+    private var widgetUndoTask: Task<Void, Never>?
+    private static let widgetUndoWindow: Duration = .seconds(4)
 
     // Settings State
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
@@ -202,8 +211,34 @@ class DashboardViewModel: ObservableObject {
     }
     
     func deleteWidget(_ widget: WidgetConfiguration) {
-        print("[DashboardViewModel] Delete requested for widget: \(widget.id)")
+        guard let index = dashboardManager.widgets.firstIndex(where: { $0.id == widget.id }) else { return }
+        commitPendingWidgetDelete()
         dashboardManager.removeWidget(id: widget.id)
+        let toast = WidgetUndoToast(widget: widget, index: index)
+        widgetUndoToast = toast
+        widgetUndoTask?.cancel()
+        widgetUndoTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.widgetUndoWindow)
+            await MainActor.run {
+                guard let self, self.widgetUndoToast?.id == toast.id else { return }
+                self.widgetUndoToast = nil
+            }
+        }
+    }
+
+    func undoWidgetDelete() {
+        guard let toast = widgetUndoToast else { return }
+        widgetUndoTask?.cancel()
+        widgetUndoTask = nil
+        dashboardManager.restoreWidget(toast.widget, at: toast.index)
+        widgetUndoToast = nil
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private func commitPendingWidgetDelete() {
+        widgetUndoTask?.cancel()
+        widgetUndoTask = nil
+        widgetUndoToast = nil
     }
     
     // MARK: - Layout Logic (Testable)

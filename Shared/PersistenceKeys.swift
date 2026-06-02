@@ -51,8 +51,11 @@ public enum PersistenceKeys {
     /// directly must be updated first.
     public static let dashboardLegacySnapshot = "DashboardConfiguration_v5"
 
-    /// Multi-layout JSON (current dashboard storage format).
+    /// Multi-layout JSON (legacy dashboard storage format).
     public static let dashboardLayouts = "DashboardLayouts_v1"
+
+    /// Model C: fixed preset slots + custom layouts + navigation mode.
+    public static let dashboardLayoutsV2 = "DashboardLayouts_v2"
 
     /// Active redesign preset id (@AppStorage). Mirrored here so
     /// the string lives in exactly one place; the @AppStorage

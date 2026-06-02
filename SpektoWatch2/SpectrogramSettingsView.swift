@@ -11,8 +11,7 @@ struct SpectrogramSettingsView: View {
     @State private var isStereo = false
 
     var body: some View {
-        NavigationView {
-            Form {
+        Form {
                 Section(header: Text("Audioquelle")) {
                     Picker("Quelle", selection: $selectedMicrophoneSource) {
                         ForEach(MicrophoneSource.allCases, id: \.self) { source in
@@ -162,33 +161,11 @@ struct SpectrogramSettingsView: View {
                     }
                 }
 
-                // Design / Anpassen — theme, accent, density, numerals,
-                // colormap. Lives directly in the main settings so users
-                // don't have to hunt through the accent menu.
-                DesignTweaksSections()
-
-                Section(header: Text("Apple Watch")) {
-                    NavigationLink(destination: WatchDashboardSettingsView()) {
-                        HStack {
-                            Image(systemName: "applewatch")
-                                .foregroundColor(.blue)
-                            Text("Watch-Layout anpassen")
-                        }
-                    }
-                }
             }
-            .scrollContentBackground(.hidden)
-            .background(GlassBackground())
-            .navigationTitle("Einstellungen")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") {
-                        dismiss()
-                    }
-                }
-            }
-            .accessibilityIdentifier("settingsView")
-        }
+            .polishedFormChrome()
+            .navigationTitle("Messung & Audio")
+            .navigationBarTitleDisplayMode(.inline)
+            .accessibilityIdentifier("settingsMeasurementView")
         .onAppear {
             audioEngine.checkAvailableInputs()
             // Sync engine to persisted settings on first open

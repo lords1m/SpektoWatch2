@@ -80,23 +80,8 @@ struct WatchDashboardView: View {
     private var isRecording: Bool { audioEngine.isRecording }
     private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
-    /// Deduplizierte Widgets aus der Config, sortiert nach Position.
-    /// Multi-Cell-Typen (spectrogram, levelMeter, loudness) werden nur einmal gerendert.
-    /// Empty-Slots werden übersprungen.
     private var activeWidgets: [WatchWidgetConfig] {
-        var seenTypes = Set<String>()
-        return config.widgets
-            .sorted { $0.position < $1.position }
-            .filter { widget in
-                guard widget.type != .empty else { return false }
-                let key: String
-                if widget.type == .singleValue {
-                    key = "singleValue-\(widget.singleValueType?.rawValue ?? "")"
-                } else {
-                    key = widget.type.rawValue
-                }
-                return seenTypes.insert(key).inserted
-            }
+        config.orderedDisplayWidgets
     }
 
     var body: some View {

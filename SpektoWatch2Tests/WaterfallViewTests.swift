@@ -2,6 +2,50 @@ import XCTest
 import simd
 @testable import SpektoWatch2
 
+final class WaterfallSpectralFrameTests: XCTestCase {
+
+    private func sampleData(
+        z: [Float] = [10, 20, 30],
+        a: [Float]? = [11, 21, 31],
+        c: [Float]? = [12, 22, 32],
+        visual: [Float]? = nil,
+        visualFreqs: [Float]? = nil
+    ) -> SpectrogramData {
+        SpectrogramData(
+            frequencies: [100, 200, 400],
+            magnitudes: z,
+            magnitudesA: a,
+            magnitudesC: c,
+            visualFrequencies: visualFreqs,
+            visualMagnitudes: visual,
+            sampleRate: 48_000
+        )
+    }
+
+    func testUsesVisualMagnitudesWhenPresent() {
+        let data = sampleData(visual: [1, 2, 3], visualFreqs: [50, 150, 250])
+        let frame = WaterfallSpectralFrame.magnitudesAndFrequencies(from: data, freqWeighting: "A")
+        XCTAssertEqual(frame.magnitudes, [1, 2, 3])
+        XCTAssertEqual(frame.frequencies, [50, 150, 250])
+    }
+
+    func testUsesWeightedBandsWhenNoVisualTrack() {
+        let data = sampleData()
+        let aFrame = WaterfallSpectralFrame.magnitudesAndFrequencies(from: data, freqWeighting: "A")
+        XCTAssertEqual(aFrame.magnitudes, [11, 21, 31])
+        let cFrame = WaterfallSpectralFrame.magnitudesAndFrequencies(from: data, freqWeighting: "C")
+        XCTAssertEqual(cFrame.magnitudes, [12, 22, 32])
+        let zFrame = WaterfallSpectralFrame.magnitudesAndFrequencies(from: data, freqWeighting: "Z")
+        XCTAssertEqual(zFrame.magnitudes, [10, 20, 30])
+    }
+
+    func testEmptyVisualFallsBackToWeighting() {
+        let data = sampleData(visual: [])
+        let frame = WaterfallSpectralFrame.magnitudesAndFrequencies(from: data, freqWeighting: "A")
+        XCTAssertEqual(frame.magnitudes, [11, 21, 31])
+    }
+}
+
 final class WaterfallCameraProjectionTests: XCTestCase {
 
     func testOriginProjectsToOrigin() {

@@ -61,6 +61,67 @@ final class AcousticMetricsCalculatorTests: XCTestCase {
         }
     }
 
+    /// LAeq must integrate frame energy over time, not average frame count.
+    func testLAeqUsesTimeWeightedIntegration() {
+        let calc = AcousticMetricsCalculator(sampleRate: 44100.0)
+        let loudEnergy: Float = 1.0
+        let quietEnergy: Float = 0.01
+        let loudDt: Float = 1.0
+        let quietDt: Float = 0.01
+
+        _ = calc.updateMetrics(
+            energyZ: loudEnergy, energyA: loudEnergy, energyC: loudEnergy,
+            peakLevel: 100.0, dt: loudDt, recordingDuration: 0.0
+        )
+        let result = calc.updateMetrics(
+            energyZ: quietEnergy, energyA: quietEnergy, energyC: quietEnergy,
+            peakLevel: 40.0, dt: quietDt, recordingDuration: 1.0
+        )
+
+        let timeWeightedLeq = result.levels["LAeq"]!
+        let expected = Float(10.0 * log10(
+            (Double(loudEnergy) * Double(loudDt) + Double(quietEnergy) * Double(quietDt))
+                / (Double(loudDt) + Double(quietDt))
+            + 1e-12
+        ))
+        let countAveragedLeq = Float(10.0 * log10((Double(loudEnergy) + Double(quietEnergy)) / 2.0 + 1e-12))
+
+        XCTAssertEqual(timeWeightedLeq, expected, accuracy: 0.01,
+            "LAeq must match ∫E·dt / T")
+        XCTAssertGreaterThan(timeWeightedLeq, countAveragedLeq,
+            "Time-weighted LAeq must differ from a plain per-frame energy mean")
+    }
+
+    /// PHON/SONE follow the requested loudness reference key.
+    func testPhonUsesLoudnessReferenceKey() {
+        let calc = AcousticMetricsCalculator(sampleRate: 44100.0)
+        let freqs: [Float] = [500, 1000, 2000]
+        let mags: [Float] = [-40, -20, -40]
+        let energy: Float = 1e-3
+
+        for _ in 0..<10 {
+            _ = calc.updateMetrics(
+                energyZ: energy, energyA: energy, energyC: energy * 4,
+                peakLevel: 80.0, dt: 0.05, recordingDuration: 0.0,
+                frequencies: freqs, magnitudes: mags,
+                loudnessReferenceKey: "LCF"
+            )
+        }
+        let result = calc.updateMetrics(
+            energyZ: energy, energyA: energy, energyC: energy * 4,
+            peakLevel: 80.0, dt: 0.05, recordingDuration: 0.5,
+            frequencies: freqs, magnitudes: mags,
+            loudnessReferenceKey: "LCF"
+        )
+
+        let lcf = Double(result.levels["LCF"]!)
+        let phonFromLCF = LoudnessCalculator.phon(
+            spl: lcf,
+            frequency: LoudnessCalculator.dominantFrequency(frequencies: freqs, magnitudes: mags)
+        )
+        XCTAssertEqual(Double(result.levels["PHON"]!), phonFromLCF, accuracy: 0.01)
+    }
+
     /// `LAFmin` must be ≤ `LAFmax` after any number of updates.
     func testMinIsNeverGreaterThanMax() {
         let calc = AcousticMetricsCalculator(sampleRate: 44100.0)

@@ -6,6 +6,7 @@ import Charts
 struct SpektralanalyseLaborWidget: View {
     @ObservedObject var fftConfig: FFTConfiguration
     @ObservedObject var audioEngine: AudioEngine
+    @Environment(\.designAccent) private var accent
 
     @State private var selectedTab: LabTab = .parameters
 
@@ -41,13 +42,13 @@ struct SpektralanalyseLaborWidget: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .foregroundColor(selectedTab == tab ? .blue : .gray)
-                        .background(selectedTab == tab ? Color.blue.opacity(0.1) : Color.clear)
+                        .foregroundStyle(selectedTab == tab ? accent : .secondary)
+                        .background(selectedTab == tab ? accent.opacity(0.12) : Color.clear)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .background(Color(.systemGray6))
+            .background(Color.black.opacity(0.25))
 
             // Content
             ScrollView {
@@ -61,6 +62,7 @@ struct SpektralanalyseLaborWidget: View {
                 }
             }
         }
+        .innerCanvas(cornerRadius: 0)
     }
 }
 

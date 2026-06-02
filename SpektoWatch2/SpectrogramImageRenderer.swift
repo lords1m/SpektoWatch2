@@ -5,11 +5,75 @@ import Accelerate
 
 final class SpectrogramImageRenderer {
     func renderSpectrogramImage(
+        history: [[Float]],
+        axis: SpectrogramHistoryAxisKind,
+        sampleRate: Double,
+        calibrationOffset: Float,
+        targetWidth requestedWidth: Int = 1200,
+        targetHeight: Int = 420,
+        minDb: Float = -110,
+        maxDb: Float = -20
+    ) throws -> UIImage {
+        let columns = history.filter { !$0.isEmpty }
+        guard let first = columns.first else {
+            throw MeasurementDataError.ioFailure("Leere Spektrogramm-Historie.")
+        }
+
+        let width = max(1, min(requestedWidth, columns.count))
+        let binCount = first.count
+        let frequencies = SpectrogramHistoryAxis.frequencyAxis(
+            kind: axis,
+            binCount: binCount,
+            sampleRate: sampleRate
+        )
+        guard !frequencies.isEmpty else {
+            throw MeasurementDataError.ioFailure("Keine Frequenzachse für Export.")
+        }
+
+        var heatmap = [Float](repeating: 0, count: width * targetHeight)
+        var rowToBin = [Int](repeating: 0, count: targetHeight)
+        for y in 0..<targetHeight {
+            let yNorm = 1.0 - Float(y) / Float(max(targetHeight - 1, 1))
+            let frequency = SpectrogramHistoryAxis.frequency(
+                yNorm: yNorm,
+                kind: axis,
+                binCount: binCount,
+                sampleRate: sampleRate
+            )
+            rowToBin[y] = SpectrogramHistoryAxis.binIndex(
+                forFrequency: frequency,
+                kind: axis,
+                binCount: binCount,
+                sampleRate: sampleRate
+            )
+        }
+
+        let columnsPerPixel = max(1.0, Double(columns.count) / Double(width))
+        for (sourceIndex, column) in columns.enumerated() {
+            let pixelX = min(width - 1, Int(Double(sourceIndex) / columnsPerPixel))
+            for y in 0..<targetHeight {
+                let bin = min(column.count - 1, rowToBin[y])
+                let spl = column[bin]
+                let dbfs = spl - calibrationOffset
+                let normalized = max(0, min(1, (dbfs - minDb) / max(maxDb - minDb, 1e-6)))
+                let index = y * width + pixelX
+                if normalized > heatmap[index] {
+                    heatmap[index] = normalized
+                }
+            }
+        }
+
+        let argb = Self.makeARGBPixels(fromNormalizedHeatmap: heatmap, width: width, height: targetHeight)
+        return try makeUIImage(fromARGB: argb, width: width, height: targetHeight)
+    }
+
+    func renderSpectrogramImage(
         audioURL: URL,
         targetWidth requestedWidth: Int = 1200,
         targetHeight: Int = 420,
         fftSize: Int = 4096,
         hopSize: Int = 512,
+        calibrationOffset: Float = 0,
         minDb: Float = -110,
         maxDb: Float = -20
     ) throws -> UIImage {
@@ -73,8 +137,9 @@ final class SpectrogramImageRenderer {
 
                 for y in 0..<targetHeight {
                     let bin = rowToBin[y]
-                    let db = 20 * log10(magnitudes[bin] + 1e-12)
-                    let normalized = max(0, min(1, (db - minDb) / max(maxDb - minDb, 1e-6)))
+                    let db = 20 * log10(magnitudes[bin] + 1e-12) + calibrationOffset
+                    let dbfs = db - calibrationOffset
+                    let normalized = max(0, min(1, (dbfs - minDb) / max(maxDb - minDb, 1e-6)))
                     let index = y * width + pixelX
                     if normalized > heatmap[index] {
                         heatmap[index] = normalized
@@ -88,25 +153,27 @@ final class SpectrogramImageRenderer {
         }
 
         let argb = Self.makeARGBPixels(fromNormalizedHeatmap: heatmap, width: width, height: targetHeight)
+        return try makeUIImage(fromARGB: argb, width: width, height: targetHeight)
+    }
 
+    private func makeUIImage(fromARGB argb: [UInt8], width: Int, height: Int) throws -> UIImage {
         let provider = CGDataProvider(data: Data(argb) as CFData)!
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let cg = CGImage(
+        guard let cg = CGImage(
             width: width,
-            height: targetHeight,
+            height: height,
             bitsPerComponent: 8,
             bitsPerPixel: 32,
             bytesPerRow: width * 4,
             space: colorSpace,
-            // vImage emits ARGB8888 with an opaque first byte. Skip it when
-            // constructing the CGImage so bytes 1...3 become RGB.
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue),
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
             intent: .defaultIntent
-        )!
-
+        ) else {
+            throw MeasurementDataError.ioFailure("Bild konnte nicht erstellt werden.")
+        }
         return UIImage(cgImage: cg)
     }
 

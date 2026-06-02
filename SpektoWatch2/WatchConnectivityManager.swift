@@ -68,6 +68,8 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     /// recording must be correlated by id before ingest.
     private let transferIngestQueue = DispatchQueue(label: "com.spektowatch.watch-recording-ingest")
     private var stagedTransferMetadata: [UUID: WatchRecordingMetadata] = [:]
+    private var stagedTransferFirstSeenAt: [UUID: Date] = [:]
+    private static let stagedTransferTimeout: TimeInterval = 120
 
     private var transferStagingDirectory: URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("WatchSyncStaging", isDirectory: true)
@@ -376,19 +378,17 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         }
         
         isProcessingQueue = true
-        let currentMessage = messageQueue[0]
-        
-        WCSession.default.sendMessage(currentMessage.message, replyHandler: { _ in
-            DispatchQueue.main.async {
-                if !self.messageQueue.isEmpty { self.messageQueue.removeFirst() }
-                self.isProcessingQueue = false
-                self.processQueue()
-            }
-        }, errorHandler: { error in
+        let currentMessage = messageQueue.removeFirst()
+
+        // Fire-and-forget control plane: receivers handle `didReceiveMessage`
+        // without reply handlers, so queue progression cannot depend on reply.
+        WCSession.default.sendMessage(currentMessage.message, replyHandler: nil, errorHandler: { error in
             DispatchQueue.main.async {
                 self.handleMessageError(currentMessage, error: error)
             }
         })
+        isProcessingQueue = false
+        processQueue()
     }
     
     private func handleMessageError(_ message: QueuedMessage, error: Error) {
@@ -397,10 +397,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         updatedMessage.retries += 1
         
         if updatedMessage.retries <= maxRetries {
-            if !messageQueue.isEmpty {
-                messageQueue[0] = updatedMessage
-            }
-            
+            // Requeue the failed message at the front so ordering stays stable.
+            messageQueue.insert(updatedMessage, at: 0)
+
             // Exponential Backoff: 0.5s, 1.0s, 2.0s
             let delay = 0.5 * pow(2.0, Double(updatedMessage.retries - 1))
             
@@ -410,9 +409,6 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             }
         } else {
             Logger.connectivity.error("Message dropped after \(self.maxRetries) retries: \(error.localizedDescription)")
-            if !messageQueue.isEmpty {
-                messageQueue.removeFirst()
-            }
             isProcessingQueue = false
             processQueue()
         }
@@ -435,7 +431,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         DispatchQueue.main.async {
             let store = WatchRecordingStore.shared
             let fm = FileManager.default
-            for rec in store.recordings where rec.syncState != .synced {
+            for rec in store.recordings where rec.syncState == .local {
                 let audioURL = store.audioURL(for: rec)
                 guard fm.fileExists(atPath: audioURL.path) else { continue }
                 guard let metaData = try? JSONEncoder().encode(rec) else { continue }
@@ -460,6 +456,8 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     /// are present. Runs on `transferIngestQueue`. `file.fileURL` is only valid
     /// until the delegate returns, so the copy is synchronous.
     private func handleIncomingRecordingFile(_ file: WCSessionFile) {
+        purgeStaleStagedTransfersIfNeeded()
+
         let metadata = file.metadata ?? [:]
         guard let id = WatchConnectivityProtocol.recordingId(fromTransfer: metadata),
               let kind = WatchConnectivityProtocol.recordingFileKind(fromTransfer: metadata),
@@ -482,6 +480,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         }
 
         stagedTransferMetadata[id] = recordingMeta
+        stagedTransferFirstSeenAt[id] = stagedTransferFirstSeenAt[id] ?? Date()
 
         let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
         let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
@@ -490,7 +489,26 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         }
 
         stagedTransferMetadata[id] = nil
+        stagedTransferFirstSeenAt[id] = nil
         ingestStagedRecording(recordingMeta, audioURL: audioURL, measurementURL: measurementURL)
+    }
+
+    private func purgeStaleStagedTransfersIfNeeded() {
+        let now = Date()
+        let fm = FileManager.default
+        let staleIds = stagedTransferFirstSeenAt.compactMap { id, firstSeen in
+            now.timeIntervalSince(firstSeen) > Self.stagedTransferTimeout ? id : nil
+        }
+        guard !staleIds.isEmpty else { return }
+        for id in staleIds {
+            stagedTransferMetadata[id] = nil
+            stagedTransferFirstSeenAt[id] = nil
+            let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
+            let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
+            if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
+            if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
+            Logger.connectivity.error("Purged stale staged watch transfer for recording \(id.uuidString)")
+        }
     }
 
     private func ingestStagedRecording(_ meta: WatchRecordingMetadata, audioURL: URL, measurementURL: URL) {
@@ -498,17 +516,27 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         // iOS recordings store, renaming the sidecar to `.spekto` (same binary
         // MeasurementDataFormat as `.swr`). Build the iOS Recording from the
         // shared metadata; the id is preserved so dedupe is stable.
+        let duration = RecordingManager.resolvedRecordingDuration(
+            audioURL: audioURL,
+            measurementURL: measurementURL,
+            fallback: meta.duration
+        )
         let recording = Recording(
             id: meta.id,
             name: meta.title,
             startDate: meta.createdAt,
-            duration: meta.duration,
+            duration: duration,
             audioFileName: audioURL.path,
             measurementDataFileName: measurementURL.path,
             sampleRate: meta.sampleRate,
             laeqFast: meta.laeq ?? -120.0,
             peakLevel: meta.lcPeak ?? -120.0,
-            frequencyWeighting: meta.weighting
+            minLevel: meta.minLevel ?? -120.0,
+            timeWeighting: meta.timeWeighting ?? "Fast",
+            frequencyWeighting: meta.weighting,
+            calibrationOffset: meta.calibrationOffset ?? 100.0,
+            fftBlockSize: meta.fftBlockSize ?? 2048,
+            spectralDataAvailable: MeasurementSpectralAvailability.hasUsableSpectralData(fileURL: measurementURL)
         )
 
         DispatchQueue.main.async {

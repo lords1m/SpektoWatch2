@@ -108,6 +108,7 @@ struct SingleValueWidget: View {
                 .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .innerCanvas(cornerRadius: 0)
         .onReceive(live.$currentSpectrogramData) { data in
             guard let data = data else {
                 self.value = nil

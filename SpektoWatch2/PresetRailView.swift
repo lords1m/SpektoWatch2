@@ -10,6 +10,7 @@ struct PresetRailView: View {
     var onSelect: ((DashboardPreset) -> Void)? = nil
 
     @Environment(\.designAccent) private var accent
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -43,7 +44,7 @@ struct PresetRailView: View {
 
     @ViewBuilder
     private func chip(_ preset: DashboardPreset) -> some View {
-        let isActive = preset.id == activeID
+        let isActive = !activeID.isEmpty && preset.id == activeID
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             activeID = preset.id
@@ -58,15 +59,15 @@ struct PresetRailView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .foregroundStyle(isActive ? Color.black : Color.white.opacity(0.92))
+            .foregroundStyle(isActive ? Color.black : Color.primary.opacity(0.92))
             .background(
                 Capsule(style: .continuous)
-                    .fill(isActive ? AnyShapeStyle(accent) : AnyShapeStyle(Color.white.opacity(0.06)))
+                    .fill(isActive ? AnyShapeStyle(accent) : AnyShapeStyle(inactiveChipFill))
             )
             .overlay(
                 Capsule(style: .continuous)
                     .strokeBorder(
-                        isActive ? Color.clear : Color.white.opacity(0.12),
+                        isActive ? Color.clear : inactiveChipStroke,
                         lineWidth: 0.5
                     )
             )
@@ -77,5 +78,13 @@ struct PresetRailView: View {
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.18), value: isActive)
+    }
+
+    private var inactiveChipFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.06)
+    }
+
+    private var inactiveChipStroke: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10)
     }
 }

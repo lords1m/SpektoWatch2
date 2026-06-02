@@ -27,10 +27,6 @@ class SpectrogramProcessor {
     
     private var previousBandMagnitudesByTrack: [SmoothingTrack: [Float]] = [:]
     private let bandstopFilterManager: BandstopFilterManager
-    private let octaveCenterFrequencies = SpectrogramProcessor.thirdOctaveCenters
-    private var cachedOctaveRanges: [(start: Int, end: Int)] = []
-    private var cachedRangeMagnitudeCount: Int = 0
-    private var cachedRangeSampleRate: Double = 0.0
 
     // Cached bandstop attenuation in dB. Recomputed only when the filter set or
     // bin count changes — replaces a per-bin `20*log10(...)` call on every frame.
@@ -69,7 +65,6 @@ class SpectrogramProcessor {
         let bandFrequencies: [Float]
         let bandMagnitudes: [Float]
         let spectrum: [Float]
-        let octaveBands: [Float]
     }
     
     func process(
@@ -84,24 +79,22 @@ class SpectrogramProcessor {
 
         // 1. Bandstop Filters
         let filteredMagnitudes = applyBandstopFilters(frequencies: frequencies, magnitudes: dbMagnitudes)
-        
-        // 2. Octave Bands (on filtered data)
-        let octaveBands = calculateOctaveBands(frequencies: frequencies, magnitudes: filteredMagnitudes, sampleRate: sampleRate)
-        
-        // 3. Spectrum (filtered)
+
+        // 2. Spectrum (filtered)
         let spectrum = filteredMagnitudes
-        
-        // 4. Binning
+
+        // 3. Binning
         let (bandFreqs, bandMags) = aggregateByBinningFactor(frequencies: frequencies, magnitudes: filteredMagnitudes)
-        
-        // 5. Smoothing
+
+        // 4. Smoothing
         let smoothedMagnitudes = temporalSmoothing(currentMagnitudes: bandMags, track: smoothingTrack)
-        
+
+        // Third-octave SPL for widgets/metrics is computed upstream via
+        // `SpectrumBandAggregator` on binned magnitudes — not here.
         return Result(
             bandFrequencies: bandFreqs,
             bandMagnitudes: smoothedMagnitudes,
-            spectrum: spectrum,
-            octaveBands: octaveBands
+            spectrum: spectrum
         )
     }
     
@@ -200,27 +193,6 @@ class SpectrogramProcessor {
         cachedBandstopFilterSnapshot = enabledFilters
     }
     
-    private func calculateOctaveBands(frequencies: [Float], magnitudes: [Float], sampleRate: Double) -> [Float] {
-        guard !magnitudes.isEmpty else {
-            return [Float](repeating: -120.0, count: octaveCenterFrequencies.count)
-        }
-
-        ensureOctaveBandRanges(magnitudeCount: magnitudes.count, sampleRate: sampleRate)
-        var bands = [Float](repeating: -120.0, count: octaveCenterFrequencies.count)
-
-        let magCount = magnitudes.count
-        magnitudes.withUnsafeBufferPointer { magBuf in
-            for (i, range) in cachedOctaveRanges.enumerated() {
-                guard range.start <= range.end, range.end < magCount else { continue }
-                var bandMax: Float = -120.0
-                vDSP_maxv(magBuf.baseAddress!.advanced(by: range.start), 1,
-                          &bandMax, vDSP_Length(range.end - range.start + 1))
-                bands[i] = bandMax
-            }
-        }
-        return bands
-    }
-    
     private func aggregateByBinningFactor(frequencies: [Float], magnitudes: [Float]) -> ([Float], [Float]) {
         guard binningFactor > 1 else { return (frequencies, magnitudes) }
 
@@ -237,55 +209,20 @@ class SpectrogramProcessor {
             let endIndex = min(i + binningFactor, inputCount)
             let binCount = endIndex - i
             var frequencySum: Float = 0.0
-            var magnitudeSum: Float = 0.0
+            var linearPowerSum: Float = 0.0
             for idx in i..<endIndex {
                 frequencySum += frequencies[idx]
-                magnitudeSum += magnitudes[idx]
+                linearPowerSum += pow(10.0, magnitudes[idx] / 10.0)
             }
             let inv = 1.0 / Float(binCount)
             bandFrequencies[out] = frequencySum * inv
-            bandMagnitudes[out]  = magnitudeSum  * inv
+            bandMagnitudes[out] = 10.0 * log10(max(linearPowerSum, 1e-12))
             out += 1
             i = endIndex
         }
         return (bandFrequencies, bandMagnitudes)
     }
 
-    private func ensureOctaveBandRanges(magnitudeCount: Int, sampleRate: Double) {
-        guard magnitudeCount != cachedRangeMagnitudeCount || sampleRate != cachedRangeSampleRate else {
-            return
-        }
-
-        let nyquist = Float(sampleRate / 2.0)
-        let resolution = nyquist / Float(magnitudeCount)
-        var ranges: [(start: Int, end: Int)] = []
-        ranges.reserveCapacity(octaveCenterFrequencies.count)
-
-        // One-third-octave band edges: center × 2^(±1/6). The diagnostic path
-        // already uses these exact factors; the previous 0.89/1.12 constants
-        // diverged by ~0.2% at the band edge and caused near-edge tones to be
-        // attributed to different bands between the two code paths.
-        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
-        let upperFactor = pow(2.0 as Float,  1.0 / 6.0)
-        for center in octaveCenterFrequencies {
-            let lower = center * lowerFactor
-            let upper = center * upperFactor
-            let rawStart = Int(lower / resolution)
-            let rawEnd = Int(upper / resolution)
-            let start = max(0, min(rawStart, magnitudeCount - 1))
-            let end = max(0, min(rawEnd, magnitudeCount - 1))
-            if start <= end {
-                ranges.append((start, end))
-            } else {
-                ranges.append((0, -1))
-            }
-        }
-
-        cachedOctaveRanges = ranges
-        cachedRangeMagnitudeCount = magnitudeCount
-        cachedRangeSampleRate = sampleRate
-    }
-    
     // IEC 61672 EMA time-weighting on FFT measurement values (dB).
     //
     // Pipeline position: runs on binned FFT dB magnitudes; output is stored in

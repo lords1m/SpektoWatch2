@@ -48,6 +48,7 @@ struct MaskingEntryWidget: View {
                 .padding(.bottom, 10)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .innerCanvas(cornerRadius: 0)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("maskingWidget")

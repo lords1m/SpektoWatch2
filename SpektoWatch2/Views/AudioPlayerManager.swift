@@ -97,13 +97,22 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             }
         }
 
-        let remainingFrames = AVAudioFrameCount(file.length - seekFrame)
-        if remainingFrames > 0 {
-            playerNode.scheduleSegment(file, startingFrame: seekFrame, frameCount: remainingFrames, at: nil) { [weak self] in
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.isPlaying else { return }
-                    self.stop()
-                }
+        let clampedSeekFrame = max(0, min(seekFrame, file.length))
+        seekFrame = clampedSeekFrame
+        let remainingFrames = AVAudioFrameCount(max(0, file.length - clampedSeekFrame))
+        guard remainingFrames > 0 else {
+            // Already at EOF: keep UI in a stable stopped state instead of
+            // attempting to play an empty segment.
+            currentTime = duration
+            scrubTime = duration
+            isPlaying = false
+            stopTimer()
+            return
+        }
+        playerNode.scheduleSegment(file, startingFrame: clampedSeekFrame, frameCount: remainingFrames, at: nil) { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isPlaying else { return }
+                self.stop()
             }
         }
 
@@ -143,6 +152,7 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     func seek(to time: TimeInterval) {
+        let clampedTime = max(0, min(time, duration))
         let wasPlaying = isPlaying
         if wasPlaying {
             playerNode.stop()
@@ -150,9 +160,9 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             stopTimer()
         }
 
-        currentTime = time
-        scrubTime = time
-        seekFrame = AVAudioFramePosition(time * sampleRate)
+        currentTime = clampedTime
+        scrubTime = clampedTime
+        seekFrame = AVAudioFramePosition(clampedTime * sampleRate)
 
         if wasPlaying {
             play()

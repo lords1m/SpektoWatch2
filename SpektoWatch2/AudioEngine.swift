@@ -59,6 +59,10 @@ class AudioEngine: ObservableObject {
     private var fftProcessor: FFTProcessor
     private var weightingProcessor: FrequencyWeightingProcessor
     private let metricsCalculator: AcousticMetricsCalculator
+    /// Integrates per-band Leq when the Apple Watch is the live mic and the
+    /// payload omits pre-smoothed `bandLeq*` arrays (older watch builds).
+    private let wearableMetricsCalculator: AcousticMetricsCalculator
+    private var lastWearableIngestTime: Date?
     private let spectrogramProcessor: SpectrogramProcessor
     private let visualSpectrogramProcessor: VisualSpectrogramProcessor
     private let testGenerator: TestAudioGenerator
@@ -324,6 +328,7 @@ class AudioEngine: ObservableObject {
         fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
         weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
+        wearableMetricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
         spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
         // Visualisierungspfad nach Apple "Visualizing Sound as an Audio
         // Spectrogram": DCT-II auf dem gefensterten Sample-Block, Mel-
@@ -1180,7 +1185,9 @@ class AudioEngine: ObservableObject {
     
     private func resetMetrics() {
         metricsCalculator.reset()
-        
+        wearableMetricsCalculator.reset()
+        lastWearableIngestTime = nil
+
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
             self.live.levelHistory.reserveCapacity(self.maxHistorySize + 64)
@@ -1204,9 +1211,49 @@ class AudioEngine: ObservableObject {
         guard activeMicrophoneSource == .appleWatch else { return }
 
         emitSpectrogramData(data)
-        let octaveBandsZ = computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: data.magnitudes)
-        let octaveBandsA = data.magnitudesA.map { computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0) } ?? octaveBandsZ
-        let octaveBandsC = data.magnitudesC.map { computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0) } ?? octaveBandsZ
+
+        let octaveBandsZ = data.thirdOctaveBandsZ
+            ?? computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: data.magnitudes)
+        let octaveBandsA = data.thirdOctaveBandsA
+            ?? data.magnitudesA.map {
+                computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0)
+            }
+            ?? octaveBandsZ
+        let octaveBandsC = data.thirdOctaveBandsC
+            ?? data.magnitudesC.map {
+                computeDisplayThirdOctaveBands(frequencies: data.frequencies, magnitudes: $0)
+            }
+            ?? octaveBandsZ
+
+        let bandLeq: (z: [Float], a: [Float], c: [Float])
+        if let z = data.bandLeqZ, z.count == SpectrumBandAggregator.thirdOctaveCenters.count {
+            bandLeq = (z, data.bandLeqA ?? [], data.bandLeqC ?? [])
+        } else {
+            let integrated = integrateWearableBandLeq(
+                from: data,
+                thirdsZ: octaveBandsZ,
+                thirdsA: octaveBandsA,
+                thirdsC: octaveBandsC
+            )
+            bandLeq = (integrated.bandLeqZ, integrated.bandLeqA, integrated.bandLeqC)
+        }
+
+        let barkBandsZ = data.barkBandsZ
+            ?? SpectrumBandAggregator.barkBands(frequencies: data.frequencies, spectrum: data.magnitudes)
+        let needsBark = widgetBarkBandsRequiredLock.withLockUnchecked { $0 }
+        let barkBandsA: [Float]
+        let barkBandsC: [Float]
+        if needsBark {
+            barkBandsA = data.magnitudesA.map {
+                SpectrumBandAggregator.barkBands(frequencies: data.frequencies, spectrum: $0)
+            } ?? []
+            barkBandsC = data.magnitudesC.map {
+                SpectrumBandAggregator.barkBands(frequencies: data.frequencies, spectrum: $0)
+            } ?? []
+        } else {
+            barkBandsA = []
+            barkBandsC = []
+        }
 
         DispatchQueue.main.async {
             if let startTime = self.recordingStartTime {
@@ -1217,6 +1264,21 @@ class AudioEngine: ObservableObject {
             self.live.currentOctaveBandsZ = octaveBandsZ
             self.live.currentOctaveBandsA = octaveBandsA
             self.live.currentOctaveBandsC = octaveBandsC
+            if !bandLeq.z.isEmpty {
+                self.live.bandLeqZ = bandLeq.z
+                self.live.bandLeqOctaveZ = Self.octaveLeqBands(fromThirds: bandLeq.z)
+            }
+            if !bandLeq.a.isEmpty {
+                self.live.bandLeqA = bandLeq.a
+                self.live.bandLeqOctaveA = Self.octaveLeqBands(fromThirds: bandLeq.a)
+            }
+            if !bandLeq.c.isEmpty {
+                self.live.bandLeqC = bandLeq.c
+                self.live.bandLeqOctaveC = Self.octaveLeqBands(fromThirds: bandLeq.c)
+            }
+            if !barkBandsZ.isEmpty { self.live.currentBarkBandsZ = barkBandsZ }
+            if !barkBandsA.isEmpty { self.live.currentBarkBandsA = barkBandsA }
+            if !barkBandsC.isEmpty { self.live.currentBarkBandsC = barkBandsC }
             self.live.currentLevel = data.broadbandLevel
             self.live.currentPeakLevel = data.levels["LCpeak"] ?? max(self.live.currentPeakLevel, data.broadbandLevel)
             self.live.maxLevel = max(self.live.maxLevel, data.broadbandLevel)
@@ -1230,6 +1292,43 @@ class AudioEngine: ObservableObject {
             }
             self.onBandsUpdated?(octaveBandsZ, data.broadbandLevel)
         }
+    }
+
+    private func integrateWearableBandLeq(
+        from data: SpectrogramData,
+        thirdsZ: [Float],
+        thirdsA: [Float],
+        thirdsC: [Float]
+    ) -> MetricsResult {
+        let now = data.timestamp
+        let dt: Float
+        if let last = lastWearableIngestTime {
+            dt = Float(max(0, now.timeIntervalSince(last)))
+        } else {
+            dt = Float(2048) / Float(max(data.sampleRate, 1))
+        }
+        lastWearableIngestTime = now
+
+        func linearEnergy(levelKey: String, fallbackDB: Float) -> Float {
+            let db = data.levels[levelKey] ?? fallbackDB
+            return pow(10.0, db / 10.0)
+        }
+
+        let thirdsACount = SpectrumBandAggregator.thirdOctaveCenters.count
+        return wearableMetricsCalculator.updateMetrics(
+            energyZ: linearEnergy(levelKey: "LZF", fallbackDB: data.broadbandLevel),
+            energyA: linearEnergy(levelKey: "LAF", fallbackDB: data.broadbandLevel),
+            energyC: linearEnergy(levelKey: "LCF", fallbackDB: data.broadbandLevel),
+            peakLevel: data.levels["LCpeak"] ?? data.broadbandLevel,
+            dt: max(dt, 1e-4),
+            recordingDuration: recording.recordingDuration,
+            frequencies: data.frequencies,
+            magnitudes: data.magnitudes,
+            bandsZ: thirdsZ,
+            bandsA: thirdsA.count == thirdsACount ? thirdsA : [],
+            bandsC: thirdsC.count == thirdsACount ? thirdsC : [],
+            loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
+        )
     }
     
     // MARK: - Audio Processing
@@ -1601,7 +1700,8 @@ class AudioEngine: ObservableObject {
             magnitudes: fftDBMagnitudesScratch,
             bandsZ: displayOctaveBandsZ,
             bandsA: processedA != nil ? displayOctaveBandsA : [],
-            bandsC: processedC != nil ? displayOctaveBandsC : []
+            bandsC: processedC != nil ? displayOctaveBandsC : [],
+            loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
         )
         let levels = metricsResult.levels
 
@@ -1774,9 +1874,18 @@ class AudioEngine: ObservableObject {
             self.live.currentOctaveBandsZ = octaveBandsZ
             self.live.currentOctaveBandsA = octaveBandsA
             self.live.currentOctaveBandsC = octaveBandsC
-            if !bandLeqZ.isEmpty { self.live.bandLeqZ = bandLeqZ }
-            if !bandLeqA.isEmpty { self.live.bandLeqA = bandLeqA }
-            if !bandLeqC.isEmpty { self.live.bandLeqC = bandLeqC }
+            if !bandLeqZ.isEmpty {
+                self.live.bandLeqZ = bandLeqZ
+                self.live.bandLeqOctaveZ = Self.octaveLeqBands(fromThirds: bandLeqZ)
+            }
+            if !bandLeqA.isEmpty {
+                self.live.bandLeqA = bandLeqA
+                self.live.bandLeqOctaveA = Self.octaveLeqBands(fromThirds: bandLeqA)
+            }
+            if !bandLeqC.isEmpty {
+                self.live.bandLeqC = bandLeqC
+                self.live.bandLeqOctaveC = Self.octaveLeqBands(fromThirds: bandLeqC)
+            }
             if !barkBandsZ.isEmpty { self.live.currentBarkBandsZ = barkBandsZ }
             if !barkBandsA.isEmpty { self.live.currentBarkBandsA = barkBandsA }
             if !barkBandsC.isEmpty { self.live.currentBarkBandsC = barkBandsC }
@@ -1883,6 +1992,25 @@ class AudioEngine: ObservableObject {
     /// from those two implementations drifting apart.
     private func computeDisplayThirdOctaveBands(frequencies: [Float], magnitudes: [Float]) -> [Float] {
         SpectrumBandAggregator.thirdOctaveBands(frequencies: frequencies, spectrum: magnitudes)
+    }
+
+    /// Broadband `levels[...]` key used for PHON/SONE given the active weighting.
+    private static func loudnessLevelKey(for weighting: FrequencyWeighting) -> String {
+        switch weighting {
+        case .a: return "LAF"
+        case .c: return "LCF"
+        case .z: return "LZF"
+        }
+    }
+
+    /// Pre-aggregates 31 third-octave Leq values into 10 octave Leq bands for widgets.
+    private static func octaveLeqBands(fromThirds thirds: [Float]) -> [Float] {
+        guard thirds.count == SpectrumBandAggregator.thirdOctaveCenters.count else { return [] }
+        return SpectrumBandAggregator.octaveBands(
+            frequencies: [],
+            spectrum: [],
+            fromThirds: thirds
+        )
     }
 
     private func updateProcessingSampleRateIfNeeded(_ newSampleRate: Double, source: String) {

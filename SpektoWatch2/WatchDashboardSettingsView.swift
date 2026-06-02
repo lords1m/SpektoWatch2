@@ -3,226 +3,265 @@ import Combine
 
 struct WatchDashboardSettingsView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(\.designAccent) private var accent
     @StateObject private var viewModel = WatchDashboardSettingsViewModel()
-    @State private var selectedPosition: Int?
+    @State private var widgetToEdit: WatchWidgetConfig?
     @State private var showingWidgetPicker = false
 
-    private let columns = 4
-    private let rows = 4
-
     var body: some View {
-        VStack(spacing: 16) {
-            // Header
-            Text("Apple Watch Layout")
-                .font(.headline)
+        List {
+            Section {
+                watchPreview
+                    .frame(height: 160)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+            } header: {
+                Text("Vorschau (Apple Watch)")
+            } footer: {
+                Text("Die Watch zeigt bis zu \(WatchDashboardConfig.watchDisplayColumnCount) Widgets pro Zeile. Die Reihenfolge unten entspricht der Anzeige auf der Uhr.")
+            }
 
-            // Watch preview (4x4 grid)
-            watchPreview
-                .aspectRatio(1.0, contentMode: .fit)
-                .padding(.horizontal, 40)
-
-            // Instructions
-            Text("Tippe auf ein Feld, um das Widget zu ändern")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Spacer()
-
-            // Sync button
-            Button(action: {
-                viewModel.syncToWatch(connectivityManager: connectivityManager)
-            }) {
-                HStack {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                    Text("Mit Watch synchronisieren")
+            Section("Widgets") {
+                ForEach(viewModel.displayWidgets) { widget in
+                    Button {
+                        widgetToEdit = widget
+                        showingWidgetPicker = true
+                    } label: {
+                        widgetRow(widget)
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                .onDelete(perform: viewModel.deleteDisplayWidgets)
+                .onMove(perform: viewModel.moveDisplayWidgets)
+
+                Button {
+                    widgetToEdit = nil
+                    showingWidgetPicker = true
+                } label: {
+                    Label("Widget hinzufügen", systemImage: "plus.circle")
+                }
+                .disabled(!viewModel.canAddWidget)
+            }
+        }
+        .polishedFormChrome()
+        .navigationTitle("Apple Watch")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            EditButton()
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 10) {
+                Button {
+                    viewModel.syncToWatch(connectivityManager: connectivityManager)
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text("Mit Watch synchronisieren")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(accent)
+                    .foregroundColor(.black)
+                    .cornerRadius(10)
+                }
+
+                Button {
+                    viewModel.resetToDefault(connectivityManager: connectivityManager)
+                } label: {
+                    Text("Auf Standard zurücksetzen")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             .padding(.horizontal)
-
-            // Reset button
-            Button(action: {
-                viewModel.resetToDefault(connectivityManager: connectivityManager)
-            }) {
-                Text("Auf Standard zurücksetzen")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
         }
-        .padding()
         .sheet(isPresented: $showingWidgetPicker) {
-            if let position = selectedPosition {
-                WidgetPickerSheet(
-                    position: position,
-                    currentConfig: viewModel.config.widget(at: position),
-                    onSelect: { type, valueType in
-                        viewModel.setWidget(at: position, type: type, singleValueType: valueType)
-                        showingWidgetPicker = false
+            WidgetPickerSheet(
+                currentConfig: widgetToEdit,
+                unavailableKeys: viewModel.unavailableDisplayKeys(excluding: widgetToEdit),
+                onSelect: { type, valueType in
+                    if let existing = widgetToEdit {
+                        viewModel.updateWidget(existing, type: type, singleValueType: valueType)
+                    } else {
+                        viewModel.addWidget(type: type, singleValueType: valueType)
                     }
-                )
-            }
+                    showingWidgetPicker = false
+                    widgetToEdit = nil
+                }
+            )
+        }
+        .onAppear {
+            viewModel.reloadFromStorage()
         }
     }
 
-    // MARK: - Watch Preview Grid
+    // MARK: - Preview (3 columns, matches watch)
 
     private var watchPreview: some View {
-        GeometryReader { geometry in
-            let cellSize = min(geometry.size.width, geometry.size.height) / CGFloat(columns)
+        let columns = Array(
+            repeating: GridItem(.flexible(), spacing: 4),
+            count: WatchDashboardConfig.watchDisplayColumnCount
+        )
 
-            ZStack {
-                // Watch frame
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.black)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.gray, lineWidth: 3)
-                    )
-
-                // Grid cells
-                VStack(spacing: 1) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        HStack(spacing: 1) {
-                            ForEach(0..<columns, id: \.self) { col in
-                                let position = row * columns + col
-                                gridCell(for: position, size: cellSize - 2)
-                            }
-                        }
-                    }
-                }
-                .padding(8)
+        return LazyVGrid(columns: columns, spacing: 4) {
+            ForEach(viewModel.displayWidgets) { widget in
+                widgetPreview(for: widget)
+                    .frame(height: 44)
             }
         }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.gray.opacity(0.5), lineWidth: 2)
+                )
+        )
     }
 
-    @ViewBuilder
-    private func gridCell(for position: Int, size: CGFloat) -> some View {
-        let widget = viewModel.config.widget(at: position)
-        let isPartOfLarger = viewModel.isSecondaryCell(at: position)
-
-        Button(action: {
-            if !isPartOfLarger {
-                selectedPosition = position
-                showingWidgetPicker = true
-            }
-        }) {
-            ZStack {
-                if isPartOfLarger {
-                    // Part of a larger widget - show connection
-                    Color.clear
-                } else if let widget = widget {
-                    // Show widget preview
-                    widgetPreview(for: widget)
-                } else {
-                    // Empty cell
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.gray.opacity(0.2))
-                        .overlay(
-                            Image(systemName: "plus")
-                                .foregroundColor(.gray)
-                        )
+    private func widgetRow(_ widget: WatchWidgetConfig) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: widget.type.icon)
+                .foregroundColor(previewColor(for: widget.type))
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(widget.type.rawValue)
+                    .foregroundColor(.primary)
+                if let valueType = widget.singleValueType {
+                    Text(valueType.displayName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
-            .frame(width: size, height: size)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .buttonStyle(PlainButtonStyle())
-        .disabled(isPartOfLarger)
     }
 
     @ViewBuilder
     private func widgetPreview(for widget: WatchWidgetConfig) -> some View {
-        let color: Color = {
-            switch widget.type {
-            case .spectrogram: return .blue
-            case .levelMeter: return .green
-            case .singleValue: return .orange
-            case .loudness: return .purple
-            case .empty: return .gray.opacity(0.2)
-            }
-        }()
-
-        RoundedRectangle(cornerRadius: 4)
-            .fill(color.opacity(0.3))
+        let color = previewColor(for: widget.type)
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(color.opacity(0.25))
             .overlay(
                 VStack(spacing: 2) {
                     Image(systemName: widget.type.icon)
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                     if let valueType = widget.singleValueType {
                         Text(valueType.displayName)
-                            .font(.system(size: 8))
+                            .font(.system(size: 7))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
                 }
                 .foregroundColor(color)
             )
+    }
+
+    private func previewColor(for type: WatchWidgetType) -> Color {
+        switch type {
+        case .spectrogram: return .blue
+        case .levelMeter: return .green
+        case .singleValue: return .orange
+        case .loudness: return .purple
+        case .empty: return .gray
+        }
     }
 }
 
 // MARK: - Widget Picker Sheet
 
 struct WidgetPickerSheet: View {
-    let position: Int
     let currentConfig: WatchWidgetConfig?
+    let unavailableKeys: Set<String>
     let onSelect: (WatchWidgetType, WatchSingleValueType?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
+                if currentConfig != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            onSelect(.empty, nil)
+                        } label: {
+                            Label("Widget entfernen", systemImage: "trash")
+                        }
+                    }
+                }
+
                 Section("Widget-Typ") {
-                    ForEach(WatchWidgetType.allCases) { type in
+                    ForEach(WatchWidgetType.allCases.filter { $0 != .empty }) { type in
                         if type == .singleValue {
-                            // Single value has sub-options
                             DisclosureGroup {
                                 ForEach(WatchSingleValueType.allCases, id: \.self) { valueType in
-                                    Button(action: {
+                                    let key = WatchDashboardConfig.displayKey(
+                                        for: WatchWidgetConfig(type: .singleValue, position: 0, singleValueType: valueType)
+                                    )
+                                    pickerRow(
+                                        title: valueType.displayName,
+                                        systemImage: type.icon,
+                                        isSelected: currentConfig?.type == .singleValue && currentConfig?.singleValueType == valueType,
+                                        isDisabled: unavailableKeys.contains(key)
+                                    ) {
                                         onSelect(.singleValue, valueType)
-                                    }) {
-                                        HStack {
-                                            Text(valueType.displayName)
-                                            Spacer()
-                                            if currentConfig?.type == .singleValue &&
-                                               currentConfig?.singleValueType == valueType {
-                                                Image(systemName: "checkmark")
-                                                    .foregroundColor(.blue)
-                                            }
-                                        }
                                     }
                                 }
                             } label: {
                                 Label(type.rawValue, systemImage: type.icon)
                             }
                         } else {
-                            Button(action: {
+                            let key = WatchDashboardConfig.displayKey(
+                                for: WatchWidgetConfig(type: type, position: 0)
+                            )
+                            pickerRow(
+                                title: type.rawValue,
+                                systemImage: type.icon,
+                                isSelected: currentConfig?.type == type,
+                                isDisabled: unavailableKeys.contains(key)
+                            ) {
                                 onSelect(type, nil)
-                            }) {
-                                HStack {
-                                    Label(type.rawValue, systemImage: type.icon)
-                                    Spacer()
-                                    if currentConfig?.type == type && type != .singleValue {
-                                        Image(systemName: "checkmark")
-                                            .foregroundColor(.blue)
-                                    }
-                                }
                             }
                         }
                     }
                 }
             }
+            .polishedFormChrome()
             .navigationTitle("Widget wählen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") {
-                        dismiss()
-                    }
+                    Button("Abbrechen") { dismiss() }
                 }
             }
         }
+        .polishedSheetChrome()
+    }
+
+    @ViewBuilder
+    private func pickerRow(
+        title: String,
+        systemImage: String,
+        isSelected: Bool,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Label(title, systemImage: systemImage)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+        .disabled(isDisabled && !isSelected)
     }
 }
 
@@ -230,58 +269,69 @@ struct WidgetPickerSheet: View {
 
 @MainActor
 class WatchDashboardSettingsViewModel: ObservableObject {
-    @Published var config: WatchDashboardConfig
+    @Published private(set) var config: WatchDashboardConfig
+
+    var displayWidgets: [WatchWidgetConfig] {
+        config.orderedDisplayWidgets
+    }
+
+    var canAddWidget: Bool {
+        displayWidgets.count < WatchDashboardConfig.maxDisplayWidgetCount
+    }
 
     init() {
         self.config = WatchDashboardConfig.load()
     }
 
-    func setWidget(at position: Int, type: WatchWidgetType, singleValueType: WatchSingleValueType? = nil) {
-        // Remove existing widget at this position
-        config.widgets.removeAll { $0.position == position }
+    func reloadFromStorage() {
+        config = WatchDashboardConfig.load()
+    }
 
-        // Add new widget
-        if type != .empty {
-            let newWidget = WatchWidgetConfig(
-                type: type,
-                position: position,
-                singleValueType: singleValueType
-            )
-            config.widgets.append(newWidget)
-        }
-
-        config.version += 1
+    func addWidget(type: WatchWidgetType, singleValueType: WatchSingleValueType?) {
+        guard type != .empty, canAddWidget else { return }
+        var widgets = displayWidgets
+        widgets.append(WatchWidgetConfig(type: type, position: widgets.count, singleValueType: singleValueType))
+        config.replaceOrderedDisplayWidgets(widgets)
         config.save()
     }
 
-    func isSecondaryCell(at position: Int) -> Bool {
-        // Check if this position is part of a multi-cell widget but not the primary cell
-        let sameTypeWidgets = Dictionary(grouping: config.widgets, by: { $0.type })
-
-        for (type, widgets) in sameTypeWidgets where type != .empty && type != .singleValue {
-            let positions = Set(widgets.map { $0.position })
-            if positions.count > 1 && positions.contains(position) {
-                // This is part of a multi-cell widget
-                // Check if it's adjacent to another cell of the same type
-                let minPosition = positions.min() ?? position
-                return position != minPosition && isAdjacent(position, to: positions)
-            }
+    func updateWidget(_ existing: WatchWidgetConfig, type: WatchWidgetType, singleValueType: WatchSingleValueType?) {
+        var widgets = displayWidgets
+        guard let index = widgets.firstIndex(where: { $0.id == existing.id }) else { return }
+        if type == .empty {
+            widgets.remove(at: index)
+        } else {
+            widgets[index] = WatchWidgetConfig(
+                id: existing.id,
+                type: type,
+                position: index,
+                singleValueType: singleValueType
+            )
         }
-        return false
+        config.replaceOrderedDisplayWidgets(widgets)
+        config.save()
     }
 
-    private func isAdjacent(_ position: Int, to positions: Set<Int>) -> Bool {
-        let row = position / 4
-        let col = position % 4
+    func deleteDisplayWidgets(at offsets: IndexSet) {
+        var widgets = displayWidgets
+        widgets.remove(atOffsets: offsets)
+        config.replaceOrderedDisplayWidgets(widgets)
+        config.save()
+    }
 
-        let adjacent = [
-            row > 0 ? position - 4 : nil,
-            row < 3 ? position + 4 : nil,
-            col > 0 ? position - 1 : nil,
-            col < 3 ? position + 1 : nil
-        ].compactMap { $0 }
+    func moveDisplayWidgets(from source: IndexSet, to destination: Int) {
+        var widgets = displayWidgets
+        widgets.move(fromOffsets: source, toOffset: destination)
+        config.replaceOrderedDisplayWidgets(widgets)
+        config.save()
+    }
 
-        return adjacent.contains { positions.contains($0) }
+    func unavailableDisplayKeys(excluding widget: WatchWidgetConfig?) -> Set<String> {
+        Set(
+            displayWidgets
+                .filter { $0.id != widget?.id }
+                .map { WatchDashboardConfig.displayKey(for: $0) }
+        )
     }
 
     func syncToWatch(connectivityManager: WatchConnectivityManager) {
@@ -295,8 +345,17 @@ class WatchDashboardSettingsViewModel: ObservableObject {
     }
 }
 
+// MARK: - Limits
+
+extension WatchDashboardConfig {
+    /// Practical upper bound for the watch screen (3×4 grid).
+    static let maxDisplayWidgetCount = 12
+}
+
 // MARK: - Preview
 
 #Preview {
-    WatchDashboardSettingsView()
+    NavigationStack {
+        WatchDashboardSettingsView()
+    }
 }

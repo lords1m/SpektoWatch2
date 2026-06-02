@@ -34,6 +34,7 @@ struct RecordingDetailView: View {
     /// the playback spectrogram matches what the user sees live, instead of the
     /// previous hardcoded `0` (Turbo).
     @AppStorage("design.colormap") private var designColormap: String = Colormap.viridis.rawValue
+    @AppStorage("recording.waterfallSpectrumMode") private var waterfallSpectrumModeRawValue: String = WaterfallSpectrumMode.continuous.rawValue
     @StateObject private var audioPlayer = AudioPlayerManager()
     @StateObject private var playbackAnalyzer = PlaybackAnalyzer()
     @StateObject private var playbackFFTConfig = FFTConfiguration()
@@ -41,12 +42,8 @@ struct RecordingDetailView: View {
     @State private var isDraggingSlider = false
     @State private var spectrogramHistory: [[Float]] = []
     @State private var rawSpectrogramHistory: [[Float]] = []
-    /// Whether `rawSpectrogramHistory` uses a log-spaced frequency axis (the
-    /// streaming/promoted path, see `computeSpectrogramHistoryStreaming`) rather
-    /// than the linear FFT-bin axis of the full-FFT stored provider. The
-    /// frequency-weighting step must know this to map each bin to the correct
-    /// frequency; assuming linear bins for log-spaced data mis-weights A/C.
-    @State private var rawHistoryIsLogSpaced = false
+    /// Layout of `rawSpectrogramHistory` (third-octave, log-spaced recompute, or linear FFT).
+    @State private var spectrogramAxis: SpectrogramHistoryAxisKind = .logSpaced
     @State private var isLoadingSpectrogram = false
     @State private var storedDataProvider: StoredDataProvider?
     /// Tracks the background load (StoredDataProvider bootstrap or FFT fallback)
@@ -70,16 +67,7 @@ struct RecordingDetailView: View {
     @State private var playbackWeighting: FrequencyWeighting = .z
     @State private var weightedSpectrogramCache: [FrequencyWeighting: [[Float]]] = [:]
     @State private var isPromotingSpectrogramResolution = false
-    @State private var waterfallSliceCount: Double = 96
-    // dB range for the playback waterfall. Intentionally differs from the live
-    // WaterfallWidget defaults (30…110, WidgetSettings.defaultWaterfall{Min,Max}DB):
-    // the live widget plots calibrated SPL, whereas the playback view renders the
-    // stored spectrogram history, which is uncalibrated dBFS (≤ 0). A negative
-    // floor is therefore correct here — do NOT "align" these two without first
-    // converting the stored data to SPL via the recording's calibrationOffset.
-    @State private var waterfallMinDB: Double = -110
-    @State private var waterfallMaxDB: Double = 20
-    @State private var waterfallDataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: -110, maxDB: 20)
+    @StateObject private var waterfallController = WaterfallPlaybackController()
 
     @State private var showShareSheet = false
     @State private var showPhotoPicker = false
@@ -88,9 +76,13 @@ struct RecordingDetailView: View {
     @State private var activeExportKind: ExportKind?
     @State private var exportAlertTitle = "Export fehlgeschlagen"
     @State private var isExportingSpectrogram = false
+    @State private var isExportingWaterfall = false
     @State private var spectrogramExportError: String?
     @State private var showSpectrogramExportError = false
     @State private var hasMeasurementData = false
+    @State private var usesAudioSpectralFallback = false
+    @State private var autoFitToastText: String?
+    @State private var autoFitToastTask: Task<Void, Never>?
 
     init(recording: Recording) {
         _recording = State(initialValue: recording)
@@ -149,6 +141,17 @@ struct RecordingDetailView: View {
                         }
                         .disabled(isExportingSpectrogram)
 
+                        Button {
+                            exportWaterfallImage()
+                        } label: {
+                            if isExportingWaterfall {
+                                Label("Wasserfall wird exportiert…", systemImage: "hourglass")
+                            } else {
+                                Label("Wasserfall exportieren", systemImage: "mountain.2")
+                            }
+                        }
+                        .disabled(isExportingWaterfall)
+
                         if hasMeasurementData {
                             Button {
                                 shareRawMeasurementData()
@@ -201,6 +204,9 @@ struct RecordingDetailView: View {
                 playbackFFTConfig.blockSize = blockSize
             }
             analysisEndTime = max(audioPlayer.duration, recording.duration)
+            if let savedMode = WaterfallSpectrumMode(rawValue: waterfallSpectrumModeRawValue) {
+                waterfallController.display.spectrumMode = savedMode
+            }
             loadPlaybackWidgets()
             loadStoredMeasurementDataIfAvailable()
         }
@@ -213,8 +219,12 @@ struct RecordingDetailView: View {
             spectrogramLoadTask = nil
             weightingTask?.cancel()
             weightingTask = nil
+            autoFitToastTask?.cancel()
+            autoFitToastTask = nil
+            waterfallController.cancel()
             spectrogramExportTask?.cancel()
             spectrogramExportTask = nil
+            isExportingWaterfall = false
             exportTask?.cancel()
             exportTask = nil
             activeExportKind = nil
@@ -223,19 +233,19 @@ struct RecordingDetailView: View {
             applyPlaybackWeighting(newValue)
         }
         .onChange(of: spectrogramHistory) { _, _ in
-            rebuildWaterfallDataSet()
+            refreshWaterfallPlayback()
         }
-        .onChange(of: waterfallSliceCount) { _, _ in
-            rebuildWaterfallDataSet()
+        .onChange(of: spectrogramAxis) { _, _ in
+            refreshWaterfallPlayback()
         }
-        .onChange(of: waterfallMinDB) { _, _ in
-            rebuildWaterfallDataSet()
-        }
-        .onChange(of: waterfallMaxDB) { _, _ in
-            rebuildWaterfallDataSet()
+        .onChange(of: audioPlayer.duration) { _, _ in
+            refreshWaterfallPlayback()
         }
         .onChange(of: audioPlayer.currentTime) { _, time in
             storedDataProvider?.scrub(to: time)
+        }
+        .onChange(of: waterfallController.display.spectrumMode) { _, newMode in
+            waterfallSpectrumModeRawValue = newMode.rawValue
         }
     }
 
@@ -282,6 +292,12 @@ struct RecordingDetailView: View {
                 ) { exportSpectrogramImage() }
 
                 ExportActionButton(
+                    title: "Wasserfall",
+                    systemImage: isExportingWaterfall ? "hourglass" : "mountain.2",
+                    isLoading: isExportingWaterfall
+                ) { exportWaterfallImage() }
+
+                ExportActionButton(
                     title: "CSV",
                     systemImage: activeExportKind == .csv ? "hourglass" : "tablecells",
                     isLoading: activeExportKind == .csv,
@@ -301,9 +317,24 @@ struct RecordingDetailView: View {
         .glassCard(cornerRadius: 14)
     }
 
+    private var spectralFallbackBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "waveform.badge.exclamationmark")
+                .foregroundStyle(.orange)
+            Text("In der Messdatei sind keine Terzband-Spektren gespeichert (z. B. ältere Watch-Aufnahme). Wasserfall und Frequenzansicht nutzen eine Neuberechnung aus der Audiodatei.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .glassCard(cornerRadius: 14)
+    }
+
     private var analysisTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if usesAudioSpectralFallback {
+                    spectralFallbackBanner
+                }
                 if let provider = storedDataProvider {
                     analysisRangeCard(duration: provider.duration)
                     metricSelectionCard(metricKeys: provider.metricKeys)
@@ -324,10 +355,18 @@ struct RecordingDetailView: View {
 
     private var waterfallTab: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                waterfallCard
-                waterfallControlsCard
-            }
+            RecordingWaterfallSection(
+                controller: waterfallController,
+                playbackWeighting: $playbackWeighting,
+                isLoadingSpectrogram: isLoadingSpectrogram,
+                isPromotingResolution: isPromotingSpectrogramResolution,
+                spectrogramHistoryEmpty: spectrogramHistory.isEmpty,
+                usesAudioSpectralFallback: usesAudioSpectralFallback,
+                highlightedTime: isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime,
+                autoFitToastText: autoFitToastText,
+                onDisplaySettingsChanged: refreshWaterfallPlayback,
+                onAutoFitDBRange: autoFitWaterfallDBRange
+            )
             .padding()
         }
     }
@@ -354,11 +393,7 @@ struct RecordingDetailView: View {
     /// `ColormapType` raw value the spectrogram views expect. Falls back to
     /// viridis (2) for any unknown stored value.
     private var playbackColormapType: Int {
-        switch Colormap(rawValue: designColormap) ?? .viridis {
-        case .viridis: return ColormapType.viridis.rawValue
-        case .inferno: return ColormapType.inferno.rawValue
-        case .magma: return ColormapType.magma.rawValue
-        }
+        DesignColormap.metalRawValue(from: designColormap)
     }
 
     private var audioPlayerCard: some View {
@@ -375,6 +410,7 @@ struct RecordingDetailView: View {
                     colormapType: playbackColormapType,
                     sampleRate: Float(recording.sampleRate),
                     calibrationOffset: recording.calibrationOffset,
+                    axisKind: spectrogramAxis,
                     markers: recording.markers ?? [],
                     onSeek: { time in
                         audioPlayer.scrubTime = time
@@ -395,9 +431,23 @@ struct RecordingDetailView: View {
                 .frame(height: 280)
                 .cornerRadius(12)
             } else {
-                HighEndSpectrogramAdapterWithAxes(audioEngine: audioEngine, timeSpan: .seconds5, scrollSpeed: .fast)
-                    .frame(height: 280)
-                    .cornerRadius(12)
+                ZStack {
+                    Color.black
+                    Text("Spektrogramm nicht verfügbar")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(height: 280)
+                .cornerRadius(12)
+            }
+
+            if let provider = storedDataProvider,
+               let level = provider.currentSpectrogramData?.broadbandLevel,
+               hasMeasurementData {
+                Text(String(format: "Pegel bei %.1f s: %.1f dB", audioPlayer.currentTime, level))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack(spacing: 20) {
@@ -482,67 +532,6 @@ struct RecordingDetailView: View {
             }
         }
         .padding(.horizontal, 6)
-    }
-
-    private var waterfallCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Text("Wasserfall")
-                    .font(.headline)
-                Spacer()
-                playbackWeightingPicker
-                    .frame(maxWidth: 280)
-            }
-
-            WaterfallView(
-                dataSet: waterfallDataSet,
-                highlightedTime: isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime
-            )
-            .frame(height: 360)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            HStack {
-                Text("\(waterfallDataSet.slices.count) Zeitabschnitte")
-                Spacer()
-                Text("\(Int(waterfallDataSet.minDB))...\(Int(waterfallDataSet.maxDB)) dB")
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-        }
-        .padding()
-        .glassCard(cornerRadius: 14)
-    }
-
-    private var waterfallControlsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Darstellung")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Zeitabschnitte: \(Int(waterfallSliceCount))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Slider(value: $waterfallSliceCount, in: 32...160, step: 8)
-            }
-
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Min: \(Int(waterfallMinDB)) dB")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Slider(value: $waterfallMinDB, in: -140 ... -40, step: 5)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Max: \(Int(waterfallMaxDB)) dB")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Slider(value: $waterfallMaxDB, in: -20 ... 120, step: 5)
-                }
-            }
-        }
-        .padding()
-        .glassCard(cornerRadius: 14)
     }
 
     @ViewBuilder
@@ -875,6 +864,20 @@ struct RecordingDetailView: View {
                 .disabled(isExportingSpectrogram)
 
                 Button {
+                    exportWaterfallImage()
+                } label: {
+                    Group {
+                        if isExportingWaterfall {
+                            Label("Wasserfall…", systemImage: "hourglass").frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Label("Wasserfall", systemImage: "mountain.2").frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExportingWaterfall)
+
+                Button {
                     shareRawMeasurementData()
                 } label: {
                     Label("Messdaten", systemImage: "doc.badge.arrow.up").frame(maxWidth: .infinity, alignment: .leading)
@@ -945,13 +948,15 @@ struct RecordingDetailView: View {
         }
 
         let maxOverviewFrames = Self.maxStoredSpectrogramOverviewFrames
+        let measurementURLForTask = measurementURL
         isLoadingSpectrogram = true
         spectrogramLoadTask = Task.detached(priority: .userInitiated) {
-            let result: Result<(StoredDataProvider, [[Float]]), Error>
+            let result: Result<(StoredDataProvider, [[Float]], Bool), Error>
             do {
-                let provider = try StoredDataProvider(fileURL: measurementURL)
+                let provider = try StoredDataProvider(fileURL: measurementURLForTask)
+                let spectralOK = MeasurementSpectralAvailability.hasUsableSpectralData(fileURL: measurementURLForTask)
                 let window = try await provider.spectrogramOverview(maxFrameCount: maxOverviewFrames)
-                result = .success((provider, window.bins))
+                result = .success((provider, window.bins, spectralOK))
             } catch {
                 result = .failure(error)
             }
@@ -962,16 +967,24 @@ struct RecordingDetailView: View {
                     return
                 }
                 switch result {
-                case .success(let (provider, visualHistory)):
+                case .success(let (provider, visualHistory, spectralOK)):
                     storedDataProvider = provider
                     hasMeasurementData = true
-                    rawSpectrogramHistory = visualHistory
-                    // Provider overview bins are linear FFT bins. (Non-Z
-                    // weighting on non-full-FFT data is handled by promotion,
-                    // which re-flags this as log-spaced.)
-                    rawHistoryIsLogSpaced = false
-                    weightedSpectrogramCache.removeAll()
-                    applyPlaybackWeighting(playbackWeighting)
+                    persistSpectralFlagIfNeeded(spectralOK)
+                    usesAudioSpectralFallback = !spectralOK
+                    if spectralOK {
+                        rawSpectrogramHistory = visualHistory
+                        let binCount = visualHistory.first?.count ?? 0
+                        spectrogramAxis = SpectrogramHistoryAxis.infer(
+                            binCount: binCount,
+                            hasFullFFT: provider.hasFullFFT,
+                            fftBinCount: provider.fftBinCount
+                        )
+                        weightedSpectrogramCache.removeAll()
+                        applyPlaybackWeighting(playbackWeighting)
+                    } else {
+                        loadSpectrogramHistoryFallback()
+                    }
                     if selectedMetrics.isEmpty {
                         selectedMetrics = Set(provider.metricKeys.prefix(6))
                     }
@@ -987,13 +1000,28 @@ struct RecordingDetailView: View {
         }
     }
 
+    private func persistSpectralFlagIfNeeded(_ spectralOK: Bool) {
+        guard recording.spectralDataAvailable != spectralOK else { return }
+        var updated = recording
+        updated.spectralDataAvailable = spectralOK
+        recording = updated
+        recordingManager.updateRecording(updated)
+    }
+
     private func loadSpectrogramHistoryFallback() {
         spectrogramLoadTask?.cancel()
         let url = recordingManager.url(for: recording)
         let calibrationOffset = recording.calibrationOffset
+        let fftBlockSize = recording.fftBlockSize
         isLoadingSpectrogram = true
         spectrogramLoadTask = Task.detached(priority: .userInitiated) {
-            let result = Result { try computeSpectrogramHistoryStreaming(url: url, calibrationOffset: calibrationOffset) }
+            let result = Result {
+                try computeSpectrogramHistoryStreaming(
+                    url: url,
+                    calibrationOffset: calibrationOffset,
+                    fftBlockSize: fftBlockSize
+                )
+            }
             if Task.isCancelled { return }
             await MainActor.run {
                 guard !Task.isCancelled else {
@@ -1003,9 +1031,10 @@ struct RecordingDetailView: View {
                 switch result {
                 case .success(let history):
                     rawSpectrogramHistory = history
-                    rawHistoryIsLogSpaced = true   // streaming history is log-spaced
+                    spectrogramAxis = .logSpaced
                     weightedSpectrogramCache.removeAll()
                     applyPlaybackWeighting(playbackWeighting)
+                    usesAudioSpectralFallback = storedDataProvider != nil
                 case .failure:
                     break
                 }
@@ -1118,9 +1147,31 @@ struct RecordingDetailView: View {
         spectrogramExportTask?.cancel()
         let audioURL = recordingManager.url(for: recording)
         let recordingID = recording.id.uuidString
+        let historySnapshot = spectrogramHistory
+        let axisSnapshot = spectrogramAxis
+        let sampleRate = storedDataProvider?.sampleRate ?? recording.sampleRate
+        let calibrationOffset = recording.calibrationOffset
+        let fftBlockSize = recording.fftBlockSize
         isExportingSpectrogram = true
         spectrogramExportTask = Task.detached(priority: .userInitiated) {
-            let result = Result { try SpectrogramImageExporter().export(audioURL: audioURL, recordingID: recordingID) }
+            let result: Result<URL, Error> = Result {
+                let exporter = SpectrogramImageExporter()
+                if !historySnapshot.isEmpty {
+                    return try exporter.export(
+                        history: historySnapshot,
+                        axis: axisSnapshot,
+                        sampleRate: sampleRate,
+                        calibrationOffset: calibrationOffset,
+                        recordingID: recordingID
+                    )
+                }
+                return try exporter.export(
+                    audioURL: audioURL,
+                    recordingID: recordingID,
+                    fftSize: fftBlockSize,
+                    calibrationOffset: calibrationOffset
+                )
+            }
             if Task.isCancelled { return }
             await MainActor.run {
                 guard !Task.isCancelled else {
@@ -1128,6 +1179,32 @@ struct RecordingDetailView: View {
                     return
                 }
                 isExportingSpectrogram = false
+                switch result {
+                case .success(let url):
+                    shareItems = [url]
+                    showShareSheet = true
+                case .failure(let error):
+                    showExportError(title: "Export fehlgeschlagen", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func exportWaterfallImage() {
+        let dataSet = waterfallController.dataSet
+        guard !dataSet.isEmpty else {
+            showExportError(title: "Export fehlgeschlagen", message: "Keine Wasserfall-Daten zum Exportieren vorhanden.")
+            return
+        }
+        let recordingID = recording.id.uuidString
+        isExportingWaterfall = true
+        Task.detached(priority: .userInitiated) {
+            let result: Result<URL, Error> = Result {
+                try WaterfallImageExporter().export(dataSet: dataSet, recordingID: recordingID)
+            }
+            if Task.isCancelled { return }
+            await MainActor.run {
+                isExportingWaterfall = false
                 switch result {
                 case .success(let url):
                     shareItems = [url]
@@ -1160,35 +1237,59 @@ struct RecordingDetailView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    private func rebuildWaterfallDataSet() {
-        guard let firstColumn = spectrogramHistory.first, !firstColumn.isEmpty else {
-            waterfallDataSet = WaterfallDataSet(slices: [], frequencies: [], duration: 0, minDB: Float(waterfallMinDB), maxDB: Float(waterfallMaxDB))
-            return
-        }
-
-        let minDB = Float(min(waterfallMinDB, waterfallMaxDB - 5))
-        let maxDB = Float(max(waterfallMaxDB, waterfallMinDB + 5))
+    private func refreshWaterfallPlayback() {
         let duration = max(audioPlayer.duration, recording.duration, storedDataProvider?.duration ?? 0)
-        let sourceFrequencies = WaterfallDataBuilder.sourceFrequencies(
-            binCount: firstColumn.count,
-            sampleRate: storedDataProvider?.sampleRate ?? recording.sampleRate,
-            storedProviderHasFullFFT: storedDataProvider?.hasFullFFT == true && firstColumn.count == storedDataProvider?.fftBinCount
-        )
-
-        waterfallDataSet = WaterfallDataBuilder.build(
+        waterfallController.rebuild(
             history: spectrogramHistory,
-            sourceFrequencies: sourceFrequencies,
+            axis: spectrogramAxis,
+            sampleRate: storedDataProvider?.sampleRate ?? recording.sampleRate,
             duration: duration,
-            targetSliceCount: Int(waterfallSliceCount),
-            minDB: minDB,
-            maxDB: maxDB
+            storedProviderHasFullFFT: storedDataProvider?.hasFullFFT == true,
+            fftBinCount: storedDataProvider?.fftBinCount ?? 0
         )
     }
 
-    nonisolated private func computeSpectrogramHistoryStreaming(url: URL, calibrationOffset: Float) throws -> [[Float]] {
-        let fftSize = 4096
-        let hopSize = 512
-        let frequencyBins = 1024
+    private func autoFitWaterfallDBRange() {
+        let flattened = waterfallController.dataSet.slices.flatMap(\.magnitudes).filter(\.isFinite)
+        guard !flattened.isEmpty else { return }
+        let sorted = flattened.sorted()
+        func percentile(_ p: Float) -> Float {
+            let idx = Int((Float(sorted.count - 1) * p).rounded())
+            return sorted[min(max(0, idx), sorted.count - 1)]
+        }
+        let lower = percentile(0.05)
+        let upper = percentile(0.98)
+        var minDB = floor(lower / 5) * 5
+        var maxDB = ceil(upper / 5) * 5
+        if maxDB - minDB < 20 {
+            let mid = (maxDB + minDB) / 2
+            minDB = floor((mid - 10) / 5) * 5
+            maxDB = ceil((mid + 10) / 5) * 5
+        }
+        waterfallController.display.minDB = max(0, minDB)
+        waterfallController.display.maxDB = min(140, maxDB)
+        refreshWaterfallPlayback()
+        autoFitToastTask?.cancel()
+        withAnimation(.easeOut(duration: 0.15)) {
+            autoFitToastText = "Automatisch angepasst: \(Int(waterfallController.display.minDB))…\(Int(waterfallController.display.maxDB)) dB SPL"
+        }
+        autoFitToastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                autoFitToastText = nil
+            }
+        }
+    }
+
+    nonisolated private func computeSpectrogramHistoryStreaming(
+        url: URL,
+        calibrationOffset: Float,
+        fftBlockSize: Int
+    ) throws -> [[Float]] {
+        let fftSize = max(256, fftBlockSize > 0 ? fftBlockSize : 4096)
+        let hopSize = SpectrogramHistoryAxis.hopSize(forFFTSize: fftSize)
+        let frequencyBins = SpectrogramHistoryAxis.logBinCount(forFFTSize: fftSize)
         let chunkFrames = fftSize * 8
 
         let audioFile = try AVAudioFile(forReading: url)
@@ -1252,6 +1353,7 @@ struct RecordingDetailView: View {
     private func applyPlaybackWeighting(_ weighting: FrequencyWeighting) {
         guard !rawSpectrogramHistory.isEmpty else {
             spectrogramHistory = []
+            refreshWaterfallPlayback()
             return
         }
 
@@ -1262,11 +1364,73 @@ struct RecordingDetailView: View {
             return
         }
 
+        if let provider = storedDataProvider,
+           hasMeasurementData,
+           !usesAudioSpectralFallback {
+            if provider.hasFullFFT {
+                applyFFTPlaybackWeighting(weighting)
+            } else {
+                reloadStoredSpectrogramOverview(weighting: weighting)
+            }
+            return
+        }
+
         if weighting == .z {
             spectrogramHistory = rawSpectrogramHistory
             return
         }
 
+        applyProcessorPlaybackWeighting(weighting)
+    }
+
+    private func applyFFTPlaybackWeighting(_ weighting: FrequencyWeighting) {
+        if weighting == .z {
+            spectrogramHistory = rawSpectrogramHistory
+            return
+        }
+        if let cached = weightedSpectrogramCache[weighting] {
+            spectrogramHistory = cached
+            return
+        }
+        applyProcessorPlaybackWeighting(weighting)
+    }
+
+    private func reloadStoredSpectrogramOverview(weighting: FrequencyWeighting) {
+        if weighting == .z {
+            spectrogramHistory = rawSpectrogramHistory
+            return
+        }
+        if let cached = weightedSpectrogramCache[weighting] {
+            spectrogramHistory = cached
+            return
+        }
+        guard let provider = storedDataProvider else { return }
+
+        weightingTask?.cancel()
+        let maxFrames = Self.maxStoredSpectrogramOverviewFrames
+        weightingTask = Task.detached(priority: .userInitiated) {
+            do {
+                let window = try await provider.spectrogramOverview(
+                    maxFrameCount: maxFrames,
+                    weighting: weighting
+                )
+                if Task.isCancelled { return }
+                let bins = window.bins
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    weightedSpectrogramCache = [weighting: bins]
+                    if playbackWeighting == weighting {
+                        spectrogramHistory = bins
+                    }
+                }
+            } catch {
+                if Task.isCancelled { return }
+                print("[RecordingDetailView] Failed to load \(weighting.rawValue)-weighted overview: \(error)")
+            }
+        }
+    }
+
+    private func applyProcessorPlaybackWeighting(_ weighting: FrequencyWeighting) {
         if let cached = weightedSpectrogramCache[weighting] {
             spectrogramHistory = cached
             return
@@ -1279,25 +1443,13 @@ struct RecordingDetailView: View {
             return
         }
 
-        let fftSize = binCount * 2
+        let fftSize = max(binCount * 2, 256)
         let processor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: sampleRate)
-        let nyquist = Float(sampleRate / 2.0)
-        // Build the per-bin frequency axis that matches how the history was
-        // produced. The streaming/promoted path lays bins out log-spaced
-        // (20 Hz … min(nyquist, 20 kHz)); the full-FFT provider path is linear.
-        // Using a linear ramp for log-spaced data mis-maps every bin and
-        // corrupts A/C weighting.
-        let frequencies: [Float]
-        if rawHistoryIsLogSpaced {
-            let minFreq: Float = 20.0
-            let maxFreq: Float = min(nyquist, 20_000.0)
-            let denom = Float(max(binCount - 1, 1))
-            frequencies = (0..<binCount).map { i in
-                minFreq * powf(maxFreq / minFreq, Float(i) / denom)
-            }
-        } else {
-            frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
-        }
+        let frequencies = SpectrogramHistoryAxis.frequencyAxis(
+            kind: spectrogramAxis,
+            binCount: binCount,
+            sampleRate: sampleRate
+        )
         let source = rawSpectrogramHistory
 
         weightingTask?.cancel()
@@ -1313,11 +1465,6 @@ struct RecordingDetailView: View {
             let snapshot = weightedHistory
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                // Keep only the weighting we just computed. Each entry is a full
-                // copy of the spectrogram history; holding one per visited
-                // weighting let memory grow unbounded as the user toggled A/C/…
-                // Re-weighting is cheap relative to that footprint, so we cache
-                // just the active one and recompute on switch.
                 weightedSpectrogramCache = [weighting: snapshot]
                 if playbackWeighting == weighting {
                     spectrogramHistory = snapshot
@@ -1342,8 +1489,15 @@ struct RecordingDetailView: View {
         isPromotingSpectrogramResolution = true
         let audioURL = recordingManager.url(for: recording)
         let calibrationOffset = recording.calibrationOffset
+        let fftBlockSize = recording.fftBlockSize
         spectrogramLoadTask = Task.detached(priority: .userInitiated) {
-            let result = Result { try computeSpectrogramHistoryStreaming(url: audioURL, calibrationOffset: calibrationOffset) }
+            let result = Result {
+                try computeSpectrogramHistoryStreaming(
+                    url: audioURL,
+                    calibrationOffset: calibrationOffset,
+                    fftBlockSize: fftBlockSize
+                )
+            }
             if Task.isCancelled { return }
             await MainActor.run {
                 guard !Task.isCancelled else {
@@ -1353,7 +1507,7 @@ struct RecordingDetailView: View {
                 switch result {
                 case .success(let history):
                     rawSpectrogramHistory = history
-                    rawHistoryIsLogSpaced = true   // streaming history is log-spaced
+                    spectrogramAxis = .logSpaced
                     weightedSpectrogramCache.removeAll()
                     isPromotingSpectrogramResolution = false
                     applyPlaybackWeighting(weighting)

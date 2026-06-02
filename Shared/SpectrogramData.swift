@@ -12,6 +12,16 @@ public struct SpectrogramData: Codable {
     public let magnitudesC: [Float]?     // C-gewichtet
     public let visualFrequencies: [Float]?
     public let visualMagnitudes: [Float]?
+    /// 31 third-octave SPL bands (Z). Optional watch→phone extension.
+    public let thirdOctaveBandsZ: [Float]?
+    public let thirdOctaveBandsA: [Float]?
+    public let thirdOctaveBandsC: [Float]?
+    /// Per-band Leq EMA (31 thirds). Optional watch→phone extension.
+    public let bandLeqZ: [Float]?
+    public let bandLeqA: [Float]?
+    public let bandLeqC: [Float]?
+    /// 24 Bark bands (Z). Optional watch→phone extension.
+    public let barkBandsZ: [Float]?
     public let broadbandLevel: Float
     public let levels: [String: Float]
     public let timestamp: Date
@@ -24,6 +34,13 @@ public struct SpectrogramData: Codable {
         magnitudesC: [Float]? = nil,
         visualFrequencies: [Float]? = nil,
         visualMagnitudes: [Float]? = nil,
+        thirdOctaveBandsZ: [Float]? = nil,
+        thirdOctaveBandsA: [Float]? = nil,
+        thirdOctaveBandsC: [Float]? = nil,
+        bandLeqZ: [Float]? = nil,
+        bandLeqA: [Float]? = nil,
+        bandLeqC: [Float]? = nil,
+        barkBandsZ: [Float]? = nil,
         broadbandLevel: Float = -120.0,
         levels: [String: Float] = [:],
         sampleRate: Double,
@@ -35,6 +52,13 @@ public struct SpectrogramData: Codable {
         self.magnitudesC = magnitudesC
         self.visualFrequencies = visualFrequencies
         self.visualMagnitudes = visualMagnitudes
+        self.thirdOctaveBandsZ = thirdOctaveBandsZ
+        self.thirdOctaveBandsA = thirdOctaveBandsA
+        self.thirdOctaveBandsC = thirdOctaveBandsC
+        self.bandLeqZ = bandLeqZ
+        self.bandLeqA = bandLeqA
+        self.bandLeqC = bandLeqC
+        self.barkBandsZ = barkBandsZ
         self.broadbandLevel = broadbandLevel
         self.levels = levels
         self.timestamp = timestamp
@@ -64,21 +88,15 @@ public struct SpectrogramData: Codable {
             return magnitudes
         }
     }
-    
+
     // MARK: - Binary Encoding
     //
     // Wire format (M13 task-7):
     //   [0] version: UInt8 = currentVersion (0x01)
     //   [1..] payload — Float broadbandLevel, Double sampleRate, etc.
     //
-    // Versioning rationale: prior to M13, payloads started directly
-    // with the broadbandLevel Float and had no schema marker. The
-    // outer `BinaryPacketKind` byte in `WatchConnectivityProtocol`
-    // already provides packet-type dispatch; the new version byte
-    // here lets the spectrogram payload itself evolve without
-    // colliding with that. Old-build watches reading new-build
-    // payloads will misparse and return nil; the receiver logs
-    // "unknown protocol version" and keeps running.
+    // Trailing float arrays (count-prefixed, empty = absent) after magnitudesC:
+    //   thirdOctaveBandsZ/A/C, bandLeqZ/A/C, barkBandsZ
 
     /// Current spectrogram-payload schema version. Bump on any
     /// breaking layout change to fields after this byte.
@@ -87,65 +105,52 @@ public struct SpectrogramData: Codable {
     public func toBinaryData() -> Data {
         var data = Data()
 
-        // 0. Schema version (UInt8 - 1 byte). MUST be the very first
-        // byte; the decoder rejects unknown values before any field
-        // parse.
         data.append(Self.currentSchemaVersion)
 
-        // 1. Broadband Level (Float - 4 bytes)
         var level = broadbandLevel
         data.append(Data(bytes: &level, count: MemoryLayout<Float>.size))
-        
-        // 2. Sample Rate (Double - 8 bytes)
+
         var rate = sampleRate
         data.append(Data(bytes: &rate, count: MemoryLayout<Double>.size))
-        
-        // 3. Magnitudes Count (Int32 - 4 bytes)
+
         var magCount = Int32(magnitudes.count)
         data.append(Data(bytes: &magCount, count: MemoryLayout<Int32>.size))
-        
-        // 4. Magnitudes Data (Bulk copy)
         magnitudes.withUnsafeBufferPointer { buffer in
             if let baseAddress = buffer.baseAddress {
                 data.append(Data(bytes: baseAddress, count: magnitudes.count * MemoryLayout<Float>.size))
             }
         }
-        
-        // 5. Frequencies Count (Int32 - 4 bytes)
+
         var freqCount = Int32(frequencies.count)
         data.append(Data(bytes: &freqCount, count: MemoryLayout<Int32>.size))
-        
-        // 6. Frequencies Data (Bulk copy)
         frequencies.withUnsafeBufferPointer { buffer in
             if let baseAddress = buffer.baseAddress {
                 data.append(Data(bytes: baseAddress, count: frequencies.count * MemoryLayout<Float>.size))
             }
         }
-        
-        // 7. Levels Dictionary
+
         var levelsCount = Int32(levels.count)
         data.append(Data(bytes: &levelsCount, count: MemoryLayout<Int32>.size))
-        
         for (key, value) in levels {
             let keyData = key.data(using: .utf8) ?? Data()
             var keyLen = Int32(keyData.count)
             data.append(Data(bytes: &keyLen, count: MemoryLayout<Int32>.size))
             data.append(keyData)
-            
             var val = value
             data.append(Data(bytes: &val, count: MemoryLayout<Float>.size))
         }
 
-        // Optional visual-only DCT payload. Kept after the v1 fields so older
-        // receivers can ignore the trailing bytes and still parse measurements.
         appendFloatArray(visualMagnitudes ?? [], to: &data)
         appendFloatArray(visualFrequencies ?? [], to: &data)
-
-        // Optional A/C weighted magnitudes. Appended after visualFrequencies so
-        // v1 decoders that stop reading there still parse correctly. Count == 0
-        // signals "not present" without a separate presence byte.
         appendFloatArray(magnitudesA ?? [], to: &data)
         appendFloatArray(magnitudesC ?? [], to: &data)
+        appendFloatArray(thirdOctaveBandsZ ?? [], to: &data)
+        appendFloatArray(thirdOctaveBandsA ?? [], to: &data)
+        appendFloatArray(thirdOctaveBandsC ?? [], to: &data)
+        appendFloatArray(bandLeqZ ?? [], to: &data)
+        appendFloatArray(bandLeqA ?? [], to: &data)
+        appendFloatArray(bandLeqC ?? [], to: &data)
+        appendFloatArray(barkBandsZ ?? [], to: &data)
 
         return data
     }
@@ -159,12 +164,12 @@ public struct SpectrogramData: Codable {
             }
         }
     }
-    
+
     public static func fromBinaryData(_ data: Data) -> SpectrogramData? {
         let floatSize = MemoryLayout<Float>.size
         let doubleSize = MemoryLayout<Double>.size
         let int32Size = MemoryLayout<Int32>.size
-        
+
         func canReadByteCount(_ byteCount: Int, _ offset: Int, _ total: Int) -> Bool {
             guard byteCount >= 0, offset >= 0 else { return false }
             return offset <= total - byteCount
@@ -213,68 +218,64 @@ public struct SpectrogramData: Codable {
             offset += byteCount
             return values
         }
-        
+
+        func readOptionalFloatArray(_ bytes: Data, _ offset: inout Int) -> [Float]? {
+            guard offset < bytes.count else { return nil }
+            guard let values = readFloatArray(bytes, &offset) else { return nil }
+            return values.isEmpty ? nil : values
+        }
+
         var offset = 0
 
-        // 0. Schema version (UInt8 - 1 byte). Reject unknown versions
-        // before any field parse — sender is on a different schema.
         guard data.count > 0 else { return nil }
         let version = data[data.startIndex]
         guard version == SpectrogramData.currentSchemaVersion else {
-            // Future: when we ship a v2 layout, dispatch here.
             print("[SpectrogramData] Unknown schema version \(version); expected \(SpectrogramData.currentSchemaVersion) — dropping payload")
             return nil
         }
         offset = 1
 
-        // 1. Broadband Level
         guard let broadbandLevel = readFloat(data, &offset) else { return nil }
-        
-        // 2. Sample Rate
         guard let sampleRate = readDouble(data, &offset) else { return nil }
-        
-        // 3. Magnitudes
+
         guard let magCountRaw = readInt32(data, &offset) else { return nil }
         guard magCountRaw >= 0 else { return nil }
         let magCount = Int(magCountRaw)
-        
+
         let magByteCount = magCount * floatSize
         guard canReadByteCount(magByteCount, offset, data.count) else { return nil }
         let magnitudes = data.withUnsafeBytes {
             Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: magCount), count: magCount))
         }
         offset += magByteCount
-        
-        // 4. Frequencies
+
         guard let freqCountRaw = readInt32(data, &offset) else { return nil }
         guard freqCountRaw >= 0 else { return nil }
         let freqCount = Int(freqCountRaw)
-        
+
         let freqByteCount = freqCount * floatSize
         guard canReadByteCount(freqByteCount, offset, data.count) else { return nil }
         let frequencies = data.withUnsafeBytes {
             Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: freqCount), count: freqCount))
         }
         offset += freqByteCount
-        
-        // 5. Levels
+
         guard let levelsCountRaw = readInt32(data, &offset) else { return nil }
         guard levelsCountRaw >= 0 else { return nil }
         let levelsCount = Int(levelsCountRaw)
-        
+
         var levels = [String: Float]()
         for _ in 0..<levelsCount {
             guard let keyLenRaw = readInt32(data, &offset) else { return nil }
             guard keyLenRaw >= 0 else { return nil }
             let keyLen = Int(keyLenRaw)
-            
+
             guard canReadByteCount(keyLen, offset, data.count) else { return nil }
             let keyData = data.subdata(in: offset..<offset+keyLen)
             guard let key = String(data: keyData, encoding: .utf8) else { return nil }
             offset += keyLen
-            
+
             guard let val = readFloat(data, &offset) else { return nil }
-            
             levels[key] = val
         }
 
@@ -289,17 +290,29 @@ public struct SpectrogramData: Codable {
             visualFrequencies = values.isEmpty ? nil : values
         }
 
-        // Optional A/C weighted magnitudes (trailing extension, backward-compatible).
         var magnitudesA: [Float]?
         var magnitudesC: [Float]?
         if offset < data.count {
-            guard let values = readFloatArray(data, &offset) else { return nil }
-            magnitudesA = values.isEmpty ? nil : values
+            magnitudesA = readOptionalFloatArray(data, &offset)
         }
         if offset < data.count {
-            guard let values = readFloatArray(data, &offset) else { return nil }
-            magnitudesC = values.isEmpty ? nil : values
+            magnitudesC = readOptionalFloatArray(data, &offset)
         }
+
+        var thirdOctaveBandsZ: [Float]?
+        var thirdOctaveBandsA: [Float]?
+        var thirdOctaveBandsC: [Float]?
+        var bandLeqZ: [Float]?
+        var bandLeqA: [Float]?
+        var bandLeqC: [Float]?
+        var barkBandsZ: [Float]?
+        if offset < data.count { thirdOctaveBandsZ = readOptionalFloatArray(data, &offset) }
+        if offset < data.count { thirdOctaveBandsA = readOptionalFloatArray(data, &offset) }
+        if offset < data.count { thirdOctaveBandsC = readOptionalFloatArray(data, &offset) }
+        if offset < data.count { bandLeqZ = readOptionalFloatArray(data, &offset) }
+        if offset < data.count { bandLeqA = readOptionalFloatArray(data, &offset) }
+        if offset < data.count { bandLeqC = readOptionalFloatArray(data, &offset) }
+        if offset < data.count { barkBandsZ = readOptionalFloatArray(data, &offset) }
 
         return SpectrogramData(
             frequencies: frequencies,
@@ -308,6 +321,13 @@ public struct SpectrogramData: Codable {
             magnitudesC: magnitudesC,
             visualFrequencies: visualFrequencies,
             visualMagnitudes: visualMagnitudes,
+            thirdOctaveBandsZ: thirdOctaveBandsZ,
+            thirdOctaveBandsA: thirdOctaveBandsA,
+            thirdOctaveBandsC: thirdOctaveBandsC,
+            bandLeqZ: bandLeqZ,
+            bandLeqA: bandLeqA,
+            bandLeqC: bandLeqC,
+            barkBandsZ: barkBandsZ,
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: sampleRate
@@ -319,7 +339,7 @@ public struct SpectrogramFrame: Identifiable {
     public let id = UUID()
     public let magnitudes: [Float]
     public let timestamp: Date
-    
+
     public init(magnitudes: [Float], timestamp: Date) {
         self.magnitudes = magnitudes
         self.timestamp = timestamp

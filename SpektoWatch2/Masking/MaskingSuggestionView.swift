@@ -52,6 +52,7 @@ struct MaskingSuggestionView: View {
                 .padding(.bottom, 24)
             }
         }
+        .polishedFormChrome()
         .navigationTitle("Masker-Vorschlag")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear { engine.stopPreview() }

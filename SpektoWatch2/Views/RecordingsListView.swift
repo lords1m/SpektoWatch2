@@ -182,6 +182,12 @@ struct RecordingsListView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
+                        if recording.spectralDataAvailable == false {
+                            Image(systemName: "waveform.badge.exclamationmark")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .accessibilityLabel("Keine Spektraldaten in Messdatei")
+                        }
                     }
                 }
             }

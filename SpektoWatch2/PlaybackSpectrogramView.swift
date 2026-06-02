@@ -328,6 +328,7 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
     var viewWidth: CGFloat = 1
     var viewHeight: CGFloat = 1
     var calibrationOffset: Float = 94.0
+    var axisKind: SpectrogramHistoryAxisKind = .logSpaced
 
     func valueAt(viewX: CGFloat, viewY: CGFloat) -> (time: TimeInterval, frequency: Float, magnitude: Float)? {
         guard !magnitudeHistory.isEmpty, viewWidth > 0, viewHeight > 0 else { return nil }
@@ -341,11 +342,19 @@ struct PlaybackSpectrogramView: UIViewRepresentable {
         let column = magnitudeHistory[columnIndex]
         guard !column.isEmpty else { return nil }
 
-        let minFrequency: Float = 20
-        let maxFrequency = min(sampleRate / 2, 20_000)
-        let frequency = minFrequency * powf(maxFrequency / minFrequency, yNorm)
-        // Data is stored in log-frequency space, so yNorm maps directly to bin index
-        let binIndex = min(column.count - 1, max(0, Int(yNorm * Float(column.count - 1))))
+        let binCount = column.count
+        let frequency = SpectrogramHistoryAxis.frequency(
+            yNorm: yNorm,
+            kind: axisKind,
+            binCount: binCount,
+            sampleRate: Double(sampleRate)
+        )
+        let binIndex = SpectrogramHistoryAxis.binIndex(
+            yNorm: yNorm,
+            kind: axisKind,
+            binCount: binCount,
+            sampleRate: Double(sampleRate)
+        )
         let magnitude = column[binIndex]
 
         return (time: time, frequency: frequency, magnitude: magnitude)
@@ -388,11 +397,14 @@ struct ScrollableSpectrogramView: View {
     var colormapType: Int
     var sampleRate: Float = 44_100
     var calibrationOffset: Float = 94.0
+    var axisKind: SpectrogramHistoryAxisKind = .logSpaced
     var markers: [MeasurementMarker] = []
     var onSeek: (TimeInterval) -> Void
 
     @StateObject private var gyroManager = GyroscopeScrollManager()
     @State private var dragStartTime: TimeInterval?
+    @State private var isSeekDragActive = false
+    @State private var shouldIgnoreCurrentDrag = false
     var showsFullDuration: Bool = false
     private let visibleWindowDuration: TimeInterval = 5.0
     private let preferredPlayheadFraction: CGFloat = 0.82
@@ -426,8 +438,52 @@ struct ScrollableSpectrogramView: View {
                 sampleRate: sampleRate,
                 viewWidth: totalWidth,
                 viewHeight: geometry.size.height,
-                calibrationOffset: calibrationOffset
+                calibrationOffset: calibrationOffset,
+                axisKind: axisKind
             )
+
+            let seekDragGesture = DragGesture(minimumDistance: 6)
+                .onChanged { value in
+                    if !isSeekDragActive && !shouldIgnoreCurrentDrag {
+                        let horizontal = abs(value.translation.width)
+                        let vertical = abs(value.translation.height)
+                        if vertical > horizontal {
+                            shouldIgnoreCurrentDrag = true
+                            return
+                        }
+                        isSeekDragActive = true
+                    }
+
+                    guard isSeekDragActive else { return }
+
+                    let clampedWidth = max(totalWidth, 1)
+                    if dragStartTime == nil {
+                        let tappedFraction = max(0.0, min(1.0, TimeInterval(value.startLocation.x / clampedWidth)))
+                        let startTime = TimeInterval(clampedStart) * safeDuration
+                        let tappedTime = startTime + tappedFraction * windowDuration
+                        dragStartTime = max(0, min(tappedTime, safeDuration))
+                        onSeek(dragStartTime ?? currentTime)
+                        return
+                    }
+
+                    let secondsPerPoint = windowDuration / TimeInterval(clampedWidth)
+                    let delta = -TimeInterval(value.translation.width) * secondsPerPoint
+                    let base = dragStartTime ?? currentTime
+                    onSeek(max(0, min(base + delta, safeDuration)))
+                }
+                .onEnded { _ in
+                    dragStartTime = nil
+                    isSeekDragActive = false
+                    shouldIgnoreCurrentDrag = false
+                }
+
+            let seekTapGesture = SpatialTapGesture()
+                .onEnded { value in
+                    let clampedWidth = max(totalWidth, 1)
+                    let tappedFraction = max(0.0, min(1.0, TimeInterval(value.location.x / clampedWidth)))
+                    let tappedTime = viewportStartTime + tappedFraction * windowDuration
+                    onSeek(max(0, min(tappedTime, safeDuration)))
+                }
 
             ZStack(alignment: .leading) {
                 inspectable
@@ -491,26 +547,8 @@ struct ScrollableSpectrogramView: View {
                     inspectable.valueAt(viewX: x, viewY: y)
                 }
             }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let clampedWidth = max(totalWidth, 1)
-                        if dragStartTime == nil {
-                            let tappedFraction = max(0.0, min(1.0, TimeInterval(value.startLocation.x / clampedWidth)))
-                            let startTime = TimeInterval(clampedStart) * safeDuration
-                            let tappedTime = startTime + tappedFraction * windowDuration
-                            dragStartTime = max(0, min(tappedTime, safeDuration))
-                            onSeek(dragStartTime ?? currentTime)
-                            return
-                        }
-
-                        let secondsPerPoint = windowDuration / TimeInterval(clampedWidth)
-                        let delta = -TimeInterval(value.translation.width) * secondsPerPoint
-                        let base = dragStartTime ?? currentTime
-                        onSeek(max(0, min(base + delta, safeDuration)))
-                    }
-                    .onEnded { _ in dragStartTime = nil }
-            )
+            .simultaneousGesture(seekDragGesture)
+            .simultaneousGesture(seekTapGesture)
         }
         .onDisappear { gyroManager.stop() }
     }

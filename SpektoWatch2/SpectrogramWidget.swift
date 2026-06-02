@@ -4,6 +4,7 @@ import Combine
 struct SpectrogramWidget: View {
     private let audioEngine: AudioEngine
     var settings: [String: String]
+    @AppStorage("design.colormap") private var designColormap: String = Colormap.viridis.rawValue
 
     private let scrollSpeedPublisher: Published<ScrollSpeed>.Publisher
     private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
@@ -31,10 +32,10 @@ struct SpectrogramWidget: View {
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     var colormapType: Int {
         let fallback = String(WidgetSettings.defaultSpectrogramColormap)
-        guard useWidgetOverrides else {
-            return WidgetSettings.defaultSpectrogramColormap
+        if useWidgetOverrides {
+            return Int(settings["colormap"] ?? fallback) ?? WidgetSettings.defaultSpectrogramColormap
         }
-        return Int(settings["colormap"] ?? fallback) ?? WidgetSettings.defaultSpectrogramColormap
+        return DesignColormap.metalRawValue(from: designColormap)
     }
     var timeSpan: SpectrogramTimeSpan {
         let fallback = WidgetSettings.defaultTimeSpanSeconds
@@ -98,6 +99,7 @@ struct SpectrogramWidget: View {
             }
             .padding(8)
         }
+        .innerCanvas(cornerRadius: 0)
         .onReceive(scrollSpeedPublisher) { engineScrollSpeed = $0 }
         .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
         .onReceive(spectrogramFrequencySmoothingPublisher) { engineSpectrogramFrequencySmoothing = $0 }

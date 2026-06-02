@@ -14,9 +14,9 @@ struct DesignTweaksSections: View {
 
     var body: some View {
         Group {
-            Section(header: Text("Darstellung")) {
-                enumPicker("Theme", selection: $themeRaw, options: ThemeMode.allCases.map { $0 }, label: { $0.label })
-                enumPicker("Canvas (Light Theme)", selection: $canvasInLightRaw, options: CanvasMode.allCases.map { $0 }, label: { $0.label })
+            Section(header: Text("Erscheinungsbild")) {
+                enumPicker("Modus", selection: $themeRaw, options: ThemeMode.allCases.map { $0 }, label: { $0.label })
+                enumPicker("Diagramm (heller Modus)", selection: $canvasInLightRaw, options: CanvasMode.allCases.map { $0 }, label: { $0.label })
             }
             Section(header: Text("Akzentfarbe")) {
                 accentGrid
@@ -25,7 +25,10 @@ struct DesignTweaksSections: View {
                 enumPicker("Dichte", selection: $densityRaw, options: Density.allCases.map { $0 }, label: { $0.label })
                 enumPicker("Ziffern", selection: $numeralsRaw, options: NumeralStyle.allCases.map { $0 }, label: { $0.label })
             }
-            Section(header: Text("Wissenschaft")) {
+            Section(
+                header: Text("Wissenschaft"),
+                footer: Text("Gilt für Spektrogramm (Live und Wiedergabe). Wasserfall folgt in einer späteren Version.")
+            ) {
                 enumPicker("Colormap", selection: $colormapRaw, options: Colormap.allCases.map { $0 }, label: { $0.label })
             }
         }
@@ -87,7 +90,8 @@ struct TweaksPanelView: View {
             Form {
                 DesignTweaksSections()
             }
-            .navigationTitle("Design")
+            .polishedFormChrome()
+            .navigationTitle("Darstellung")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -95,8 +99,7 @@ struct TweaksPanelView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .polishedSheetChrome()
     }
 }
 
@@ -118,6 +121,7 @@ struct DesignTokensReader<Content: View>: View {
     @AppStorage("design.density")       private var densityRaw: String = Density.standard.rawValue
     @AppStorage("design.numerals")      private var numeralsRaw: String = NumeralStyle.mono.rawValue
     @AppStorage("design.colormap")      private var colormapRaw: String = Colormap.viridis.rawValue
+    @Environment(\.colorScheme) private var systemColorScheme
 
     let content: (DesignTokens) -> Content
 
@@ -130,11 +134,15 @@ struct DesignTokensReader<Content: View>: View {
             numerals: NumeralStyle(rawValue: numeralsRaw) ?? .mono,
             colormap: Colormap(rawValue: colormapRaw) ?? .viridis
         )
+        let resolvedScheme = tokens.theme.colorScheme ?? systemColorScheme
+        let useDarkCanvas = resolvedScheme == .dark || tokens.canvasInLight == .dark
+
         content(tokens)
             .preferredColorScheme(tokens.theme.colorScheme)
             .tint(tokens.accent.color)
             .environment(\.designAccent, tokens.accent.color)
             .environment(\.designDensity, tokens.density)
             .environment(\.designNumerals, tokens.numerals)
+            .environment(\.designUseDarkCanvas, useDarkCanvas)
     }
 }

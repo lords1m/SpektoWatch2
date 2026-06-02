@@ -63,6 +63,7 @@ final class WaterfallDataBuilderTests: XCTestCase {
         let freqs = WaterfallDataBuilder.sourceFrequencies(
             binCount: WaterfallDataBuilder.thirdOctaveCenters.count,
             sampleRate: 44100,
+            axis: .thirdOctave,
             storedProviderHasFullFFT: false
         )
         XCTAssertEqual(freqs.count, WaterfallDataBuilder.thirdOctaveCenters.count)
@@ -135,7 +136,9 @@ final class WaterfallDataBuilderTests: XCTestCase {
         let freqs = WaterfallDataBuilder.sourceFrequencies(
             binCount: binCount,
             sampleRate: sampleRate,
-            storedProviderHasFullFFT: true
+            axis: .linearFFT,
+            storedProviderHasFullFFT: true,
+            fftBinCount: binCount
         )
         XCTAssertEqual(freqs.count, binCount)
         XCTAssertEqual(freqs.first ?? -1, 0, accuracy: 0.1)
@@ -147,5 +150,29 @@ final class WaterfallDataBuilderTests: XCTestCase {
         for d in diffs {
             XCTAssertEqual(d, firstDiff, accuracy: 0.01)
         }
+    }
+
+    func testRemapHistoryThirdOctave() {
+        let freqs = (0..<128).map { Float(20) * powf(1000, Float($0) / 127) }
+        let input = [Array(repeating: Float(55), count: 128)]
+        let remapped = WaterfallDataBuilder.remapHistory(
+            history: input,
+            sourceFrequencies: freqs,
+            mode: .thirdOctave
+        )
+        XCTAssertEqual(remapped.frequencies.count, SpectrumBandAggregator.thirdOctaveCenters.count)
+        XCTAssertEqual(remapped.history.first?.count, SpectrumBandAggregator.thirdOctaveCenters.count)
+    }
+
+    func testRemapHistoryBarkAndOctave() {
+        let freqs = (0..<128).map { Float(20) * powf(1000, Float($0) / 127) }
+        let input = [Array(repeating: Float(60), count: 128)]
+        let bark = WaterfallDataBuilder.remapHistory(history: input, sourceFrequencies: freqs, mode: .bark)
+        XCTAssertEqual(bark.frequencies.count, SpectrumBandAggregator.barkEdges.count - 1)
+        XCTAssertEqual(bark.history.first?.count, SpectrumBandAggregator.barkEdges.count - 1)
+
+        let octave = WaterfallDataBuilder.remapHistory(history: input, sourceFrequencies: freqs, mode: .octave)
+        XCTAssertEqual(octave.frequencies.count, 10)
+        XCTAssertEqual(octave.history.first?.count, 10)
     }
 }

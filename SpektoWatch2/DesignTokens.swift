@@ -15,8 +15,8 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .system: return "System"
-        case .dark:   return "Dark"
-        case .light:  return "Light"
+        case .dark:   return "Dunkel"
+        case .light:  return "Hell"
         }
     }
     /// Returns `nil` for `.system` so `.preferredColorScheme(_:)`
@@ -34,13 +34,21 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 enum CanvasMode: String, CaseIterable, Identifiable {
     case light, dark
     var id: String { rawValue }
-    var label: String { self == .dark ? "Dark" : "Light" }
+    var label: String { self == .dark ? "Dunkel" : "Hell" }
 }
 
 enum AccentChoice: String, CaseIterable, Identifiable {
     case phosphor, amber, cyan, magenta, paper
     var id: String { rawValue }
-    var label: String { rawValue.capitalized }
+    var label: String {
+        switch self {
+        case .phosphor: return "Phosphor"
+        case .amber: return "Amber"
+        case .cyan: return "Cyan"
+        case .magenta: return "Magenta"
+        case .paper: return "Paper"
+        }
+    }
 
     // OKLCH values from the handoff — approximated in sRGB.
     var color: Color {
@@ -59,7 +67,7 @@ enum Density: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .compact: return "Compact"
+        case .compact: return "Kompakt"
         case .standard: return "Standard"
         case .airy: return "Luftig"
         }
@@ -97,6 +105,7 @@ enum Colormap: String, CaseIterable, Identifiable {
 private struct DesignAccentKey: EnvironmentKey { static let defaultValue: Color = AccentChoice.phosphor.color }
 private struct DesignDensityKey: EnvironmentKey { static let defaultValue: Density = .standard }
 private struct DesignNumeralsKey: EnvironmentKey { static let defaultValue: NumeralStyle = .mono }
+private struct DesignUseDarkCanvasKey: EnvironmentKey { static let defaultValue: Bool = true }
 
 extension EnvironmentValues {
     var designAccent: Color {
@@ -110,6 +119,21 @@ extension EnvironmentValues {
     var designNumerals: NumeralStyle {
         get { self[DesignNumeralsKey.self] }
         set { self[DesignNumeralsKey.self] = newValue }
+    }
+    /// When true, chart kernels use the dark scientific substrate.
+    var designUseDarkCanvas: Bool {
+        get { self[DesignUseDarkCanvasKey.self] }
+        set { self[DesignUseDarkCanvasKey.self] = newValue }
+    }
+}
+
+enum DesignColormap {
+    static func metalRawValue(from storage: String) -> Int {
+        switch Colormap(rawValue: storage) ?? .viridis {
+        case .viridis: return ColormapType.viridis.rawValue
+        case .inferno: return ColormapType.inferno.rawValue
+        case .magma: return ColormapType.magma.rawValue
+        }
     }
 }
 
@@ -152,9 +176,32 @@ extension Font {
 /// seamlessness depends on the kernel itself using a matching color.
 struct InnerCanvas: ViewModifier {
     var cornerRadius: CGFloat = 14
+    @Environment(\.designUseDarkCanvas) private var useDarkCanvas
+
     func body(content: Content) -> some View {
         content
-            .background(.thinMaterial)
+            .background {
+                if useDarkCanvas {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.08, green: 0.09, blue: 0.12),
+                                    Color(red: 0.04, green: 0.05, blue: 0.08)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                        )
+                } else {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(.thinMaterial)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
@@ -221,10 +268,16 @@ struct EditModeJiggle: ViewModifier {
     let phase: Double  // 0..1; alternate per card to desynchronize
     @State private var angle: Double = 0
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func body(content: Content) -> some View {
         content
-            .rotationEffect(.degrees(isActive ? angle : 0))
+            .rotationEffect(.degrees(isActive && !reduceMotion ? angle : 0))
             .onChange(of: isActive) { _, newValue in
+                guard !reduceMotion else {
+                    angle = 0
+                    return
+                }
                 if newValue {
                     angle = 0.4 * (phase > 0.5 ? 1 : -1)
                     withAnimation(
@@ -285,6 +338,7 @@ enum PresetCatalogue {
         .init(id: "level-meter", label: "Pegel-Meter",          symbol: "speedometer"),
         .init(id: "single",      label: "Einzelwert",           symbol: "123.rectangle"),
         .init(id: "tone",        label: "Tongenerator",         symbol: "waveform"),
+        .init(id: "phase",       label: "Phasen-Meter",         symbol: "circle.lefthalf.filled"),
         .init(id: "masking",     label: "Sound Masking",        symbol: "square.grid.2x2"),
         .init(id: "lab",         label: "Spektralanalyse-Labor", symbol: "atom")
     ]
