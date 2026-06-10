@@ -71,9 +71,18 @@ class AudioEngine: ObservableObject {
 
     // MARK: - Audio Engine
 
-    /// Created on first capture start so `AudioEngine` init stays off the hot
-    /// AVAudioEngine graph-build path during deferred `AppServices.startAudio()`.
-    private lazy var audioEngine = AVAudioEngine()
+    /// Owns the AVAudioEngine capture graph, session/stereo configuration, tap,
+    /// and prewarming (extracted in Phase 3, Task 3.2). Created on first capture
+    /// start so `AudioEngine` init stays off the hot AVAudioEngine graph-build
+    /// path during deferred `AppServices.startAudio()`. `onBuffer` is wired to
+    /// `processAudioBuffer` (called on the audio render thread).
+    private lazy var captureSession: AudioCaptureSession = {
+        let session = AudioCaptureSession(tapBlockSize: tapBlockSize, nominalSampleRate: sampleRate)
+        session.onBuffer = { [weak self] buffer in
+            self?.processAudioBuffer(buffer)
+        }
+        return session
+    }()
     private var fftSize: Int = FFTBlockSize.size4096.rawValue
     private let tapBlockSize: AVAudioFrameCount = 512
     private let sampleRate: Double = 44100.0
@@ -651,16 +660,7 @@ class AudioEngine: ObservableObject {
     /// Warms the lazy `AVAudioEngine` after `AudioEngine` construction so the
     /// first `startLiveMode()` / `startRecording()` does less main-thread work.
     func prewarmCaptureGraph() {
-        #if DEBUG
-        if UITestRuntime.useTestAudio { return }
-        #endif
-        #if targetEnvironment(simulator)
-        return
-        #endif
-        let signpostID = PerformanceSignpost.begin("AudioCapturePrewarm")
-        _ = audioEngine.inputNode
-        audioEngine.prepare()
-        PerformanceSignpost.end("AudioCapturePrewarm", signpostID: signpostID)
+        captureSession.prewarmGraph()
     }
 
     /// Startet die Live-Anzeige (ohne Aufnahme in Datei)
@@ -877,8 +877,7 @@ class AudioEngine: ObservableObject {
         if shouldUseTestAudioCapture || isUsingDummyData {
             testGenerator.stop()
         } else {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
+            captureSession.stop()
         }
 
         DispatchQueue.main.async {
@@ -896,8 +895,7 @@ class AudioEngine: ObservableObject {
     private func setupRecordingFile() {
         guard recording.isRecordingToFile else { return }
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let recordingFormat = captureSession.inputFormat()
         do {
             self.audioFileWriter = try RealtimeAudioFileWriter(
                 fileURL: tempURL,
@@ -1044,19 +1042,7 @@ class AudioEngine: ObservableObject {
 
     /// Pre-warm audio session to reduce start latency
     func prewarmAudioSession() {
-        #if DEBUG
-        if UITestRuntime.useTestAudio { return }
-        #endif
-        let audioSession = AVAudioSession.sharedInstance()
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try audioSession.setCategory(.record, mode: .measurement, options: [])
-                try audioSession.setPreferredIOBufferDuration(Double(self.tapBlockSize) / self.sampleRate)
-                try audioSession.setActive(true)
-            } catch {
-                Logger.audioEngine.warning("Prewarm failed: \(error.localizedDescription)")
-            }
-        }
+        captureSession.prewarmSession()
     }
 
     /// Setzt die Kalibrierung auf den empfohlenen Wert für dieses Gerät zurück
@@ -1173,8 +1159,6 @@ class AudioEngine: ObservableObject {
         // Capture state needed for background work
         let isRecording = self.recording.isRecordingToFile
         let selectedSource = self.selectedDataSource
-        let blockSize = self.tapBlockSize
-        let rate = self.sampleRate
         let stereoMode = self.selectedStereoMode
 
         // Move blocking audio session setup to background thread
@@ -1182,41 +1166,11 @@ class AudioEngine: ObservableObject {
             guard let self = self else { return }
 
             do {
-                // Configure audio session (blocking operations)
-                try audioSession.setCategory(.record, mode: .measurement, options: [])
-                try audioSession.setPreferredIOBufferDuration(Double(blockSize) / rate)
-
-                if audioSession.isInputGainSettable {
-                    try audioSession.setInputGain(1.0)
-                }
-
-                try audioSession.setActive(true)
-
-                // Configure microphone input
-                var dataSources: [AVAudioSessionDataSourceDescription] = []
-                if let inputs = audioSession.availableInputs,
-                   let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
-                    try audioSession.setPreferredInput(builtInMic)
-                    dataSources = builtInMic.dataSources ?? []
-
-                    // Apply stereo polar pattern BEFORE reading inputNode.outputFormat.
-                    // The format is only 2-channel if the pattern is set beforehand.
-                    let targetOrientation: AVAudioSession.Orientation
-                    switch stereoMode {
-                    case .frontBottom: targetOrientation = .front
-                    case .bottomBack:  targetOrientation = .back
-                    case .frontBack:   targetOrientation = .bottom
-                    }
-                    if let stereoSource = dataSources.first(where: { $0.orientation == targetOrientation }),
-                       stereoSource.supportedPolarPatterns?.contains(.stereo) == true {
-                        try stereoSource.setPreferredPolarPattern(.stereo)
-                        try audioSession.setInputDataSource(stereoSource)
-                        Logger.audioEngine.info("Stereo mic configured: orientation=\(String(describing: targetOrientation))")
-                    } else if let source = selectedSource {
-                        // Fallback: use the previously selected source
-                        try audioSession.setInputDataSource(source)
-                    }
-                }
+                // Configure audio session + stereo polar pattern (blocking).
+                let dataSources = try self.captureSession.configureCaptureSession(
+                    stereoMode: stereoMode,
+                    selectedDataSource: selectedSource
+                )
 
                 // Now setup audio engine on main thread (required for AVAudioEngine)
                 DispatchQueue.main.async {
@@ -1252,8 +1206,7 @@ class AudioEngine: ObservableObject {
 
         do {
             // Setup audio engine
-            let inputNode = audioEngine.inputNode
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
+            let recordingFormat = captureSession.inputFormat()
 
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
                 Logger.audioEngine.warning("Invalid audio format detected - falling back to test audio")
@@ -1293,13 +1246,8 @@ class AudioEngine: ObservableObject {
                 Logger.audioEngine.info("Live mode - no file recording")
             }
 
-            // Install audio tap
-            inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: tapBlockSize, format: recordingFormat) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer)
-            }
-
-            try audioEngine.start()
+            // Install audio tap + start the capture graph.
+            try captureSession.installTapAndStart(format: recordingFormat)
             DispatchQueue.main.async {
                 self.engineStatus = .running
                 self.isStartingCapture = false
