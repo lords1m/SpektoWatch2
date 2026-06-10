@@ -58,8 +58,9 @@ class AudioEngine: ObservableObject {
     private let metricsCalculator: AcousticMetricsCalculator
     /// Integrates per-band Leq when the Apple Watch is the live mic and the
     /// payload omits pre-smoothed `bandLeq*` arrays (older watch builds).
-    private let wearableMetricsCalculator: AcousticMetricsCalculator
-    private var lastWearableIngestTime: Date?
+    /// Owns the wearable metrics calculator + inter-packet timer
+    /// (extracted in Phase 3, Task 3.4).
+    private let wearableIngest: WearableIngestCoordinator
     private let spectrogramProcessor: SpectrogramProcessor
     private let visualSpectrogramProcessor: VisualSpectrogramProcessor
     /// Pure per-frame DSP (FFT → weighting → bands → energies → LCpeak) and the
@@ -380,7 +381,7 @@ class AudioEngine: ObservableObject {
         fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
         weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
-        wearableMetricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
+        wearableIngest = WearableIngestCoordinator(sampleRate: sampleRate)
         spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
         // Visualisierungspfad nach Apple "Visualizing Sound as an Audio
         // Spectrogram": DCT-II auf dem gefensterten Sample-Block, Mel-
@@ -1257,8 +1258,7 @@ class AudioEngine: ObservableObject {
     
     private func resetMetrics() {
         metricsCalculator.reset()
-        wearableMetricsCalculator.reset()
-        lastWearableIngestTime = nil
+        wearableIngest.reset()
 
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
@@ -1301,11 +1301,13 @@ class AudioEngine: ObservableObject {
         if let z = data.bandLeqZ, z.count == SpectrumBandAggregator.thirdOctaveCenters.count {
             bandLeq = (z, data.bandLeqA ?? [], data.bandLeqC ?? [])
         } else {
-            let integrated = integrateWearableBandLeq(
+            let integrated = wearableIngest.integrateBandLeq(
                 from: data,
                 thirdsZ: octaveBandsZ,
                 thirdsA: octaveBandsA,
-                thirdsC: octaveBandsC
+                thirdsC: octaveBandsC,
+                recordingDuration: recording.recordingDuration,
+                loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
             )
             bandLeq = (integrated.bandLeqZ, integrated.bandLeqA, integrated.bandLeqC)
         }
@@ -1366,43 +1368,6 @@ class AudioEngine: ObservableObject {
         }
     }
 
-    private func integrateWearableBandLeq(
-        from data: SpectrogramData,
-        thirdsZ: [Float],
-        thirdsA: [Float],
-        thirdsC: [Float]
-    ) -> MetricsResult {
-        let now = data.timestamp
-        let dt: Float
-        if let last = lastWearableIngestTime {
-            dt = Float(max(0, now.timeIntervalSince(last)))
-        } else {
-            dt = Float(2048) / Float(max(data.sampleRate, 1))
-        }
-        lastWearableIngestTime = now
-
-        func linearEnergy(levelKey: String, fallbackDB: Float) -> Float {
-            let db = data.levels[levelKey] ?? fallbackDB
-            return pow(10.0, db / 10.0)
-        }
-
-        let thirdsACount = SpectrumBandAggregator.thirdOctaveCenters.count
-        return wearableMetricsCalculator.updateMetrics(
-            energyZ: linearEnergy(levelKey: "LZF", fallbackDB: data.broadbandLevel),
-            energyA: linearEnergy(levelKey: "LAF", fallbackDB: data.broadbandLevel),
-            energyC: linearEnergy(levelKey: "LCF", fallbackDB: data.broadbandLevel),
-            peakLevel: data.levels["LCpeak"] ?? data.broadbandLevel,
-            dt: max(dt, 1e-4),
-            recordingDuration: recording.recordingDuration,
-            frequencies: data.frequencies,
-            magnitudes: data.magnitudes,
-            bandsZ: thirdsZ,
-            bandsA: thirdsA.count == thirdsACount ? thirdsA : [],
-            bandsC: thirdsC.count == thirdsACount ? thirdsC : [],
-            loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
-        )
-    }
-    
     // MARK: - Audio Processing
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
