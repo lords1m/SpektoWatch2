@@ -1,17 +1,15 @@
 import Foundation
 import WatchConnectivity
 import Combine
-import os.signpost
+import OSLog
 #if os(watchOS)
 import WidgetKit
 #endif
 
-class WatchConnectivityManager: NSObject, ObservableObject {
-    static let shared = WatchConnectivityManager()
-    private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.connectivity")
+public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     #if os(watchOS)
-    // Complication keys are defined once in `Shared/AppGroup.swift` so the
-    // widget-extension reader and this writer cannot drift.
+    // Keys live in `Shared/AppGroup.swift` to avoid drift with the widget
+    // extension reader.
     private static let complicationWidgetKinds = [
         "SpektoWatchLevelCircular",
         "SpektoWatchLevelRectangular",
@@ -19,30 +17,49 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         "SpektoWatchLevelCorner"
     ]
     #endif
-    private let sendQueue = DispatchQueue(label: "com.spektowatch.watch-send", qos: .utility)
+    
+    @Published public var isReachable = false
+    @Published public var spectrogramData: SpectrogramData?
+    @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    @Published public var watchDashboardConfig: WatchDashboardConfig?
+    @Published public var frequencyWeighting: String = "A"
+    #if os(watchOS)
+    @Published public private(set) var phoneAppState: WatchAppState?
+    @Published public private(set) var lastPhoneSpectrogramReceivedAt: Date?
+    private var lastComplicationReload = Date.distantPast
+    #endif
+    
+    // MARK: - Queue Definitionen
+    private struct QueuedMessage {
+        let id = UUID()
+        let message: [String: Any]
+        var retries: Int
+        let timestamp: Date
+    }
+    
+    private var messageQueue: [QueuedMessage] = []
+    private let maxRetries = 3
+    private var isProcessingQueue = false
+
+    // MARK: - Spectrogram Send Throttling
+    //
+    // FFT frames arrive at ~21 Hz (44100 / 2048). Sending each one via
+    // `sendMessageData` immediately would saturate the WCSession outbound
+    // queue, drop frames silently (no errorHandler was wired), and waste
+    // radio/battery. Coalesce into a single most-recent frame per adaptive
+    // interval (thermal-aware) and flush on a dedicated queue.
+    //
+    // The watch-side `Shared/WatchConnectivityManager` has the symmetric
+    // logic for sends originating from the watch.
+    private let spectrogramSendQueue = DispatchQueue(label: "com.spektowatch.ios-spectrogram-send", qos: .utility)
     private var pendingSpectrogramData: SpectrogramData?
     private var isSpectrogramSendScheduled = false
     private var lastSpectrogramSendTime: TimeInterval = 0
-    #if os(watchOS)
-    private var lastComplicationReload = Date.distantPast
-    #endif
-
-    @Published var spectrogramData: SpectrogramData?
-    @Published var isReachable = false
-    #if os(watchOS)
-    /// Latest iPhone app-state envelope (recording flag, accent, etc.).
-    @Published private(set) var phoneAppState: WatchAppState?
-    /// When the watch last received live spectrogram bytes from the phone.
-    @Published private(set) var lastPhoneSpectrogramReceivedAt: Date?
-    #endif
-    @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
-    @Published var watchDashboardConfig: WatchDashboardConfig?
-    @Published var frequencyWeighting: String = "A"
-
-    var onMicrophoneSourceChanged: ((MicrophoneSource) -> Void)?
-    private var hasLoggedUnreachability = false
+    private var hasLoggedSpectrogramUnreachability = false
 
     #if os(iOS)
+    // MARK: - Standalone recording sync-back (M21 task-5)
+    //
     /// Phone-side ingest hook. Returns true once the recording is in the iOS
     /// store (newly added OR already present — idempotent), which gates the
     /// "synced" acknowledgement back to the watch. Wired in `AppServices`.
@@ -65,112 +82,401 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     }
     #endif
 
-    private override init() {
+    public override init() {
         super.init()
-
+        // Ensure public access for Watch App
         if WCSession.isSupported() {
-            let session = WCSession.default
-            session.delegate = self
-            session.activate()
+            WCSession.default.delegate = self
+            WCSession.default.activate()
+        }
+    }
+    
+    // MARK: - WCSessionDelegate
+    
+    public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        DispatchQueue.main.async {
+            self.isReachable = session.isReachable
+            self.processQueue()
+        }
+        #if os(watchOS)
+        if activationState == .activated {
+            syncPendingRecordings()
+        }
+        #endif
+    }
+
+    public func sessionReachabilityDidChange(_ session: WCSession) {
+        DispatchQueue.main.async {
+            self.isReachable = session.isReachable
+            if self.isReachable {
+                self.processQueue()
+            }
+        }
+        #if os(watchOS)
+        if session.isReachable {
+            syncPendingRecordings()
+        }
+        #endif
+    }
+
+    /// Incoming standalone recording file (iOS) / ingest acknowledgement (watch).
+    public func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        #if os(iOS)
+        transferIngestQueue.async { [weak self] in
+            self?.handleIncomingRecordingFile(file)
+        }
+        #endif
+    }
+
+    public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
+        #if os(watchOS)
+        if let id = WatchConnectivityProtocol.syncedRecordingId(fromUserInfo: userInfo) {
+            DispatchQueue.main.async {
+                WatchRecordingStore.shared.setSyncState(.synced, for: id)
+            }
+        }
+        #endif
+    }
+    
+    #if os(iOS)
+    public func sessionDidBecomeInactive(_ session: WCSession) {}
+    public func sessionDidDeactivate(_ session: WCSession) {
+        WCSession.default.activate()
+    }
+    #endif
+    
+    // MARK: - Empfang
+    
+    public func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
+        guard !messageData.isEmpty else { return }
+        if case .spectrogram(let specData) = WatchConnectivityProtocol.decodeBinaryPayload(messageData) {
+            DispatchQueue.main.async {
+                self.spectrogramData = specData
+                #if os(watchOS)
+                self.lastPhoneSpectrogramReceivedAt = Date()
+                self.updateComplicationState(from: specData)
+                #endif
+            }
         }
     }
 
-    func sendSpectrogramData(_ data: SpectrogramData) {
-        sendQueue.async {
+    #if os(watchOS)
+    private static let complicationReloadMinimumInterval: TimeInterval = 60
+
+    private func updateComplicationState(from data: SpectrogramData) {
+        let now = Date()
+        guard now.timeIntervalSince(lastComplicationReload) >= Self.complicationReloadMinimumInterval else { return }
+        // Assign before the reload so a near-simultaneous second call cannot
+        // race past the throttle check.
+        lastComplicationReload = now
+
+        let shared = AppGroup.defaults
+        shared.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: ComplicationSharedKeys.level)
+        shared.set(frequencyWeighting, forKey: ComplicationSharedKeys.weighting)
+
+        Self.complicationWidgetKinds.forEach {
+            WidgetCenter.shared.reloadTimelines(ofKind: $0)
+        }
+    }
+    #endif
+    
+    public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        DispatchQueue.main.async {
+            guard let type = WatchConnectivityProtocol.messageType(from: message) else {
+                if let typeRaw = message[WatchConnectivityProtocol.Key.type] as? String {
+                    Logger.connectivity.info("Ignored unknown message type: \(typeRaw)")
+                }
+                return
+            }
+            switch type {
+            case .microphoneSource:
+                if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
+                    self.selectedMicrophoneSource = source
+                }
+            case .startRecording:
+                let source = WatchConnectivityProtocol.recordingSource(from: message)
+                if let source {
+                    self.selectedMicrophoneSource = source
+                }
+                NotificationCenter.default.post(name: .startRecordingCommand, object: source)
+            case .stopRecording:
+                let source = WatchConnectivityProtocol.recordingSource(from: message)
+                NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
+            case .frequencyWeighting:
+                if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
+                    self.frequencyWeighting = weighting
+                }
+            case .watchDashboardConfig:
+                if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
+                   let configData = configString.data(using: .utf8),
+                   let config = WatchDashboardConfig.decode(from: configData) {
+                    self.watchDashboardConfig = config
+                    config.save()
+                }
+            case .watchMeterLayoutConfig:
+                if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
+                   let configData = configString.data(using: .utf8),
+                   let config = WatchMeterLayoutConfig.decode(from: configData) {
+                    WatchAppSettingsSync.applyMeterLayoutConfig(config)
+                }
+            case .watchMeasurementSourcePreference:
+                if let preference = WatchConnectivityProtocol.measurementSourcePreference(from: message) {
+                    WatchAppSettingsSync.applyMeasurementSourcePreference(preference)
+                }
+            case .gain:
+                if let gain = WatchConnectivityProtocol.gain(from: message) {
+                    NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
+                }
+            case .appStateUpdate:
+                #if os(watchOS)
+                if let state = WatchConnectivityProtocol.appStateUpdate(from: message) {
+                    self.phoneAppState = state
+                }
+                #else
+                _ = WatchConnectivityProtocol.appStateUpdate(from: message)
+                #endif
+            case .recordingFileTransfer, .recordingSynced:
+                // These are delivered via transferFile / transferUserInfo,
+                // not sendMessage — handled in session(_:didReceive:) and
+                // session(_:didReceiveUserInfo:). No action needed here.
+                break
+            }
+        }
+    }
+
+    public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+        DispatchQueue.main.async {
+            if let weighting = applicationContext["frequencyWeighting"] as? String {
+                self.frequencyWeighting = weighting
+            }
+            if let configString = applicationContext[PersistenceKeys.watchDashboardConfig] as? String,
+               let configData = configString.data(using: .utf8),
+               let config = WatchDashboardConfig.decode(from: configData) {
+                self.watchDashboardConfig = config
+                config.save()
+            }
+            WatchAppSettingsSync.applyApplicationContext(applicationContext)
+        }
+    }
+    
+    // MARK: - Senden (Public API)
+    
+    public func sendSpectrogramData(_ data: SpectrogramData) {
+        // Coalesce: keep only the most recent frame. The audio thread can call
+        // this at FFT framerate without saturating WCSession.
+        spectrogramSendQueue.async {
             self.pendingSpectrogramData = data
             self.scheduleSpectrogramSendIfNeeded()
         }
     }
 
-    func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
-        guard WCSession.default.isReachable else {
-            print("Watch not reachable")
-            return
-        }
+    private func scheduleSpectrogramSendIfNeeded() {
+        guard !isSpectrogramSendScheduled else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let sendInterval = adaptiveSpectrogramSendInterval()
+        let earliestSend = lastSpectrogramSendTime + sendInterval
+        let delay = max(0, earliestSend - now)
 
-        let message = WatchConnectivityProtocol.makeMicrophoneSourceMessage(source)
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Error sending microphone source: \(error.localizedDescription)")
+        isSpectrogramSendScheduled = true
+        spectrogramSendQueue.asyncAfter(deadline: .now() + delay) {
+            self.flushPendingSpectrogramData()
         }
     }
 
-    func requestRecordingStart(source: MicrophoneSource? = nil) {
-        print("[WCM] Requesting Start")
-        guard WCSession.default.isReachable else {
-            print("[WCM] Error: Not reachable")
+    private func flushPendingSpectrogramData() {
+        guard let dataToSend = pendingSpectrogramData else {
+            isSpectrogramSendScheduled = false
             return
         }
-        let message = WatchConnectivityProtocol.makeRecordingStartMessage(source: source)
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Error sending start command: \(error.localizedDescription)")
+
+        pendingSpectrogramData = nil
+        isSpectrogramSendScheduled = false
+        lastSpectrogramSendTime = ProcessInfo.processInfo.systemUptime
+
+        guard WCSession.default.isReachable else {
+            if !hasLoggedSpectrogramUnreachability {
+                Logger.connectivity.info("Watch not reachable; dropping spectrogram frame.")
+                hasLoggedSpectrogramUnreachability = true
+            }
+            return
+        }
+        hasLoggedSpectrogramUnreachability = false
+
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(dataToSend)
+        WCSession.default.sendMessageData(packet, replyHandler: nil) { error in
+            Logger.connectivity.error("Error sending spectrogram data: \(error.localizedDescription)")
         }
     }
 
-    func requestRecordingStop(source: MicrophoneSource? = nil) {
-        print("[WCM] Requesting Stop")
-        guard WCSession.default.isReachable else {
-            print("[WCM] Error: Not reachable")
-            return
+    private func adaptiveSpectrogramSendInterval() -> TimeInterval {
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.isLowPowerModeEnabled {
+            return WatchConnectivityProtocol.lowPowerSpectrogramSendInterval
         }
-        let message = WatchConnectivityProtocol.makeRecordingStopMessage(source: source)
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Error sending stop command: \(error.localizedDescription)")
+        switch processInfo.thermalState {
+        case .serious: return WatchConnectivityProtocol.seriousThermalSpectrogramSendInterval
+        case .critical: return WatchConnectivityProtocol.criticalThermalSpectrogramSendInterval
+        case .fair: return WatchConnectivityProtocol.fairThermalSpectrogramSendInterval
+        default: return WatchConnectivityProtocol.normalSpectrogramSendInterval
         }
     }
+    
+    public func sendGainValue(_ gain: Float) {
+        sendWithRetry(WatchConnectivityProtocol.makeGainMessage(gain))
+    }
+    
+    public func sendMicrophoneSourceSelection(_ source: MicrophoneSource) {
+        sendWithRetry(WatchConnectivityProtocol.makeMicrophoneSourceMessage(source))
+    }
 
-    func requestWearableRecordingStart() {
+    public func sendFrequencyWeightingSelection(_ weighting: String) {
+        sendWithRetry(WatchConnectivityProtocol.makeFrequencyWeightingMessage(weighting))
+        do {
+            try WCSession.default.updateApplicationContext(["frequencyWeighting": weighting])
+        } catch {
+            // Ignore context errors
+        }
+    }
+    
+    public func requestRecordingStart(source: MicrophoneSource? = nil) {
+        sendWithRetry(WatchConnectivityProtocol.makeRecordingStartMessage(source: source))
+    }
+    
+    public func requestRecordingStop(source: MicrophoneSource? = nil) {
+        sendWithRetry(WatchConnectivityProtocol.makeRecordingStopMessage(source: source))
+    }
+
+    public func requestWearableRecordingStart() {
         selectedMicrophoneSource = .appleWatch
         sendMicrophoneSourceSelection(.appleWatch)
         requestRecordingStart(source: .appleWatch)
     }
 
-    func requestWearableRecordingStop() {
+    public func requestWearableRecordingStop() {
         requestRecordingStop(source: .appleWatch)
     }
 
-    func sendGainValue(_ gain: Float) {
-        guard WCSession.default.isReachable else { return }
-        let message = WatchConnectivityProtocol.makeGainMessage(gain)
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Error sending gain: \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: - Watch Dashboard Configuration
-
-    func sendWatchDashboardConfig(_ config: WatchDashboardConfig) {
-        guard WCSession.default.isReachable else {
-            print("[WCM] Watch not reachable for dashboard config")
-            // Try to send via application context for background delivery
-            sendWatchDashboardConfigViaContext(config)
-            return
-        }
-
-        guard let configData = config.encode(),
-              let configString = String(data: configData, encoding: .utf8) else {
-            print("[WCM] Error encoding dashboard config")
-            return
-        }
-
-        let message = WatchConnectivityProtocol.makeWatchDashboardConfigMessage(configString)
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("[WCM] Error sending dashboard config: \(error.localizedDescription)")
-            // Fallback to application context
-            self.sendWatchDashboardConfigViaContext(config)
-        }
-    }
-
-    private func sendWatchDashboardConfigViaContext(_ config: WatchDashboardConfig) {
+    public func sendWatchDashboardConfig(_ config: WatchDashboardConfig) {
         guard let configData = config.encode(),
               let configString = String(data: configData, encoding: .utf8) else {
             return
         }
+        sendWithRetry(WatchConnectivityProtocol.makeWatchDashboardConfigMessage(configString))
 
+        // Also send via application context for background delivery
         do {
             try WCSession.default.updateApplicationContext([PersistenceKeys.watchDashboardConfig: configString])
-            print("[WCM] Dashboard config sent via application context")
         } catch {
-            print("[WCM] Error sending dashboard config via context: \(error.localizedDescription)")
+            // Ignore context errors
+        }
+    }
+
+    /// Pushes the spectrogram quality preset to the watch via application context.
+    public func sendSpectrogramResolution(_ resolution: SpectrogramResolution) {
+        WatchAppSettingsSync.applySpectrogramResolution(resolution)
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        do {
+            var context = session.receivedApplicationContext
+            context[PersistenceKeys.spectrogramResolution] = resolution.rawValue
+            try session.updateApplicationContext(context)
+        } catch {
+            // Ignore context errors
+        }
+    }
+
+    /// Pushes all watch-app settings the phone can edit (meter layout, live source, gain).
+    public func sendWatchAppSettings(
+        meterLayout: WatchMeterLayoutConfig,
+        measurementSource: WatchMeasurementSourcePreference,
+        gain: Float,
+        spectrogramResolution: SpectrogramResolution = .current
+    ) {
+        meterLayout.save()
+        UserDefaults.standard.set(measurementSource.rawValue, forKey: PersistenceKeys.Watch.measurementSourcePreference)
+        UserDefaults.standard.set(measurementSource == .appleWatch, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        UserDefaults.standard.set(gain, forKey: PersistenceKeys.Watch.gain)
+        WatchAppSettingsSync.applySpectrogramResolution(spectrogramResolution)
+
+        if let configData = meterLayout.encode(),
+           let configString = String(data: configData, encoding: .utf8) {
+            sendWithRetry(WatchConnectivityProtocol.makeWatchMeterLayoutConfigMessage(configString))
+        }
+        sendWithRetry(WatchConnectivityProtocol.makeWatchMeasurementSourcePreferenceMessage(measurementSource))
+        sendWithRetry(WatchConnectivityProtocol.makeGainMessage(gain))
+
+        do {
+            var context: [String: Any] = ["frequencyWeighting": frequencyWeighting]
+            if let configData = meterLayout.encode(),
+               let configString = String(data: configData, encoding: .utf8) {
+                context[PersistenceKeys.Watch.meterLayoutConfig] = configString
+            }
+            context[PersistenceKeys.Watch.measurementSourcePreference] = measurementSource.rawValue
+            context[PersistenceKeys.Watch.gain] = gain
+            context[PersistenceKeys.spectrogramResolution] = spectrogramResolution.rawValue
+            try WCSession.default.updateApplicationContext(context)
+        } catch {
+            // Ignore context errors
+        }
+    }
+
+    // MARK: - Queue Logic
+    
+    private func sendWithRetry(_ message: [String: Any]) {
+        // Callers can arrive on any thread; all messageQueue / isProcessingQueue
+        // mutations must happen on main to stay consistent with the reply/error
+        // handlers (which already dispatch to main) and the reachability callbacks.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let queued = QueuedMessage(message: message, retries: 0, timestamp: Date())
+            self.messageQueue.append(queued)
+            self.processQueue()
+        }
+    }
+
+    private func processQueue() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !isProcessingQueue, !messageQueue.isEmpty else { return }
+        
+        guard WCSession.default.activationState == .activated, WCSession.default.isReachable else {
+            return // Warten auf Reachability Change
+        }
+        
+        isProcessingQueue = true
+        let currentMessage = messageQueue.removeFirst()
+
+        // Fire-and-forget control plane: receivers handle `didReceiveMessage`
+        // without reply handlers, so queue progression cannot depend on reply.
+        WCSession.default.sendMessage(currentMessage.message, replyHandler: nil, errorHandler: { error in
+            DispatchQueue.main.async {
+                self.handleMessageError(currentMessage, error: error)
+            }
+        })
+        isProcessingQueue = false
+        processQueue()
+    }
+    
+    private func handleMessageError(_ message: QueuedMessage, error: Error) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        var updatedMessage = message
+        updatedMessage.retries += 1
+        
+        if updatedMessage.retries <= maxRetries {
+            // Requeue the failed message at the front so ordering stays stable.
+            messageQueue.insert(updatedMessage, at: 0)
+
+            // Exponential Backoff: 0.5s, 1.0s, 2.0s
+            let delay = 0.5 * pow(2.0, Double(updatedMessage.retries - 1))
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.isProcessingQueue = false
+                self.processQueue()
+            }
+        } else {
+            Logger.connectivity.error("Message dropped after \(self.maxRetries) retries: \(error.localizedDescription)")
+            isProcessingQueue = false
+            processQueue()
         }
     }
 
@@ -222,7 +528,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         guard let id = WatchConnectivityProtocol.recordingId(fromTransfer: metadata),
               let kind = WatchConnectivityProtocol.recordingFileKind(fromTransfer: metadata),
               let recordingMeta = WatchConnectivityProtocol.recordingMetadata(fromTransfer: metadata) else {
-            print("[WCM] Dropping recording file with malformed metadata")
+            Logger.connectivity.error("Dropping recording file with malformed metadata")
             return
         }
 
@@ -235,7 +541,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         do {
             try fm.copyItem(at: file.fileURL, to: destination)
         } catch {
-            print("[WCM] Failed to stage incoming recording file: \(error)")
+            Logger.connectivity.error("Failed to stage incoming recording file: \(error.localizedDescription)")
             return
         }
 
@@ -267,7 +573,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
             if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
             if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
-            print("[WCM] Purged stale staged transfer for recording \(id)")
+            Logger.connectivity.error("Purged stale staged watch transfer for recording \(id.uuidString)")
         }
     }
 
@@ -276,7 +582,7 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         // iOS recordings store, renaming the sidecar to `.spekto` (same binary
         // MeasurementDataFormat as `.swr`). Build the iOS Recording from the
         // shared metadata; the id is preserved so dedupe is stable.
-        let duration = RecordingDurationResolver.resolved(
+        let duration = RecordingManager.resolvedRecordingDuration(
             audioURL: audioURL,
             measurementURL: measurementURL,
             fallback: meta.duration
@@ -307,267 +613,6 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             WCSession.default.transferUserInfo(
                 WatchConnectivityProtocol.makeRecordingSyncedUserInfo(id: meta.id))
         }
-    }
-    #endif
-
-    private func scheduleSpectrogramSendIfNeeded() {
-        guard !isSpectrogramSendScheduled else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        let sendInterval = adaptiveSpectrogramSendInterval()
-        let earliestSend = lastSpectrogramSendTime + sendInterval
-        let delay = max(0, earliestSend - now)
-
-        isSpectrogramSendScheduled = true
-        sendQueue.asyncAfter(deadline: .now() + delay) {
-            self.flushPendingSpectrogramData()
-        }
-    }
-
-    private func flushPendingSpectrogramData() {
-        let signpostID = OSSignpostID(log: Self.performanceLog)
-        os_signpost(.begin, log: Self.performanceLog, name: "WatchSendSpectrogram", signpostID: signpostID)
-        defer { os_signpost(.end, log: Self.performanceLog, name: "WatchSendSpectrogram", signpostID: signpostID) }
-
-        guard let dataToSend = pendingSpectrogramData else {
-            isSpectrogramSendScheduled = false
-            return
-        }
-
-        pendingSpectrogramData = nil
-        isSpectrogramSendScheduled = false
-        lastSpectrogramSendTime = ProcessInfo.processInfo.systemUptime
-
-        guard WCSession.default.isReachable else {
-            if !hasLoggedUnreachability {
-                print("Watch not reachable")
-                hasLoggedUnreachability = true
-            }
-            // Note: the "if pendingSpectrogramData != nil { reschedule }"
-            // branches that previously lived here and after `sendMessageData`
-            // were dead code. `pendingSpectrogramData` was set to nil three
-            // lines above and `sendQueue` is serial, so no other writer can
-            // mutate it between then and here.
-            return
-        }
-        hasLoggedUnreachability = false
-
-        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(dataToSend)
-        WCSession.default.sendMessageData(packet, replyHandler: nil) { error in
-            print("Error sending spectrogram data: \(error.localizedDescription)")
-        }
-    }
-
-    private func adaptiveSpectrogramSendInterval() -> TimeInterval {
-        let processInfo = ProcessInfo.processInfo
-        if processInfo.isLowPowerModeEnabled {
-            return WatchConnectivityProtocol.lowPowerSpectrogramSendInterval
-        }
-
-        switch processInfo.thermalState {
-        case .serious:
-            return WatchConnectivityProtocol.seriousThermalSpectrogramSendInterval
-        case .critical:
-            return WatchConnectivityProtocol.criticalThermalSpectrogramSendInterval
-        case .fair:
-            return WatchConnectivityProtocol.fairThermalSpectrogramSendInterval
-        default:
-            return WatchConnectivityProtocol.normalSpectrogramSendInterval
-        }
-    }
-}
-
-extension WatchConnectivityManager: WCSessionDelegate {
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
-        }
-        #if os(watchOS)
-        if activationState == .activated {
-            syncPendingRecordings()
-        }
-        #endif
-    }
-
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
-        let signpostID = OSSignpostID(log: Self.performanceLog)
-        os_signpost(.begin, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID)
-        defer { os_signpost(.end, log: Self.performanceLog, name: "WatchDidReceiveMessage", signpostID: signpostID) }
-
-        guard let type = WatchConnectivityProtocol.messageType(from: message) else {
-            // Unknown message type — log so a missing decoder doesn't go
-            // unnoticed during cross-version skew.
-            if let typeRaw = message[WatchConnectivityProtocol.Key.type] as? String {
-                print("[WCM] Ignored unknown message type: \(typeRaw)")
-            }
-            return
-        }
-
-        switch type {
-        case .startRecording:
-            let source = WatchConnectivityProtocol.recordingSource(from: message)
-            // WCSession delivers `didReceiveMessage` on a background queue.
-            // All state mutation AND the NotificationCenter post must hop to
-            // main so observers (e.g. WatchAudioEngine.handleStartRecording)
-            // touch AVAudioEngine and `@Published` state on the main thread.
-            DispatchQueue.main.async {
-                if let source {
-                    self.selectedMicrophoneSource = source
-                    self.onMicrophoneSourceChanged?(source)
-                }
-                NotificationCenter.default.post(name: .startRecordingCommand, object: source)
-            }
-        case .stopRecording:
-            let source = WatchConnectivityProtocol.recordingSource(from: message)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .stopRecordingCommand, object: source)
-            }
-        case .gain:
-            if let gain = WatchConnectivityProtocol.gain(from: message) {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
-                }
-            }
-        case .microphoneSource:
-            if let source = WatchConnectivityProtocol.microphoneSource(from: message) {
-                DispatchQueue.main.async {
-                    self.selectedMicrophoneSource = source
-                    self.onMicrophoneSourceChanged?(source)
-                }
-            }
-        case .watchDashboardConfig:
-            if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
-               let configData = configString.data(using: .utf8),
-               let config = WatchDashboardConfig.decode(from: configData) {
-                DispatchQueue.main.async {
-                    self.watchDashboardConfig = config
-                    config.save()
-                    NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
-                    print("[WCM] Received watch dashboard config with \(config.widgets.count) widgets")
-                }
-            }
-        case .frequencyWeighting:
-            if let weighting = WatchConnectivityProtocol.frequencyWeighting(from: message) {
-                DispatchQueue.main.async {
-                    self.frequencyWeighting = weighting
-                }
-            }
-        case .appStateUpdate:
-            if let state = WatchConnectivityProtocol.appStateUpdate(from: message) {
-                DispatchQueue.main.async {
-                    #if os(watchOS)
-                    self.phoneAppState = state
-                    #endif
-                }
-            }
-        }
-    }
-
-    /// Handles binary-encoded spectrogram (0x01) data from iOS.
-    func session(_ session: WCSession, didReceiveMessageData messageData: Data) {
-        guard !messageData.isEmpty else { return }
-        if case .spectrogram(let specData) = WatchConnectivityProtocol.decodeBinaryPayload(messageData) {
-            DispatchQueue.main.async {
-                self.spectrogramData = specData
-                #if os(watchOS)
-                self.lastPhoneSpectrogramReceivedAt = Date()
-                self.updateComplicationState(from: specData)
-                #endif
-            }
-        }
-    }
-
-    #if os(watchOS)
-    /// Minimum interval between WidgetKit timeline reloads.
-    ///
-    /// watchOS enforces a hard daily budget on complication refreshes
-    /// (~50 reloads/day, per WidgetKit docs). The previous 1-second cadence
-    /// could exhaust the budget in under a minute of continuous measurement,
-    /// after which the system silently stops updating the complication.
-    /// 60 s keeps live values fresh enough for an at-a-glance level indicator
-    /// while staying comfortably inside the system budget for an all-day
-    /// session (60 reloads/hour vs ~50 reloads/day allowed without
-    /// throttling — Apple coalesces beyond a soft hourly limit too).
-    private static let complicationReloadMinimumInterval: TimeInterval = 60
-
-    private func updateComplicationState(from data: SpectrogramData) {
-        let now = Date()
-        guard now.timeIntervalSince(lastComplicationReload) >= Self.complicationReloadMinimumInterval else { return }
-
-        // Update `lastComplicationReload` BEFORE issuing the reload so a second
-        // call arriving within the same tick cannot race past the throttle
-        // check. Previously this was assigned after the WidgetCenter call,
-        // making the guard a TOCTOU window.
-        lastComplicationReload = now
-
-        // Route through the App Group suite so the widget extension's process
-        // can read these. Previously this wrote to `UserDefaults.standard`,
-        // which the extension never sees — meaning live data never reached
-        // the complication.
-        let shared = AppGroup.defaults
-        shared.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: ComplicationSharedKeys.level)
-        shared.set(frequencyWeighting, forKey: ComplicationSharedKeys.weighting)
-
-        Self.complicationWidgetKinds.forEach {
-            WidgetCenter.shared.reloadTimelines(ofKind: $0)
-        }
-    }
-    #endif
-
-    // Handle application context for background config delivery
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
-        if let weighting = applicationContext["frequencyWeighting"] as? String {
-            DispatchQueue.main.async {
-                self.frequencyWeighting = weighting
-            }
-        }
-        if let configString = applicationContext[PersistenceKeys.watchDashboardConfig] as? String,
-           let configData = configString.data(using: .utf8),
-           let config = WatchDashboardConfig.decode(from: configData) {
-            DispatchQueue.main.async {
-                self.watchDashboardConfig = config
-                config.save()
-                NotificationCenter.default.post(name: .watchDashboardConfigChanged, object: config)
-                print("[WCM] Received watch dashboard config via context")
-            }
-        }
-        WatchAppSettingsSync.applyApplicationContext(applicationContext)
-    }
-
-    func sessionReachabilityDidChange(_ session: WCSession) {
-        DispatchQueue.main.async {
-            print("[WCM] Reachability: \(session.isReachable)")
-            self.isReachable = session.isReachable
-        }
-        #if os(watchOS)
-        if session.isReachable {
-            syncPendingRecordings()
-        }
-        #endif
-    }
-
-    /// Incoming standalone recording file (iOS) / ingest acknowledgement (watch).
-    func session(_ session: WCSession, didReceive file: WCSessionFile) {
-        #if os(iOS)
-        transferIngestQueue.async { [weak self] in
-            self?.handleIncomingRecordingFile(file)
-        }
-        #endif
-    }
-
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
-        #if os(watchOS)
-        if let id = WatchConnectivityProtocol.syncedRecordingId(fromUserInfo: userInfo) {
-            DispatchQueue.main.async {
-                WatchRecordingStore.shared.setSyncState(.synced, for: id)
-            }
-        }
-        #endif
-    }
-
-    #if os(iOS)
-    func sessionDidBecomeInactive(_ session: WCSession) {}
-    func sessionDidDeactivate(_ session: WCSession) {
-        session.activate()
     }
     #endif
 }
