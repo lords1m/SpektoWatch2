@@ -5,7 +5,7 @@ import SwiftUI
 // ============================================================================
 
 struct RecordingsListView: View {
-    @EnvironmentObject private var recordingManager: RecordingManager
+    @EnvironmentObject private var services: AppServices
     @Environment(\.dismiss) private var dismiss
 
     // Browsing state
@@ -40,7 +40,7 @@ struct RecordingsListView: View {
                     prompt: "Suchen"
                 )
                 .refreshable {
-                    recordingManager.reloadRecordings()
+                    services.recordingManager.reloadRecordings()
                 }
                 .alert(
                     deleteRequest?.title ?? "",
@@ -72,7 +72,7 @@ struct RecordingsListView: View {
                     }
                     Button("Speichern") {
                         if let target = renameTarget {
-                            recordingManager.renameRecording(id: target.id, to: renameDraft)
+                            services.recordingManager.renameRecording(id: target.id, to: renameDraft)
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         }
                         renameTarget = nil
@@ -94,7 +94,7 @@ struct RecordingsListView: View {
                     // files don't linger orphaned in the recordings folder.
                     undoTask?.cancel()
                     undoTask = nil
-                    recordingManager.commitPendingSoftDeletes()
+                    services.recordingManager.commitPendingSoftDeletes()
                 }
                 .accessibilityIdentifier("recordingsListView")
         }
@@ -203,7 +203,7 @@ struct RecordingsListView: View {
             } label: {
                 Label("Löschen", systemImage: "trash")
             }
-            ShareLink(item: recordingManager.url(for: recording)) {
+            ShareLink(item: services.recordingManager.url(for: recording)) {
                 Label("Teilen", systemImage: "square.and.arrow.up")
             }
             .tint(.blue)
@@ -223,12 +223,12 @@ struct RecordingsListView: View {
                 Label("Umbenennen", systemImage: "pencil")
             }
             Button {
-                recordingManager.duplicateRecording(recording)
+                services.recordingManager.duplicateRecording(recording)
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
                 Label("Duplizieren", systemImage: "doc.on.doc")
             }
-            ShareLink(item: recordingManager.url(for: recording)) {
+            ShareLink(item: services.recordingManager.url(for: recording)) {
                 Label("Teilen", systemImage: "square.and.arrow.up")
             }
             Divider()
@@ -268,7 +268,7 @@ struct RecordingsListView: View {
                         }
                     }
                 }
-                if !recordingManager.recordings.isEmpty {
+                if !services.recordingManager.recordings.isEmpty {
                     Divider()
                     Button {
                         withAnimation {
@@ -322,7 +322,7 @@ struct RecordingsListView: View {
     }
 
     private var displayedRecordings: [Recording] {
-        var result = recordingManager.recordings
+        var result = services.recordingManager.recordings
         if !searchText.isEmpty {
             let query = searchText.lowercased()
             result = result.filter { recording in
@@ -391,11 +391,11 @@ struct RecordingsListView: View {
 
     private func performDelete(_ recordings: [Recording]) {
         let ids = Set(recordings.map { $0.id })
-        recordingManager.softDeleteRecordings(ids: ids)
+        services.recordingManager.softDeleteRecordings(ids: ids)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 
         selection.removeAll()
-        if recordingManager.recordings.isEmpty {
+        if services.recordingManager.recordings.isEmpty {
             withAnimation { editMode = .inactive }
         }
 
@@ -403,6 +403,7 @@ struct RecordingsListView: View {
         let toast = UndoToast(recordings: recordings)
         undoToast = toast
         undoTask?.cancel()
+        let recordingManager = services.recordingManager
         undoTask = Task { [weak recordingManager] in
             try? await Task.sleep(for: Self.undoWindow)
             await MainActor.run {
@@ -419,7 +420,7 @@ struct RecordingsListView: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         undoTask?.cancel()
         undoTask = nil
-        recordingManager.undoLastSoftDelete()
+        services.recordingManager.undoLastSoftDelete()
         undoToast = nil
     }
 

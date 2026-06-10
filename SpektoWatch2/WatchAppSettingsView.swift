@@ -3,7 +3,7 @@ import Combine
 
 /// iPhone editor for all watch-app settings: live source, meter layout, mic gain.
 struct WatchAppSettingsView: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @EnvironmentObject private var services: AppServices
     @Environment(\.designAccent) private var accent
     @Binding var watchGain: Float
 
@@ -140,10 +140,10 @@ struct WatchAppSettingsView: View {
         }
         .onAppear {
             viewModel.reloadFromStorage()
-            viewModel.reloadDashboardConfig(from: connectivityManager)
+            viewModel.reloadDashboardConfig(from: services.connectivityManager)
             viewModel.watchGain = watchGain
         }
-        .onReceive(connectivityManager.$watchDashboardConfig.compactMap { $0 }) { config in
+        .onReceive(services.connectivityManager.$watchDashboardConfig.compactMap { $0 }) { config in
             viewModel.updateDashboardConfig(config)
         }
         .onChange(of: watchGain) { _, newValue in
@@ -157,12 +157,12 @@ struct WatchAppSettingsView: View {
         Section {
             HStack {
                 Label(
-                    connectivityManager.isReachable ? "Watch erreichbar" : "Watch nicht erreichbar",
-                    systemImage: connectivityManager.isReachable ? "applewatch" : "applewatch.slash"
+                    services.connectivityManager.isReachable ? "Watch erreichbar" : "Watch nicht erreichbar",
+                    systemImage: services.connectivityManager.isReachable ? "applewatch" : "applewatch.slash"
                 )
                 Spacer()
                 Circle()
-                    .fill(connectivityManager.isReachable ? Color.green : Color.gray)
+                    .fill(services.connectivityManager.isReachable ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
             }
             .font(.subheadline)
@@ -173,7 +173,7 @@ struct WatchAppSettingsView: View {
         VStack(spacing: 10) {
             Button {
                 viewModel.syncToWatch(
-                    connectivityManager: connectivityManager,
+                    connectivityManager: services.connectivityManager,
                     watchGain: watchGain
                 )
             } label: {
@@ -190,7 +190,7 @@ struct WatchAppSettingsView: View {
 
             Button {
                 viewModel.resetToDefaults(
-                    connectivityManager: connectivityManager,
+                    connectivityManager: services.connectivityManager,
                     watchGain: &watchGain
                 )
             } label: {
@@ -572,6 +572,6 @@ typealias WatchDashboardSettingsView = WatchAppSettingsView
 #Preview {
     NavigationStack {
         WatchAppSettingsView(watchGain: .constant(1.0))
-            .environmentObject(WatchConnectivityManager())
+            .environmentObject(AppServices.testFixture())
     }
 }

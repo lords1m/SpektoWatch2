@@ -6,7 +6,8 @@ import SwiftUI
 /// Replaces the previous pattern of seven hand-wired `@StateObject`s in
 /// `SpektoWatch2App` + seven `.environmentObject(...)` calls under
 /// `ContentView`. This is *only* the producer side — consumer views
-/// still read individual services via `@EnvironmentObject` for now.
+/// Consumer migration to `@EnvironmentObject var services: AppServices` is
+/// in progress (Phase 4); some views still read individual services for now.
 /// Source: M13 task-1 (architecture review A7).
 @MainActor
 final class AppServices: ObservableObject {

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Kompaktes Dashboard-Widget zum Aktivieren/Deaktivieren von Bandsperren
 struct BandstopDashboardWidget: View {
-    @EnvironmentObject var filterManager: BandstopFilterManager
+    @EnvironmentObject var services: AppServices
     @State private var showFullSettings = false
     
     var body: some View {
@@ -31,17 +31,17 @@ struct BandstopDashboardWidget: View {
             }
             
             // Quick Toggle Liste (max 3 anzeigen)
-            if !filterManager.filters.isEmpty {
+            if !services.filterManager.filters.isEmpty {
                 VStack(spacing: 8) {
-                    ForEach(Array(filterManager.filters.prefix(3))) { filter in
+                    ForEach(Array(services.filterManager.filters.prefix(3))) { filter in
                         BandstopQuickToggleRow(filter: filter)
                     }
                     
                     // "Mehr"-Button wenn mehr als 3 Filter
-                    if filterManager.filters.count > 3 {
+                    if services.filterManager.filters.count > 3 {
                         Button(action: { showFullSettings = true }) {
                             HStack {
-                                Text("+\(filterManager.filters.count - 3) weitere")
+                                Text("+\(services.filterManager.filters.count - 3) weitere")
                                     .font(.caption)
                                     .foregroundColor(.blue)
                                 Spacer()
@@ -74,17 +74,24 @@ struct BandstopDashboardWidget: View {
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .cornerRadius(12)
         .sheet(isPresented: $showFullSettings) {
-            BandstopFilterSettingsView(filters: $filterManager.filters, onFilterChanged: filterManager.updateFilter)
+            BandstopFilterSettingsView(filters: filterListBinding, onFilterChanged: services.filterManager.updateFilter)
         }
+    }
+
+    private var filterListBinding: Binding<[BandstopFilter]> {
+        Binding(
+            get: { services.filterManager.filters },
+            set: { services.filterManager.filters = $0 }
+        )
     }
     
     private var hasActiveFilters: Bool {
-        filterManager.enabledFilters.count > 0
+        services.filterManager.enabledFilters.count > 0
     }
     
     private var filterStatusText: String {
-        let activeCount = filterManager.enabledFilters.count
-        let totalCount = filterManager.filters.count
+        let activeCount = services.filterManager.enabledFilters.count
+        let totalCount = services.filterManager.filters.count
         
         if activeCount == 0 {
             return "Keine Filter aktiv"
@@ -99,7 +106,7 @@ struct BandstopDashboardWidget: View {
 /// Einzelne Zeile mit Toggle für schnelles Ein/Ausschalten
 struct BandstopQuickToggleRow: View {
     let filter: BandstopFilter
-    @EnvironmentObject private var filterManager: BandstopFilterManager
+    @EnvironmentObject private var services: AppServices
     
     var body: some View {
         HStack(spacing: 12) {
@@ -128,7 +135,7 @@ struct BandstopQuickToggleRow: View {
             Toggle("", isOn: Binding(
                 get: { filter.isEnabled },
                 set: { _ in
-                    filterManager.toggleFilter(id: filter.id)
+                    services.filterManager.toggleFilter(id: filter.id)
                 }
             ))
             .labelsHidden()
@@ -147,7 +154,7 @@ struct BandstopQuickToggleRow: View {
 // MARK: - Compact Mini Widget (für noch kleinere Bereiche)
 
 struct BandstopMiniWidget: View {
-    @EnvironmentObject var filterManager: BandstopFilterManager
+    @EnvironmentObject var services: AppServices
     @State private var showFullSettings = false
     
     var body: some View {
@@ -169,11 +176,11 @@ struct BandstopMiniWidget: View {
                 Spacer()
                 
                 // Quick Toggle für ersten Filter
-                if let firstFilter = filterManager.filters.first {
+                if let firstFilter = services.filterManager.filters.first {
                     Toggle("", isOn: Binding(
                         get: { firstFilter.isEnabled },
                         set: { _ in
-                            filterManager.toggleFilter(id: firstFilter.id)
+                            services.filterManager.toggleFilter(id: firstFilter.id)
                         }
                     ))
                     .labelsHidden()
@@ -187,16 +194,23 @@ struct BandstopMiniWidget: View {
         }
         .buttonStyle(PlainButtonStyle())
         .sheet(isPresented: $showFullSettings) {
-            BandstopFilterSettingsView(filters: $filterManager.filters, onFilterChanged: filterManager.updateFilter)
+            BandstopFilterSettingsView(filters: filterListBinding, onFilterChanged: services.filterManager.updateFilter)
         }
+    }
+
+    private var filterListBinding: Binding<[BandstopFilter]> {
+        Binding(
+            get: { services.filterManager.filters },
+            set: { services.filterManager.filters = $0 }
+        )
     }
     
     private var hasActiveFilters: Bool {
-        filterManager.enabledFilters.count > 0
+        services.filterManager.enabledFilters.count > 0
     }
     
     private var statusText: String {
-        let count = filterManager.enabledFilters.count
+        let count = services.filterManager.enabledFilters.count
         return count == 0 ? "Inaktiv" : "\(count) aktiv"
     }
 }
@@ -204,7 +218,7 @@ struct BandstopMiniWidget: View {
 // MARK: - Filter Status Indicator (nur Icon + Badge)
 
 struct BandstopStatusIndicator: View {
-    @EnvironmentObject var filterManager: BandstopFilterManager
+    @EnvironmentObject var services: AppServices
     
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -224,11 +238,11 @@ struct BandstopStatusIndicator: View {
     }
     
     private var hasActiveFilters: Bool {
-        filterManager.enabledFilters.count > 0
+        services.filterManager.enabledFilters.count > 0
     }
     
     private var activeCount: Int {
-        filterManager.enabledFilters.count
+        services.filterManager.enabledFilters.count
     }
 }
 
@@ -244,5 +258,6 @@ struct BandstopDashboardWidget_Previews: PreviewProvider {
         .padding()
         .background(Color(UIColor.systemGroupedBackground))
         .previewLayout(.sizeThatFits)
+        .environmentObject(AppServices.testFixture())
     }
 }

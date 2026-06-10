@@ -3,7 +3,7 @@ import SwiftUI
 struct MaskingSuggestionView: View {
 
     @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var profileManager: MaskingProfileManager
+    @EnvironmentObject private var services: AppServices
     let suggestion: MaskerSuggestion
 
     @State private var selectedMasker: MaskerType
@@ -267,7 +267,7 @@ struct MaskingSuggestionView: View {
     private func saveProfile() {
         guard let spectrum = engine.currentTriggerSpectrum else { return }
         let profile = currentSuggestion.toProfile(name: profileName, triggerSpectrum: spectrum)
-        profileManager.save(profile)
+        services.maskingProfileManager.save(profile)
     }
 }
 
