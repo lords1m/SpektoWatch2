@@ -48,12 +48,9 @@ enum StereoInputMode: String, CaseIterable {
 class AudioEngine: ObservableObject {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.audio")
     // Canonical third-octave centers live in
-    // `Managers/SpectrumBandAggregator.swift` (M13 task-6).
-    private static let emptyThirdOctaveBands = [Float](
-        repeating: -120.0,
-        count: SpectrumBandAggregator.thirdOctaveCenters.count
-    )
-    
+    // `Managers/SpectrumBandAggregator.swift` (M13 task-6); the empty-band
+    // fallback now lives in `ProcessingPipeline`.
+
     // MARK: - Processing Components
 
     private var fftProcessor: FFTProcessor
@@ -65,6 +62,10 @@ class AudioEngine: ObservableObject {
     private var lastWearableIngestTime: Date?
     private let spectrogramProcessor: SpectrogramProcessor
     private let visualSpectrogramProcessor: VisualSpectrogramProcessor
+    /// Pure per-frame DSP (FFT → weighting → bands → energies → LCpeak) and the
+    /// real-time scratch buffers (extracted in Phase 3, Task 3.3). Driven only
+    /// from the audio render thread via `processFFTFrame`.
+    private let processingPipeline = ProcessingPipeline()
     private let testGenerator: TestAudioGenerator
     private let bandstopFilterManager: BandstopFilterManager
     private let connectivityManager: WatchConnectivityManager
@@ -100,13 +101,7 @@ class AudioEngine: ObservableObject {
     private var sampleBuffer: [Float] = []
     private var sampleBufferOffset: Int = 0  // Index-basierter Ansatz für O(1) "removeFirst"
     private var fftInputBuffer: [Float] = []
-    private var fftLinearMagnitudesScratch: [Float] = []
-    private var fftDBMagnitudesScratch: [Float] = []
     private var visualDBMagnitudesScratch: [Float] = []
-    private var fftEnergyScratch: [Float] = []
-    /// Scratch buffer for per-bin C-weighted amplitudes used in LCpeak computation.
-    /// Resized alongside `fftEnergyScratch` when the FFT size changes.
-    private var lcPeakScratch: [Float] = []
     private var gainBoost: Float = 10.0
 
     // Reusable scratch buffer for the mono channel of an incoming audio callback.
@@ -559,16 +554,12 @@ class AudioEngine: ObservableObject {
             sampleBuffer.removeAll()
             sampleBufferOffset = 0
             fftInputBuffer.removeAll()
-            fftLinearMagnitudesScratch.removeAll()
-            fftDBMagnitudesScratch.removeAll()
             visualDBMagnitudesScratch.removeAll()
 
             // AE-7: Pre-allocate energy scratch buffers to the new FFT bin count so
             // the audio render thread never hits the lazy-allocation branch in
             // processFFTFrame. energyCount == newSize/2 (half-spectrum bin count).
-            let newEnergyCount = newSize / 2
-            fftEnergyScratch = [Float](repeating: 0, count: newEnergyCount)
-            lcPeakScratch = [Float](repeating: 0, count: newEnergyCount)
+            processingPipeline.resetScratch(energyCount: newSize / 2)
 
             // Aktualisiere interne Werte
             fftSize = newSize
@@ -619,14 +610,10 @@ class AudioEngine: ObservableObject {
             sampleBuffer.removeAll()
             sampleBufferOffset = 0
             fftInputBuffer.removeAll()
-            fftLinearMagnitudesScratch.removeAll()
-            fftDBMagnitudesScratch.removeAll()
             visualDBMagnitudesScratch.removeAll()
 
             // AE-7: Pre-allocate energy scratch buffers.
-            let newEnergyCount = size.rawValue / 2
-            fftEnergyScratch = [Float](repeating: 0, count: newEnergyCount)
-            lcPeakScratch = [Float](repeating: 0, count: newEnergyCount)
+            processingPipeline.resetScratch(energyCount: size.rawValue / 2)
 
             fftSize = size.rawValue
             currentBlockSize = size
@@ -1624,142 +1611,37 @@ class AudioEngine: ObservableObject {
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
         guard samples.count >= currentFFTSize else { return }
 
-        // Perform FFT into reusable buffers to avoid per-frame result arrays.
-        localFFTProcessor.performFFT(on: samples, gainBoost: gainBoost, into: &fftLinearMagnitudesScratch)
-        localFFTProcessor.convertToDB(fftLinearMagnitudesScratch, into: &fftDBMagnitudesScratch)
-        // DCT/Mel pipeline removed from the real-time audio thread (M19 regression):
-        // cblas_sgemv(128×1024) at 86 Hz was causing audio-thread overrun and a
-        // blurry mel-scale display. The spectrogram now uses the FFT path exclusively.
-        // AE-5: Logger calls are not real-time safe (acquire internal locks, may
-        // malloc on first category call). Periodic FFT-range logging removed from
-        // the audio render thread. Use os_signpost or Instruments if spectrum
-        // diagnostics are needed.
-
-        // Convert to dB for Spectrogram (dBFS → dB SPL mit Kalibrierung)
-        var calOffset = cal
-        vDSP_vsadd(fftDBMagnitudesScratch, 1, &calOffset, &fftDBMagnitudesScratch, 1, vDSP_Length(fftDBMagnitudesScratch.count))
-
         // Gate A/C spectral tracks to data consumers that actually need them.
         // Z is always available; A/C are emitted only for the selected global
         // weighting, active widget overrides, or measurement recording.
         let requiredSpectralWeightings = requiredSpectralWeightingsForCurrentFrame()
-        let dbZ = fftDBMagnitudesScratch
-        let needsA = requiredSpectralWeightings.contains(.a)
-        let needsC = requiredSpectralWeightings.contains(.c)
-
-        let dbA = needsA ? localWeightingProcessor.applyWeighting(
-            to: fftDBMagnitudesScratch, frequencies: localFFTProcessor.frequencies, weighting: .a) : nil
-        let dbC = needsC ? localWeightingProcessor.applyWeighting(
-            to: fftDBMagnitudesScratch, frequencies: localFFTProcessor.frequencies, weighting: .c) : nil
-
-        // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
-        let processedZ = spectrogramProcessor.process(
-            frequencies: localFFTProcessor.frequencies,
-            dbMagnitudes: dbZ,
-            sampleRate: processingSampleRate,
-            smoothingTrack: .z
-        )
-        let processedA = dbA.map {
-            spectrogramProcessor.process(
-                frequencies: localFFTProcessor.frequencies,
-                dbMagnitudes: $0,
-                sampleRate: processingSampleRate,
-                smoothingTrack: .a
-            )
-        }
-        let processedC = dbC.map {
-            spectrogramProcessor.process(
-                frequencies: localFFTProcessor.frequencies,
-                dbMagnitudes: $0,
-                sampleRate: processingSampleRate,
-                smoothingTrack: .c
-            )
-        }
-
-        let displayOctaveBandsZ = computeDisplayThirdOctaveBands(
-            frequencies: processedZ.bandFrequencies,
-            magnitudes: processedZ.bandMagnitudes
-        )
-        let displayOctaveBandsA = processedA.map {
-            computeDisplayThirdOctaveBands(
-                frequencies: $0.bandFrequencies,
-                magnitudes: $0.bandMagnitudes
-            )
-        } ?? Self.emptyThirdOctaveBands
-        let displayOctaveBandsC = processedC.map {
-            computeDisplayThirdOctaveBands(
-                frequencies: $0.bandFrequencies,
-                magnitudes: $0.bandMagnitudes
-            )
-        } ?? Self.emptyThirdOctaveBands
-
         // Bark band aggregation — only when a widget requests it (zero-cost otherwise).
-        // Uses the same binned band data as third-octave so no extra FFT pass is needed.
         let needsBark = widgetBarkBandsRequiredLock.withLockUnchecked { $0 }
-        let displayBarkBandsZ: [Float]
-        let displayBarkBandsA: [Float]
-        let displayBarkBandsC: [Float]
-        if needsBark {
-            displayBarkBandsZ = SpectrumBandAggregator.barkBands(
-                frequencies: processedZ.bandFrequencies,
-                spectrum: processedZ.bandMagnitudes
-            )
-            displayBarkBandsA = processedA.map {
-                SpectrumBandAggregator.barkBands(frequencies: $0.bandFrequencies, spectrum: $0.bandMagnitudes)
-            } ?? []
-            displayBarkBandsC = processedC.map {
-                SpectrumBandAggregator.barkBands(frequencies: $0.bandFrequencies, spectrum: $0.bandMagnitudes)
-            } ?? []
-        } else {
-            displayBarkBandsZ = []
-            displayBarkBandsA = []
-            displayBarkBandsC = []
-        }
 
-        // Calculate energies for acoustic metrics using vectorized Accelerate ops
-        let calibrationFactor = pow(10.0, cal / 10.0)
-        let energyCount = min(fftLinearMagnitudesScratch.count,
-                              min(localWeightingProcessor.aWeightingGainsSq.count,
-                                  localWeightingProcessor.cWeightingGainsSq.count))
-        if fftEnergyScratch.count != energyCount {
-            fftEnergyScratch = [Float](repeating: 0, count: energyCount)
-            lcPeakScratch = [Float](repeating: 0, count: energyCount)
-        }
-        vDSP_vsq(fftLinearMagnitudesScratch, 1, &fftEnergyScratch, 1, vDSP_Length(energyCount))
+        // Pure per-frame DSP runs in ProcessingPipeline (Phase 3, Task 3.3).
+        // DCT/Mel pipeline removed from the real-time audio thread (M19 regression).
+        // AE-5: Logger calls are not real-time safe — periodic FFT-range logging
+        // stays off the audio render thread (use os_signpost / Instruments).
+        let dsp = processingPipeline.computeFrame(
+            samples: samples,
+            fftProcessor: localFFTProcessor,
+            weightingProcessor: localWeightingProcessor,
+            spectrogramProcessor: spectrogramProcessor,
+            sampleRate: processingSampleRate,
+            gainBoost: gainBoost,
+            calibrationOffset: cal,
+            needsA: requiredSpectralWeightings.contains(.a),
+            needsC: requiredSpectralWeightings.contains(.c),
+            needsBark: needsBark
+        )
 
-        var energyZ: Float = 0.0
-        var energyA: Float = 0.0
-        var energyC: Float = 0.0
-        vDSP_sve(fftEnergyScratch, 1, &energyZ, vDSP_Length(energyCount))
-        vDSP_dotpr(fftEnergyScratch, 1, localWeightingProcessor.aWeightingGainsSq, 1, &energyA, vDSP_Length(energyCount))
-        vDSP_dotpr(fftEnergyScratch, 1, localWeightingProcessor.cWeightingGainsSq, 1, &energyC, vDSP_Length(energyCount))
-
-        energyZ *= calibrationFactor
-        energyA *= calibrationFactor
-        energyC *= calibrationFactor
-
-        // --- LCpeak (IEC 61672) ---
-        // LCpeak must be derived from the C-weighted signal, not from the raw
-        // broadband sample peak. We approximate the instantaneous peak of the
-        // C-weighted signal by finding the maximum per-bin C-weighted amplitude
-        // across the FFT frame and converting that to dB SPL.
-        //
-        // C-weighted amplitude for bin i = fftLinearMagnitudesScratch[i] * cGain[i]
-        // (amplitude-domain multiply; cGains are amplitude-domain linear factors).
-        //
-        // This is Approach A from the task spec (frequency-domain peak detector),
-        // chosen because cWeightingGains are already precomputed in the weighting
-        // processor and no IFFT or separate time-domain filter pass is required.
-        let cGains = localWeightingProcessor.getWeightingGains(for: .c)
-        let lcPeakCount = min(fftLinearMagnitudesScratch.count, cGains.count)
-        if lcPeakScratch.count != lcPeakCount {
-            lcPeakScratch = [Float](repeating: 0, count: lcPeakCount)
-        }
-        vDSP_vmul(fftLinearMagnitudesScratch, 1, cGains, 1, &lcPeakScratch, 1, vDSP_Length(lcPeakCount))
-        var cPeakLinear: Float = 0.0
-        vDSP_maxv(lcPeakScratch, 1, &cPeakLinear, vDSP_Length(lcPeakCount))
-        // 20·log10 (amplitude domain) → dBFS, then add calibration → dB SPL
-        let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + cal
+        let dbZ = dsp.fullDBZ
+        let displayOctaveBandsZ = dsp.displayOctaveBandsZ
+        let displayOctaveBandsA = dsp.displayOctaveBandsA
+        let displayOctaveBandsC = dsp.displayOctaveBandsC
+        let displayBarkBandsZ = dsp.barkBandsZ
+        let displayBarkBandsA = dsp.barkBandsA
+        let displayBarkBandsC = dsp.barkBandsC
 
         // Update acoustic metrics
         let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
@@ -1775,17 +1657,17 @@ class AudioEngine: ObservableObject {
             audioThreadRecordingDuration = 0
         }
         let metricsResult = metricsCalculator.updateMetrics(
-            energyZ: energyZ,
-            energyA: energyA,
-            energyC: energyC,
-            peakLevel: lcPeak,
+            energyZ: dsp.energyZ,
+            energyA: dsp.energyA,
+            energyC: dsp.energyC,
+            peakLevel: dsp.lcPeak,
             dt: dt,
             recordingDuration: audioThreadRecordingDuration,
             frequencies: localFFTProcessor.frequencies,
-            magnitudes: fftDBMagnitudesScratch,
+            magnitudes: dbZ,
             bandsZ: displayOctaveBandsZ,
-            bandsA: processedA != nil ? displayOctaveBandsA : [],
-            bandsC: processedC != nil ? displayOctaveBandsC : [],
+            bandsA: dsp.hasA ? displayOctaveBandsA : [],
+            bandsC: dsp.hasC ? displayOctaveBandsC : [],
             loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
         )
         let levels = metricsResult.levels
@@ -1832,16 +1714,16 @@ class AudioEngine: ObservableObject {
         logSpectrumDiagnosticsIfNeeded(
             fullFrequencies: localFFTProcessor.frequencies,
             fullMagnitudes: dbZ,
-            binnedFrequencies: processedZ.bandFrequencies,
-            binnedMagnitudes: processedZ.bandMagnitudes
+            binnedFrequencies: dsp.bandFrequencies,
+            binnedMagnitudes: dsp.bandMagnitudesZ
         )
         
         // Create spectrogram data with all weightings
         let spectrogramData = SpectrogramData(
-            frequencies: processedZ.bandFrequencies,
-            magnitudes: processedZ.bandMagnitudes,      // Z-weighted (linear)
-            magnitudesA: processedA?.bandMagnitudes,    // A-weighted when requested
-            magnitudesC: processedC?.bandMagnitudes,    // C-weighted when requested
+            frequencies: dsp.bandFrequencies,
+            magnitudes: dsp.bandMagnitudesZ,            // Z-weighted (linear)
+            magnitudesA: dsp.bandMagnitudesA,           // A-weighted when requested
+            magnitudesC: dsp.bandMagnitudesC,           // C-weighted when requested
             visualFrequencies: nil,
             visualMagnitudes: nil,
             broadbandLevel: broadbandLevel,
