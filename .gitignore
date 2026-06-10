@@ -4,7 +4,9 @@
 # Xcode
 *.xcuserstate
 xcuserdata/
+DerivedData/
 .DerivedData/
+.derivedData-*/
 *.hmap
 *.ipa
 *.dSYM.zip
