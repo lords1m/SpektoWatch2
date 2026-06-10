@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct WatchSpectrogramWidget: View {
     @EnvironmentObject var audioEngine: WatchAudioEngine
@@ -8,7 +9,9 @@ struct WatchSpectrogramWidget: View {
     // previous `[[Float]]` + `removeFirst()` (O(n) per audio frame).
     @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: WatchSpectrogramWidget.maxFrames)
     private let maxFrames = WatchSpectrogramWidget.maxFrames
-    private let displayBins = 32
+    private var displayBins: Int {
+        min(32, SpectrogramResolution.current.watchDisplayBinCount)
+    }
 
     private let minDB: Float = -180.0
     private let maxDB: Float = -40.0
@@ -40,13 +43,15 @@ struct WatchSpectrogramWidget: View {
                     }
                 }
             }
-            .drawingGroup()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         // Single source of truth: `liveData` reflects whichever mode is active
         // (companion -> phone-pushed; wearableMic -> local audio). No branching.
-        .onReceive(audioEngine.$liveData) { data in
-            guard let data else { return }
+        .onReceive(
+            audioEngine.$liveData
+                .compactMap { $0 }
+                .throttledForWatchLiveDisplay()
+        ) { data in
             processData(data)
         }
     }

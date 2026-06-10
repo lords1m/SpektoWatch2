@@ -25,12 +25,19 @@ struct WatchModularFace: View {
             WatchAppBackground().ignoresSafeArea()
 
             VStack(spacing: 4) {
+                HStack {
+                    WatchMeasurementSourceIndicator()
+                    Spacer(minLength: 0)
+                }
+
                 heroSlot
                 spectrogramStrip
                 HStack(spacing: 4) {
                     metricTile(label: "PEAK", value: peak, color: amber)
                     metricTile(label: "LEQ",  value: leq,  color: phosphor)
                 }
+
+                WatchRecordButton()
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 6)
@@ -65,7 +72,7 @@ struct WatchModularFace: View {
             guard spectroFrames.count > 0 else { return }
             let frames = spectroFrames.inOrder()
             let colW = size.width / CGFloat(spectroFrames.capacity)
-            let displayBins = 16
+            let displayBins = min(16, SpectrogramResolution.current.watchDisplayBinCount)
             for (i, mags) in frames.enumerated() {
                 guard !mags.isEmpty else { continue }
                 let chunk = max(1, mags.count / displayBins)

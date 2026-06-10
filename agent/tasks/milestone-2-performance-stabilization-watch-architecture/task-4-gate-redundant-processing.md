@@ -63,7 +63,7 @@ Added `AudioEngineTests` coverage for:
 Compile gate:
 
 ```sh
-xcodebuild build-for-testing -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan SpektoWatch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1"
+xcodebuild build-for-testing -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan spekto-watch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1"
 ```
 
 Result: `TEST BUILD SUCCEEDED`.

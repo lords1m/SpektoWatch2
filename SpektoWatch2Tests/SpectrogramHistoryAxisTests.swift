@@ -23,7 +23,14 @@ final class SpectrogramHistoryAxisTests: XCTestCase {
     }
 
     func testLogSpacedBinCountScalesWithFFTSize() {
-        XCTAssertEqual(SpectrogramHistoryAxis.logBinCount(forFFTSize: 4096), 1024)
+        XCTAssertEqual(
+            SpectrogramHistoryAxis.logBinCount(forFFTSize: 4096, resolution: .standard),
+            1024
+        )
+        XCTAssertEqual(
+            SpectrogramHistoryAxis.logBinCount(forFFTSize: 4096, resolution: .balanced),
+            1365
+        )
         XCTAssertEqual(SpectrogramHistoryAxis.hopSize(forFFTSize: 4096), 512)
     }
 }

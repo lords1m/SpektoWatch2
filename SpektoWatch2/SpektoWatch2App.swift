@@ -14,14 +14,14 @@ struct SpektoWatch2App: App {
 
     init() {
 #if DEBUG
+        UITestRuntime.configureFromLaunchArguments()
         UITestLaunchConfiguration.applyIfNeeded()
         UITestSeedConfiguration.applyIfNeeded()
 #endif
-        // Run the one-shot persistence migrations before any service
-        // (AppServices and its sub-services) reads a key. After a UI-test
-        // -ResetState wipe this just stamps the current schema version on an
-        // empty defaults domain. (M13 task-8 Phase 2.)
-        PersistenceMigrator.runMigrationsIfNeeded()
+        // Kick migrations off the launch critical path. Consumers that read
+        // keys touched by migration steps must wait via
+        // `ensureMigrationsComplete` or `startMigrationsIfNeeded(completion:)`.
+        PersistenceMigrator.startMigrationsIfNeeded()
     }
 
     var body: some Scene {
@@ -46,13 +46,21 @@ struct SpektoWatch2App: App {
                         .ignoresSafeArea()
                 }
             }
-            .onAppear {
-                // DispatchQueue.main.async guarantees execution after the
-                // first frame is committed — more reliable than .task {}
-                // on first launch.
-                DispatchQueue.main.async {
-                    services.startAudio()
-                }
+            // `.task` is the reliable hook for first-launch bootstrap; `onAppear`
+            // alone can fail to run while the splash placeholder is showing, which
+            // left `startAudio()` uncalled even though migrations had finished.
+            .task {
+                await Self.waitForPersistenceMigrations()
+                services.startAudio()
+            }
+        }
+    }
+
+    /// Suspends until the async migration runner started in `init()` completes.
+    private static func waitForPersistenceMigrations() async {
+        await withCheckedContinuation { continuation in
+            PersistenceMigrator.startMigrationsIfNeeded {
+                continuation.resume()
             }
         }
     }

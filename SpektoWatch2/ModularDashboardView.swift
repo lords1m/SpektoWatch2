@@ -138,6 +138,11 @@ struct ModularDashboardView: View {
         }
         .task {
             dashboardManager.startLoading()
+            if UITestLaunchFlags.installWidgetSizeScreenshotPreset {
+                PersistenceMigrator.startMigrationsIfNeeded {
+                    dashboardManager.installWidgetSizeScreenshotPreset()
+                }
+            }
         }
     }
 
@@ -387,13 +392,6 @@ struct ModularDashboardView: View {
                                 } else {
                                     card
                                         .gridCellColumns(span)
-                                        .onLongPressGesture(minimumDuration: 0.45) {
-                                            guard isActiveLayout else { return }
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                                dashboardManager.isEditMode = true
-                                            }
-                                        }
                                 }
                             }
                         }

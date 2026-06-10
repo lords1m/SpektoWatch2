@@ -18,6 +18,10 @@ struct SingleValueWidget: View {
         // use case is multiple widgets each showing a *different* metric.
         settings["metric"] ?? WidgetSettings.defaultSingleValueMetric
     }
+
+    private var refreshRate: SingleValueRefreshRate {
+        WidgetSettings.singleValueRefreshRate(settings)
+    }
     
     var displayTitle: AttributedString {
         var result = AttributedString()
@@ -110,10 +114,15 @@ struct SingleValueWidget: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .innerCanvas(cornerRadius: 0)
         .onReceive(live.$currentSpectrogramData) { data in
-            guard let data = data else {
+            if data == nil {
                 self.value = nil
-                return
             }
+        }
+        .onReceive(
+            live.$currentSpectrogramData
+                .compactMap { $0 }
+                .throttledForSingleValueDisplay(rate: refreshRate)
+        ) { data in
             // PHON and SONE are now populated by AcousticMetricsCalculator,
             // so all metrics including loudness use the same levels dict path.
             let raw = data.levels[metricKey] ?? 0.0

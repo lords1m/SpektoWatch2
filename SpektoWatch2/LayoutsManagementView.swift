@@ -115,15 +115,16 @@ struct LayoutsManagementView: View {
                     .accessibilityIdentifier("layoutsDuplicateCurrent")
                 }
 
-                #if DEBUG
-                Section(header: Text("Entwicklung")) {
-                    Button("Screenshot-Preset: Widgetgrößen") {
-                        dashboardManager.installWidgetSizeScreenshotPreset()
-                        dismiss()
+                if UITestLaunchFlags.widgetSizeScreenshotPresetAvailable {
+                    Section(header: Text("Entwicklung")) {
+                        Button("Screenshot-Preset: Widgetgrößen") {
+                            dashboardManager.installWidgetSizeScreenshotPreset()
+                            dismiss()
+                        }
+                        .accessibilityIdentifier("layoutsScreenshotPreset")
+                        .accessibilityAddTraits(.isButton)
                     }
-                    .accessibilityIdentifier("layoutsScreenshotPreset")
                 }
-                #endif
             }
             .polishedFormChrome()
             .navigationTitle("Layouts")

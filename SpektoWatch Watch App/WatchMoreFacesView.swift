@@ -6,20 +6,29 @@ struct WatchMoreFacesView: View {
         NavigationStack {
             List {
                 NavigationLink {
-                    WatchSpectrogramView()
+                    WatchMeterLayoutSettingsView()
                 } label: {
-                    Label("Spektrogramm", systemImage: "waveform.path.ecg")
+                    Label("Meter-Layout", systemImage: "square.grid.3x3.square")
                 }
+
                 NavigationLink {
-                    WatchLevelMeterView()
+                    WatchDashboardLayoutSettingsView()
                 } label: {
-                    Label("Pegel-Meter", systemImage: "gauge.with.needle")
+                    Label("Dashboard-Pegel", systemImage: "gauge.with.needle")
                 }
+
                 NavigationLink {
-                    WatchDashboardView()
+                    WatchMeasurementSourceSettingsView()
                 } label: {
-                    Label("Modular", systemImage: "square.grid.2x2")
+                    Label("Messquelle", systemImage: "mic.and.signal.meter")
                 }
+
+                NavigationLink {
+                    WatchTonegeneratorFace()
+                } label: {
+                    Label("Tongenerator", systemImage: "waveform.path")
+                }
+
                 NavigationLink {
                     WatchRecordingsView()
                 } label: {

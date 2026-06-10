@@ -36,7 +36,7 @@ ACP state.
 Automated compile gate:
 
 ```sh
-xcodebuild build-for-testing -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan SpektoWatch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1"
+xcodebuild build-for-testing -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan spekto-watch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1"
 ```
 
 Result: `TEST BUILD SUCCEEDED`.
@@ -44,7 +44,7 @@ Result: `TEST BUILD SUCCEEDED`.
 Targeted runtime test attempt:
 
 ```sh
-xcodebuild test-without-building -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan SpektoWatch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1" -only-testing:SpektoWatch2Tests/WatchConnectivityTests -only-testing:SpektoWatch2Tests/AudioEngineTests -only-testing:SpektoWatch2Tests/FFTProcessorTests -only-testing:SpektoWatch2Tests/MeasurementDataIOTests -only-testing:SpektoWatch2Tests/PerformanceProfilingTests
+xcodebuild test-without-building -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan spekto-watch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1" -only-testing:SpektoWatch2Tests/WatchConnectivityTests -only-testing:SpektoWatch2Tests/AudioEngineTests -only-testing:SpektoWatch2Tests/FFTProcessorTests -only-testing:SpektoWatch2Tests/MeasurementDataIOTests -only-testing:SpektoWatch2Tests/PerformanceProfilingTests
 ```
 
 Result: blocked before test execution. CoreSimulator failed to enumerate the

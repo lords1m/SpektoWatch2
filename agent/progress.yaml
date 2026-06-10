@@ -95,28 +95,22 @@ milestones:
 
   M7:
     name: Xcode Cloud Snapshot Testing
-    status: in_progress
+    status: completed
     priority: medium
-    progress: 50
+    progress: 100
     started: "2026-05-20"
+    completed: "2026-06-02"
     estimated_weeks: "1"
-    tasks_completed: 1
+    tasks_completed: 4
     tasks_total: 4
     notes: >
-      Bundled-resources snapshot-testing pattern (Jaanus) with pointfreeco/swift-snapshot-testing
-      >= 1.17.4. Task-1 complete (2026-05-20): package added to
-      SpektoWatch2Tests, __Snapshots__ blue folder reference wired with
-      README.txt placeholder, SpektoWatch2.xctestplan pinned (language=en,
-      region=US, UI=light, TZ=UTC env var, parallelization off on both test
-      targets), .gitignore extended for xcresult/TestResults/failure-diff PNGs,
-      ~130 MB tracked TestResults/ untracked via git rm --cached. Task-2 code
-      landed: all four PDFReportSnapshotTests stubs implemented with a frozen
-      2026-01-01 Recording fixture routed through
-      PDFReportGenerator().generateReport(for:recordingManager:). Remaining
-      task-1: Dynamic Type UI tick + Xcode Cloud workflow with RECORD_SNAPSHOTS
-      and TZ=UTC env vars. Remaining task-2: determinism verification gated
-      on first Cloud run. Spectrogram, watch complications, diff-HTML
-      reporting deferred to M8 / backlog.
+      Restored after 95a7da9 removal (2026-06-02): SnapshotTestSupport,
+      PDFReportSnapshotTests, committed png/txt baselines, TestPlans/snapshots.xctestplan,
+      SPM trimmed to SnapshotTesting on SpektoWatch2Tests only. Local verify:
+      both PDF snapshot tests green on iPhone 17 Pro (iOS 26.5). Handoff:
+      agent/reports/2026-06-02-snapshot-testing-restored.md. Xcode Cloud
+      Snapshots workflow + second green run still manual in App Store Connect.
+      Spectrogram/watch snapshots remain M8 backlog.
     file: agent/milestones/milestone-7-xcode-cloud-snapshot-testing.md
 
   M8:

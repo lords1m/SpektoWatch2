@@ -76,6 +76,131 @@ struct WaterfallCameraProjection {
 }
 
 // ============================================================================
+// MARK: - Render options
+// ============================================================================
+
+/// Tunables that let one renderer serve both the compact dashboard tile and
+/// the large analysis surfaces (fullscreen / recording playback) without
+/// duplicating the drawing code.
+struct WaterfallRenderOptions: Equatable {
+    /// Draw amplitude-coloured peak dots. Off by default — they're a major
+    /// source of clutter on a dense history.
+    var showPeaks: Bool
+    /// Overlay max-hold and average spectra in the level-axis (oblique) mode.
+    var showStatistics: Bool
+    /// Analysis chrome: dB colorbar legend, frequency/time gridlines, tick
+    /// labels and the peak readout panel.
+    var analysisLayout: Bool
+    /// Start the camera looking straight down (filled heatmap) — the most
+    /// analysis-friendly default for the fullscreen / playback surfaces.
+    var startTopDown: Bool
+    /// Cap on how many time-slices are stroked in the line / 3D modes. Storing
+    /// more history than this is fine; the draw is strided so adjacent traces
+    /// don't merge into an unreadable tangle.
+    var maxRenderedTraces: Int
+    /// Spectrum mode of the underlying data — lets the crosshair snap to band
+    /// centers when the data is 1/3-octave / Bark / octave.
+    var spectrumMode: WaterfallSpectrumMode
+
+    init(showPeaks: Bool = false,
+         showStatistics: Bool = false,
+         analysisLayout: Bool = false,
+         startTopDown: Bool = false,
+         maxRenderedTraces: Int = 56,
+         spectrumMode: WaterfallSpectrumMode = .continuous) {
+        self.showPeaks = showPeaks
+        self.showStatistics = showStatistics
+        self.analysisLayout = analysisLayout
+        self.startTopDown = startTopDown
+        self.maxRenderedTraces = max(8, maxRenderedTraces)
+        self.spectrumMode = spectrumMode
+    }
+
+    /// Compact dashboard tile — heatmap when looking top-down, minimal chrome.
+    static let widget = WaterfallRenderOptions()
+
+    /// Fullscreen / playback analysis surface — heatmap-first with full chrome.
+    static func analysis(spectrumMode: WaterfallSpectrumMode = .continuous,
+                         showPeaks: Bool = true,
+                         showStatistics: Bool = true) -> WaterfallRenderOptions {
+        WaterfallRenderOptions(
+            showPeaks: showPeaks,
+            showStatistics: showStatistics,
+            analysisLayout: true,
+            startTopDown: true,
+            maxRenderedTraces: 56,
+            spectrumMode: spectrumMode
+        )
+    }
+}
+
+// ============================================================================
+// MARK: - Analysis helpers (pure, testable)
+// ============================================================================
+
+enum WaterfallAnalysis {
+    struct Peak: Equatable {
+        let binIndex: Int
+        let frequency: Float
+        let level: Float
+    }
+
+    /// Local maxima of a spectrum slice, sorted loudest-first. `minProminence`
+    /// (dB above the slice mean) suppresses ripple; returns at most `limit`.
+    static func peaks(magnitudes: [Float],
+                      frequencies: [Float],
+                      minProminence: Float = 3,
+                      limit: Int = 6) -> [Peak] {
+        guard magnitudes.count > 2 else { return [] }
+        let mean = magnitudes.reduce(0, +) / Float(magnitudes.count)
+        let upper = min(magnitudes.count, frequencies.count)
+        guard upper > 2 else { return [] }
+        var found: [Peak] = []
+        var i = 1
+        while i < upper - 1 {
+            let v = magnitudes[i]
+            if v > magnitudes[i - 1], v >= magnitudes[i + 1], v > mean + minProminence {
+                found.append(Peak(binIndex: i, frequency: frequencies[i], level: v))
+            }
+            i += 1
+        }
+        found.sort { $0.level > $1.level }
+        return Array(found.prefix(limit))
+    }
+
+    /// Per-bin maximum across every slice (max-hold).
+    static func maxHold(slices: [[Float]]) -> [Float] {
+        guard let first = slices.first, !first.isEmpty else { return [] }
+        var out = first
+        for slice in slices.dropFirst() where slice.count == out.count {
+            for i in 0..<out.count { out[i] = max(out[i], slice[i]) }
+        }
+        return out
+    }
+
+    /// Per-bin linear average across every slice.
+    static func average(slices: [[Float]]) -> [Float] {
+        guard let first = slices.first, !first.isEmpty else { return [] }
+        var out = [Float](repeating: 0, count: first.count)
+        var n = 0
+        for slice in slices where slice.count == out.count {
+            for i in 0..<out.count { out[i] += slice[i] }
+            n += 1
+        }
+        guard n > 0 else { return out }
+        for i in 0..<out.count { out[i] /= Float(n) }
+        return out
+    }
+
+    /// "Nice" frequency gridline anchors that fall inside [lo, hi].
+    static func frequencyTicks(lo: Float, hi: Float) -> [Float] {
+        let candidates: [Float] = [20, 31.5, 50, 63, 100, 125, 200, 250, 500,
+                                   1_000, 2_000, 4_000, 5_000, 8_000, 10_000, 16_000, 20_000]
+        return candidates.filter { $0 >= lo && $0 <= hi }
+    }
+}
+
+// ============================================================================
 // MARK: - WaterfallView (renderer)
 // ============================================================================
 
@@ -85,6 +210,8 @@ struct WaterfallView: View {
     /// `nil` (live mode) suppresses the bar; recording-detail playback passes
     /// the current scrub time so the user sees where they are in the data.
     let highlightedTime: TimeInterval?
+    /// Rendering / chrome configuration. Defaults to the compact tile preset.
+    var options: WaterfallRenderOptions = .widget
 
     // MARK: Camera state
 
@@ -105,6 +232,11 @@ struct WaterfallView: View {
     /// a 2D mode; `crosshair` follows 1-finger drag while the picker is on.
     @State private var pickerEnabled: Bool = false
     @State private var crosshair: CGPoint? = nil
+    /// Second ("anchor") cursor for two-cursor Δf / Δt / ΔdB measurements.
+    /// Set by a long-press while the picker is active.
+    @State private var anchor: CGPoint? = nil
+    /// Applies `options.startTopDown` exactly once on first appearance.
+    @State private var didApplyStartMode: Bool = false
 
     @GestureState private var dragDelta: CGSize = .zero
     @GestureState private var pinchScale: CGFloat = 1.0
@@ -243,10 +375,12 @@ struct WaterfallView: View {
             .contentShape(Rectangle())
             .gesture(dragGesture)
             .simultaneousGesture(zoomGesture)
+            .simultaneousGesture(anchorLongPressGesture)
             // Tap ordering: count:2 must come BEFORE count:1 so SwiftUI's
             // disambiguation lets the double-tap window resolve first.
             .onTapGesture(count: 2, perform: resetCamera)
             .onTapGesture(count: 1, perform: togglePicker)
+            .onAppear(perform: applyStartModeIfNeeded)
             .overlay(
                 TwoFingerPanRecognizer(
                     onChange: { delta in twoFingerDelta = delta },
@@ -313,6 +447,25 @@ struct WaterfallView: View {
             }
     }
 
+    /// Long-press pins the current crosshair as the anchor (cursor B) so the
+    /// readout switches to Δf / Δt / ΔdB between the two cursors.
+    private var anchorLongPressGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.4)
+            .onEnded { _ in
+                guard inPickerMode, pickerEnabled, let current = crosshair else { return }
+                withAnimation(.easeInOut(duration: 0.15)) { anchor = current }
+            }
+    }
+
+    private func applyStartModeIfNeeded() {
+        guard !didApplyStartMode else { return }
+        didApplyStartMode = true
+        if options.startTopDown {
+            pitch = 1.0
+            yaw = 0
+        }
+    }
+
     private func commitTwoFingerPan(_ delta: CGSize) {
         zOffsetDB = clampDB(zOffsetDB + Float(-delta.height) * Self.zPanScale)
         if viewMode != .sideLevelHistory2D {
@@ -328,6 +481,7 @@ struct WaterfallView: View {
             zOffsetDB = Self.defaultZOffsetDB
             xPanFrac = Self.defaultXPanFrac
             crosshair = nil
+            anchor = nil
             pickerEnabled = false
         }
     }
@@ -336,7 +490,10 @@ struct WaterfallView: View {
         guard inPickerMode else { return }
         withAnimation(.easeInOut(duration: 0.15)) {
             pickerEnabled.toggle()
-            if !pickerEnabled { crosshair = nil }
+            if !pickerEnabled {
+                crosshair = nil
+                anchor = nil
+            }
         }
     }
 
@@ -350,19 +507,33 @@ struct WaterfallView: View {
     private func draw(in bounds: CGRect, context: inout GraphicsContext) {
         guard !dataSet.isEmpty else { return }
 
-        // Margins reserve space for axis labels OUTSIDE the plot area.
+        // Margins reserve space for axis labels OUTSIDE the plot area. The
+        // analysis layout widens the right margin to host the dB colorbar.
+        let leftMargin: CGFloat = 42
+        let rightMargin: CGFloat = options.analysisLayout ? 56 : 12
+        let topMargin: CGFloat = 22
+        let bottomMargin: CGFloat = 36
         let plot = CGRect(
-            x: bounds.minX + 42,
-            y: bounds.minY + 22,
-            width: max(1, bounds.width - 54),
-            height: max(1, bounds.height - 58)
+            x: bounds.minX + leftMargin,
+            y: bounds.minY + topMargin,
+            width: max(1, bounds.width - leftMargin - rightMargin),
+            height: max(1, bounds.height - topMargin - bottomMargin)
         )
 
-        // Clip the unified scene to the plot rect — without this, content
-        // pans / projects outside `plot` and paints over the axis labels.
+        // Clip the scene to the plot rect — without this, content pans /
+        // projects outside `plot` and paints over the axis labels.
         var sceneContext = context
         sceneContext.clip(to: Path(plot))
-        drawUnifiedScene(plot: plot, context: &sceneContext)
+        if viewMode == .topDown2D {
+            // True filled frequency×time heatmap (color = level) — the
+            // standard, legible spectrogram surface for measurement.
+            drawHeatmap(plot: plot, context: &sceneContext)
+        } else {
+            drawUnifiedScene(plot: plot, context: &sceneContext)
+        }
+        if viewMode == .topDown2D {
+            drawGrid(plot: plot, context: &sceneContext)
+        }
         if let t = highlightedTime, t.isFinite, t >= 0, dataSet.duration > 0 {
             drawPlayhead3D(time: t, plot: plot, context: &sceneContext)
         }
@@ -371,6 +542,11 @@ struct WaterfallView: View {
         // of plot interior. Crosshair lives in the un-clipped layer too —
         // the readout pill should not be clipped by the plot rect.
         drawLabels(plot: plot, bounds: bounds, context: &context)
+
+        if options.analysisLayout {
+            drawColorbar(bounds: bounds, plot: plot, context: &context)
+            drawPeakPanel(plot: plot, context: &context)
+        }
 
         if pickerEnabled, inPickerMode, let position = crosshair {
             drawCrosshair(at: position, plot: plot, context: &context)
@@ -408,16 +584,6 @@ struct WaterfallView: View {
         let lastBinIndex = binCount - 1
         let panFrac = Float(effectiveXPanFrac)
 
-        // Sort slices by post-rotation depth (painter's algorithm). The
-        // closer-to-camera slice is drawn last and occludes farther ones.
-        let drawOrder: [Int] = (0...lastIndex)
-            .map { i -> (Int, Float) in
-                let zWorld = Float(i) / Float(max(lastIndex, 1)) - 0.5
-                return (i, camera.project(SIMD3(0, 0, zWorld)).depth)
-            }
-            .sorted { $0.1 < $1.1 }
-            .map { $0.0 }
-
         let plotCenterX = plot.midX
         let plotCenterY = plot.midY
         // Yaw mixes the frequency (x) and time (z) axes, expanding the projected
@@ -427,64 +593,74 @@ struct WaterfallView: View {
         let plotScaleX = plot.width * CGFloat(1.0 / yawExpansion)
         let plotScaleY = plot.height * effectiveZoom
 
-        // In top-down mode the amplitude axis collapses — pixels can no
-        // longer encode amplitude positionally, so we boost the per-slice
-        // color saturation by routing the slice's PEAK amplitude through
-        // the colormap instead of its age fraction.
-        let topDownTint = (viewMode == .topDown2D)
+        // Render-thinning: stroke at most `maxRenderedTraces` ridgelines so a
+        // dense history doesn't collapse into a tangle. The newest slice is
+        // always drawn; older ones are strided, and the oldest is kept as a
+        // floor reference.
+        let stride = max(1, Int(ceil(Double(sliceCount) / Double(options.maxRenderedTraces))))
+        var rendered: [Int] = []
+        var idx = lastIndex
+        while idx >= 0 { rendered.append(idx); idx -= stride }
+        if rendered.last != 0 { rendered.append(0) }
+        // Painter's algorithm: far (smaller depth) first so near slices occlude.
+        let drawOrder = rendered.sorted { a, b in
+            let za = Float(a) / Float(max(lastIndex, 1)) - 0.5
+            let zb = Float(b) / Float(max(lastIndex, 1)) - 0.5
+            return camera.project(SIMD3(0, 0, za)).depth < camera.project(SIMD3(0, 0, zb)).depth
+        }
 
         for displayIndex in drawOrder {
             let slice = slices[displayIndex]
             guard !slice.magnitudes.isEmpty else { continue }
             let zWorld = Float(displayIndex) / Float(max(lastIndex, 1)) - 0.5
 
-            // Age 0 = newest, 1 = oldest. Old slices fade so the front of
-            // the mountain range stays readable.
+            // Age 0 = newest, 1 = oldest. Aggressive fade keeps the front
+            // ridgelines crisp while older ones recede into the background.
             let age = Float(lastIndex - displayIndex) / Float(max(lastIndex, 1))
-            let baseOpacity = Double(0.30 + 0.70 * (1 - age))
+            let baseOpacity = 0.10 + 0.90 * pow(Double(1 - age), 1.6)
+            let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
 
-            // Slice tint: in top-down mode use the slice's peak amplitude
-            // so loud rows pop in the heatmap. Otherwise tint by recency
-            // (newest = warm Turbo, oldest = cool).
-            let tintT: Float = {
-                if topDownTint {
-                    let peak = slice.magnitudes.max() ?? dataSet.minDB
-                    return normalizedLevel(peak)
-                }
-                // 3D: 70% peak amplitude + 30% recency so loud spikes
-                // immediately show as warm regardless of their age.
-                let peak = slice.magnitudes.max() ?? dataSet.minDB
-                let peakNorm = normalizedLevel(peak)
-                return 0.15 + peakNorm * 0.70 + (1 - age) * 0.15
-            }()
-            let strokeColor = TurboColormap.color(for: tintT)
-                .opacity(baseOpacity)
-
-            // Build the slice polyline as a single Path.
-            var path = Path()
+            // Per-point amplitude colour: project each bin and remember its
+            // normalized level, then stroke as colour-run sub-paths so the
+            // hue tracks amplitude along the trace instead of one hue per slice.
+            var points: [(point: CGPoint, level: Float)] = []
+            points.reserveCapacity(binCount)
             for binIndex in 0..<binCount {
                 let binFrac = Float(binIndex) / Float(max(lastBinIndex, 1))
                 let xWorld = (binFrac - panFrac) - 0.5
-                let yWorld = normalizedLevel(slice.magnitudes[binIndex]) - 0.5
-                let projected = camera.project(SIMD3(xWorld, yWorld, zWorld))
-                let screen = CGPoint(
+                let level = normalizedLevel(slice.magnitudes[binIndex])
+                let projected = camera.project(SIMD3(xWorld, level - 0.5, zWorld))
+                points.append((CGPoint(
                     x: plotCenterX + CGFloat(projected.x) * plotScaleX,
                     y: plotCenterY + CGFloat(projected.y) * plotScaleY
-                )
-                if binIndex == 0 {
-                    path.move(to: screen)
-                } else {
-                    path.addLine(to: screen)
-                }
+                ), level))
             }
-
-            let lineWidth: CGFloat = (displayIndex == lastIndex) ? 1.8 : 1.0
-            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+            strokeAmplitudeColored(points: points, baseOpacity: baseOpacity, lineWidth: lineWidth, context: &context)
         }
 
-        // Second pass: amplitude-coloured dots at local frequency peaks.
-        // Skipped in side mode where x is time, not frequency.
-        guard viewMode != .sideLevelHistory2D else { return }
+        // Max-hold / average overlay — only meaningful in the oblique mode
+        // where x = frequency and y = level. Drawn on the front plane.
+        if options.showStatistics, viewMode == .oblique3D {
+            let mags = slices.map { $0.magnitudes }
+            let maxHold = WaterfallAnalysis.maxHold(slices: mags)
+            if !maxHold.isEmpty {
+                drawSpectrumCurve(maxHold, zWorld: 0.5, color: .white.opacity(0.85), lineWidth: 1.3,
+                                  camera: camera, plotCenterX: plotCenterX, plotCenterY: plotCenterY,
+                                  plotScaleX: plotScaleX, plotScaleY: plotScaleY,
+                                  panFrac: panFrac, lastBinIndex: lastBinIndex, context: &context)
+            }
+            let avg = WaterfallAnalysis.average(slices: mags)
+            if !avg.isEmpty {
+                drawSpectrumCurve(avg, zWorld: 0.5, color: .white.opacity(0.40), lineWidth: 1.0,
+                                  camera: camera, plotCenterX: plotCenterX, plotCenterY: plotCenterY,
+                                  plotScaleX: plotScaleX, plotScaleY: plotScaleY,
+                                  panFrac: panFrac, lastBinIndex: lastBinIndex, context: &context)
+            }
+        }
+
+        // Optional amplitude-coloured peak dots (opt-in — a major source of
+        // clutter). Skipped in side mode where x is time, not frequency.
+        guard options.showPeaks, viewMode != .sideLevelHistory2D else { return }
         for displayIndex in drawOrder {
             let slice = slices[displayIndex]
             // Interior local maxima require at least 3 bins; fewer would make the
@@ -526,6 +702,209 @@ struct WaterfallView: View {
         }
     }
 
+    /// Strokes a polyline whose colour tracks the per-point normalized level.
+    /// Consecutive points sharing a quantized Turbo bucket are stroked as one
+    /// sub-path, bounding the command count (≤ buckets per slice) while still
+    /// encoding amplitude along the trace.
+    private func strokeAmplitudeColored(points: [(point: CGPoint, level: Float)],
+                                        baseOpacity: Double,
+                                        lineWidth: CGFloat,
+                                        context: inout GraphicsContext) {
+        guard points.count > 1 else { return }
+        let buckets = 16
+        func bucket(_ v: Float) -> Int { min(buckets - 1, max(0, Int(v * Float(buckets)))) }
+
+        var path = Path()
+        path.move(to: points[0].point)
+        var runBucket = bucket(points[0].level)
+        for i in 1..<points.count {
+            path.addLine(to: points[i].point)
+            let b = bucket(points[i].level)
+            if b != runBucket || i == points.count - 1 {
+                let t = (Float(runBucket) + 0.5) / Float(buckets)
+                context.stroke(path, with: .color(TurboColormap.color(for: t).opacity(baseOpacity)), lineWidth: lineWidth)
+                path = Path()
+                path.move(to: points[i].point)
+                runBucket = b
+            }
+        }
+    }
+
+    /// Projects a single spectrum (frequency → level) onto the given time
+    /// plane and strokes it as one polyline. Used for the max-hold / average
+    /// overlays in the oblique mode.
+    private func drawSpectrumCurve(_ magnitudes: [Float],
+                                   zWorld: Float,
+                                   color: Color,
+                                   lineWidth: CGFloat,
+                                   camera: WaterfallCameraProjection,
+                                   plotCenterX: CGFloat,
+                                   plotCenterY: CGFloat,
+                                   plotScaleX: CGFloat,
+                                   plotScaleY: CGFloat,
+                                   panFrac: Float,
+                                   lastBinIndex: Int,
+                                   context: inout GraphicsContext) {
+        var path = Path()
+        for bin in 0..<magnitudes.count {
+            let binFrac = Float(bin) / Float(max(lastBinIndex, 1))
+            let xWorld = (binFrac - panFrac) - 0.5
+            let yWorld = normalizedLevel(magnitudes[bin]) - 0.5
+            let projected = camera.project(SIMD3(xWorld, yWorld, zWorld))
+            let pt = CGPoint(x: plotCenterX + CGFloat(projected.x) * plotScaleX,
+                             y: plotCenterY + CGFloat(projected.y) * plotScaleY)
+            if bin == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+        }
+        context.stroke(path, with: .color(color), lineWidth: lineWidth)
+    }
+
+    // ========================================================================
+    // MARK: - Top-down heatmap
+    // ========================================================================
+
+    /// Filled frequency×time heatmap. Each cell is coloured by its level via
+    /// the Turbo LUT — the standard, legible spectrogram surface. Rows/columns
+    /// are downsampled to ≈1 cell per pixel so the command count stays bounded
+    /// regardless of slice / bin count.
+    private func drawHeatmap(plot: CGRect, context: inout GraphicsContext) {
+        let slices = dataSet.slices
+        guard let first = slices.first, !first.magnitudes.isEmpty else { return }
+        let binCount = first.magnitudes.count
+        let panFrac = effectiveXPanFrac
+
+        let rows = min(slices.count, max(40, Int(plot.height)))
+        let cols = min(binCount, max(64, Int(plot.width)))
+        guard rows > 0, cols > 0 else { return }
+        let cellW = plot.width / CGFloat(cols)
+        let cellH = plot.height / CGFloat(rows)
+
+        for row in 0..<rows {
+            // Row 0 = top = oldest; last row = bottom = newest ("aktuell").
+            let sliceFrac = rows > 1 ? Float(row) / Float(rows - 1) : 0
+            let sliceIdx = min(slices.count - 1, max(0, Int((sliceFrac * Float(slices.count - 1)).rounded())))
+            let mags = slices[sliceIdx].magnitudes
+            guard !mags.isEmpty else { continue }
+            let y = plot.minY + CGFloat(row) * cellH
+            let lastMagIndex = mags.count - 1
+
+            for col in 0..<cols {
+                // Column maps to the panned frequency window [pan, pan+1].
+                let centerFrac = (Float(col) + 0.5) / Float(cols)
+                let binFracWindow = centerFrac + panFrac
+                if binFracWindow < 0 || binFracWindow > 1 { continue }
+                let binIdx = min(lastMagIndex, max(0, Int((binFracWindow * Float(lastMagIndex)).rounded())))
+                let norm = normalizedLevel(mags[binIdx])
+                if norm <= 0.002 { continue }   // leave the near-floor black
+                let rect = CGRect(x: plot.minX + CGFloat(col) * cellW,
+                                  y: y,
+                                  width: cellW + 0.75,
+                                  height: cellH + 0.75)
+                context.fill(Path(rect), with: .color(TurboColormap.color(for: norm)))
+            }
+        }
+    }
+
+    /// Frequency (vertical) and time (horizontal) gridlines for the heatmap.
+    private func drawGrid(plot: CGRect, context: inout GraphicsContext) {
+        guard viewMode == .topDown2D else { return }
+        let panFrac = effectiveXPanFrac
+        let lineColor = Color.white.opacity(0.12)
+
+        for f in WaterfallAnalysis.frequencyTicks(lo: visibleLeftEdgeFreq, hi: visibleRightEdgeFreq) {
+            let colFrac = binFrac(forFrequency: f) - CGFloat(panFrac)
+            guard colFrac >= 0, colFrac <= 1 else { continue }
+            let x = plot.minX + colFrac * plot.width
+            var p = Path()
+            p.move(to: CGPoint(x: x, y: plot.minY))
+            p.addLine(to: CGPoint(x: x, y: plot.maxY))
+            context.stroke(p, with: .color(lineColor), lineWidth: 0.5)
+            // Tick labels only in the roomy analysis layout, and away from the
+            // edges where the corner frequency labels already live.
+            if options.analysisLayout, colFrac > 0.06, colFrac < 0.94 {
+                drawText(formatHz(f), at: CGPoint(x: x, y: plot.maxY + 12), anchor: .center, context: &context)
+            }
+        }
+
+        for frac in stride(from: 0.0, through: 1.0, by: 0.25) {
+            let y = plot.minY + CGFloat(frac) * plot.height
+            var p = Path()
+            p.move(to: CGPoint(x: plot.minX, y: y))
+            p.addLine(to: CGPoint(x: plot.maxX, y: y))
+            context.stroke(p, with: .color(lineColor), lineWidth: 0.5)
+        }
+    }
+
+    // ========================================================================
+    // MARK: - Colorbar legend + peak panel
+    // ========================================================================
+
+    /// Vertical Turbo dB colorbar in the right margin with min / mid / max
+    /// tick labels — lets the heatmap colour be read quantitatively.
+    private func drawColorbar(bounds: CGRect, plot: CGRect, context: inout GraphicsContext) {
+        let barWidth: CGFloat = 10
+        let barX = plot.maxX + 10
+        let barRect = CGRect(x: barX, y: plot.minY, width: barWidth, height: plot.height)
+        let steps = 64
+        let stepH = plot.height / CGFloat(steps)
+        for i in 0..<steps {
+            let t = Float(i) / Float(steps - 1)            // 0 = bottom, 1 = top
+            let y = barRect.maxY - CGFloat(i + 1) * stepH
+            context.fill(Path(CGRect(x: barX, y: y, width: barWidth, height: stepH + 0.75)),
+                         with: .color(TurboColormap.color(for: t)))
+        }
+        context.stroke(Path(barRect), with: .color(.white.opacity(0.25)), lineWidth: 0.5)
+
+        let minDB = dataSet.minDB + effectiveZOffsetDB
+        let maxDB = dataSet.maxDB + effectiveZOffsetDB
+        let mid = (minDB + maxDB) / 2
+        let labelX = barX + barWidth + 3
+        drawText("\(Int(maxDB.rounded()))", at: CGPoint(x: labelX, y: plot.minY + 4), anchor: .leading, context: &context)
+        drawText("\(Int(mid.rounded()))", at: CGPoint(x: labelX, y: plot.midY), anchor: .leading, context: &context)
+        drawText("\(Int(minDB.rounded()))", at: CGPoint(x: labelX, y: plot.maxY - 4), anchor: .leading, context: &context)
+        drawText("dB", at: CGPoint(x: barX - 1, y: plot.minY - 11), anchor: .leading, context: &context)
+    }
+
+    /// Persistent top-peaks readout for the cursor slice (or the newest slice
+    /// when no cursor is placed). Replaces the transient peak dots as the main
+    /// measurement aid.
+    private func drawPeakPanel(plot: CGRect, context: inout GraphicsContext) {
+        let slices = dataSet.slices
+        guard !slices.isEmpty else { return }
+
+        // Pick the analysed slice: the cursor's time row in top-down/side when
+        // the picker is active, otherwise the newest slice.
+        let analysed: WaterfallSlice = {
+            if pickerEnabled, inPickerMode, let c = crosshair {
+                let yFrac = (c.y - plot.minY) / max(1, plot.height)
+                let clamped = max(0, min(1, Double(yFrac)))
+                let sliceIdx = Int((clamped * Double(slices.count - 1)).rounded())
+                return slices[min(max(0, sliceIdx), slices.count - 1)]
+            }
+            return slices[slices.count - 1]
+        }()
+        guard !analysed.magnitudes.isEmpty else { return }
+
+        let peaks = WaterfallAnalysis.peaks(magnitudes: analysed.magnitudes,
+                                            frequencies: dataSet.frequencies,
+                                            limit: 5)
+        guard !peaks.isEmpty else { return }
+
+        let zShift = effectiveZOffsetDB
+        let lineH: CGFloat = 14
+        let panelW: CGFloat = 122
+        let panelH: CGFloat = lineH * CGFloat(peaks.count + 1) + 10
+        let panelX = plot.maxX - panelW - 6
+        let panelY = plot.minY + 6
+        context.fill(Path(roundedRect: CGRect(x: panelX, y: panelY, width: panelW, height: panelH), cornerRadius: 6),
+                     with: .color(.black.opacity(0.55)))
+        drawText("Spitzen", at: CGPoint(x: panelX + 8, y: panelY + 6), anchor: .topLeading, context: &context)
+        for (i, peak) in peaks.enumerated() {
+            let y = panelY + 6 + lineH * CGFloat(i + 1)
+            let line = String(format: "%@   %.0f dB", formatHz(peak.frequency), peak.level + zShift)
+            drawText(line, at: CGPoint(x: panelX + 8, y: y), anchor: .topLeading, context: &context)
+        }
+    }
+
     /// Draws a horizontal segment in world space at the time matching
     /// `highlightedTime`. Goes through the same `CameraProjection` so it
     /// stays oriented correctly across all view modes (horizontal line on
@@ -563,8 +942,26 @@ struct WaterfallView: View {
     // ========================================================================
 
     private func drawCrosshair(at position: CGPoint, plot: CGRect, context: inout GraphicsContext) {
-        let x = max(plot.minX, min(plot.maxX, position.x))
-        let y = max(plot.minY, min(plot.maxY, position.y))
+        let snapped = snappedCrosshair(position, plot: plot)
+        let x = max(plot.minX, min(plot.maxX, snapped.x))
+        let y = max(plot.minY, min(plot.maxY, snapped.y))
+
+        // Anchor (cursor B): dimmer yellow guides for the Δ measurement.
+        if let anchorPosition = anchor {
+            let ax = max(plot.minX, min(plot.maxX, anchorPosition.x))
+            let ay = max(plot.minY, min(plot.maxY, anchorPosition.y))
+            let anchorColor = Color.yellow.opacity(0.7)
+            var ah = Path()
+            ah.move(to: CGPoint(x: plot.minX, y: ay))
+            ah.addLine(to: CGPoint(x: plot.maxX, y: ay))
+            context.stroke(ah, with: .color(anchorColor), lineWidth: 0.5)
+            var av = Path()
+            av.move(to: CGPoint(x: ax, y: plot.minY))
+            av.addLine(to: CGPoint(x: ax, y: plot.maxY))
+            context.stroke(av, with: .color(anchorColor), lineWidth: 0.5)
+            context.fill(Path(ellipseIn: CGRect(x: ax - 2.5, y: ay - 2.5, width: 5, height: 5)),
+                         with: .color(.yellow))
+        }
 
         let lineColor = Color.white.opacity(0.65)
         var hLine = Path()
@@ -580,7 +977,12 @@ struct WaterfallView: View {
         let dotRect = CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
         context.fill(Path(ellipseIn: dotRect), with: .color(.white))
 
-        let readout = crosshairReadout(at: CGPoint(x: x, y: y), plot: plot)
+        let readout: String = {
+            if let anchorPosition = anchor {
+                return deltaReadout(a: CGPoint(x: x, y: y), b: anchorPosition, plot: plot)
+            }
+            return crosshairReadout(at: CGPoint(x: x, y: y), plot: plot)
+        }()
         let readoutWidth = estimatedReadoutWidth(for: readout)
         let textPoint = readoutAnchor(near: CGPoint(x: x, y: y), plot: plot, width: readoutWidth)
         let pillRect = CGRect(
@@ -619,6 +1021,69 @@ struct WaterfallView: View {
         case .oblique3D:
             return ""
         }
+    }
+
+    /// Snaps the crosshair to the nearest frequency bin/band center in the
+    /// top-down heatmap when the data is banded (1/3-octave / Bark / octave),
+    /// so the cursor lands on a real band rather than between two.
+    private func snappedCrosshair(_ point: CGPoint, plot: CGRect) -> CGPoint {
+        guard viewMode == .topDown2D, options.spectrumMode != .continuous else { return point }
+        let count = dataSet.frequencies.count
+        guard count > 1 else { return point }
+        let colFrac = Float((point.x - plot.minX) / max(1, plot.width))
+        let binFracWindow = colFrac + effectiveXPanFrac
+        let binIdx = Int((binFracWindow * Float(count - 1)).rounded())
+        let snappedBinFrac = Float(min(max(0, binIdx), count - 1)) / Float(count - 1)
+        let snappedX = plot.minX + CGFloat(snappedBinFrac - effectiveXPanFrac) * plot.width
+        return CGPoint(x: snappedX, y: point.y)
+    }
+
+    /// Δf / Δt / ΔdB between the live cursor (A) and the pinned anchor (B).
+    private func deltaReadout(a: CGPoint, b: CGPoint, plot: CGRect) -> String {
+        let ax = (a.x - plot.minX) / max(1, plot.width)
+        let ay = (a.y - plot.minY) / max(1, plot.height)
+        let bx = (b.x - plot.minX) / max(1, plot.width)
+        let by = (b.y - plot.minY) / max(1, plot.height)
+        let panFrac = CGFloat(effectiveXPanFrac)
+
+        switch viewMode {
+        case .topDown2D:
+            let fa = frequencyAt(binFrac: ax + panFrac)
+            let fb = frequencyAt(binFrac: bx + panFrac)
+            let la = sampledLevel(binFrac: ax + panFrac, sliceFrac: ay) + effectiveZOffsetDB
+            let lb = sampledLevel(binFrac: bx + panFrac, sliceFrac: by) + effectiveZOffsetDB
+            let dt = dataSet.duration * Double(by - ay)
+            return String(format: "Δ%@  Δ%@  %+.0f dB", formatHz(abs(fa - fb)), formatSec(abs(dt)), la - lb)
+        case .sideLevelHistory2D:
+            let dt = dataSet.duration * Double(bx - ax)
+            let range = max(1, dataSet.maxDB - dataSet.minDB)
+            let la = Float(1 - ay) * range
+            let lb = Float(1 - by) * range
+            return String(format: "Δ%@  %+.1f dB", formatSec(abs(dt)), la - lb)
+        case .oblique3D:
+            return ""
+        }
+    }
+
+    /// Inverse of `frequencyAt`: the fractional bin position (0…1) of a given
+    /// frequency on the (monotonic) frequency axis.
+    private func binFrac(forFrequency frequency: Float) -> CGFloat {
+        let freqs = dataSet.frequencies
+        guard freqs.count > 1, let lowest = freqs.first, let highest = freqs.last else { return 0 }
+        if frequency <= lowest { return 0 }
+        if frequency >= highest { return 1 }
+        var low = 0
+        var high = freqs.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if freqs[mid] < frequency { low = mid + 1 } else { high = mid }
+        }
+        let upper = low
+        let lower = max(0, upper - 1)
+        let span = freqs[upper] - freqs[lower]
+        let t = span > 0 ? (frequency - freqs[lower]) / span : 0
+        let pos = Float(lower) + t
+        return CGFloat(pos / Float(freqs.count - 1))
     }
 
     /// One source of truth for readout width — same estimator used both
@@ -936,19 +1401,15 @@ enum WaterfallSpectralFrame {
 struct WaterfallWidget: View {
     private let audioEngine: AudioEngine
     var settings: [String: String]
-    /// When true (the fullscreen instance), the expand button is suppressed
-    /// so it can't open a second `fullScreenCover` on top of itself.
-    private let isFullscreen: Bool
 
     private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
 
     @StateObject private var store = WaterfallHistoryStore()
     @State private var engineFrequencyWeighting: String
 
-    init(audioEngine: AudioEngine, settings: [String: String], isFullscreen: Bool = false) {
+    init(audioEngine: AudioEngine, settings: [String: String]) {
         self.audioEngine = audioEngine
         self.settings = settings
-        self.isFullscreen = isFullscreen
         self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
         _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
     }
@@ -995,9 +1456,19 @@ struct WaterfallWidget: View {
 
     @State private var showFullscreen = false
 
+    /// Compact tile: heatmap when looking down, amplitude-coloured thinned
+    /// ridgelines when oblique. The fullscreen cover uses the heatmap-first
+    /// `.analysis` preset (colorbar, gridlines, peaks) over the same store.
+    private var renderOptions: WaterfallRenderOptions {
+        var options = WaterfallRenderOptions.widget
+        options.showPeaks = displaySettings.showPeaks
+        options.spectrumMode = displaySettings.spectrumMode
+        return options
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            WaterfallView(dataSet: store.dataSet, highlightedTime: nil)
+            WaterfallView(dataSet: store.dataSet, highlightedTime: nil, options: renderOptions)
                 .onReceive(audioEngine.spectrogramSubject) { data in
                     let weighting = freqWeighting
                     let mode = displaySettings.spectrumMode
@@ -1031,37 +1502,49 @@ struct WaterfallWidget: View {
                 .accessibilityLabel("Wasserfall")
                 .accessibilityHint("Doppeltippen setzt die Ansicht zurück. In 2D-Ansicht Einzeltipp für Messwerte.")
 
-            if !isFullscreen {
-                Button { showFullscreen = true } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.white.opacity(0.9))
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color.black.opacity(0.5)))
-                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-                }
-                .padding(8)
-                .accessibilityLabel("Wasserfall vergrößern")
-                .accessibilityIdentifier("waterfallExpandButton")
+            Button { showFullscreen = true } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
             }
+            .padding(8)
+            .accessibilityLabel("Wasserfall vergrößern")
+            .accessibilityIdentifier("waterfallExpandButton")
         }
         .innerCanvas(cornerRadius: 0)
         .fullScreenCover(isPresented: $showFullscreen) {
-            WaterfallFullscreenView(audioEngine: audioEngine, settings: settings)
+            // Share the SAME history store so the live measurement continues
+            // seamlessly — the presenting tile stays in the hierarchy while the
+            // cover is shown, so its subscription keeps feeding this store.
+            WaterfallFullscreenView(
+                store: store,
+                options: .analysis(
+                    spectrumMode: displaySettings.spectrumMode,
+                    showPeaks: displaySettings.showPeaks,
+                    showStatistics: true
+                )
+            )
         }
     }
 }
 
 private struct WaterfallFullscreenView: View {
     @Environment(\.dismiss) private var dismiss
-    let audioEngine: AudioEngine
-    let settings: [String: String]
+    /// Shared with the presenting tile — keeps the rolling history (and thus
+    /// the same live measurement) continuous across the fullscreen transition
+    /// instead of spinning up an empty store that refills from scratch.
+    @ObservedObject var store: WaterfallHistoryStore
+    let options: WaterfallRenderOptions
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            WaterfallWidget(audioEngine: audioEngine, settings: settings, isFullscreen: true)
+            WaterfallView(dataSet: store.dataSet, highlightedTime: nil, options: options)
                 .ignoresSafeArea()
+                .accessibilityIdentifier("waterfallWidgetFullscreen")
 
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -1069,6 +1552,7 @@ private struct WaterfallFullscreenView: View {
                     .foregroundStyle(.white.opacity(0.9))
             }
             .padding(12)
+            .accessibilityLabel("Wasserfall schließen")
         }
     }
 }

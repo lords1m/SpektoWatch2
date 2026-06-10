@@ -395,66 +395,135 @@ struct LevelMeterWidget: View {
         }
     }
 
+    private var orientation: LevelMeterOrientation {
+        WidgetSettings.levelMeterOrientation(settings)
+    }
+
+    private var showPeak: Bool {
+        WidgetSettings.levelMeterShowPeak(settings)
+    }
+
     var body: some View {
-        // Frameless layout: the card header already labels this widget.
-        // Center the meter + scale vertically inside the kernel area so
-        // small cards no longer leave a half-card empty void above the
-        // bar. Slim leading "L" label dropped — redundant with the
-        // header's "PEGEL-METER" eyebrow.
-        VStack(spacing: 6) {
-            GeometryReader { geo in
-                let width = geo.size.width
-                let height = geo.size.height
+        let minDB = yMinDB
+        let maxDB = max(yMaxDB, yMinDB + 5)
+        let level = live.currentLevel
+        let norm = CGFloat((level - minDB) / (maxDB - minDB))
+        let clamped = max(0, min(1, norm))
+        let peak = live.currentPeakLevel
+        let peakNorm = CGFloat((peak - minDB) / (maxDB - minDB))
+        let peakClamped = max(0, min(1, peakNorm))
 
-                // Background
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.2))
-
-                // Level Bar
-                let level = live.currentLevel // dB SPL (kalibriert)
-                let minDB: Float = yMinDB
-                let maxDB: Float = max(yMaxDB, yMinDB + 5)
-                let norm = CGFloat((level - minDB) / (maxDB - minDB))
-                let clamped = max(0, min(1, norm))
-
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: width * clamped)
-                    .animation(.easeOut(duration: 0.15), value: clamped)
-
-                // Peak Hold (simplified)
-                let peak = live.currentPeakLevel
-                let peakNorm = CGFloat((peak - minDB) / (maxDB - minDB))
-                let peakClamped = max(0, min(1, peakNorm))
-
-                Rectangle()
-                    .fill(Color.primary)
-                    .frame(width: 2, height: height)
-                    .offset(x: width * peakClamped)
-                    .animation(.easeOut(duration: 0.15), value: peakClamped)
-            }
-            .frame(height: 24)
-
-            // Scale labels + weighting badge
-            HStack {
-                Text("\(Int(yMinDB))").font(.caption2).foregroundColor(.gray)
-                Spacer()
-                Text("\(Int((yMinDB + yMaxDB) / 2))").font(.caption2).foregroundColor(.gray)
-                Spacer()
-                Text("\(Int(yMaxDB))").font(.caption2).foregroundColor(.gray)
-                Text(weightingLabel)
-                    .font(.caption2.weight(.medium))
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 4)
+        Group {
+            if orientation == .vertical {
+                verticalMeterBody(
+                    clamped: clamped,
+                    peakClamped: peakClamped,
+                    minDB: minDB,
+                    maxDB: maxDB
+                )
+            } else {
+                horizontalMeterBody(
+                    clamped: clamped,
+                    peakClamped: peakClamped,
+                    minDB: minDB,
+                    maxDB: maxDB
+                )
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .innerCanvas(cornerRadius: 0)
         .onAppear {
             #if DEBUG
             print("[LevelMeterWidget] View appeared")
             #endif
+        }
+    }
+
+    @ViewBuilder
+    private func horizontalMeterBody(
+        clamped: CGFloat,
+        peakClamped: CGFloat,
+        minDB: Float,
+        maxDB: Float
+    ) -> some View {
+        VStack(spacing: 4) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.gray.opacity(0.2))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * clamped)
+                        .animation(.easeOut(duration: 0.15), value: clamped)
+                    if showPeak {
+                        Rectangle()
+                            .fill(Color.primary)
+                            .frame(width: 2, height: geo.size.height)
+                            .offset(x: geo.size.width * peakClamped)
+                            .animation(.easeOut(duration: 0.15), value: peakClamped)
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            scaleRow(minDB: minDB, maxDB: maxDB)
+        }
+    }
+
+    @ViewBuilder
+    private func verticalMeterBody(
+        clamped: CGFloat,
+        peakClamped: CGFloat,
+        minDB: Float,
+        maxDB: Float
+    ) -> some View {
+        HStack(spacing: 4) {
+            GeometryReader { geo in
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.gray.opacity(0.2))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .bottom, endPoint: .top))
+                        .frame(height: geo.size.height * clamped)
+                        .animation(.easeOut(duration: 0.15), value: clamped)
+                    if showPeak {
+                        Rectangle()
+                            .fill(Color.primary)
+                            .frame(width: geo.size.width, height: 2)
+                            .offset(y: geo.size.height * (1 - peakClamped))
+                            .animation(.easeOut(duration: 0.15), value: peakClamped)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            VStack {
+                Text("\(Int(maxDB))").font(.caption2).foregroundColor(.gray)
+                Spacer()
+                Text(weightingLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(-90))
+                Spacer()
+                Text("\(Int(minDB))").font(.caption2).foregroundColor(.gray)
+            }
+            .frame(width: 28)
+        }
+    }
+
+    private func scaleRow(minDB: Float, maxDB: Float) -> some View {
+        HStack {
+            Text("\(Int(minDB))").font(.caption2).foregroundColor(.gray)
+            Spacer()
+            Text("\(Int((minDB + maxDB) / 2))").font(.caption2).foregroundColor(.gray)
+            Spacer()
+            Text("\(Int(maxDB))").font(.caption2).foregroundColor(.gray)
+            Text(weightingLabel)
+                .font(.caption2.weight(.medium))
+                .foregroundColor(.secondary)
+                .padding(.leading, 4)
         }
     }
 }

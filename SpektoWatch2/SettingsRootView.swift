@@ -14,7 +14,6 @@ struct SettingsRootView: View {
                     NavigationLink {
                         SpectrogramSettingsView(
                             selectedMicrophoneSource: $selectedMicrophoneSource,
-                            watchGain: $watchGain,
                             audioEngine: audioEngine
                         )
                     } label: {
@@ -30,7 +29,7 @@ struct SettingsRootView: View {
                     .accessibilityIdentifier("settingsAppearanceLink")
 
                     NavigationLink {
-                        WatchDashboardSettingsView()
+                        WatchAppSettingsView(watchGain: $watchGain)
                     } label: {
                         Label("Apple Watch", systemImage: "applewatch")
                     }

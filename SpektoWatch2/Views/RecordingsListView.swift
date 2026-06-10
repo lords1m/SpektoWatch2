@@ -148,6 +148,7 @@ struct RecordingsListView: View {
     private func recordingRow(_ recording: Recording) -> some View {
         NavigationLink {
             RecordingDetailView(recording: recording)
+                .id(recording.id)
         } label: {
             HStack(spacing: 12) {
                 LevelChip(level: recording.laeqFast)

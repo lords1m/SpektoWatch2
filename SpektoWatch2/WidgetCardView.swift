@@ -86,16 +86,21 @@ struct WidgetCardView: View {
         }
         .overlay(alignment: .topTrailing) {
             if isEditMode {
-                deleteButton
-                    .padding(8)
+                HStack(spacing: 6) {
+                    settingsButton
+                    deleteButton
+                }
+                .padding(8)
             }
         }
         .editJiggle(active: isEditMode, phase: jigglePhase)
-        .onLongPressGesture(minimumDuration: 0.55) {
-            guard !isEditMode else { return }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            showSettings = true
-        }
+        .highPriorityGesture(
+            LongPressGesture(minimumDuration: 0.55).onEnded { _ in
+                guard !isEditMode else { return }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showSettings = true
+            }
+        )
         .sheet(isPresented: $showSettings) {
             WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
         }
@@ -153,6 +158,7 @@ struct WidgetCardView: View {
                 .contentShape(Circle())
                 .accessibilityIdentifier("widgetSettingsButton")
                 .accessibilityLabel("Widget-Einstellungen")
+                .accessibilityAddTraits(.isButton)
         }
         .buttonStyle(.plain)
         // High priority so the parent .onDrag in ModularDashboardView
@@ -181,6 +187,7 @@ struct WidgetCardView: View {
                 .contentShape(Circle())
                 .accessibilityIdentifier("widgetDeleteButton")
                 .accessibilityLabel("Widget entfernen")
+                .accessibilityAddTraits(.isButton)
         }
         .buttonStyle(.plain)
         .highPriorityGesture(
@@ -308,7 +315,11 @@ struct WidgetCardView: View {
         }
 
         let proposed = WidgetSize(columns: newCols, rows: newRows)
-        let clamped = proposed.clamped(min: range.min, max: range.max)
+        let clamped = WidgetConfiguration.normalizedSize(
+            for: widget.type,
+            size: proposed.clamped(min: range.min, max: range.max),
+            settings: widget.settings
+        )
 
         if clamped.columns != widget.size.columns || clamped.rows != widget.size.rows {
             let generator = UIImpactFeedbackGenerator(style: .medium)

@@ -19,10 +19,10 @@ Milestone: `milestone-7-xcode-cloud-snapshot-testing`
   user reported Xcode wouldn't accept manual drag into Copy Bundle Resources
   while the per-class folder was empty — the `README.txt` placeholder resolves
   that, and the folder reference re-scans on the fly.
-- ✅ `SpektoWatch2.xctestplan` pinned: `language=en`, `region=US`,
+- ✅ `TestPlans/spekto-watch2.xctestplan` pinned: `language=en`, `region=US`,
   `userInterfaceStyle=light`, `TZ=UTC` env var, parallelization off on both
   test targets. (Test plan was extended in place rather than splitting out
-  a dedicated `Snapshots.xctestplan` — three plans already exist and a fourth
+  a dedicated `TestPlans/snapshots.xctestplan` — three plans already exist and a fourth
   would be confusing.)
 - ✅ `.gitignore` extended to exclude `*.xcresult`, `TestResults/`, and
   swift-snapshot-testing `*.failure.png` / `*.diff.png` artifacts. Existing
@@ -71,8 +71,8 @@ work in the tree (AGENT.md rule).
      `Bundle(for:)` path lookup in `SnapshotTestSupport.swift`.
 
 3. **Pin the test plan.**
-   - Open `SpektoWatch2.xctestplan` (or whichever plan the snapshot tests
-     will run under — create a dedicated `Snapshots.xctestplan` if mixing
+   - Open `TestPlans/spekto-watch2.xctestplan` (or whichever plan the snapshot tests
+     will run under — create a dedicated `TestPlans/snapshots.xctestplan` if mixing
      with the existing plan is awkward).
    - Configurations > add a single configuration named "Snapshots":
      - Application Language: English

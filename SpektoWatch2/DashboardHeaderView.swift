@@ -55,6 +55,7 @@ struct DashboardHeaderView: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .accessibilityIdentifier("editDashboardButton")
                                 .accessibilityLabel("Bearbeiten beenden")
+                                .accessibilityAddTraits(.isButton)
                         }
                         .foregroundStyle(Color.black)
                         .padding(.horizontal, 14)
@@ -70,6 +71,7 @@ struct DashboardHeaderView: View {
                             .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
                             .accessibilityIdentifier("editDashboardButton")
                             .accessibilityLabel("Layout bearbeiten")
+                            .accessibilityAddTraits(.isButton)
                     }
                 }
                 .buttonStyle(.plain)
@@ -103,6 +105,7 @@ struct DashboardHeaderView: View {
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
                 .accessibilityIdentifier(id)
                 .accessibilityLabel(label)
+                .accessibilityAddTraits(.isButton)
         }
         .buttonStyle(.plain)
     }

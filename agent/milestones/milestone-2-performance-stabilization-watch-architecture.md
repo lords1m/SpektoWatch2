@@ -41,7 +41,7 @@ must preserve existing `.spekto` compatibility and keep masking out of scope.
 - `WatchConnectivityTests`
 - `PerformanceProfilingTests`
 
-Use `SpektoWatch2.xctestplan` for broader validation where practical. If the
+Use `TestPlans/spekto-watch2.xctestplan` for broader validation where practical. If the
 full simulator suite is too expensive, run the targeted test set and document
 skipped tests.
 

@@ -4,6 +4,7 @@ import Combine
 struct WatchLevelMeterView: View {
     @EnvironmentObject private var audioEngine: WatchAudioEngine
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
 
     private var isRecording: Bool { audioEngine.isRecording }
     private static let historyLength = 120
@@ -43,53 +44,22 @@ struct WatchLevelMeterView: View {
             .ignoresSafeArea()
 
             axisLabels
+                .allowsHitTesting(false)
 
             VStack {
                 Spacer()
-
-                HStack {
-                    Circle()
-                        .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
-                        .frame(width: 4, height: 4)
-                        .animation(.easeInOut(duration: 0.3), value: isRecording)
-                    Spacer()
-                    recordButton
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 2)
+                WatchLiveCaptureFooter()
             }
         }
         .accessibilityIdentifier("watchLevelMeterView")
-        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
+        .onReceive(
+            audioEngine.$liveData
+                .compactMap { $0 }
+                .throttledForWatchLiveDisplay()
+        ) { data in
+            guard tabLiveUpdatesActive else { return }
             appendLevel(from: data)
         }
-    }
-
-    private var recordButton: some View {
-        Button(action: {
-            if isRecording {
-                audioEngine.stopRecording()
-                connectivityManager.requestWearableRecordingStop()
-            } else {
-                connectivityManager.requestWearableRecordingStart()
-                audioEngine.startRecording()
-            }
-            WKInterfaceDevice.current().play(.success)
-        }) {
-            Image(systemName: isRecording ? "stop.fill" : "record.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(
-                        isRecording
-                            ? Color.red.opacity(0.80)
-                            : WatchStylePalette.accentBlue.opacity(0.80)
-                    )
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
     }
 
     // Höhe der X-Achsen-Zeile (Record-Button-Inset 22 + Schriftgröße ~9)

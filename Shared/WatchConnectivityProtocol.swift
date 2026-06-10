@@ -8,6 +8,10 @@ enum WatchConnectivityProtocol {
         case microphoneSource
         case frequencyWeighting
         case watchDashboardConfig
+        /// JSON `WatchMeterLayoutConfig` under `Key.config` (M21 meter face).
+        case watchMeterLayoutConfig
+        /// `WatchMeasurementSourcePreference.rawValue` under `Key.value`.
+        case watchMeasurementSourcePreference
         /// Envelope of non-audio app state (preset, recording flag,
         /// accent, theme, tone state). Added in M13 task-7. Payload is
         /// a JSON-encoded `WatchAppState` blob under
@@ -87,6 +91,22 @@ enum WatchConnectivityProtocol {
 
     static func makeWatchDashboardConfigMessage(_ configString: String) -> [String: Any] {
         [Key.type: MessageType.watchDashboardConfig.rawValue, Key.config: configString]
+    }
+
+    static func makeWatchMeterLayoutConfigMessage(_ configString: String) -> [String: Any] {
+        [Key.type: MessageType.watchMeterLayoutConfig.rawValue, Key.config: configString]
+    }
+
+    static func makeWatchMeasurementSourcePreferenceMessage(_ preference: WatchMeasurementSourcePreference) -> [String: Any] {
+        [
+            Key.type: MessageType.watchMeasurementSourcePreference.rawValue,
+            Key.value: preference.rawValue
+        ]
+    }
+
+    static func measurementSourcePreference(from message: [String: Any]) -> WatchMeasurementSourcePreference? {
+        guard let raw = message[Key.value] as? String else { return nil }
+        return WatchMeasurementSourcePreference(rawValue: raw)
     }
 
     /// Build an appStateUpdate message envelope from a

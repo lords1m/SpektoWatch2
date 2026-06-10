@@ -16,6 +16,87 @@ struct SpectrogramAxisMetrics {
 }
 
 // ============================================================================
+// MARK: - Shared Column History (fullscreen continuity)
+// ============================================================================
+//
+// Each `HighEndSpectrogramAdapter` (MTKView) owns its own scroll texture, so a
+// second adapter — e.g. the fullscreen cover presented over the dashboard tile
+// — would otherwise start blank and scroll in fresh, breaking the measurement's
+// visual continuity. To avoid that, a single shared history records the exact
+// normalized columns written by the persistent (tile) adapter; a newly mounted
+// adapter primes its texture from that history so it picks up mid-stream.
+//
+// One adapter is the writer (the first to claim it, i.e. the always-mounted
+// tile). Others are readers that only prime. The store is fed from the
+// adapter's background update queue and read while priming on the main thread,
+// so all access is serialised by `lock`.
+final class SpectrogramColumnHistory {
+    private let lock = OSAllocatedUnfairLock()
+    private var ring: [[Float]] = []
+    private var head: Int = 0
+    private var filled: Int = 0
+    private var capacity: Int = 0
+    private var frequencyBins: Int = 0
+    private var timeColumns: Int = 0
+    private weak var writer: HighEndSpectrogramAdapter?
+
+    /// The first adapter to claim becomes the single writer; returns whether
+    /// `adapter` is (now) that writer. Idempotent for the current writer.
+    func claimWriter(_ adapter: HighEndSpectrogramAdapter) -> Bool {
+        lock.withLockUnchecked {
+            if writer == nil || writer === adapter {
+                writer = adapter
+                return true
+            }
+            return false
+        }
+    }
+
+    func resignWriter(_ adapter: HighEndSpectrogramAdapter) {
+        lock.withLockUnchecked {
+            if writer === adapter { writer = nil }
+        }
+    }
+
+    /// Appends the columns just written to the writer's texture, in order.
+    /// A change in texture geometry clears the history (the old columns no
+    /// longer correspond to the new frequency/time axis).
+    func record(columns newColumns: [[Float]], frequencyBins fb: Int, timeColumns tc: Int) {
+        guard !newColumns.isEmpty, fb > 0, tc > 0 else { return }
+        lock.withLockUnchecked {
+            if fb != frequencyBins || tc != timeColumns || capacity != tc {
+                frequencyBins = fb
+                timeColumns = tc
+                capacity = tc
+                ring = [[Float]](repeating: [], count: tc)
+                head = 0
+                filled = 0
+            }
+            for col in newColumns where col.count == fb {
+                ring[head] = col
+                head = (head + 1) % capacity
+                filled = min(filled + 1, capacity)
+            }
+        }
+    }
+
+    /// Ordered oldest→newest columns, or nil if the geometry doesn't match the
+    /// caller's texture (in which case priming is skipped — no regression).
+    func snapshot(frequencyBins fb: Int, timeColumns tc: Int) -> [[Float]]? {
+        lock.withLockUnchecked {
+            guard fb == frequencyBins, tc == timeColumns, filled > 0, capacity > 0 else { return nil }
+            var result = [[Float]]()
+            result.reserveCapacity(filled)
+            let start = (head - filled + capacity) % capacity
+            for i in 0..<filled {
+                result.append(ring[(start + i) % capacity])
+            }
+            return result
+        }
+    }
+}
+
+// ============================================================================
 // MARK: - High-Performance Spectrogram (Metal + vDSP)
 // ============================================================================
 //
@@ -72,13 +153,14 @@ class HighEndSpectrogramAdapter: MTKView {
     private var displayScrollSynced: Bool = false
 
     // MARK: - Configuration
-    private let frequencyBins: Int = 1024
+    private var frequencyBins: Int = SpectrogramResolution.defaultValue.textureFrequencyBins
     private var timeColumns: Int = 600
     private var hopSize: Int = 512
     private var currentTimeSpanValue: Int = 5
     private var currentSampleRate: Float = 44100.0
-    private let minFrequency: Float = 20.0
-    private let maxFrequency: Float = 20000.0
+    private var minFrequency: Float = 20.0
+    private var maxFrequency: Float = 20000.0
+    private var frequencyScale: SpectrogramFrequencyScale = .logarithmic
 
     // MARK: - Display Parameters
     private var dynamicRange: Float = 90.0
@@ -96,6 +178,13 @@ class HighEndSpectrogramAdapter: MTKView {
     var gamma: Float = 1.15
     private var frequencySmoothing: Float = 0.0
     var isUpdatesPaused: Bool = false
+
+    // Interactive view window (pan/zoom), applied in the fragment shader.
+    // timeStart 0 = newest edge; freqStart 0 = lowest displayed frequency.
+    private var viewportTimeStart: Float = 0
+    private var viewportTimeWidth: Float = 1
+    private var viewportFreqStart: Float = 0
+    private var viewportFreqHeight: Float = 1
     // `manualScrollOffset` removed 2026-05-21 (M9 task-1 audit): zero callers
     // ever set a non-zero value, so the storage + accessor + draw-time add
     // were all unreachable.
@@ -124,8 +213,13 @@ class HighEndSpectrogramAdapter: MTKView {
     private var previousColumnData: [Float] = []
     private var reusableInterpolatedColumnData: [Float] = []
 
+    // MARK: - Shared History (fullscreen continuity)
+    private var columnHistory: SpectrogramColumnHistory?
+    private var isHistoryWriter = false
+
     deinit {
         isPaused = true
+        columnHistory?.resignWriter(self)
     }
 
     // MARK: - Initialization
@@ -265,6 +359,8 @@ class HighEndSpectrogramAdapter: MTKView {
         let logMin = log10(minFrequency)
         let logMax = log10(maxFrequency)
         let logSpan = max(logMax - logMin, 0.0001)
+        let linearSpan = max(maxFrequency - minFrequency, 0.0001)
+        let isLinear = (frequencyScale == .linear)
 
         // Use producer-supplied frequencies (mel-spaced from
         // VisualSpectrogramProcessor, or any monotonically increasing
@@ -278,17 +374,23 @@ class HighEndSpectrogramAdapter: MTKView {
         let nyquist = currentSampleRate / 2.0
         let magCount = Float(max(1, inputSize - 1))
 
+        // Maps a normalized axis position [0,1] to a frequency under the active
+        // scale. Linear → uniform Hz steps (even FFT-bin rows); log → equal
+        // musical intervals get equal height.
+        func frequencyForT(_ t: Float) -> Float {
+            isLinear ? (minFrequency + t * linearSpan)
+                     : pow(10.0, logMin + t * logSpan)
+        }
+
         for i in 0..<frequencyBins {
             let t = Float(i) / Float(frequencyBins - 1)
-            // Log-frequency mapping: gleiche musikalische Intervalle
-            // bleiben über die gesamte Höhe visuell konsistent.
-            let frequency = pow(10.0, logMin + t * logSpan)
+            let frequency = frequencyForT(t)
 
             let tNext = Float(i + 1) / Float(frequencyBins - 1)
-            let freqNext = pow(10.0, logMin + tNext * logSpan)
+            let freqNext = frequencyForT(tNext)
             let pixelBandwidth = (i < frequencyBins - 1)
                 ? (freqNext - frequency)
-                : (frequency - pow(10.0, logMin + Float(i - 1) / Float(frequencyBins - 1) * logSpan))
+                : (frequency - frequencyForT(Float(i - 1) / Float(frequencyBins - 1)))
 
             let centerBin: Float
             let binWidth: Float
@@ -437,7 +539,7 @@ class HighEndSpectrogramAdapter: MTKView {
                 // Leichte Peak-Betonung, aber deutlich weniger aggressiv als vorher.
                 let linear = v0 * (1.0 - entry.fraction) + v1 * entry.fraction
                 let peak = max(v0, v1)
-                dbValue = linear + (peak - linear) * 0.2
+                dbValue = linear + (peak - linear) * 0.35
             } else {
                 let start = max(0, entry.startBin)
                 let end = min(magnitudes.count - 1, entry.endBin)
@@ -453,7 +555,7 @@ class HighEndSpectrogramAdapter: MTKView {
                     }
                     let meanLinear = sumLinear / Float(max(count, 1))
                     let meanDb = 10.0 * log10(max(meanLinear, 1e-12))
-                    dbValue = meanDb + (peakDb - meanDb) * 0.25
+                    dbValue = meanDb + (peakDb - meanDb) * 0.35
                 } else {
                     dbValue = -120.0
                 }
@@ -523,6 +625,14 @@ class HighEndSpectrogramAdapter: MTKView {
             totalColumnsWritten += columnsToWrite
         }
 
+        // Feed the shared history (writer only) so a newly mounted adapter can
+        // prime its texture and continue the same measurement seamlessly.
+        if isHistoryWriter, let history = columnHistory {
+            history.record(columns: pendingWrites.map { $0.data },
+                           frequencyBins: frequencyBins,
+                           timeColumns: timeColumns)
+        }
+
         // Phase 2: write column pixels to the Metal texture on the main thread.
         // Both this write and draw(_:)'s GPU-encoder submit happen on main,
         // so they are serialised by the main queue — no CPU/GPU texture race.
@@ -551,7 +661,10 @@ class HighEndSpectrogramAdapter: MTKView {
         // linear interpolation produces visible plateaus. The user slider
         // (`frequencySmoothing`) adds further smoothing on top.
         let userStrength = max(0.0, min(1.0, frequencySmoothing))
-        let baselineStrength: Float = 0.25
+        // Minimal always-on smoothing: just enough to hide FFT-bin plateaus on
+        // the log axis without smearing fine harmonics. The user slider adds
+        // more on top when desired.
+        let baselineStrength: Float = 0.08
         let strength = max(baselineStrength, userStrength)
         guard values.count > 2 else { return }
 
@@ -673,6 +786,8 @@ class HighEndSpectrogramAdapter: MTKView {
         encoder.setFragmentTexture(spectrogramTexture, index: 0)
         encoder.setFragmentTexture(cmTexture, index: 1)
         encoder.setFragmentBuffer(scrollBuffer, offset: 0, index: 0)
+        var vp = SIMD4<Float>(viewportTimeStart, viewportTimeWidth, viewportFreqStart, viewportFreqHeight)
+        encoder.setFragmentBytes(&vp, length: MemoryLayout<SIMD4<Float>>.stride, index: 1)
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         encoder.endEncoding()
 
@@ -704,6 +819,62 @@ class HighEndSpectrogramAdapter: MTKView {
         DispatchQueue.main.async { [weak self] in
             self?.onAxisMetricsChanged?(SpectrogramAxisMetrics())
         }
+    }
+
+    /// Attaches the shared column history. The first adapter to attach becomes
+    /// the writer (it feeds the history); later adapters are readers that prime
+    /// their texture from it so they pick up the live measurement mid-stream.
+    func setColumnHistory(_ history: SpectrogramColumnHistory?) {
+        if columnHistory !== history {
+            columnHistory?.resignWriter(self)
+        }
+        columnHistory = history
+        isHistoryWriter = history?.claimWriter(self) ?? false
+        if !isHistoryWriter {
+            primeFromHistoryIfNeeded()
+        }
+    }
+
+    /// Primes a *fresh* texture (nothing written yet) from the shared history so
+    /// the reader adapter starts where the writer is, then continues live.
+    private func primeFromHistoryIfNeeded() {
+        guard isMetalReady, spectrogramTexture != nil, !isHistoryWriter,
+              let history = columnHistory else { return }
+        let alreadyWritten = stateLock.withLockUnchecked { totalColumnsWritten }
+        guard alreadyWritten == 0 else { return }
+        guard let cols = history.snapshot(frequencyBins: frequencyBins, timeColumns: timeColumns) else { return }
+        primeTexture(with: cols)
+    }
+
+    /// Writes the historical columns into the texture (oldest→newest at columns
+    /// 0…n-1, mirroring the normal sequential write model) and seeds the scroll
+    /// state so the very next live column lands at the correct position.
+    private func primeTexture(with cols: [[Float]]) {
+        guard let texture = spectrogramTexture else { return }
+        let count = min(cols.count, timeColumns)
+        guard count > 0 else { return }
+        let bins = frequencyBins
+        let start = cols.count - count
+        let bytesPerRow = MemoryLayout<Float>.stride
+        for offset in 0..<count {
+            let data = cols[start + offset]
+            guard data.count == bins else { continue }
+            let region = MTLRegion(origin: MTLOrigin(x: offset, y: 0, z: 0),
+                                   size: MTLSize(width: 1, height: bins, depth: 1))
+            texture.replace(region: region, mipmapLevel: 0, withBytes: data, bytesPerRow: bytesPerRow)
+        }
+        let secondsPerColumn = effectiveSecondsPerColumn
+        stateLock.withLockUnchecked {
+            currentColumn = count % timeColumns
+            totalColumnsWritten = count
+            columnAdvanceAccumulator = 0
+            previousColumnData = cols[start + count - 1]
+            let nowTs = Date().timeIntervalSinceReferenceDate
+            lastDataTimestamp = nowTs
+            firstDataTimestamp = nowTs - Double(count) * secondsPerColumn
+        }
+        // Force draw() to re-anchor the smooth scroll to the new write head.
+        displayScrollSynced = false
     }
 
     func setColormap(_ type: Int) {
@@ -742,6 +913,51 @@ class HighEndSpectrogramAdapter: MTKView {
         frequencySmoothing = max(0.0, min(1.0, value))
     }
 
+    /// Switches the frequency axis between log and linear. Invalidates the
+    /// frequency-mapping cache so the next frame rebuilds the bin layout.
+    func setFrequencyScale(_ scale: SpectrogramFrequencyScale) {
+        guard frequencyScale != scale else { return }
+        frequencyScale = scale
+        invalidateMappingCache()
+    }
+
+    /// Sets the displayed frequency range (Hz). No-op if unchanged.
+    func setFrequencyRange(min lo: Float, max hi: Float) {
+        let clampedLo = max(1.0, min(lo, hi - 1.0))
+        let clampedHi = max(clampedLo + 1.0, hi)
+        guard abs(clampedLo - minFrequency) > 0.01 || abs(clampedHi - maxFrequency) > 0.01 else { return }
+        minFrequency = clampedLo
+        maxFrequency = clampedHi
+        invalidateMappingCache()
+    }
+
+    private func invalidateMappingCache() {
+        mappingCache = nil
+        cachedInputSize = 0
+        cachedInputFrequencies = nil
+        cachedInputFrequenciesHash = 0
+    }
+
+    /// Interactive pan/zoom window applied in the shader (no CPU remap, so it is
+    /// cheap and works while paused). All inputs are clamped to valid sub-windows.
+    func setViewport(timeStart: Float, timeWidth: Float, freqStart: Float, freqHeight: Float) {
+        let tw = max(0.02, min(1.0, timeWidth))
+        let ts = max(0.0, min(1.0 - tw, timeStart))
+        let fh = max(0.02, min(1.0, freqHeight))
+        let fs = max(0.0, min(1.0 - fh, freqStart))
+        guard ts != viewportTimeStart || tw != viewportTimeWidth
+            || fs != viewportFreqStart || fh != viewportFreqHeight else { return }
+        viewportTimeStart = ts
+        viewportTimeWidth = tw
+        viewportFreqStart = fs
+        viewportFreqHeight = fh
+        if Thread.isMainThread {
+            setNeedsDisplay()
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.setNeedsDisplay() }
+        }
+    }
+
     func setHopSize(_ size: Int) {
         if hopSize != size {
             hopSize = size
@@ -753,6 +969,29 @@ class HighEndSpectrogramAdapter: MTKView {
         guard span != currentTimeSpanValue else { return }
         currentTimeSpanValue = span
         updateTimeColumns()
+    }
+
+    func setFrequencyBinCount(_ count: Int) {
+        let clamped = max(256, min(2048, count))
+        guard clamped != frequencyBins else { return }
+        frequencyBins = clamped
+        mappingCache = nil
+        cachedInputSize = 0
+        cachedInputFrequencies = nil
+        cachedInputFrequenciesHash = 0
+        reusableColumnData = []
+        reusableSmoothedColumnData = []
+        previousColumnData = []
+        reusableInterpolatedColumnData = []
+        guard isMetalReady else { return }
+        isPaused = true
+        setupTexture()
+        reset()
+        isPaused = false
+    }
+
+    func applySpectrogramResolution(_ resolution: SpectrogramResolution) {
+        setFrequencyBinCount(resolution.textureFrequencyBins)
     }
 
     func setPaused(_ paused: Bool) {
@@ -837,7 +1076,17 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
     /// Noise floor in dB SPL. −120 = off. Passed to setNoiseFloor(), which
     /// auto-enables a 6 dB soft-knee when the floor is active.
     var noiseFloor: Float = -120.0
+    var frequencyScale: SpectrogramFrequencyScale = .logarithmic
+    var minFrequency: Float = 20.0
+    var maxFrequency: Float = 20000.0
+    var viewportTimeStart: Float = 0
+    var viewportTimeWidth: Float = 1
+    var viewportFreqStart: Float = 0
+    var viewportFreqHeight: Float = 1
     var onAxisMetricsChanged: ((SpectrogramAxisMetrics) -> Void)? = nil
+    /// Optional shared history enabling seamless continuity when the same
+    /// measurement is shown in more than one adapter (e.g. tile + fullscreen).
+    var columnHistory: SpectrogramColumnHistory? = nil
 
     func makeUIView(context: Context) -> HighEndSpectrogramAdapter {
         let view = HighEndSpectrogramAdapter(
@@ -852,6 +1101,12 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         view.setFrequencySmoothing(frequencySmoothing)
         view.setNoiseFloor(noiseFloor)
         view.setCalibrationOffset(audioEngine.calibrationOffset)
+        view.setFrequencyRange(min: minFrequency, max: maxFrequency)
+        view.setFrequencyScale(frequencyScale)
+        view.setViewport(timeStart: viewportTimeStart, timeWidth: viewportTimeWidth,
+                         freqStart: viewportFreqStart, freqHeight: viewportFreqHeight)
+        view.applySpectrogramResolution(audioEngine.spectrogramResolution)
+        view.setColumnHistory(columnHistory)
         context.coordinator.view = view
         context.coordinator.freqWeighting = freqWeighting
         context.coordinator.onAxisMetricsChanged = onAxisMetricsChanged
@@ -870,6 +1125,12 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         uiView.setFrequencySmoothing(frequencySmoothing)
         uiView.setNoiseFloor(noiseFloor)
         uiView.setCalibrationOffset(audioEngine.calibrationOffset)
+        uiView.setFrequencyRange(min: minFrequency, max: maxFrequency)
+        uiView.setFrequencyScale(frequencyScale)
+        uiView.setViewport(timeStart: viewportTimeStart, timeWidth: viewportTimeWidth,
+                           freqStart: viewportFreqStart, freqHeight: viewportFreqHeight)
+        uiView.applySpectrogramResolution(audioEngine.spectrogramResolution)
+        uiView.setColumnHistory(columnHistory)
         context.coordinator.freqWeighting = freqWeighting
         context.coordinator.onAxisMetricsChanged = onAxisMetricsChanged
         uiView.onAxisMetricsChanged = { metrics in
@@ -925,7 +1186,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
 // ============================================================================
 
 struct HighEndSpectrogramAdapterWithAxes: View {
-    var audioEngine: AudioEngine
+    @ObservedObject var audioEngine: AudioEngine
     var colormapType: Int = 0
     var timeSpan: SpectrogramTimeSpan = .seconds5
     var scrollSpeed: ScrollSpeed = .fast
@@ -934,13 +1195,24 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     var sensitivity: Float = 90.0
     var frequencySmoothing: Float = 0.0
     var noiseFloor: Float = -120.0
+    var columnHistory: SpectrogramColumnHistory? = nil
     let axisWidth: CGFloat = 35
     let axisHeight: CGFloat = 28
     let axisSpacing: CGFloat = 4
     @State private var axisMetrics = SpectrogramAxisMetrics()
     @State private var axisMetricsReceivedAt: Double = 0
 
-    let axisFrequencies: [Double] = [20000, 16000, 8000, 4000, 2000, 1000, 500, 250, 125, 63, 31.5]
+    private var frequencyScale: SpectrogramFrequencyScale { audioEngine.spectrogramFrequencyScale }
+    private var minFreq: Double { audioEngine.spectrogramMinFrequency }
+    private var maxFreq: Double { audioEngine.spectrogramMaxFrequency }
+
+    private var axisFrequencies: [Double] {
+        SpectrogramAxisMath.axisTickFrequencies(
+            scale: frequencyScale,
+            minFrequency: minFreq,
+            maxFrequency: maxFreq
+        )
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -961,10 +1233,14 @@ struct HighEndSpectrogramAdapterWithAxes: View {
             sensitivity: sensitivity,
             frequencySmoothing: frequencySmoothing,
             noiseFloor: noiseFloor,
+            frequencyScale: frequencyScale,
+            minFrequency: Float(minFreq),
+            maxFrequency: Float(maxFreq),
             onAxisMetricsChanged: { metrics in
                 axisMetrics = metrics
                 axisMetricsReceivedAt = CACurrentMediaTime()
-            }
+            },
+            columnHistory: columnHistory
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(4)
@@ -1067,7 +1343,13 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     }
 
     private func yPosition(for freq: Double, height: CGFloat) -> CGFloat {
-        SpectrogramAxisMath.yPosition(for: freq, height: height)
+        SpectrogramAxisMath.yPosition(
+            for: freq,
+            height: height,
+            scale: frequencyScale,
+            minFrequency: minFreq,
+            maxFrequency: maxFreq
+        )
     }
 
     private func xAxisTickStep(for visibleRange: Double) -> Double {

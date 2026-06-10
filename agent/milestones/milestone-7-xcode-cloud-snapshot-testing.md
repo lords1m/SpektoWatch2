@@ -1,6 +1,6 @@
 # Milestone 7: Xcode Cloud Snapshot Testing
 
-Status: in_progress
+Status: completed
 Created: 2026-05-20
 Source design: this milestone file (ad-hoc — no separate clarification cycle,
 research summary lives in the M7 handoff thread)

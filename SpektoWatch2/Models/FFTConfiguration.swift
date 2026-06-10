@@ -18,7 +18,7 @@ class FFTConfiguration: ObservableObject {
     }
 
     /// Aktuelle FFT-Blockgröße
-    @Published var blockSize: FFTBlockSize = .size2048 {
+    @Published var blockSize: FFTBlockSize = .size4096 {
         didSet {
             UserDefaults.standard.set(blockSize.rawValue, forKey: PersistenceKeys.FFT.blockSize)
         }
@@ -71,7 +71,9 @@ class FFTConfiguration: ObservableObject {
         let defaults = UserDefaults.standard
         let configVersion = defaults.integer(forKey: PersistenceKeys.FFT.configVersion)
         if configVersion < PersistenceKeys.FFT.currentVersion {
-            defaults.set(FFTBlockSize.size2048.rawValue, forKey: PersistenceKeys.FFT.blockSize)
+            // v3: bump default block size to 4096 for sharper frequency
+            // resolution (≈10.7 Hz/bin vs. 21.5 Hz/bin at 2048).
+            defaults.set(FFTBlockSize.size4096.rawValue, forKey: PersistenceKeys.FFT.blockSize)
             defaults.set(PersistenceKeys.FFT.currentVersion, forKey: PersistenceKeys.FFT.configVersion)
         }
 

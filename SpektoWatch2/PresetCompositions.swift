@@ -35,7 +35,11 @@ enum PresetCompositions {
                 size: WidgetSize(columns: 2, rows: 2),
                 settings: ["metric": "LAF"]
             ),
-            .init(type: .levelMeter,   size: WidgetSize(columns: 1, rows: 2)),
+            .init(
+                type: .levelMeter,
+                size: WidgetSize(columns: 1, rows: 2),
+                settings: [WidgetSettings.levelMeterOrientationKey: LevelMeterOrientation.vertical.rawValue]
+            ),
             .init(type: .levelHistory, size: WidgetSize(columns: 3, rows: 2)),
             .init(type: .spectrogram,  size: WidgetSize(columns: 3, rows: 2))
         ]

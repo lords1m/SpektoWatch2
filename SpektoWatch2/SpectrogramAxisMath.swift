@@ -10,13 +10,75 @@ enum SpectrogramAxisMath {
     static let minFrequency: Double = 20
     static let maxFrequency: Double = 20_000
 
-    /// Vertical pixel position for a frequency on the log axis.
-    /// 20 Hz sits at the bottom (y = height), 20 kHz at the top (y = 0).
+    /// Vertical pixel position for a frequency on the default log axis
+    /// (20 Hz – 20 kHz). 20 Hz sits at the bottom (y = height), 20 kHz at the
+    /// top (y = 0). Kept for callers that use the fixed default range.
     static func yPosition(for freq: Double, height: CGFloat) -> CGFloat {
-        let clamped = max(minFrequency, min(maxFrequency, freq))
-        let span = log10(maxFrequency) - log10(minFrequency)
-        let normalized = (log10(clamped) - log10(minFrequency)) / span
+        yPosition(for: freq, height: height, scale: .logarithmic,
+                  minFrequency: minFrequency, maxFrequency: maxFrequency)
+    }
+
+    /// Vertical pixel position for a frequency on a configurable axis.
+    /// The low bound sits at the bottom (y = height), the high bound at the top.
+    static func yPosition(
+        for freq: Double,
+        height: CGFloat,
+        scale: SpectrogramFrequencyScale,
+        minFrequency lo: Double,
+        maxFrequency hi: Double
+    ) -> CGFloat {
+        let loC = max(1e-6, min(lo, hi))
+        let hiC = max(loC + 1e-6, hi)
+        let clamped = max(loC, min(hiC, freq))
+        let normalized: Double
+        switch scale {
+        case .logarithmic:
+            let span = log10(hiC) - log10(loC)
+            normalized = span > 0 ? (log10(clamped) - log10(loC)) / span : 0
+        case .linear:
+            let span = hiC - loC
+            normalized = span > 0 ? (clamped - loC) / span : 0
+        }
         return height * (1.0 - CGFloat(normalized))
+    }
+
+    /// Frequency tick values to label for the given scale/range. Log uses the
+    /// canonical octave-ish ladder filtered to the range; linear uses a "nice"
+    /// even step so the labels match the uniform bin grid.
+    static func axisTickFrequencies(
+        scale: SpectrogramFrequencyScale,
+        minFrequency lo: Double,
+        maxFrequency hi: Double
+    ) -> [Double] {
+        guard hi > lo else { return [lo] }
+        switch scale {
+        case .logarithmic:
+            let ladder: [Double] = [20, 31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+            var ticks = ladder.filter { $0 >= lo && $0 <= hi }
+            if ticks.first != lo { ticks.insert(lo, at: 0) }
+            if ticks.last != hi { ticks.append(hi) }
+            return ticks
+        case .linear:
+            let step = linearTickStep(for: hi - lo)
+            var ticks: [Double] = []
+            var v = (lo / step).rounded(.up) * step
+            while v <= hi + 0.5 {
+                if v >= lo { ticks.append(v) }
+                v += step
+            }
+            if ticks.first != lo { ticks.insert(lo, at: 0) }
+            if ticks.last != hi { ticks.append(hi) }
+            return ticks
+        }
+    }
+
+    /// Picks a "nice" linear tick step yielding roughly 6–10 labels across the span.
+    static func linearTickStep(for span: Double) -> Double {
+        guard span > 0 else { return 1000 }
+        let rough = span / 8.0
+        let candidates: [Double] = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000]
+        for c in candidates where rough <= c { return c }
+        return 10000
     }
 
     /// Frequency tick label. kHz above 1000, integer Hz when whole,

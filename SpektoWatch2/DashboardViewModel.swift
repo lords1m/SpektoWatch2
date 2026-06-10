@@ -20,7 +20,10 @@ class DashboardViewModel: ObservableObject {
 
     // Settings State
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
-    @Published var watchGain: Float = 1.0
+    @Published var watchGain: Float = {
+        let stored = UserDefaults.standard.object(forKey: PersistenceKeys.Watch.gain) as? Float
+        return stored ?? 1.0
+    }()
     @Published var showWatchNotReachableAlert = false
 
     // Dependencies
@@ -202,6 +205,7 @@ class DashboardViewModel: ObservableObject {
     
     func updateWatchGain(_ newValue: Float) {
         watchGain = newValue
+        UserDefaults.standard.set(newValue, forKey: PersistenceKeys.Watch.gain)
         connectivityManager.sendGainValue(newValue)
     }
     

@@ -130,9 +130,10 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     init(type: AudioWidgetType, size: WidgetSize, gridPosition: GridPosition = GridPosition(index: 0), settings: [String: String] = [:]) {
         self.id = UUID()
         self.type = type
-        self.size = size.clamped(
-            min: WidgetConfiguration.sizeRange(for: type).min,
-            max: WidgetConfiguration.sizeRange(for: type).max
+        self.size = WidgetConfiguration.normalizedSize(
+            for: type,
+            size: size,
+            settings: settings
         )
         self.gridPosition = gridPosition
         self.settings = settings
@@ -160,8 +161,52 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         self.gridPosition = try container.decode(GridPosition.self, forKey: .gridPosition)
         self.settings = try container.decode([String: String].self, forKey: .settings)
         let rawSize = try container.decode(WidgetSize.self, forKey: .size)
-        let range = WidgetConfiguration.sizeRange(for: self.type)
-        self.size = rawSize.clamped(min: range.min, max: range.max)
+        self.size = WidgetConfiguration.normalizedSize(
+            for: self.type,
+            size: rawSize,
+            settings: self.settings
+        )
+    }
+
+    /// Clamps to per-type range, then enforces level-meter long-axis minimum (2 grid cells).
+    static func normalizedSize(
+        for type: AudioWidgetType,
+        size: WidgetSize,
+        settings: [String: String]
+    ) -> WidgetSize {
+        let range = sizeRange(for: type)
+        var clamped = size.clamped(min: range.min, max: range.max)
+        if type == .levelMeter {
+            clamped = normalizedLevelMeterSize(
+                clamped,
+                orientation: WidgetSettings.levelMeterOrientation(settings)
+            )
+        }
+        return clamped
+    }
+
+    static func normalizedLevelMeterSize(
+        _ size: WidgetSize,
+        orientation: LevelMeterOrientation
+    ) -> WidgetSize {
+        let range = sizeRange(for: .levelMeter)
+        var result = size.clamped(min: range.min, max: range.max)
+        switch orientation {
+        case .horizontal:
+            if result.columns < 2 {
+                result.columns = min(2, range.max.columns)
+            }
+        case .vertical:
+            if result.rows < 2 {
+                result.rows = min(2, range.max.rows)
+            }
+        }
+        if result.columns == 1 && result.rows == 1 {
+            result = orientation == .vertical
+                ? WidgetSize(columns: 1, rows: 2)
+                : WidgetSize(columns: 2, rows: 1)
+        }
+        return result.clamped(min: range.min, max: range.max)
     }
 
     // MARK: - Per-type sizing rules
@@ -196,7 +241,9 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     /// excess vertical whitespace on phone screens.
     static func baseRowHeight(for type: AudioWidgetType) -> CGFloat {
         switch type {
-        case .singleValue, .levelMeter, .phaseMeter:
+        case .levelMeter:
+            return 52
+        case .singleValue, .phaseMeter:
             return 96
         default:
             return 150
@@ -212,13 +259,48 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         return CGFloat(size.rows) * baseHeight + CGFloat(max(0, size.rows - 1)) * spacing
     }
 
+    /// One widget per distinct normalized size for screenshot / audit layouts.
+    /// Level meters need horizontal + vertical settings so 1-wide sizes survive
+    /// `normalizedLevelMeterSize` (see `testWidgetSizeScreenshotPreset…`).
+    static func sizeCatalogEntries(for type: AudioWidgetType) -> [WidgetConfiguration] {
+        let range = sizeRange(for: type)
+        let settingVariants: [[String: String]] = type == .levelMeter
+            ? [
+                [:],
+                [WidgetSettings.levelMeterOrientationKey: LevelMeterOrientation.vertical.rawValue]
+            ]
+            : [[:]]
+
+        var seen = Set<String>()
+        var result: [WidgetConfiguration] = []
+
+        for settings in settingVariants {
+            for rows in range.min.rows...range.max.rows {
+                for columns in range.min.columns...range.max.columns {
+                    let config = WidgetConfiguration(
+                        type: type,
+                        size: WidgetSize(columns: columns, rows: rows),
+                        gridPosition: GridPosition(index: result.count),
+                        settings: settings
+                    )
+                    let key = "\(config.size.columns)x\(config.size.rows)"
+                    guard seen.insert(key).inserted else { continue }
+                    result.append(config)
+                }
+            }
+        }
+        return result
+    }
+
     static func defaultSize(for type: AudioWidgetType) -> WidgetSize {
         switch type {
         case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:
             return WidgetSize(columns: 3, rows: 2)
         case .levelHistory, .frequencyDisplay, .octaveBands:
             return WidgetSize(columns: 3, rows: 1)
-        case .levelMeter, .phaseMeter:
+        case .levelMeter:
+            return WidgetSize(columns: 2, rows: 1)
+        case .phaseMeter:
             return WidgetSize(columns: 1, rows: 1)
         case .singleValue:
             return WidgetSize(columns: 1, rows: 1)
@@ -242,7 +324,19 @@ enum WidgetSettings {
     // so the waterfall range lives in positive SPL space, not dBFS.
     static let defaultWaterfallMinDB: Float = 30
     static let defaultWaterfallMaxDB: Float = 110
+    /// Peak markers are off by default — they add a lot of clutter to a dense
+    /// history. Opt-in per widget.
+    static let defaultWaterfallShowPeaks = false
     static let defaultSingleValueMetric = "LAF"
+    static let singleValueRefreshRateKey = "singleValueRefreshRate"
+
+    static func singleValueRefreshRate(_ settings: [String: String]) -> SingleValueRefreshRate {
+        guard let raw = settings[singleValueRefreshRateKey],
+              let rate = SingleValueRefreshRate(rawValue: raw) else {
+            return .default
+        }
+        return rate
+    }
     static let defaultLevelHistoryMetric = "AUTO"
     static let defaultWaterfallSpectrumMode = "continuous"
     // Shared Y-axis range defaults (dB SPL). Used by chart widgets
@@ -255,6 +349,16 @@ enum WidgetSettings {
     static let defaultHistorySmoothing: Float = 0
     static let defaultSpectrumShowLeq = true
     static let defaultLevelMeterShowPeak = true
+    static let levelMeterOrientationKey = "levelMeterOrientation"
+    static let defaultLevelMeterOrientation = LevelMeterOrientation.default
+
+    static func levelMeterOrientation(_ settings: [String: String]) -> LevelMeterOrientation {
+        guard let raw = settings[levelMeterOrientationKey],
+              let orientation = LevelMeterOrientation(rawValue: raw) else {
+            return defaultLevelMeterOrientation
+        }
+        return orientation
+    }
     /// Per-widget noise floor in dB SPL. −120 means off (no suppression).
     /// Spectrogram: soft-knee gate below the floor. SingleValue: display guard.
     /// Waterfall: floor is minDB; soft-knee is always on (fixed 6 dB, no key needed).

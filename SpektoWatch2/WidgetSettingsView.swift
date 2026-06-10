@@ -223,6 +223,14 @@ struct WidgetSettingsView: View {
                             Text("Bark").tag("bark")
                             Text("Oktav").tag("octave")
                         }
+
+                        Toggle("Spitzenmarker", isOn: Binding(
+                            get: {
+                                (settings["waterfallShowPeaks"]
+                                    ?? (WidgetSettings.defaultWaterfallShowPeaks ? "true" : "false")) == "true"
+                            },
+                            set: { settings["waterfallShowPeaks"] = $0 ? "true" : "false" }
+                        ))
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
 
@@ -363,6 +371,19 @@ struct WidgetSettingsView: View {
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .levelMeter {
+                    Section(header: Text("Anzeige")) {
+                        Picker("Ausrichtung", selection: Binding(
+                            get: { WidgetSettings.levelMeterOrientation(settings).rawValue },
+                            set: { settings[WidgetSettings.levelMeterOrientationKey] = $0 }
+                        )) {
+                            ForEach(LevelMeterOrientation.allCases) { orientation in
+                                Text(orientation.displayName).tag(orientation.rawValue)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
                     yAxisBoundsSection
                         .disabled(supportsOverrideToggle && !useWidgetOverrides)
                     Section(header: Text("Erweitert")) {
@@ -374,6 +395,17 @@ struct WidgetSettingsView: View {
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
                 } else if widget.type == .singleValue {
                     Section(header: Text("Anzeige")) {
+                        Picker("Aktualisierung", selection: Binding(
+                            get: {
+                                settings[WidgetSettings.singleValueRefreshRateKey]
+                                    ?? SingleValueRefreshRate.default.rawValue
+                            },
+                            set: { settings[WidgetSettings.singleValueRefreshRateKey] = $0 }
+                        )) {
+                            ForEach(SingleValueRefreshRate.allCases) { rate in
+                                Text(rate.displayName).tag(rate.rawValue)
+                            }
+                        }
                         Picker("Messwert", selection: Binding(
                             get: { settings["metric"] ?? WidgetSettings.defaultSingleValueMetric },
                             set: { settings["metric"] = $0 }

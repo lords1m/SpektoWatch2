@@ -17,8 +17,19 @@ public enum SpectrogramHistoryAxis {
         max(256, fftSize / 8)
     }
 
-    public static func logBinCount(forFFTSize fftSize: Int) -> Int {
-        max(64, fftSize / 4)
+    public static func logBinCount(
+        forFFTSize fftSize: Int,
+        resolution: SpectrogramResolution = .current
+    ) -> Int {
+        let base = max(64, fftSize / 4)
+        switch resolution {
+        case .standard:
+            return base
+        case .balanced:
+            return min(2048, max(base, fftSize / 3))
+        case .high:
+            return min(2048, max(base, fftSize / 2))
+        }
     }
 
     public static func infer(
@@ -82,6 +93,32 @@ public enum SpectrogramHistoryAxis {
             let minFrequency: Float = 20
             let maxFrequency = min(Float(sampleRate / 2.0), 20_000)
             return minFrequency * powf(maxFrequency / minFrequency, clampedY)
+        }
+    }
+
+    /// Inverse of `frequency(yNorm:)`: returns the `0…1` vertical position
+    /// (measured from the low-frequency bottom) at which `frequency` appears.
+    public static func normalizedPosition(
+        forFrequency frequency: Float,
+        kind: SpectrogramHistoryAxisKind,
+        binCount: Int,
+        sampleRate: Double
+    ) -> Float {
+        guard binCount > 1 else { return 0 }
+        switch kind {
+        case .logSpaced:
+            let minFrequency: Float = 20
+            let maxFrequency = min(Float(sampleRate / 2.0), 20_000)
+            let clamped = max(minFrequency, min(maxFrequency, frequency))
+            return logf(clamped / minFrequency) / logf(maxFrequency / minFrequency)
+        case .linearFFT:
+            let nyquist = Float(sampleRate / 2.0)
+            guard nyquist > 0 else { return 0 }
+            return max(0, min(1, frequency / nyquist))
+        case .thirdOctave:
+            let axis = frequencyAxis(kind: kind, binCount: binCount, sampleRate: sampleRate)
+            let index = nearestIndex(for: frequency, in: axis)
+            return Float(index) / Float(max(binCount - 1, 1))
         }
     }
 

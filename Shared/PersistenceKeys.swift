@@ -85,6 +85,18 @@ public enum PersistenceKeys {
     /// Persistent temporal smoothing intensity (0…1, `Double`).
     public static let spectrogramTemporalSmoothing = "spectrogramTemporalSmoothing"
 
+    /// Spectrogram quality preset (`SpectrogramResolution.rawValue`).
+    public static let spectrogramResolution = "spectrogramResolution"
+
+    /// Frequency-axis scale (`SpectrogramFrequencyScale.rawValue`: log / linear).
+    public static let spectrogramFrequencyScale = "spectrogramFrequencyScale"
+
+    /// Lower bound of the displayed frequency range in Hz (`Double`).
+    public static let spectrogramMinFrequency = "spectrogramMinFrequency"
+
+    /// Upper bound of the displayed frequency range in Hz (`Double`).
+    public static let spectrogramMaxFrequency = "spectrogramMaxFrequency"
+
     // MARK: - FFT configuration
 
     public enum FFT {
@@ -95,7 +107,7 @@ public enum PersistenceKeys {
         public static let showExplanations = "fft_showExplanations"
 
         /// Schema version for the FFT persistence layout.
-        public static let currentVersion = 2
+        public static let currentVersion = 3
     }
 
     // MARK: - Bandstop filters
@@ -119,7 +131,14 @@ public enum PersistenceKeys {
         /// stores locally; the watch does not coordinate record start/stop with
         /// the phone and does not subscribe to the phone spectrogram at launch.
         /// Storage: `Bool` in `UserDefaults.standard`.
+        /// Legacy — migrated to `measurementSourcePreference` on first read.
         public static let standaloneEnabled = "watch.standaloneEnabled"
+        /// Live measurement source policy (`WatchMeasurementSourcePreference.rawValue`).
+        public static let measurementSourcePreference = "watch.measurementSourcePreference"
+        /// Customizable meter face layout (`WatchMeterLayoutConfig` JSON).
+        public static let meterLayoutConfig = "watch.meterLayoutConfig"
+        /// Watch mic gain multiplier pushed from the phone (`Float`).
+        public static let gain = "watch.gain"
     }
 
     // MARK: - Recordings list

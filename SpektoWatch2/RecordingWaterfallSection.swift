@@ -13,6 +13,14 @@ struct RecordingWaterfallSection: View {
     var onDisplaySettingsChanged: () -> Void
     var onAutoFitDBRange: () -> Void
 
+    /// Render-only overlays — local to the analysis surface, no rebuild needed.
+    @State private var showPeaks = true
+    @State private var showStatistics = true
+
+    /// Taller surface than the old fixed 360 so the heatmap is genuinely
+    /// bigger and the colorbar / peak panel have room.
+    private static let waterfallHeight: CGFloat = 460
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if usesAudioSpectralFallback {
@@ -50,9 +58,15 @@ struct RecordingWaterfallSection: View {
             ZStack {
                 WaterfallView(
                     dataSet: controller.dataSet,
-                    highlightedTime: highlightedTime
+                    highlightedTime: highlightedTime,
+                    options: .analysis(
+                        spectrumMode: controller.display.spectrumMode,
+                        showPeaks: showPeaks,
+                        showStatistics: showStatistics
+                    )
                 )
-                .frame(height: 360)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.waterfallHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .accessibilityIdentifier("recordingWaterfallView")
 
@@ -70,7 +84,7 @@ struct RecordingWaterfallSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(height: 360)
+            .frame(height: Self.waterfallHeight)
 
             HStack {
                 Text("\(controller.dataSet.slices.count) Zeitabschnitte")
@@ -142,6 +156,9 @@ struct RecordingWaterfallSection: View {
                 }
                 .pickerStyle(.segmented)
             }
+
+            Toggle("Spitzen anzeigen", isOn: $showPeaks)
+            Toggle("Statistik (Max-Hold / Ø)", isOn: $showStatistics)
 
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {

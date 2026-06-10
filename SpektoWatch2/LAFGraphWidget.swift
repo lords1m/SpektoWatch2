@@ -53,17 +53,29 @@ struct LevelHistoryWidget: View {
     var metricLabel: String {
         resolvedMetricKey
     }
-    
+
+    private var timeSpan: SpectrogramTimeSpan {
+        let fallback = WidgetSettings.defaultTimeSpanSeconds
+        guard useWidgetOverrides else {
+            return SpectrogramTimeSpan(rawValue: fallback) ?? .seconds5
+        }
+        let raw = Int(settings["timeSpan"] ?? String(fallback)) ?? fallback
+        return SpectrogramTimeSpan(rawValue: raw) ?? SpectrogramTimeSpan(rawValue: fallback) ?? .seconds5
+    }
+
+    /// Shared rolling buffer so the tile and the fullscreen cover render the
+    /// same continuous history rather than each restarting from empty.
+    @StateObject private var store = LevelHistoryStore()
     @State private var showFullscreen = false
 
     var body: some View {
-        LevelHistoryView(
-            audioEngine: audioEngine,
-            settings: settings,
-            scrollSpeed: .fast,
-            isPaused: false
-        )
+        LevelHistoryView(store: store, settings: settings)
         .innerCanvas(cornerRadius: 0)
+        .onAppear { store.configure(timeSpanSeconds: timeSpan.rawValue, scrollSpeed: ScrollSpeed.fast.rawValue) }
+        .onChange(of: timeSpan) { _, new in
+            store.configure(timeSpanSeconds: new.rawValue, scrollSpeed: ScrollSpeed.fast.rawValue)
+        }
+        .onChange(of: resolvedMetricKey) { _, _ in store.reset() }
         .overlay(alignment: .topLeading) {
             Text(metricLabel)
                 .font(.caption)
@@ -108,11 +120,15 @@ struct LevelHistoryWidget: View {
                 return
             }
             updateLoudness(from: data)
+            let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel
+            store.ingest(level: level, sampleRate: data.sampleRate)
         }
         .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
         .onReceive(timeWeightingPublisher) { engineTimeWeighting = $0.rawValue }
         .fullScreenCover(isPresented: $showFullscreen) {
-            LevelHistoryFullscreenView(audioEngine: audioEngine, settings: settings)
+            // Share the SAME store so the level history continues seamlessly —
+            // the presenting tile stays mounted and keeps feeding it.
+            LevelHistoryFullscreenView(store: store, settings: settings)
         }
     }
 
@@ -129,18 +145,13 @@ struct LevelHistoryWidget: View {
 
 private struct LevelHistoryFullscreenView: View {
     @Environment(\.dismiss) private var dismiss
-    let audioEngine: AudioEngine
+    @ObservedObject var store: LevelHistoryStore
     let settings: [String: String]
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            LevelHistoryView(
-                audioEngine: audioEngine,
-                settings: settings,
-                scrollSpeed: .fast,
-                isPaused: false
-            )
+            LevelHistoryView(store: store, settings: settings)
             .ignoresSafeArea()
 
             Button { dismiss() } label: {

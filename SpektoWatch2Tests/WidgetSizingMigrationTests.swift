@@ -115,6 +115,38 @@ final class WidgetSizingMigrationTests: XCTestCase {
         XCTAssertLessThanOrEqual(config.size.rows, range.max.rows)
     }
 
+    /// Legacy 1×1 level meter must grow to at least two cells on the long axis (horizontal default).
+    func testLevelMeterLegacyOneByOneClampsToTwoByOne() throws {
+        let json = #"""
+        {
+          "id":"00000000-0000-0000-0000-000000000004",
+          "type":"Pegel-Meter",
+          "gridPosition":{"index":0},
+          "size":{"columns":1,"rows":1},
+          "settings":{}
+        }
+        """#.data(using: .utf8)!
+        let config = try JSONDecoder().decode(WidgetConfiguration.self, from: json)
+        XCTAssertEqual(config.type, .levelMeter)
+        XCTAssertEqual(config.size.columns, 2)
+        XCTAssertEqual(config.size.rows, 1)
+    }
+
+    func testLevelMeterVerticalOrientationEnforcesTwoRows() throws {
+        let json = #"""
+        {
+          "id":"00000000-0000-0000-0000-000000000005",
+          "type":"Pegel-Meter",
+          "gridPosition":{"index":0},
+          "size":{"columns":1,"rows":1},
+          "settings":{"levelMeterOrientation":"vertical"}
+        }
+        """#.data(using: .utf8)!
+        let config = try JSONDecoder().decode(WidgetConfiguration.self, from: json)
+        XCTAssertEqual(config.size.columns, 1)
+        XCTAssertEqual(config.size.rows, 2)
+    }
+
     // MARK: - sizeRange invariants
 
     /// Sanity: every widget type's `min` is element-wise ≤ `max`, and
@@ -176,17 +208,15 @@ final class WidgetSizingMigrationTests: XCTestCase {
 
         for type in AudioWidgetType.allCases {
             let layout = try XCTUnwrap(manager.customLayouts.first { $0.name == "Screenshot: \(type.rawValue)" })
-            let range = WidgetConfiguration.sizeRange(for: type)
             let expectedSizes = Set(
-                (range.min.rows...range.max.rows).flatMap { rows in
-                    (range.min.columns...range.max.columns).map { columns in
-                        "\(columns)x\(rows)"
-                    }
+                WidgetConfiguration.sizeCatalogEntries(for: type).map {
+                    "\($0.size.columns)x\($0.size.rows)"
                 }
             )
             let actualSizes = Set(layout.widgets.map { "\($0.size.columns)x\($0.size.rows)" })
 
-            XCTAssertEqual(actualSizes, expectedSizes, "\(type.rawValue) preset page does not contain every allowed size")
+            XCTAssertEqual(actualSizes, expectedSizes, "\(type.rawValue) preset page does not contain every distinct normalized size")
+            XCTAssertEqual(layout.widgets.count, expectedSizes.count)
             XCTAssertEqual(layout.widgets.map(\.gridPosition.index), Array(0..<layout.widgets.count))
         }
 

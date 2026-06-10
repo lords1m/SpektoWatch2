@@ -71,7 +71,9 @@ class AudioEngine: ObservableObject {
 
     // MARK: - Audio Engine
 
-    private var audioEngine: AVAudioEngine
+    /// Created on first capture start so `AudioEngine` init stays off the hot
+    /// AVAudioEngine graph-build path during deferred `AppServices.startAudio()`.
+    private lazy var audioEngine = AVAudioEngine()
     private var fftSize: Int = FFTBlockSize.size4096.rawValue
     private let tapBlockSize: AVAudioFrameCount = 512
     private let sampleRate: Double = 44100.0
@@ -278,6 +280,14 @@ class AudioEngine: ObservableObject {
             connectivityManager.sendFrequencyWeightingSelection(frequencyWeighting.rawValue)
         }
     }
+    @Published var spectrogramResolution: SpectrogramResolution = .current {
+        didSet {
+            guard spectrogramResolution != oldValue else { return }
+            SpectrogramResolution.save(spectrogramResolution)
+            applySpectrogramResolutionToProcessors()
+        }
+    }
+
     @Published var spectrogramFrequencySmoothing: Float = 0.0 {
         didSet {
             let clamped = max(0.0, min(1.0, spectrogramFrequencySmoothing))
@@ -288,7 +298,7 @@ class AudioEngine: ObservableObject {
             UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramFrequencySmoothing)
         }
     }
-    @Published var spectrogramTemporalSmoothing: Float = 1.0 {
+    @Published var spectrogramTemporalSmoothing: Float = 0.6 {
         didSet {
             let clamped = max(0.0, min(1.0, spectrogramTemporalSmoothing))
             if abs(clamped - spectrogramTemporalSmoothing) > 0.0001 {
@@ -297,6 +307,42 @@ class AudioEngine: ObservableObject {
             }
             spectrogramProcessor.temporalSmoothingIntensity = clamped
             UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramTemporalSmoothing)
+        }
+    }
+    @Published var spectrogramFrequencyScale: SpectrogramFrequencyScale = .current {
+        didSet {
+            guard spectrogramFrequencyScale != oldValue else { return }
+            SpectrogramFrequencyScale.save(spectrogramFrequencyScale)
+        }
+    }
+    /// Lower bound of the displayed spectrogram frequency range (Hz).
+    @Published var spectrogramMinFrequency: Double = 20 {
+        didSet {
+            let clamped = min(
+                max(spectrogramMinFrequency, SpectrogramFrequencyRange.absoluteMin),
+                spectrogramMaxFrequency / 1.2
+            )
+            if abs(clamped - spectrogramMinFrequency) > 0.001 {
+                spectrogramMinFrequency = clamped
+                return
+            }
+            UserDefaults.standard.set(spectrogramMinFrequency, forKey: PersistenceKeys.spectrogramMinFrequency)
+            NotificationCenter.default.post(name: .spectrogramFrequencyRangeChanged, object: nil)
+        }
+    }
+    /// Upper bound of the displayed spectrogram frequency range (Hz), clamped to
+    /// the active microphone's Nyquist frequency.
+    @Published var spectrogramMaxFrequency: Double = 20_000 {
+        didSet {
+            let nyquist = sampleRate / 2.0
+            let upperLimit = min(SpectrogramFrequencyRange.absoluteMax, max(2_000, nyquist))
+            let clamped = max(min(spectrogramMaxFrequency, upperLimit), spectrogramMinFrequency * 1.2)
+            if abs(clamped - spectrogramMaxFrequency) > 0.001 {
+                spectrogramMaxFrequency = clamped
+                return
+            }
+            UserDefaults.standard.set(spectrogramMaxFrequency, forKey: PersistenceKeys.spectrogramMaxFrequency)
+            NotificationCenter.default.post(name: .spectrogramFrequencyRangeChanged, object: nil)
         }
     }
     @Published var scrollSpeed: ScrollSpeed = .normal
@@ -322,7 +368,6 @@ class AudioEngine: ObservableObject {
     init(filterManager: BandstopFilterManager, connectivityManager: WatchConnectivityManager) {
         self.bandstopFilterManager = filterManager
         self.connectivityManager = connectivityManager
-        audioEngine = AVAudioEngine()
 
         // Initialize processing components
         fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
@@ -335,11 +380,12 @@ class AudioEngine: ObservableObject {
         // Filterbank mit 128 Bändern (20 Hz – 20 kHz), anschließend 20·log10.
         // Mel-Bänder sind bereits perzeptuell skaliert; der Adapter respektiert
         // `visualFrequencies` und überlagert keine zweite Log-Achse mehr.
+        let initialResolution = SpectrogramResolution.current
         visualSpectrogramProcessor = VisualSpectrogramProcessor(
             transformSize: fftSize,
             sampleRate: processingSampleRate,
             windowFunction: .hann,
-            melBandCount: 128,
+            melBandCount: initialResolution.melBandCount,
             frequencyRange: 20...20_000
         )
         spectrogramProcessor.binningFactor = 1
@@ -412,10 +458,51 @@ class AudioEngine: ObservableObject {
         if let savedTemporalSmoothing = UserDefaults.standard.object(forKey: PersistenceKeys.spectrogramTemporalSmoothing) as? Double {
             spectrogramTemporalSmoothing = Float(savedTemporalSmoothing)
         }
+
+        // Frequency-axis display range (Hz). Default upper bound tracks the
+        // microphone's Nyquist; user overrides persist across launches.
+        let savedRange = SpectrogramFrequencyRange.current(sampleRate: sampleRate)
+        spectrogramMaxFrequency = savedRange.maxHz
+        spectrogramMinFrequency = savedRange.minHz
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSpectrogramResolutionChanged(_:)),
+            name: .spectrogramResolutionChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleSpectrogramResolutionChanged(_ notification: Notification) {
+        guard let resolution = notification.object as? SpectrogramResolution else { return }
+        if spectrogramResolution != resolution {
+            spectrogramResolution = resolution
+        } else {
+            applySpectrogramResolutionToProcessors()
+        }
+    }
+
+    private func applySpectrogramResolutionToProcessors() {
+        visualSpectrogramProcessor.reconfigure(
+            transformSize: fftSize,
+            sampleRate: processingSampleRate,
+            windowFunction: currentWindowFunction,
+            melBandCount: spectrogramResolution.melBandCount
+        )
+        connectivityManager.sendSpectrogramResolution(spectrogramResolution)
     }
     
     // MARK: - Public Configuration Methods
-    
+
+    /// Resets the spectrogram frequency-display range to the active microphone's
+    /// default (20 Hz – min(20 kHz, Nyquist)). Max is raised before min so the
+    /// per-property clamps don't fight each other.
+    func resetSpectrogramFrequencyRangeToMicrophoneDefault() {
+        let def = SpectrogramFrequencyRange.microphoneDefault(sampleRate: sampleRate)
+        spectrogramMaxFrequency = def.maxHz
+        spectrogramMinFrequency = def.minHz
+    }
+
     func setTimeWeighting(_ weighting: TimeWeighting) {
         timeWeighting = weighting
     }
@@ -558,6 +645,21 @@ class AudioEngine: ObservableObject {
 
     // MARK: - Live/Recording Control
 
+    /// Warms the lazy `AVAudioEngine` after `AudioEngine` construction so the
+    /// first `startLiveMode()` / `startRecording()` does less main-thread work.
+    func prewarmCaptureGraph() {
+        #if DEBUG
+        if UITestRuntime.useTestAudio { return }
+        #endif
+        #if targetEnvironment(simulator)
+        return
+        #endif
+        let signpostID = PerformanceSignpost.begin("AudioCapturePrewarm")
+        _ = audioEngine.inputNode
+        audioEngine.prepare()
+        PerformanceSignpost.end("AudioCapturePrewarm", signpostID: signpostID)
+    }
+
     /// Startet die Live-Anzeige (ohne Aufnahme in Datei)
     func startLiveMode() {
         print("[AudioEngine] startLiveMode called")
@@ -645,6 +747,11 @@ class AudioEngine: ObservableObject {
     }
 
     private func startAudioCapture() {
+        let signpostID = PerformanceSignpost.begin("AudioEngineStart")
+        defer {
+            PerformanceSignpost.end("AudioEngineStart", signpostID: signpostID)
+        }
+
         print("[AudioEngine] startAudioCapture called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
         print("[AudioEngine] Current recording.isRecordingToFile: \(recording.isRecordingToFile)")
@@ -654,35 +761,60 @@ class AudioEngine: ObservableObject {
         }
         isStartingCapture = true
 
-        DispatchQueue.main.async {
-            print("[AudioEngine] Setting engineStatus to .starting")
-            self.engineStatus = .starting
-            print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
+        if Thread.isMainThread {
+            engineStatus = .starting
+        } else {
+            DispatchQueue.main.async {
+                self.engineStatus = .starting
+            }
         }
+
         recordingStartTime = Date()
         recording.recordingDuration = 0.0
         hasLoggedSilence = false
 
         resetMetrics()
 
+        if shouldUseTestAudioCapture {
+            startTestAudioCapture()
+        } else {
+            startRealRecording()
+        }
+    }
+
+    /// Simulator and UI-test launches use the synthetic generator so capture
+    /// does not depend on microphone permission or AVAudioEngine graph timing.
+    private var shouldUseTestAudioCapture: Bool {
+        #if DEBUG
+        if UITestRuntime.useTestAudio { return true }
+        #endif
         #if targetEnvironment(simulator)
-        Logger.audioEngine.info("Running on Simulator - using test audio generator")
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private func startTestAudioCapture() {
+        Logger.audioEngine.info("Using test audio generator for capture")
         print("[AudioEngine] Starting test generator")
         if recording.isRecordingToFile {
             setupRecordingFile()
             setupMeasurementDataFileIfNeeded()
         }
         testGenerator.start()
-        DispatchQueue.main.async {
+        let finish: () -> Void = {
             print("[AudioEngine] Setting engineStatus to .running")
             self.engineStatus = .running
             self.isStartingCapture = false
             print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
             print("[AudioEngine] recording.isRecordingToFile: \(self.recording.isRecordingToFile)")
         }
-        #else
-        startRealRecording()
-        #endif
+        if Thread.isMainThread {
+            finish()
+        } else {
+            DispatchQueue.main.async(execute: finish)
+        }
     }
 
     /// Stoppt die Live-Anzeige (ohne Aufnahme zu beenden)
@@ -739,16 +871,12 @@ class AudioEngine: ObservableObject {
             print("[AudioEngine] recording.isRecordingToFile is now: \(self.recording.isRecordingToFile)")
         }
 
-        #if targetEnvironment(simulator)
-        testGenerator.stop()
-        #else
-        if !isUsingDummyData {
+        if shouldUseTestAudioCapture || isUsingDummyData {
+            testGenerator.stop()
+        } else {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)
-        } else {
-            testGenerator.stop()
         }
-        #endif
 
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
@@ -913,6 +1041,9 @@ class AudioEngine: ObservableObject {
 
     /// Pre-warm audio session to reduce start latency
     func prewarmAudioSession() {
+        #if DEBUG
+        if UITestRuntime.useTestAudio { return }
+        #endif
         let audioSession = AVAudioSession.sharedInstance()
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -1104,6 +1235,9 @@ class AudioEngine: ObservableObject {
     }
 
     private func finishAudioEngineSetup(isRecording: Bool, dataSources: [AVAudioSessionDataSourceDescription], audioSession: AVAudioSession) {
+        let signpostID = PerformanceSignpost.begin("AudioEngineSetup")
+        defer { PerformanceSignpost.end("AudioEngineSetup", signpostID: signpostID) }
+
         // Update calibration based on current audio session settings
         updateCalibration()
 

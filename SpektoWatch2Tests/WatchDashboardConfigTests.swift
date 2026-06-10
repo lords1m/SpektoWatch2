@@ -36,4 +36,20 @@ final class WatchDashboardConfigTests: XCTestCase {
         XCTAssertEqual(WatchDashboardConfig.defaultWidgets.count, 6)
         XCTAssertEqual(WatchDashboardConfig().orderedDisplayWidgets.count, 6)
     }
+
+    func testLevelMeterOrientationRoundTrip() throws {
+        var config = WatchDashboardConfig(widgets: [
+            WatchWidgetConfig(
+                type: .levelMeter,
+                position: 0,
+                levelMeterOrientation: .vertical
+            ),
+        ])
+        let data = try XCTUnwrap(config.encode())
+        let restored = try XCTUnwrap(WatchDashboardConfig.decode(from: data))
+        XCTAssertEqual(
+            restored.orderedDisplayWidgets.first?.resolvedLevelMeterOrientation(),
+            .vertical
+        )
+    }
 }

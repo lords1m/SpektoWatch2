@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # SpektoWatch Test Runner Script
-# Führt alle Unit- und UI-Tests aus basierend auf dem Testkonzept
+# Smoke subset of unit/UI classes (not the full suite).
+# For full CI parity use: xcodebuild test -testPlan spekto-watch2 (see docs/test-plans/).
+# Manual matrix: docs/test-plans/manual-test-matrix.md
 
 set -e
 
@@ -54,27 +56,27 @@ echo "=========================================="
 
 echo ""
 echo "1. FFTProcessor Tests (TEST-IE-010, TEST-IE-011)"
-run_tests "FFTProcessorTests" "SpektoWatch2Tests/FFTProcessorTests" || true
+run_tests "FFTProcessorTests" "SpektoWatch2Tests/FFTProcessorTests"
 
 echo ""
 echo "2. FrequencyWeighting Tests (TEST-IE-020, TEST-IE-021, TEST-IE-022)"
-run_tests "FrequencyWeightingTests" "SpektoWatch2Tests/FrequencyWeightingTests" || true
+run_tests "FrequencyWeightingTests" "SpektoWatch2Tests/FrequencyWeightingTests"
 
 echo ""
 echo "3. WatchConnectivity Tests (TEST-INT-002, TEST-INT-003)"
-run_tests "WatchConnectivityTests" "SpektoWatch2Tests/WatchConnectivityTests" || true
+run_tests "WatchConnectivityTests" "SpektoWatch2Tests/WatchConnectivityTests"
 
 echo ""
 echo "4. AudioEngine Tests (TEST-INT-010)"
-run_tests "AudioEngineTests" "SpektoWatch2Tests/AudioEngineTests" || true
+run_tests "AudioEngineTests" "SpektoWatch2Tests/AudioEngineTests"
 
 echo ""
 echo "5. ToneGenerator Tests (TEST-IE-052)"
-run_tests "ToneGeneratorTests" "SpektoWatch2Tests/ToneGeneratorTests" || true
+run_tests "ToneGeneratorTests" "SpektoWatch2Tests/ToneGeneratorTests"
 
 echo ""
 echo "6. Integration Tests"
-run_tests "IntegrationTests" "SpektoWatch2Tests/IntegrationTests" || true
+run_tests "IntegrationTests" "SpektoWatch2Tests/IntegrationTests"
 
 # UI Tests
 echo ""
@@ -84,7 +86,7 @@ echo "=========================================="
 
 echo ""
 echo "7. UI Tests (TEST-IE-001)"
-run_tests "SpektoWatch2UITests" "SpektoWatch2UITests" || true
+run_tests "SpektoWatch2UITests" "SpektoWatch2UITests"
 
 echo ""
 echo "=========================================="

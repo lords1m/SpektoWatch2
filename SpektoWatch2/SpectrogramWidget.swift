@@ -74,6 +74,9 @@ struct SpectrogramWidget: View {
     var noiseFloor: Float { WidgetSettings.spectrogramNoiseFloorDB(settings) }
 
     @State private var showFullscreen = false
+    /// Shared so the fullscreen cover primes from (and continues) the same live
+    /// scroll history instead of starting blank.
+    @State private var columnHistory = SpectrogramColumnHistory()
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -86,7 +89,8 @@ struct SpectrogramWidget: View {
                 freqWeighting: freqWeighting,
                 sensitivity: sensitivity,
                 frequencySmoothing: frequencySmoothing,
-                noiseFloor: noiseFloor
+                noiseFloor: noiseFloor,
+                columnHistory: columnHistory
             )
 
             Button { showFullscreen = true } label: {
@@ -114,7 +118,8 @@ struct SpectrogramWidget: View {
                 sensitivity: sensitivity,
                 frequencySmoothing: frequencySmoothing,
                 noiseFloor: noiseFloor,
-                engineStatus: engineStatus
+                engineStatus: engineStatus,
+                columnHistory: columnHistory
             )
         }
     }
@@ -131,22 +136,25 @@ private struct SpectrogramFullscreenView: View {
     let frequencySmoothing: Float
     let noiseFloor: Float
     let engineStatus: EngineStatus
+    let columnHistory: SpectrogramColumnHistory
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            HighEndSpectrogramAdapterWithAxes(
+            InteractiveLiveSpectrogramView(
                 audioEngine: audioEngine,
                 colormapType: colormapType,
                 timeSpan: timeSpan,
                 scrollSpeed: scrollSpeed,
-                isPaused: engineStatus != .running,
                 freqWeighting: freqWeighting,
                 sensitivity: sensitivity,
                 frequencySmoothing: frequencySmoothing,
-                noiseFloor: noiseFloor
+                noiseFloor: noiseFloor,
+                engineStatus: engineStatus,
+                columnHistory: columnHistory
             )
-            .ignoresSafeArea()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 44)
 
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")

@@ -1,4 +1,6 @@
 import Foundation
+import os
+import os.signpost
 
 /// One-shot, ordered, idempotent `UserDefaults` migration runner (M13 task-8
 /// Phase 2).
@@ -29,20 +31,105 @@ public enum PersistenceMigrator {
     /// Current app-level persistence schema version. Bump when adding a step.
     public static let currentSchemaVersion = 1
 
-    /// Run all pending migration steps once, in order, then stamp the version.
+    private enum RunState {
+        case notStarted
+        case inProgress(DispatchGroup)
+        case completed
+    }
+
+    private static let stateLock = NSLock()
+    private static var runState: RunState = .notStarted
+
+    /// Schedules migrations off the launch critical path. Safe to call multiple
+    /// times; `completion` runs on the main queue once migrations have finished.
+    public static func startMigrationsIfNeeded(
+        defaults: UserDefaults = .standard,
+        completion: (() -> Void)? = nil
+    ) {
+        let notify: () -> Void = {
+            if let completion {
+                if Thread.isMainThread {
+                    completion()
+                } else {
+                    DispatchQueue.main.async(execute: completion)
+                }
+            }
+        }
+
+        stateLock.lock()
+        switch runState {
+        case .completed:
+            stateLock.unlock()
+            notify()
+            return
+        case .inProgress(let group):
+            stateLock.unlock()
+            if let completion {
+                group.notify(queue: .main, execute: completion)
+            }
+            return
+        case .notStarted:
+            let group = DispatchGroup()
+            group.enter()
+            runState = .inProgress(group)
+            stateLock.unlock()
+
+            DispatchQueue.global(qos: .userInitiated).async {
+                runMigrationsIfNeeded(defaults: defaults)
+                stateLock.lock()
+                runState = .completed
+                stateLock.unlock()
+                group.leave()
+                notify()
+            }
+        }
+    }
+
+    /// Blocks the calling thread until migrations have finished. Prefer
+    /// `startMigrationsIfNeeded` at launch; use this from tests or before
+    /// reading keys that a pending migration step may rewrite.
+    public static func ensureMigrationsComplete(defaults: UserDefaults = .standard) {
+        stateLock.lock()
+        let state = runState
+        stateLock.unlock()
+
+        switch state {
+        case .completed:
+            return
+        case .notStarted:
+            runMigrationsIfNeeded(defaults: defaults)
+        case .inProgress(let group):
+            group.wait()
+        }
+    }
+
+    /// Runs all pending migration steps once, in order, then stamps the version.
     /// Safe to call on every launch; a no-op once the stored version is current.
-    ///
-    /// Call this as early as possible at launch — before any service reads its
-    /// keys — so future value-preserving steps land before consumers load.
     public static func runMigrationsIfNeeded(defaults: UserDefaults = .standard) {
+        let signpostID = PerformanceSignpost.begin("PersistenceMigration")
+
         let stored = defaults.integer(forKey: PersistenceKeys.persistenceSchemaVersion)
-        guard stored < currentSchemaVersion else { return }
+        guard stored < currentSchemaVersion else {
+            PerformanceSignpost.end("PersistenceMigration", signpostID: signpostID)
+            markCompletedIfNeeded()
+            return
+        }
 
         if stored < 1 {
             migrateToV1(defaults: defaults)
         }
 
         defaults.set(currentSchemaVersion, forKey: PersistenceKeys.persistenceSchemaVersion)
+        PerformanceSignpost.end("PersistenceMigration", signpostID: signpostID)
+        markCompletedIfNeeded()
+    }
+
+    private static func markCompletedIfNeeded() {
+        stateLock.lock()
+        if case .notStarted = runState {
+            runState = .completed
+        }
+        stateLock.unlock()
     }
 
     // MARK: - Steps

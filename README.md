@@ -26,7 +26,7 @@ Wichtige Targets:
 
 - `TESTFLIGHT_EXTERNAL_TESTING.md`: Beschreibung und `What to Test` für externe
   TestFlight-Tests
-- `TESTKONZEPT.md`: manuelle und automatisierte Testfälle
+- `docs/test-plans/`: manuelle Testmatrix, Xcode-Testpläne, Snapshot/UI-Anleitungen
 - `FULLSTACK_UEBERSICHT.md`: Architekturüberblick
 - `AGENT.md`: Repository-Kontext und Validierungsworkflow
 

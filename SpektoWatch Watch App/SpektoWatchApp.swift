@@ -33,8 +33,13 @@ struct SpektoWatchWatchApp: App {
         // with no session backing it, and the wrist-down case was previously
         // unhandled entirely.
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background {
+            switch newPhase {
+            case .active:
+                audioEngine.reconcileLiveDataSource()
+            case .background:
                 audioEngine.handleSceneBackgrounded()
+            default:
+                break
             }
         }
     }

@@ -1,8 +1,8 @@
 {
   "configurations" : [
     {
-      "id" : "C1F2A3B4-5678-90AB-CDEF-123456789ABC",
-      "name" : "Test Scheme Action",
+      "id" : "D2E3F4A5-6789-01BC-DEF0-234567890BCD",
+      "name" : "Snapshots",
       "options" : {
 
       }
@@ -12,15 +12,6 @@
     "checkedAllocations" : {
       "enabled" : true,
       "requiresHardwareAcceleration" : true
-    },
-    "codeCoverage" : {
-      "targets" : [
-        {
-          "containerPath" : "container:SpektoWatch2.xcodeproj",
-          "identifier" : "379523572F2234F90079C93F",
-          "name" : "SpektoWatch2"
-        }
-      ]
     },
     "environmentVariableEntries" : [
       {
@@ -37,17 +28,13 @@
   "testTargets" : [
     {
       "parallelizable" : false,
+      "selectedTests" : [
+        "PDFReportSnapshotTests"
+      ],
       "target" : {
         "containerPath" : "container:SpektoWatch2.xcodeproj",
         "identifier" : "37969D312F2E096A009D1923",
         "name" : "SpektoWatch2Tests"
-      }
-    },
-    {
-      "target" : {
-        "containerPath" : "container:SpektoWatch2.xcodeproj",
-        "identifier" : "37969D4C2F2E0982009D1923",
-        "name" : "SpektoWatch2UITests"
       }
     }
   ],

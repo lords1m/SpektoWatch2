@@ -29,7 +29,13 @@ struct WatchPegelmesserFace: View {
             WatchAppBackground().ignoresSafeArea()
 
             VStack(spacing: 4) {
-                Spacer(minLength: 4)
+                HStack {
+                    WatchMeasurementSourceIndicator()
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 2)
+
+                Spacer(minLength: 2)
 
                 Text(displayValue)
                     .font(.system(size: 56, weight: .ultraLight, design: .default))
@@ -55,6 +61,9 @@ struct WatchPegelmesserFace: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.top, 2)
+
+                WatchRecordButton()
+                    .padding(.bottom, 2)
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 4)

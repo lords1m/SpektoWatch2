@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import UIKit
 import OSLog
+import os
 
 struct DashboardLayout: Identifiable, Codable, Equatable {
     let id: UUID
@@ -86,7 +87,18 @@ class DashboardManager: ObservableObject {
     func startLoading() {
         guard !didFinishLoading, !isLoading else { return }
         isLoading = true
+        Logger.ui.debug("DashboardManager.startLoading() — waiting for persistence migrations")
+
+        PersistenceMigrator.startMigrationsIfNeeded { [weak self] in
+            self?.loadPersistedConfigurationAfterMigrations()
+        }
+    }
+
+    private func loadPersistedConfigurationAfterMigrations() {
+        guard isLoading, !didFinishLoading else { return }
         Logger.ui.debug("DashboardManager.startLoading() — background decode started")
+
+        let signpostID = PerformanceSignpost.begin("DashboardLoad")
 
         let v2Data = UserDefaults.standard.data(forKey: layoutsV2Key)
         let v1Data = UserDefaults.standard.data(forKey: layoutsV1Key)
@@ -95,7 +107,7 @@ class DashboardManager: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             let result = Self.decodeStoredConfiguration(v2Data: v2Data, v1Data: v1Data, legacyData: legacyData)
             await MainActor.run { [weak self] in
-                self?.applyLoadResult(result)
+                self?.applyLoadResult(result, dashboardLoadSignpostID: signpostID)
             }
         }
     }
@@ -180,21 +192,55 @@ class DashboardManager: ObservableObject {
         return result
     }
 
-    private func applyLoadResult(_ result: LoadResult) {
+    private func applyLoadResult(_ result: LoadResult, dashboardLoadSignpostID: OSSignpostID? = nil) {
         isLoading = false
         didFinishLoading = true
 
         switch result {
         case .loadedV2(let state, let needsMigrationSave):
             applyState(state)
-            if needsMigrationSave { saveConfiguration() }
+            if needsMigrationSave {
+                persistConfigurationAfterLoad()
+            }
             Logger.ui.info("DashboardManager loaded v2 (\(self.presetSlots.count) presets, \(self.customLayouts.count) custom)")
         case .loadFailed:
             configurationLoadFailed = true
             Logger.ui.error("DashboardManager load failed — keeping defaults")
         case .noSavedData:
-            saveConfiguration()
+            persistConfigurationAfterLoad()
             Logger.ui.info("DashboardManager: no saved config — defaults persisted")
+        }
+
+        if let dashboardLoadSignpostID {
+            PerformanceSignpost.end("DashboardLoad", signpostID: dashboardLoadSignpostID)
+        }
+    }
+
+    /// Encodes dashboard state off the main actor after async decode (avoids
+    /// blocking the UI thread during first paint).
+    private func persistConfigurationAfterLoad() {
+        storeWidgetsToActiveContext()
+        let snapshot = DashboardStateV2(
+            presetSlots: presetSlots,
+            customLayouts: customLayouts,
+            navigation: navigation
+        )
+        let legacyWidgets = widgets
+        let v2Key = layoutsV2Key
+        let legacyKey = userDefaultsKey
+
+        Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            do {
+                let v2Data = try encoder.encode(snapshot)
+                let legacyData = try encoder.encode(legacyWidgets)
+                UserDefaults.standard.set(v2Data, forKey: v2Key)
+                UserDefaults.standard.set(legacyData, forKey: legacyKey)
+                Logger.ui.info("DashboardManager: configuration persisted after load")
+            } catch {
+                Logger.ui.error("DashboardManager: post-load save failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -379,14 +425,25 @@ class DashboardManager: ObservableObject {
 
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
         guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
-        let range = WidgetConfiguration.sizeRange(for: widgets[index].type)
-        widgets[index].size = newSize.clamped(min: range.min, max: range.max)
+        let widget = widgets[index]
+        let range = WidgetConfiguration.sizeRange(for: widget.type)
+        widgets[index].size = WidgetConfiguration.normalizedSize(
+            for: widget.type,
+            size: newSize.clamped(min: range.min, max: range.max),
+            settings: widget.settings
+        )
         saveConfiguration()
     }
 
     func updateWidgetSettings(id: UUID, settings: [String: String]) {
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].settings = settings
+            let widget = widgets[index]
+            widgets[index].size = WidgetConfiguration.normalizedSize(
+                for: widget.type,
+                size: widget.size,
+                settings: settings
+            )
             saveConfiguration()
         }
     }
@@ -422,13 +479,13 @@ class DashboardManager: ObservableObject {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
-    #if DEBUG
     func installWidgetSizeScreenshotPreset() {
+        guard UITestLaunchFlags.widgetSizeScreenshotPresetAvailable else { return }
         Logger.ui.info("Installing widget size screenshot preset (custom layouts)...")
         customLayouts = AudioWidgetType.allCases.map { type in
             DashboardLayout(
                 name: "Screenshot: \(type.rawValue)",
-                widgets: Self.sizeCatalogWidgets(for: type)
+                widgets: WidgetConfiguration.sizeCatalogEntries(for: type)
             )
         }
         if let first = customLayouts.first {
@@ -438,7 +495,6 @@ class DashboardManager: ObservableObject {
         saveConfiguration()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
-    #endif
 
     private func storeWidgetsToActiveContext() {
         switch navigation {
@@ -476,6 +532,13 @@ class DashboardManager: ObservableObject {
                     normalized.settings["frequencyBands"] = "terz"
                 }
             }
+            if normalized.type == .levelMeter {
+                normalized.size = WidgetConfiguration.normalizedSize(
+                    for: .levelMeter,
+                    size: normalized.size,
+                    settings: normalized.settings
+                )
+            }
             return normalized
         }
     }
@@ -484,22 +547,4 @@ class DashboardManager: ObservableObject {
         PresetCompositions.widgets(forPresetID: "overview")
     }
 
-    private static func sizeCatalogWidgets(for type: AudioWidgetType) -> [WidgetConfiguration] {
-        let range = WidgetConfiguration.sizeRange(for: type)
-        var result: [WidgetConfiguration] = []
-        var index = 0
-        for rows in range.min.rows...range.max.rows {
-            for columns in range.min.columns...range.max.columns {
-                result.append(
-                    WidgetConfiguration(
-                        type: type,
-                        size: WidgetSize(columns: columns, rows: rows),
-                        gridPosition: GridPosition(index: index)
-                    )
-                )
-                index += 1
-            }
-        }
-        return result
-    }
 }

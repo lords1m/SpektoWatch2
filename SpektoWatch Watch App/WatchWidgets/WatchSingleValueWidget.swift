@@ -1,9 +1,11 @@
 import SwiftUI
+import Combine
 
 struct WatchSingleValueWidget: View {
     @EnvironmentObject var audioEngine: WatchAudioEngine
 
     let valueType: WatchSingleValueType
+    var refreshRate: SingleValueRefreshRate = .default
 
     @State private var currentValue: Float = 0.0
     @State private var isActive: Bool = false
@@ -26,10 +28,15 @@ struct WatchSingleValueWidget: View {
         // Bind to the unified data stream — `WatchAudioEngine.liveData` already
         // reflects whichever mode is active (companion vs. wearableMic).
         .onReceive(audioEngine.$liveData) { data in
-            guard let data = data else {
+            if data == nil {
                 isActive = false
-                return
             }
+        }
+        .onReceive(
+            audioEngine.$liveData
+                .compactMap { $0 }
+                .throttledForSingleValueDisplay(rate: refreshRate)
+        ) { data in
             updateValue(from: data)
             isActive = true
         }

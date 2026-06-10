@@ -1,20 +1,107 @@
 import Foundation
+import Combine
+
+// MARK: - Single-value display refresh rate
+
+/// UI update cadence for numeric single-value tiles (watch + iPhone).
+public enum SingleValueRefreshRate: String, Codable, CaseIterable, Identifiable, Equatable {
+    /// Follow the live metrics stream (no extra throttling).
+    case max = "max"
+    case hz10 = "10"
+    case hz5 = "5"
+    case hz2 = "2"
+    case hz1 = "1"
+
+    public var id: String { rawValue }
+
+    public static let `default`: Self = .hz5
+
+    /// Minimum seconds between UI updates; `0` means unthrottled.
+    public var minimumInterval: TimeInterval {
+        switch self {
+        case .max: return 0
+        case .hz10: return 0.1
+        case .hz5: return 0.2
+        case .hz2: return 0.5
+        case .hz1: return 1.0
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .max: return "Maximal (Quelle)"
+        case .hz10: return "10 Hz"
+        case .hz5: return "5 Hz"
+        case .hz2: return "2 Hz"
+        case .hz1: return "1 Hz"
+        }
+    }
+
+    public func resolvedRate(perWidget override: SingleValueRefreshRate?) -> SingleValueRefreshRate {
+        override ?? self
+    }
+}
+
+// MARK: - Level meter orientation
+
+/// Bar fill direction for dashboard level-meter tiles (watch + iPhone).
+public enum LevelMeterOrientation: String, Codable, CaseIterable, Identifiable, Equatable {
+    case horizontal
+    case vertical
+
+    public var id: String { rawValue }
+
+    public static let `default`: Self = .horizontal
+
+    public var displayName: String {
+        switch self {
+        case .horizontal: return "Horizontal"
+        case .vertical: return "Vertikal"
+        }
+    }
+}
+
+extension Publisher {
+    /// Throttles a live-metrics publisher for single-value UI updates.
+    public func throttledForSingleValueDisplay(
+        rate: SingleValueRefreshRate
+    ) -> AnyPublisher<Output, Failure> {
+        let interval = rate.minimumInterval
+        guard interval > 0 else { return eraseToAnyPublisher() }
+        return throttle(for: .seconds(interval), scheduler: RunLoop.main, latest: true)
+            .eraseToAnyPublisher()
+    }
+
+    /// Throttles high-frequency Canvas / graph updates on watchOS (~5 Hz).
+    public func throttledForWatchLiveDisplay(
+        interval: TimeInterval = SingleValueRefreshRate.default.minimumInterval
+    ) -> AnyPublisher<Output, Failure> {
+        guard interval > 0 else { return eraseToAnyPublisher() }
+        return throttle(for: .seconds(interval), scheduler: RunLoop.main, latest: true)
+            .eraseToAnyPublisher()
+    }
+}
 
 // MARK: - Watch Widget Types
 
 public enum WatchWidgetType: String, Codable, CaseIterable, Identifiable {
     case spectrogram = "Spektrogramm"
     case levelMeter = "Pegel"
+    case pegelmeter = "Pegelmesser"
     case singleValue = "Wert"
     case loudness = "Lautheit"
     case empty = "Leer"
 
     public var id: String { rawValue }
 
+    /// Widget types allowed on the customizable meter face (not spectrogram/graph).
+    public static let meterFaceTypes: [WatchWidgetType] = [.pegelmeter, .singleValue, .loudness]
+
     public var icon: String {
         switch self {
         case .spectrogram: return "waveform"
         case .levelMeter: return "gauge.with.needle"
+        case .pegelmeter: return "gauge.with.needle.fill"
         case .singleValue: return "textformat.123"
         case .loudness: return "speaker.wave.3"
         case .empty: return "square.dashed"
@@ -43,12 +130,29 @@ public struct WatchWidgetConfig: Codable, Identifiable, Equatable {
     public var type: WatchWidgetType
     public var position: Int // 0-15 for 4x4 grid
     public var singleValueType: WatchSingleValueType?
+    /// Per-tile refresh override for `.singleValue` widgets; `nil` uses layout default.
+    public var singleValueRefreshRate: SingleValueRefreshRate?
+    /// Bar orientation for `.levelMeter` tiles; `nil` uses `.default`.
+    public var levelMeterOrientation: LevelMeterOrientation?
 
-    public init(id: UUID = UUID(), type: WatchWidgetType, position: Int, singleValueType: WatchSingleValueType? = nil) {
+    public init(
+        id: UUID = UUID(),
+        type: WatchWidgetType,
+        position: Int,
+        singleValueType: WatchSingleValueType? = nil,
+        singleValueRefreshRate: SingleValueRefreshRate? = nil,
+        levelMeterOrientation: LevelMeterOrientation? = nil
+    ) {
         self.id = id
         self.type = type
         self.position = position
         self.singleValueType = singleValueType
+        self.singleValueRefreshRate = singleValueRefreshRate
+        self.levelMeterOrientation = levelMeterOrientation
+    }
+
+    public func resolvedLevelMeterOrientation() -> LevelMeterOrientation {
+        levelMeterOrientation ?? .default
     }
 
     public static func empty(at position: Int) -> WatchWidgetConfig {
@@ -59,12 +163,45 @@ public struct WatchWidgetConfig: Codable, Identifiable, Equatable {
 // MARK: - Watch Dashboard Configuration
 
 public struct WatchDashboardConfig: Codable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case widgets
+        case version
+        case defaultSingleValueRefreshRate
+    }
+
     public var widgets: [WatchWidgetConfig]
     public var version: Int
+    public var defaultSingleValueRefreshRate: SingleValueRefreshRate
 
-    public init(widgets: [WatchWidgetConfig] = WatchDashboardConfig.defaultWidgets, version: Int = 1) {
+    public init(
+        widgets: [WatchWidgetConfig] = WatchDashboardConfig.defaultWidgets,
+        version: Int = 1,
+        defaultSingleValueRefreshRate: SingleValueRefreshRate = .default
+    ) {
         self.widgets = widgets
         self.version = version
+        self.defaultSingleValueRefreshRate = defaultSingleValueRefreshRate
+    }
+
+    public func refreshRate(for widget: WatchWidgetConfig) -> SingleValueRefreshRate {
+        defaultSingleValueRefreshRate.resolvedRate(perWidget: widget.singleValueRefreshRate)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        widgets = try container.decode([WatchWidgetConfig].self, forKey: .widgets)
+        version = try container.decode(Int.self, forKey: .version)
+        defaultSingleValueRefreshRate = try container.decodeIfPresent(
+            SingleValueRefreshRate.self,
+            forKey: .defaultSingleValueRefreshRate
+        ) ?? .default
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(widgets, forKey: .widgets)
+        try container.encode(version, forKey: .version)
+        try container.encode(defaultSingleValueRefreshRate, forKey: .defaultSingleValueRefreshRate)
     }
 
     /// Column count on the watch dashboard (`WatchDashboardView`).
@@ -112,7 +249,9 @@ public struct WatchDashboardConfig: Codable, Equatable {
                 id: widget.id,
                 type: widget.type,
                 position: index,
-                singleValueType: widget.singleValueType
+                singleValueType: widget.singleValueType,
+                singleValueRefreshRate: widget.singleValueRefreshRate,
+                levelMeterOrientation: widget.levelMeterOrientation
             )
         }
         guard widgets != normalized else { return }
@@ -139,7 +278,9 @@ public struct WatchDashboardConfig: Codable, Equatable {
                 id: widget.id,
                 type: widget.type,
                 position: index,
-                singleValueType: widget.singleValueType
+                singleValueType: widget.singleValueType,
+                singleValueRefreshRate: widget.singleValueRefreshRate,
+                levelMeterOrientation: widget.levelMeterOrientation
             )
         }
         version += 1
@@ -165,10 +306,142 @@ public extension WatchDashboardConfig {
               var config = decode(from: data) else {
             return WatchDashboardConfig()
         }
-        let before = config.widgets
+        let snapshot = config.widgets
         config.normalizeLegacyGridIfNeeded()
-        if config.widgets != before {
+        config.normalizeLevelMeterOrientationIfNeeded()
+        if config.widgets != snapshot {
             config.save()
+        }
+        return config
+    }
+
+    /// Ensures level-meter tiles have an explicit orientation (backward compatible decode).
+    mutating func normalizeLevelMeterOrientationIfNeeded() {
+        var changed = false
+        widgets = widgets.map { widget in
+            guard widget.type == .levelMeter, widget.levelMeterOrientation == nil else { return widget }
+            changed = true
+            return WatchWidgetConfig(
+                id: widget.id,
+                type: widget.type,
+                position: widget.position,
+                singleValueType: widget.singleValueType,
+                singleValueRefreshRate: widget.singleValueRefreshRate,
+                levelMeterOrientation: .default
+            )
+        }
+        if changed { version += 1 }
+    }
+
+    func save() {
+        if let data = encode() {
+            UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
+        }
+    }
+}
+
+// MARK: - Customizable meter face (Pegelmesser + single values)
+
+public struct WatchMeterLayoutConfig: Codable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case widgets
+        case version
+        case defaultSingleValueRefreshRate
+    }
+
+    public var widgets: [WatchWidgetConfig]
+    public var version: Int
+    public var defaultSingleValueRefreshRate: SingleValueRefreshRate
+
+    public init(
+        widgets: [WatchWidgetConfig] = WatchMeterLayoutConfig.defaultWidgets,
+        version: Int = 1,
+        defaultSingleValueRefreshRate: SingleValueRefreshRate = .default
+    ) {
+        self.widgets = widgets
+        self.version = version
+        self.defaultSingleValueRefreshRate = defaultSingleValueRefreshRate
+    }
+
+    public func refreshRate(for widget: WatchWidgetConfig) -> SingleValueRefreshRate {
+        defaultSingleValueRefreshRate.resolvedRate(perWidget: widget.singleValueRefreshRate)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        widgets = try container.decode([WatchWidgetConfig].self, forKey: .widgets)
+        version = try container.decode(Int.self, forKey: .version)
+        defaultSingleValueRefreshRate = try container.decodeIfPresent(
+            SingleValueRefreshRate.self,
+            forKey: .defaultSingleValueRefreshRate
+        ) ?? .default
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(widgets, forKey: .widgets)
+        try container.encode(version, forKey: .version)
+        try container.encode(defaultSingleValueRefreshRate, forKey: .defaultSingleValueRefreshRate)
+    }
+
+    public static let displayColumnCount = 3
+
+    public static var defaultWidgets: [WatchWidgetConfig] {
+        [
+            WatchWidgetConfig(type: .pegelmeter, position: 0),
+            WatchWidgetConfig(type: .singleValue, position: 1, singleValueType: .laeq),
+            WatchWidgetConfig(type: .singleValue, position: 2, singleValueType: .lafMax),
+            WatchWidgetConfig(type: .singleValue, position: 3, singleValueType: .lceq),
+            WatchWidgetConfig(type: .singleValue, position: 4, singleValueType: .lcfMax),
+        ]
+    }
+
+    public var orderedMeterWidgets: [WatchWidgetConfig] {
+        var seenKeys = Set<String>()
+        return widgets
+            .sorted { $0.position < $1.position }
+            .filter { widget in
+                guard widget.type != .empty, Self.isMeterFaceType(widget.type) else { return false }
+                let key = WatchDashboardConfig.displayKey(for: widget)
+                return seenKeys.insert(key).inserted
+            }
+    }
+
+    public static func isMeterFaceType(_ type: WatchWidgetType) -> Bool {
+        WatchWidgetType.meterFaceTypes.contains(type)
+    }
+
+    public mutating func replaceOrderedWidgets(_ displayWidgets: [WatchWidgetConfig]) {
+        widgets = displayWidgets.enumerated().map { index, widget in
+            WatchWidgetConfig(
+                id: widget.id,
+                type: widget.type,
+                position: index,
+                singleValueType: widget.singleValueType,
+                singleValueRefreshRate: widget.singleValueRefreshRate,
+                levelMeterOrientation: widget.levelMeterOrientation
+            )
+        }
+        version += 1
+    }
+
+    public func encode() -> Data? {
+        try? JSONEncoder().encode(self)
+    }
+
+    public static func decode(from data: Data) -> WatchMeterLayoutConfig? {
+        try? JSONDecoder().decode(WatchMeterLayoutConfig.self, from: data)
+    }
+}
+
+public extension WatchMeterLayoutConfig {
+    static let maxWidgetCount = 8
+    static let userDefaultsKey = PersistenceKeys.Watch.meterLayoutConfig
+
+    static func load() -> WatchMeterLayoutConfig {
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+              let config = decode(from: data) else {
+            return WatchMeterLayoutConfig()
         }
         return config
     }

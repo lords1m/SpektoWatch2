@@ -39,11 +39,14 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:SpektoWatch2.xctestplan"
+            reference = "container:TestPlans/spekto-watch2.xctestplan"
             default = "YES">
          </TestPlanReference>
          <TestPlanReference
-            reference = "container:TestPlan.xctestplan">
+            reference = "container:TestPlans/ui-tests.xctestplan">
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:TestPlans/snapshots.xctestplan">
          </TestPlanReference>
       </TestPlans>
       <Testables>

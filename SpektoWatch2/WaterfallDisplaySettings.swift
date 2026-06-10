@@ -23,13 +23,19 @@ struct WaterfallDisplaySettings: Equatable {
     var maxDB: Float
     var targetFrequencyCount: Int
     var spectrumMode: WaterfallSpectrumMode
+    /// Render-only: show amplitude-coloured peak dots / the peak readout panel.
+    var showPeaks: Bool = false
+    /// Render-only: overlay max-hold + average spectra in the oblique mode.
+    var showStatistics: Bool = false
 
     static let liveDefault = WaterfallDisplaySettings(
         sliceCount: WidgetSettings.defaultWaterfallSliceCount,
         minDB: WidgetSettings.defaultWaterfallMinDB,
         maxDB: WidgetSettings.defaultWaterfallMaxDB,
         targetFrequencyCount: WidgetSettings.defaultWaterfallTargetFrequencyCount,
-        spectrumMode: .continuous
+        spectrumMode: .continuous,
+        showPeaks: false,
+        showStatistics: false
     )
 
     /// Stored `.spekto` spectra are dB SPL — same display band as the live dashboard.
@@ -72,13 +78,19 @@ struct WaterfallDisplaySettings: Equatable {
         let spectrumMode = WaterfallSpectrumMode(
             rawValue: settings["waterfallSpectrumMode"] ?? WidgetSettings.defaultWaterfallSpectrumMode
         ) ?? .continuous
+        let showPeaks: Bool = {
+            guard useOverrides else { return WidgetSettings.defaultWaterfallShowPeaks }
+            return (settings["waterfallShowPeaks"] ?? (WidgetSettings.defaultWaterfallShowPeaks ? "true" : "false")) == "true"
+        }()
         _ = engineWeighting
         return WaterfallDisplaySettings(
             sliceCount: sliceCount,
             minDB: minDB,
             maxDB: maxDB,
             targetFrequencyCount: WidgetSettings.defaultWaterfallTargetFrequencyCount,
-            spectrumMode: spectrumMode
+            spectrumMode: spectrumMode,
+            showPeaks: showPeaks,
+            showStatistics: false
         )
     }
 }

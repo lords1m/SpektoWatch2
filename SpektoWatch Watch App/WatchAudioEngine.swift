@@ -30,14 +30,26 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// Widgets observe `$liveData` instead of branching on `isRecording`.
     @Published private(set) var operatingMode: WatchOperatingMode = .companion
 
-    /// User preference: operate watch-first (standalone) instead of as a phone
-    /// companion. Persisted in `UserDefaults`. When set, a recording captures
-    /// with the watch mic into `.standalone` mode (local storage, no phone
-    /// coordination); when clear, recording uses `.wearableMic` and hands the
-    /// mic back to the phone (`.companion`) on stop.
-    @Published private(set) var standaloneEnabled: Bool
+    /// User policy for the live measurement source (auto / iPhone / watch).
+    @Published private(set) var measurementSourcePreference: WatchMeasurementSourcePreference
+    /// Resolved source currently driving `liveData` (for UI indicator).
+    @Published private(set) var activeMeasurementSource: WatchActiveMeasurementSource = .idle
+
+    /// Legacy alias: `true` when live data comes from the watch mic policy.
+    var standaloneEnabled: Bool { !usesPhoneAsLiveDataSource }
+    /// When `true`, record start/stop is coordinated with the iPhone app.
+    var coordinatesRecordingWithPhone: Bool {
+        !Self.isWatchOnlyApp && measurementSourcePreference == .iPhone
+    }
 
     private var phoneSpectrogramSubscription: AnyCancellable?
+    private var connectivityCancellables = Set<AnyCancellable>()
+    private static let phoneStreamFreshness: TimeInterval = 2.0
+    /// True when the watch mic tap is running for live level/spectrogram preview
+    /// (standalone / watch-only), without an active file recording.
+    private var isLiveMonitoring = false
+    private var isMicTapInstalled = false
+    private var micTapFormat: AVAudioFormat?
     private var audioEngine: AVAudioEngine
     private let bufferSize: AVAudioFrameCount = 4096
     private let sampleRate: Double = 44100.0
@@ -94,7 +106,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate).
     private let binFrequencies: [Float]
-    private let displayVisualFrequencies: [Float]
+    private var displayVisualFrequencies: [Float]
 
     // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
     // and `Array(samples.prefix(fftSize))` allocations.
@@ -121,11 +133,18 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var pendingAudioFrame: PendingWatchAudioFrame?
     private var isLiveDataFlushScheduled = false
     private static let liveDataFlushInterval: TimeInterval = 0.2  // 5 Hz
-    private static let displayVisualBinCount = 40
+    private let visualDCTQueue = DispatchQueue(label: "com.spektowatch.watch-visual-dct", qos: .userInitiated)
+    private var displayVisualBinCount: Int
+    private(set) var spectrogramDisplayBinCount: Int
+    private(set) var spectrogramHistoryFrameCount: Int
 
     init(connectivityManager: WatchConnectivityManager) {
         self.connectivityManager = connectivityManager
-        self.standaloneEnabled = UserDefaults.standard.bool(forKey: PersistenceKeys.Watch.standaloneEnabled)
+        self.measurementSourcePreference = Self.resolvedMeasurementSourcePreference()
+        let resolution = SpectrogramResolution.current
+        displayVisualBinCount = resolution.watchDisplayBinCount
+        spectrogramDisplayBinCount = resolution.watchDisplayBinCount
+        spectrogramHistoryFrameCount = resolution.watchHistoryFrameCount
         audioEngine = AVAudioEngine()
         
         // FFT Setup initialisieren
@@ -153,7 +172,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         visualWindowedSamples = [Float](repeating: 0, count: fftSize)
         visualCoefficients = [Float](repeating: 0, count: fftSize)
         visualMagnitudes = [Float](repeating: 0, count: fftSize)
-        displayVisualMagnitudes = [Float](repeating: -180.0, count: Self.displayVisualBinCount)
+        displayVisualMagnitudes = [Float](repeating: -180.0, count: displayVisualBinCount)
         fftInputScratch = [Float](repeating: 0, count: fftSize)
 
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_DENORM))
@@ -165,9 +184,16 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         for i in 0..<binCount { freqs[i] = Float(i) * binWidth }
         binFrequencies = freqs
         let nyquist = Float(sampleRate / 2.0)
-        displayVisualFrequencies = Self.makeDisplayFrequencies(count: Self.displayVisualBinCount, nyquist: nyquist)
+        displayVisualFrequencies = Self.makeDisplayFrequencies(count: displayVisualBinCount, nyquist: nyquist)
 
         super.init()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSpectrogramResolutionChanged(_:)),
+            name: .spectrogramResolutionChanged,
+            object: nil
+        )
 
         // Companion mode by default: forward phone spectrogram into liveData.
         // The subscription is replaced when we transition into wearableMic mode
@@ -177,11 +203,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // watch is the source of truth — start in `.standalone` and do NOT
         // subscribe to the phone. Launch never blocks on or assumes a present
         // phone in this mode.
-        if standaloneEnabled {
-            operatingMode = .standalone
-        } else {
-            subscribeToPhoneSpectrogram()
-        }
+        bindConnectivityForAutoMode()
+        reconcileLiveDataSource()
 
         NotificationCenter.default.addObserver(
             self,
@@ -201,6 +224,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             self,
             selector: #selector(handleGainChange),
             name: .gainOrBandwidthChangedNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMeasurementSourcePreferenceChanged),
+            name: .watchMeasurementSourcePreferenceChanged,
             object: nil
         )
     }
@@ -226,138 +256,317 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
     }
 
+    @objc private func handleSpectrogramResolutionChanged(_ notification: Notification) {
+        let resolution: SpectrogramResolution
+        if let value = notification.object as? SpectrogramResolution {
+            resolution = value
+        } else {
+            resolution = .current
+        }
+        applySpectrogramResolution(resolution)
+    }
+
+    private func applySpectrogramResolution(_ resolution: SpectrogramResolution) {
+        displayVisualBinCount = resolution.watchDisplayBinCount
+        spectrogramDisplayBinCount = resolution.watchDisplayBinCount
+        spectrogramHistoryFrameCount = resolution.watchHistoryFrameCount
+        displayVisualMagnitudes = [Float](repeating: -180.0, count: displayVisualBinCount)
+        let nyquist = Float(sampleRate / 2.0)
+        displayVisualFrequencies = Self.makeDisplayFrequencies(count: displayVisualBinCount, nyquist: nyquist)
+    }
+
+    @objc private func handleMeasurementSourcePreferenceChanged(notification: Notification) {
+        let preference: WatchMeasurementSourcePreference
+        if let value = notification.object as? WatchMeasurementSourcePreference {
+            preference = value
+        } else if let raw = UserDefaults.standard.string(forKey: PersistenceKeys.Watch.measurementSourcePreference),
+                  let stored = WatchMeasurementSourcePreference(rawValue: raw) {
+            preference = stored
+        } else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.measurementSourcePreference != preference {
+                self.measurementSourcePreference = preference
+            }
+            guard !self.isRecording else { return }
+            self.reconcileLiveDataSource()
+        }
+    }
+
     func setGain(_ newGain: Float) {
         // Clamp the gain to a reasonable range, e.g., 0.0 to 10.0
         self.gain = max(0.0, min(newGain, 10.0))
         print("[WatchAudioEngine] Gain set to \(self.gain)")
     }
 
-    /// Toggle the watch-first (standalone) preference. Persists the choice and,
-    /// when idle, re-points the live-data source: standalone drops the phone
-    /// subscription (watch-first), companion re-subscribes. A no-op while
-    /// recording — the active capture finishes in its current mode and the new
-    /// preference takes effect on the next start/stop.
-    func setStandaloneEnabled(_ enabled: Bool) {
+    /// Updates the measurement-source policy and re-applies live routing.
+    func setMeasurementSourcePreference(_ preference: WatchMeasurementSourcePreference) {
         dispatchPrecondition(condition: .onQueue(.main))
-        guard enabled != standaloneEnabled else { return }
-        standaloneEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        guard !Self.isWatchOnlyApp || preference == .appleWatch else { return }
+        guard preference != measurementSourcePreference else { return }
+        measurementSourcePreference = preference
+        persistMeasurementSourcePreference(preference)
         guard !isRecording else { return }
-        transition(to: enabled ? .standalone : .companion)
+        reconcileLiveDataSource()
+    }
+
+    /// Legacy toggle used by older UI paths (`true` → watch, `false` → iPhone).
+    func setStandaloneEnabled(_ enabled: Bool) {
+        setMeasurementSourcePreference(enabled ? .appleWatch : .iPhone)
+    }
+
+    /// Picks phone mirror vs watch mic from preference, reachability, and phone activity.
+    func reconcileLiveDataSource() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !isRecording else {
+            updateActiveMeasurementSource()
+            return
+        }
+
+        if shouldMirrorPhone() {
+            stopLiveMonitoring()
+            if operatingMode != .companion {
+                transition(to: .companion)
+            } else {
+                subscribeToPhoneSpectrogram()
+            }
+            updateActiveMeasurementSource()
+        } else {
+            phoneSpectrogramSubscription?.cancel()
+            phoneSpectrogramSubscription = nil
+            transition(to: .standalone)
+            startLiveMonitoring()
+            updateActiveMeasurementSource()
+        }
+    }
+
+    private func bindConnectivityForAutoMode() {
+        connectivityManager.$isReachable
+            .combineLatest(
+                connectivityManager.$phoneAppState,
+                connectivityManager.$lastPhoneSpectrogramReceivedAt
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, _ in
+                guard let self, self.measurementSourcePreference == .auto, !self.isRecording else { return }
+                self.reconcileLiveDataSource()
+            }
+            .store(in: &connectivityCancellables)
+
+        connectivityManager.$spectrogramData
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.measurementSourcePreference == .auto, !self.isRecording else { return }
+                self.reconcileLiveDataSource()
+            }
+            .store(in: &connectivityCancellables)
+    }
+
+    private func shouldMirrorPhone() -> Bool {
+        if Self.isWatchOnlyApp { return false }
+        switch measurementSourcePreference {
+        case .iPhone:
+            return true
+        case .appleWatch:
+            return false
+        case .auto:
+            guard connectivityManager.isReachable else { return false }
+            if connectivityManager.phoneAppState?.isRecording == true { return true }
+            if let receivedAt = connectivityManager.lastPhoneSpectrogramReceivedAt,
+               Date().timeIntervalSince(receivedAt) <= Self.phoneStreamFreshness {
+                return true
+            }
+            return false
+        }
+    }
+
+    private func updateActiveMeasurementSource() {
+        if isRecording || isLiveMonitoring {
+            activeMeasurementSource = .watchMic
+        } else if usesPhoneAsLiveDataSource, liveData != nil {
+            activeMeasurementSource = .iPhoneMirror
+        } else if liveData != nil, operatingMode.watchMicIsActive {
+            activeMeasurementSource = .watchMic
+        } else {
+            activeMeasurementSource = .idle
+        }
+    }
+
+    private func persistMeasurementSourcePreference(_ preference: WatchMeasurementSourcePreference) {
+        UserDefaults.standard.set(preference.rawValue, forKey: PersistenceKeys.Watch.measurementSourcePreference)
+        UserDefaults.standard.set(preference == .appleWatch, forKey: PersistenceKeys.Watch.standaloneEnabled)
+    }
+
+    /// Begin watch-mic live preview (levels + spectrogram) without starting a
+    /// file recording. Used for watch-only / standalone operation per M21.
+    func startLiveMonitoring() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !shouldMirrorPhone() else { return }
+        guard !isRecording, !isLiveMonitoring else { return }
+        requestMicrophoneAccess { [weak self] granted in
+            guard granted, let self else { return }
+            DispatchQueue.main.async {
+                self.beginMicCaptureOnMain(recording: false)
+            }
+        }
+    }
+
+    /// Stops live preview and releases the mic when idle (not recording).
+    func stopLiveMonitoring() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard isLiveMonitoring, !isRecording else { return }
+        teardownMicCaptureOnMain(clearLiveDisplay: true)
+        isLiveMonitoring = false
     }
 
     func startRecording() {
         print("[WatchAudioEngine] Starting...")
-        let session = AVAudioSession.sharedInstance()
-        
-        let handlePermission: (Bool) -> Void = { [weak self] granted in
-            guard granted, let self = self else { return }
-
-            // Fresh integration window for LAeq/LCpeak each session.
-            self.metricsCalculator.reset()
-            self.recordingStartDate = Date()
-
-            do {
-                // Configure audio session BEFORE querying inputNode format or installing tap,
-                // otherwise the tap may be installed with the wrong sample rate/channel layout.
-                try session.setCategory(.record, mode: .measurement)
-                try session.setActive(true)
-
-                let inputNode = self.audioEngine.inputNode
-                inputNode.removeTap(onBus: 0) // Remove existing tap to prevent crash
-                let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-                // Standalone: open a durable on-watch recording (audio + .swr)
-                // BEFORE the engine starts so the first frames are captured. In
-                // companion/wearableMic the phone owns storage — no local file.
-                if self.standaloneEnabled {
-                    let fps = Float(self.sampleRate) / Float(self.bufferSize)
-                    do {
-                        self.activeRecordingSession = try WatchRecordingSession(
-                            format: recordingFormat,
-                            directory: WatchRecordingStore.shared.directory,
-                            weighting: "A",
-                            fps: fps,
-                            fftBlockSize: self.fftSize,
-                            calibrationOffset: self.watchMicCalibrationOffset
-                        )
-                    } catch {
-                        print("[WatchAudioEngine] failed to open recording session: \(error)")
-                        self.activeRecordingSession = nil
-                    }
-                }
-
-                inputNode.installTap(onBus: 0, bufferSize: self.bufferSize, format: recordingFormat) { [weak self] buffer, _ in
-                    self?.processAudioBuffer(buffer)
-                }
-
-                try self.audioEngine.start()
-
-                // Keep app alive during recording
-                self.session = WKExtendedRuntimeSession()
-                self.session?.delegate = self
-                self.session?.start()
-
-                DispatchQueue.main.async {
-                    self.isRecording = true
-                    // Watch mic is now driving — switch into the watch-mic mode and
-                    // detach the phone-spectrogram subscription so liveData reflects
-                    // the local FFT exclusively. Standalone keeps the recording
-                    // phone-independent (local storage, opportunistic later sync);
-                    // wearableMic coordinates with a present phone.
-                    self.transition(to: self.standaloneEnabled ? .standalone : .wearableMic)
-                }
-                print("[WatchAudioEngine] Started successfully")
-            } catch {
-                print("Watch audio engine start error: \(error)")
+        requestMicrophoneAccess { [weak self] granted in
+            guard granted, let self else { return }
+            DispatchQueue.main.async {
+                self.beginMicCaptureOnMain(recording: true)
             }
         }
+    }
 
+    private func requestMicrophoneAccess(_ completion: @escaping (Bool) -> Void) {
+        let session = AVAudioSession.sharedInstance()
         if #available(watchOS 10.0, *) {
-            AVAudioApplication.requestRecordPermission(completionHandler: handlePermission)
+            AVAudioApplication.requestRecordPermission(completionHandler: completion)
         } else {
-            session.requestRecordPermission(handlePermission)
+            session.requestRecordPermission(completion)
+        }
+    }
+
+    /// Arms the watch mic for live display and, when `recording` is true, file capture.
+    /// Must run on the main queue (AVAudioSession + @Published state).
+    private func beginMicCaptureOnMain(recording: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if recording {
+            guard !isRecording else { return }
+            metricsCalculator.reset()
+            recordingStartDate = Date()
+            transition(to: prefersWatchLocalRecording ? .standalone : .wearableMic)
+            isRecording = true
+        } else {
+            guard !isLiveMonitoring else { return }
+            transition(to: .standalone)
+            isLiveMonitoring = true
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
+
+            let inputNode = audioEngine.inputNode
+            let tapFormat: AVAudioFormat
+            if let micTapFormat {
+                tapFormat = micTapFormat
+            } else {
+                inputNode.removeTap(onBus: 0)
+                let hardwareFormat = inputNode.outputFormat(forBus: 0)
+                tapFormat = AVAudioFormat(
+                    commonFormat: .pcmFormatFloat32,
+                    sampleRate: hardwareFormat.sampleRate,
+                    channels: 1,
+                    interleaved: false
+                ) ?? hardwareFormat
+
+                inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: tapFormat) { [weak self] buffer, _ in
+                    self?.processAudioBuffer(buffer)
+                }
+                isMicTapInstalled = true
+                micTapFormat = tapFormat
+            }
+
+            if recording, prefersWatchLocalRecording {
+                let fps = Float(tapFormat.sampleRate) / Float(bufferSize)
+                do {
+                    activeRecordingSession = try WatchRecordingSession(
+                        format: tapFormat,
+                        directory: WatchRecordingStore.shared.directory,
+                        weighting: "A",
+                        fps: fps,
+                        fftBlockSize: fftSize,
+                        calibrationOffset: watchMicCalibrationOffset
+                    )
+                } catch {
+                    print("[WatchAudioEngine] failed to open recording session: \(error)")
+                    activeRecordingSession = nil
+                }
+            }
+
+            if !audioEngine.isRunning {
+                try audioEngine.start()
+            }
+
+            if recording {
+                let runtimeSession = WKExtendedRuntimeSession()
+                runtimeSession.delegate = self
+                runtimeSession.start()
+                self.session = runtimeSession
+            }
+
+            print("[WatchAudioEngine] Mic capture active (recording=\(recording), tap \(tapFormat.sampleRate) Hz)")
+        } catch {
+            print("Watch audio engine start error: \(error)")
+            if recording {
+                isRecording = false
+                activeRecordingSession = nil
+                transition(to: prefersWatchLocalRecording ? .standalone : .companion)
+            } else {
+                isLiveMonitoring = false
+            }
+        }
+    }
+
+    private func teardownMicCaptureOnMain(clearLiveDisplay: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard isMicTapInstalled else { return }
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        isMicTapInstalled = false
+        micTapFormat = nil
+        session?.invalidate()
+        session = nil
+        if clearLiveDisplay {
+            currentSpectrogramData = nil
+            liveData = nil
         }
     }
 
     func stopRecording() {
         dispatchPrecondition(condition: .onQueue(.main))
         print("[WatchAudioEngine] Stopping...")
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        guard isRecording else { return }
 
         session?.invalidate()
         session = nil
 
-        // The tap is removed — no more audio frames. Flush both files to disk
-        // and add the recording to the durable catalog. Done before clearing
-        // isRecording so a missed/expired runtime session can't double-finalize.
         if let recordingSession = activeRecordingSession {
             activeRecordingSession = nil
             let title = WatchAudioEngine.defaultRecordingTitle(for: recordingSession.startDate)
             let metadata = recordingSession.finalize(title: title)
             WatchRecordingStore.shared.register(metadata)
-            // Opportunistically offer the fresh recording to the phone. The
-            // transfer is OS-queued, so this is safe even if not reachable yet;
-            // reachability/activation also retry via syncPendingRecordings.
             connectivityManager.syncPendingRecordings()
         }
 
         isRecording = false
-        // Hand the microphone back to the phone — re-enter companion mode and
-        // resubscribe to phone spectrogram updates. In standalone the user is
-        // watch-first: stay phone-independent (no resubscribe), just clear the
-        // live display.
-        if standaloneEnabled {
+
+        if prefersWatchLocalRecording {
             transition(to: .standalone)
-            // transition() is a no-op when already in `.standalone`; clear the
-            // live display directly so a stopped recording doesn't leave the
-            // last frame frozen on screen.
-            currentSpectrogramData = nil
-            liveData = nil
+            if !isLiveMonitoring {
+                isLiveMonitoring = true
+            }
         } else {
+            teardownMicCaptureOnMain(clearLiveDisplay: true)
+            isLiveMonitoring = false
             transition(to: .companion)
         }
+        reconcileLiveDataSource()
         print("[WatchAudioEngine] Stopped")
     }
 
@@ -371,10 +580,12 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
         switch newMode {
         case .companion:
-            // Phone is master; clear any stale local FFT and re-subscribe to phone.
+            stopLiveMonitoring()
             currentSpectrogramData = nil
             liveData = nil
-            subscribeToPhoneSpectrogram()
+            if usesPhoneAsLiveDataSource {
+                subscribeToPhoneSpectrogram()
+            }
         case .wearableMic, .standalone:
             // Watch mic is master — drop the phone subscription so two streams
             // don't fight for `liveData`.
@@ -387,28 +598,44 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// Wires `connectivityManager.spectrogramData` into the unified `liveData`
     /// stream when the watch is in companion mode.
     private func subscribeToPhoneSpectrogram() {
+        guard usesPhoneAsLiveDataSource else { return }
         phoneSpectrogramSubscription = connectivityManager.$spectrogramData
+            .compactMap { $0 }
+            .throttle(
+                for: .seconds(Self.liveDataFlushInterval),
+                scheduler: RunLoop.main,
+                latest: true
+            )
             .receive(on: DispatchQueue.main)
             .sink { [weak self] data in
-                guard let self, self.operatingMode == .companion else { return }
+                guard let self,
+                      self.usesPhoneAsLiveDataSource,
+                      self.operatingMode == .companion,
+                      !self.isRecording,
+                      !self.isLiveMonitoring else { return }
                 self.liveData = data
+                self.updateActiveMeasurementSource()
             }
     }
 
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-        let frameCount = Int(buffer.frameLength)
+    /// Whether live UI should mirror the iPhone over WatchConnectivity.
+    private var usesPhoneAsLiveDataSource: Bool {
+        shouldMirrorPhone()
+    }
 
-        // Reuse `monoSampleScratch` instead of allocating `[Float]` per callback.
-        // `channelData` points into AVAudioPCMBuffer's internal storage and must
-        // not be written in place; we apply gain into our owned buffer.
-        if monoSampleScratch.count != frameCount {
-            monoSampleScratch = [Float](repeating: 0, count: frameCount)
-        }
-        var localGain = gain
-        monoSampleScratch.withUnsafeMutableBufferPointer { dst in
-            vDSP_vsmul(channelData, 1, &localGain, dst.baseAddress!, 1, vDSP_Length(frameCount))
-        }
+    /// Persist `.swr` + local catalog when the watch owns the recording.
+    private var prefersWatchLocalRecording: Bool {
+        Self.isWatchOnlyApp || measurementSourcePreference != .iPhone
+    }
+
+    /// `WKWatchOnly` App Store builds — never treat the phone as the live meter source.
+    static var isWatchOnlyApp: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "WKWatchOnly") as? Bool ?? false
+    }
+
+    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        let frameCount = Int(buffer.frameLength)
+        guard frameCount > 0, fillMonoSamples(from: buffer, frameCount: frameCount) else { return }
 
         // RMS / debug log
         var rms: Float = 0
@@ -636,17 +863,79 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
         guard let frame else { return }
 
-        performVisualDCT(frame.visualSamples)
-        let data = spectrogramData(from: frame)
+        // DCT + display downsample are ~O(N log N); keep them off the main run loop
+        // so TabView swipes and List scrolling stay responsive.
+        visualDCTQueue.async { [weak self] in
+            guard let self else { return }
+            self.performVisualDCT(frame.visualSamples)
+            let data = self.spectrogramData(from: frame)
+            DispatchQueue.main.async {
+                if self.connectivityManager.selectedMicrophoneSource == .appleWatch {
+                    self.connectivityManager.sendSpectrogramData(self.phoneExportData(from: data))
+                }
 
-        if connectivityManager.selectedMicrophoneSource == .appleWatch {
-            connectivityManager.sendSpectrogramData(phoneExportData(from: data))
+                self.currentSpectrogramData = data
+                if self.operatingMode.watchMicIsActive && (self.isRecording || self.isLiveMonitoring) {
+                    self.liveData = data
+                    self.updateActiveMeasurementSource()
+                }
+            }
+        }
+    }
+
+    /// Copies the first channel into `monoSampleScratch` with gain applied.
+    /// Returns false when the buffer format is unsupported (no silent drop).
+    private func fillMonoSamples(from buffer: AVAudioPCMBuffer, frameCount: Int) -> Bool {
+        if monoSampleScratch.count != frameCount {
+            monoSampleScratch = [Float](repeating: 0, count: frameCount)
         }
 
-        currentSpectrogramData = data
-        if operatingMode.watchMicIsActive {
-            liveData = data
+        if let channelData = buffer.floatChannelData?[0] {
+            var localGain = gain
+            monoSampleScratch.withUnsafeMutableBufferPointer { dst in
+                vDSP_vsmul(channelData, 1, &localGain, dst.baseAddress!, 1, vDSP_Length(frameCount))
+            }
+            return true
         }
+
+        if let channelData = buffer.int16ChannelData?[0] {
+            let scale = Float(1.0 / 32768.0) * gain
+            for index in 0..<frameCount {
+                monoSampleScratch[index] = Float(channelData[index]) * scale
+            }
+            return true
+        }
+
+        return false
+    }
+
+    /// First-launch default: watch-only installs start standalone; companion
+    /// installs default to phone-driven mode until the user toggles.
+    static func resolvedMeasurementSourcePreference(
+        defaults: UserDefaults = .standard,
+        isWatchOnlyApp: Bool = WatchAudioEngine.isWatchOnlyApp
+    ) -> WatchMeasurementSourcePreference {
+        if isWatchOnlyApp {
+            defaults.set(WatchMeasurementSourcePreference.appleWatch.rawValue,
+                         forKey: PersistenceKeys.Watch.measurementSourcePreference)
+            defaults.set(true, forKey: PersistenceKeys.Watch.standaloneEnabled)
+            return .appleWatch
+        }
+
+        if let raw = defaults.string(forKey: PersistenceKeys.Watch.measurementSourcePreference),
+           let preference = WatchMeasurementSourcePreference(rawValue: raw) {
+            return preference
+        }
+
+        let legacyKey = PersistenceKeys.Watch.standaloneEnabled
+        if defaults.object(forKey: legacyKey) != nil {
+            let migrated: WatchMeasurementSourcePreference =
+                defaults.bool(forKey: legacyKey) ? .appleWatch : .auto
+            defaults.set(migrated.rawValue, forKey: PersistenceKeys.Watch.measurementSourcePreference)
+            return migrated
+        }
+
+        return .auto
     }
     
     private func performFFT(_ samples: [Float]) {
@@ -820,13 +1109,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// the audio engine to release the mic and prevent silent battery drain
     /// if the `WKExtendedRuntimeSession` is missed or rejected.
     func handleSceneBackgrounded() {
-        guard isRecording else { return }
-        // When an extended runtime session is active and `.running`, the
-        // system is intentionally keeping the audio tap alive — don't kill
-        // it from a backgrounding event in that case.
-        if let session, session.state == .running {
+        if isRecording {
+            if let session, session.state == .running {
+                return
+            }
+            stopRecording()
             return
         }
-        stopRecording()
+        stopLiveMonitoring()
     }
 }

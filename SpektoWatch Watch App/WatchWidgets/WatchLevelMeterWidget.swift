@@ -2,6 +2,8 @@ import SwiftUI
 import Combine
 
 struct WatchLevelMeterWidget: View {
+    var orientation: LevelMeterOrientation = .default
+
     @EnvironmentObject var audioEngine: WatchAudioEngine
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
 
@@ -13,10 +15,8 @@ struct WatchLevelMeterWidget: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let isVertical = geometry.size.height > geometry.size.width
-
-            ZStack {
-                if isVertical {
+            Group {
+                if orientation == .vertical {
                     verticalMeter(size: geometry.size)
                 } else {
                     horizontalMeter(size: geometry.size)
@@ -33,58 +33,49 @@ struct WatchLevelMeterWidget: View {
     @ViewBuilder
     private func verticalMeter(size: CGSize) -> some View {
         let normalized = CGFloat((currentLevel - minDB) / (maxDB - minDB)).clamped(to: 0...1)
-        let barHeight = size.height * 0.85
-        let barWidth = size.width * 0.6
+        let barWidth = size.width * 0.55
 
-        VStack(spacing: 2) {
-            // dB Label
-            Text(String(format: "%.0f %@", currentLevel, unitLabel))
-                .font(.system(size: min(size.width * 0.3, 14), weight: .bold, design: .monospaced))
-                .foregroundColor(levelColor(normalized))
-
-            // Vertical bar
+        HStack(spacing: 2) {
             ZStack(alignment: .bottom) {
-                // Background
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.18))
-                    .frame(width: barWidth, height: barHeight)
-
-                // Level fill
+                    .fill(Color.white.opacity(0.14))
                 RoundedRectangle(cornerRadius: 2)
                     .fill(levelGradient)
-                    .frame(width: barWidth, height: barHeight * normalized)
+                    .frame(height: max(2, size.height * normalized))
             }
+            .frame(width: barWidth)
+
+            Text(String(format: "%.0f", currentLevel))
+                .font(.system(size: min(size.width * 0.28, 11), weight: .bold, design: .monospaced))
+                .foregroundColor(levelColor(normalized))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
-        .padding(1)
+        .padding(.horizontal, 2)
     }
 
     @ViewBuilder
     private func horizontalMeter(size: CGSize) -> some View {
         let normalized = CGFloat((currentLevel - minDB) / (maxDB - minDB)).clamped(to: 0...1)
-        let barWidth = size.width * 0.7
-        let barHeight = size.height * 0.4
+        let barHeight = min(size.height * 0.55, 14)
 
-        HStack(spacing: 4) {
-            // Horizontal bar
+        HStack(spacing: 3) {
             ZStack(alignment: .leading) {
-                // Background
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.18))
-                    .frame(width: barWidth, height: barHeight)
-
-                // Level fill
+                    .fill(Color.white.opacity(0.14))
                 RoundedRectangle(cornerRadius: 2)
                     .fill(levelGradient)
-                    .frame(width: barWidth * normalized, height: barHeight)
+                    .frame(width: max(2, size.width * 0.72 * normalized), height: barHeight)
             }
+            .frame(height: barHeight)
 
-            // dB Label
             Text(String(format: "%.0f %@", currentLevel, unitLabel))
-                .font(.system(size: min(size.height * 0.4, 14), weight: .bold, design: .monospaced))
+                .font(.system(size: min(size.height * 0.38, 10), weight: .bold, design: .monospaced))
                 .foregroundColor(levelColor(normalized))
-                .frame(width: size.width * 0.25)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
-        .padding(1)
+        .padding(.horizontal, 2)
     }
 
     private var levelGradient: LinearGradient {

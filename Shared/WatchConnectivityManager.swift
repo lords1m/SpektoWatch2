@@ -29,6 +29,12 @@ class WatchConnectivityManager: NSObject, ObservableObject {
 
     @Published var spectrogramData: SpectrogramData?
     @Published var isReachable = false
+    #if os(watchOS)
+    /// Latest iPhone app-state envelope (recording flag, accent, etc.).
+    @Published private(set) var phoneAppState: WatchAppState?
+    /// When the watch last received live spectrogram bytes from the phone.
+    @Published private(set) var lastPhoneSpectrogramReceivedAt: Date?
+    #endif
     @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published var watchDashboardConfig: WatchDashboardConfig?
     @Published var frequencyWeighting: String = "A"
@@ -446,13 +452,13 @@ extension WatchConnectivityManager: WCSessionDelegate {
                 }
             }
         case .appStateUpdate:
-            // Phase 2 (M13 task-7) wires consumption — watch faces
-            // read accent/theme from this envelope to replace
-            // hardcoded phosphor. For now: decode-and-drop so the
-            // exhaustive switch compiles and the envelope can be
-            // round-tripped end-to-end on hardware without
-            // user-visible effect.
-            _ = WatchConnectivityProtocol.appStateUpdate(from: message)
+            if let state = WatchConnectivityProtocol.appStateUpdate(from: message) {
+                DispatchQueue.main.async {
+                    #if os(watchOS)
+                    self.phoneAppState = state
+                    #endif
+                }
+            }
         }
     }
 
@@ -463,6 +469,7 @@ extension WatchConnectivityManager: WCSessionDelegate {
             DispatchQueue.main.async {
                 self.spectrogramData = specData
                 #if os(watchOS)
+                self.lastPhoneSpectrogramReceivedAt = Date()
                 self.updateComplicationState(from: specData)
                 #endif
             }
@@ -523,6 +530,7 @@ extension WatchConnectivityManager: WCSessionDelegate {
                 print("[WCM] Received watch dashboard config via context")
             }
         }
+        WatchAppSettingsSync.applyApplicationContext(applicationContext)
     }
 
     func sessionReachabilityDidChange(_ session: WCSession) {

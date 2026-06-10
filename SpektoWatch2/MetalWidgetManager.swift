@@ -1,4 +1,6 @@
 import MetalKit
+import os
+import os.signpost
 
 /// Process-wide holder for the shared Metal device.
 ///
@@ -15,7 +17,14 @@ class MetalWidgetManager {
 
     private(set) var sharedDevice: MTLDevice?
 
-    private init() {
+    private init() {}
+
+    /// Creates the shared device if needed. Safe to call from a background
+    /// queue before the first Metal widget is shown.
+    func prewarmSharedDevice() {
+        guard sharedDevice == nil else { return }
+        let signpostID = PerformanceSignpost.begin("MetalPrewarm")
         sharedDevice = MTLCreateSystemDefaultDevice()
+        PerformanceSignpost.end("MetalPrewarm", signpostID: signpostID)
     }
 }

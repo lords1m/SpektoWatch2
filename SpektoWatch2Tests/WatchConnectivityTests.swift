@@ -114,6 +114,18 @@ final class WatchConnectivityTests: XCTestCase {
     // MARK: - WatchDashboardConfig Serialisierung Tests
 
     /// Testet WatchDashboardConfig Encoding/Decoding
+    func testWatchDashboardConfigPreservesLevelMeterOrientation() throws {
+        let original = WatchDashboardConfig(widgets: [
+            WatchWidgetConfig(type: .levelMeter, position: 0, levelMeterOrientation: .vertical),
+        ])
+        let encoded = try XCTUnwrap(original.encode())
+        let restored = try XCTUnwrap(WatchDashboardConfig.decode(from: encoded))
+        XCTAssertEqual(
+            restored.orderedDisplayWidgets.first?.levelMeterOrientation,
+            .vertical
+        )
+    }
+
     func testWatchDashboardConfigSerialization() {
         let original = WatchDashboardConfig()
 
@@ -136,6 +148,23 @@ final class WatchConnectivityTests: XCTestCase {
             XCTAssertEqual(restoredWidget.type, originalWidget.type)
             XCTAssertEqual(restoredWidget.singleValueType, originalWidget.singleValueType)
         }
+        XCTAssertEqual(restored.defaultSingleValueRefreshRate, original.defaultSingleValueRefreshRate)
+    }
+
+    func testWatchMeterLayoutConfigRoundTripPreservesRefreshRates() throws {
+        var layout = WatchMeterLayoutConfig(defaultSingleValueRefreshRate: .hz5)
+        layout.replaceOrderedWidgets([
+            WatchWidgetConfig(
+                type: .singleValue,
+                position: 0,
+                singleValueType: .lceq,
+                singleValueRefreshRate: .hz1
+            )
+        ])
+        let encoded = try XCTUnwrap(layout.encode())
+        let restored = try XCTUnwrap(WatchMeterLayoutConfig.decode(from: encoded))
+        XCTAssertEqual(restored.defaultSingleValueRefreshRate, .hz5)
+        XCTAssertEqual(restored.refreshRate(for: restored.orderedMeterWidgets[0]), .hz1)
     }
 
     // MARK: - MicrophoneSource Tests
@@ -230,6 +259,19 @@ final class WatchConnectivityTests: XCTestCase {
         let configMessage = WatchConnectivityProtocol.makeWatchDashboardConfigMessage("{}")
         XCTAssertEqual(WatchConnectivityProtocol.messageType(from: configMessage), .watchDashboardConfig)
         XCTAssertEqual(WatchConnectivityProtocol.dashboardConfigString(from: configMessage), "{}")
+
+        let meterMessage = WatchConnectivityProtocol.makeWatchMeterLayoutConfigMessage("{}")
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: meterMessage), .watchMeterLayoutConfig)
+
+        let sourcePrefMessage = WatchConnectivityProtocol.makeWatchMeasurementSourcePreferenceMessage(.auto)
+        XCTAssertEqual(
+            WatchConnectivityProtocol.messageType(from: sourcePrefMessage),
+            .watchMeasurementSourcePreference
+        )
+        XCTAssertEqual(
+            WatchConnectivityProtocol.measurementSourcePreference(from: sourcePrefMessage),
+            .auto
+        )
     }
 
     func testTypedSpectrogramPacketRoundTrip() {

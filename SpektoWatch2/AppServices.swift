@@ -75,20 +75,29 @@ final class AppServices: ObservableObject {
     func startAudio() {
         guard audioEngine == nil else { return }
 
-        // Touch the shared Metal device so all subsequent makeUIView calls
-        // reuse it instead of each calling MTLCreateSystemDefaultDevice()
-        // fresh.
-        _ = MetalWidgetManager.shared.sharedDevice
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            MetalWidgetManager.shared.prewarmSharedDevice()
 
-        let engine = AudioEngine(
-            filterManager: filterManager,
-            connectivityManager: connectivityManager
-        )
-        engine.applyFFTConfiguration(fftConfiguration)
-        engine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            DispatchQueue.main.async {
+                guard let self, self.audioEngine == nil else { return }
 
-        self.audioEngine = engine
-        self.maskingEngine = MaskingEngine(audioEngine: engine)
+                let engine = AudioEngine(
+                    filterManager: self.filterManager,
+                    connectivityManager: self.connectivityManager
+                )
+                engine.applyFFTConfiguration(self.fftConfiguration)
+                engine.scrollSpeed = .closest(to: self.fftConfiguration.hopSize)
+
+                self.audioEngine = engine
+                self.maskingEngine = MaskingEngine(audioEngine: engine)
+
+                if Self.shouldPrewarmCaptureGraph {
+                    DispatchQueue.main.async {
+                        engine.prewarmCaptureGraph()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -122,9 +131,26 @@ extension AppServices {
         )
 
         // Tests want audio engines available synchronously.
+        MetalWidgetManager.shared.prewarmSharedDevice()
         let engine = audioEngine ?? AudioEngine(filterManager: fm, connectivityManager: cm)
+        if shouldPrewarmCaptureGraph {
+            engine.prewarmCaptureGraph()
+        }
         services.audioEngine = engine
         services.maskingEngine = MaskingEngine(audioEngine: engine)
         return services
+    }
+
+    /// AVAudioEngine prewarm can block the main thread on Simulator; UI tests
+    /// use the synthetic generator and never need the real graph.
+    private static var shouldPrewarmCaptureGraph: Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        #if DEBUG
+        if UITestRuntime.useTestAudio { return false }
+        #endif
+        return true
+        #endif
     }
 }

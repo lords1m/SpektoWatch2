@@ -4,9 +4,10 @@ import Combine
 struct WatchSpectrogramView: View {
     @EnvironmentObject private var connectivityManager: WatchConnectivityManager
     @EnvironmentObject var audioEngine: WatchAudioEngine
-    private static let maxFrames = 60
-    @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: WatchSpectrogramView.maxFrames)
+    @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
+    @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: SpectrogramResolution.current.watchHistoryFrameCount)
     @State private var zoomLevel: Double = 1.0
+    @State private var crownZoomEnabled = false
     #if DEBUG
     @State private var debugCounter: Int = 0
     #endif
@@ -15,8 +16,8 @@ struct WatchSpectrogramView: View {
     @State private var latestMagnitudesCount: Int = 1024
     @FocusState private var isFocused: Bool
 
-    private let maxFrames = WatchSpectrogramView.maxFrames
-    private let displayBins = 40
+    private var maxFrames: Int { audioEngine.spectrogramHistoryFrameCount }
+    private var displayBins: Int { audioEngine.spectrogramDisplayBinCount }
     private let minDB: Float = -180.0
     private let maxDB: Float = -40.0
 
@@ -58,33 +59,43 @@ struct WatchSpectrogramView: View {
                 .ignoresSafeArea()
 
                 axisLabels
+                    .allowsHitTesting(false)
 
                 VStack(spacing: 0) {
                     topStatusStrip
                     Spacer()
                     bottomStftPill
-                    HStack {
-                        Circle()
-                            .fill(audioEngine.isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
-                            .frame(width: 4, height: 4)
-                            .animation(.easeInOut(duration: 0.3), value: audioEngine.isRecording)
-                        Spacer()
-                        recordButton
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 2)
+                        .allowsHitTesting(false)
+                    WatchLiveCaptureFooter()
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .accessibilityIdentifier("watchSpectrogramView")
-            .focusable()
+            .focusable(crownZoomEnabled)
             .focused($isFocused)
             .digitalCrownRotation($zoomLevel, from: 0.1, through: 1.0, by: 0.05, sensitivity: .medium, isContinuous: false)
-            .onAppear { isFocused = true }
+            .onAppear {
+                isFocused = false
+                resizeFrameBufferIfNeeded()
+            }
+            .onChange(of: crownZoomEnabled) { _, enabled in
+                isFocused = enabled
+            }
+            .onTapGesture(count: 2) {
+                crownZoomEnabled.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .spectrogramResolutionChanged)) { _ in
+                resizeFrameBufferIfNeeded()
+            }
         }
         // Single source: WatchAudioEngine.liveData reflects whichever mode is
         // active (companion vs. wearableMic). No branching.
-        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
+        .onReceive(
+            audioEngine.$liveData
+                .compactMap { $0 }
+                .throttledForWatchLiveDisplay()
+        ) { data in
+            guard tabLiveUpdatesActive else { return }
             processSpectrogramData(data)
         }
     }
@@ -93,6 +104,7 @@ struct WatchSpectrogramView: View {
 
     private var topStatusStrip: some View {
         HStack(spacing: 6) {
+            WatchMeasurementSourceIndicator()
             PulsingDot(active: audioEngine.isRecording || connectivityManager.isReachable)
             TimelineView(.everyMinute) { context in
                 Text(timeString(from: context.date))
@@ -145,31 +157,11 @@ struct WatchSpectrogramView: View {
         Self.timeFormatter.string(from: date)
     }
 
-    private var recordButton: some View {
-        Button(action: {
-            if audioEngine.isRecording {
-                audioEngine.stopRecording()
-                connectivityManager.requestWearableRecordingStop()
-            } else {
-                connectivityManager.requestWearableRecordingStart()
-                audioEngine.startRecording()
-            }
-            WKInterfaceDevice.current().play(.success)
-        }) {
-            Image(systemName: audioEngine.isRecording ? "stop.fill" : "record.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(
-                        audioEngine.isRecording
-                            ? Color.red.opacity(0.80)
-                            : WatchStylePalette.accentBlue.opacity(0.80)
-                    )
-                )
+    private func resizeFrameBufferIfNeeded() {
+        let capacity = maxFrames
+        if frames.capacity != capacity {
+            frames = RingBuffer(capacity: capacity)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(audioEngine.isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
     }
 
     private func processSpectrogramData(_ data: SpectrogramData) {
@@ -331,7 +323,7 @@ struct WatchSpectrogramView: View {
         private let phosphor = Color(red: 0.45, green: 0.93, blue: 0.55)
 
         var body: some View {
-            TimelineView(.animation(minimumInterval: 0.08, paused: !active)) { context in
+            TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 let phase = active
                     ? 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * .pi * 1.2)
                     : 0.0

@@ -88,6 +88,54 @@ final class WaterfallCameraProjectionTests: XCTestCase {
     }
 }
 
+final class WaterfallAnalysisTests: XCTestCase {
+
+    func testPeaksFindsLocalMaximaSortedLoudestFirst() {
+        // Two clear peaks at bins 2 (40 dB) and 5 (60 dB) above the mean.
+        let mags: [Float] = [10, 12, 40, 11, 13, 60, 12, 10]
+        let freqs: [Float] = [50, 100, 200, 400, 800, 1_600, 3_200, 6_400]
+        let peaks = WaterfallAnalysis.peaks(magnitudes: mags, frequencies: freqs, minProminence: 3, limit: 6)
+        XCTAssertEqual(peaks.count, 2)
+        XCTAssertEqual(peaks[0].binIndex, 5)        // loudest first
+        XCTAssertEqual(peaks[0].frequency, 1_600)
+        XCTAssertEqual(peaks[1].binIndex, 2)
+    }
+
+    func testPeaksRespectsLimit() {
+        let mags: [Float] = [0, 50, 0, 50, 0, 50, 0, 50, 0]
+        let freqs: [Float] = (0..<mags.count).map { Float($0) * 100 }
+        let peaks = WaterfallAnalysis.peaks(magnitudes: mags, frequencies: freqs, minProminence: 1, limit: 2)
+        XCTAssertEqual(peaks.count, 2)
+    }
+
+    func testPeaksIgnoresTooFewBins() {
+        XCTAssertTrue(WaterfallAnalysis.peaks(magnitudes: [1, 2], frequencies: [10, 20]).isEmpty)
+    }
+
+    func testMaxHoldTakesPerBinMaximum() {
+        let slices: [[Float]] = [[1, 9, 3], [4, 2, 8], [7, 5, 6]]
+        XCTAssertEqual(WaterfallAnalysis.maxHold(slices: slices), [7, 9, 8])
+    }
+
+    func testMaxHoldIgnoresMismatchedSlices() {
+        let slices: [[Float]] = [[1, 2, 3], [9, 9]]   // second is a different width
+        XCTAssertEqual(WaterfallAnalysis.maxHold(slices: slices), [1, 2, 3])
+    }
+
+    func testAverageIsPerBinMean() {
+        let slices: [[Float]] = [[0, 10, 20], [10, 20, 40]]
+        XCTAssertEqual(WaterfallAnalysis.average(slices: slices), [5, 15, 30])
+    }
+
+    func testFrequencyTicksStayWithinRange() {
+        let ticks = WaterfallAnalysis.frequencyTicks(lo: 90, hi: 2_500)
+        XCTAssertEqual(ticks.first, 100)
+        XCTAssertEqual(ticks.last, 2_000)
+        XCTAssertFalse(ticks.contains(50))
+        XCTAssertFalse(ticks.contains(4_000))
+    }
+}
+
 @MainActor
 final class WaterfallHistoryStoreTests: XCTestCase {
 

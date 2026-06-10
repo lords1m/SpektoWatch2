@@ -92,7 +92,8 @@ struct WatchDashboardView: View {
                 LazyVGrid(columns: gridItems, spacing: 4) {
                     ForEach(activeWidgets) { widget in
                         widgetView(for: widget)
-                            .frame(height: 52)
+                            .frame(height: dashboardCellHeight(for: widget))
+                            .gridCellColumns(dashboardCellSpan(for: widget))
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -102,7 +103,7 @@ struct WatchDashboardView: View {
                         .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
                         .frame(width: 4, height: 4)
                         .animation(.easeInOut(duration: 0.3), value: isRecording)
-                    standaloneToggle
+                    WatchMeasurementSourceIndicator()
                     Spacer()
                     recordButton
                 }
@@ -130,10 +131,15 @@ struct WatchDashboardView: View {
         case .spectrogram:
             WatchSpectrogramWidget()
         case .levelMeter:
-            WatchLevelMeterWidget()
+            WatchLevelMeterWidget(orientation: widget.resolvedLevelMeterOrientation())
+        case .pegelmeter:
+            WatchPegelmeterWidget()
         case .singleValue:
             if let valueType = widget.singleValueType {
-                WatchSingleValueWidget(valueType: valueType)
+                WatchSingleValueWidget(
+                    valueType: valueType,
+                    refreshRate: config.refreshRate(for: widget)
+                )
             } else {
                 Color.clear
             }
@@ -144,33 +150,29 @@ struct WatchDashboardView: View {
         }
     }
 
-    /// Watch-first vs companion toggle. In standalone the watch captures and
-    /// stores locally without coordinating record start/stop with the phone.
-    /// Disabled mid-recording — the preference applies to the next session.
-    private var standaloneToggle: some View {
-        Button(action: {
-            audioEngine.setStandaloneEnabled(!audioEngine.standaloneEnabled)
-            WKInterfaceDevice.current().play(.click)
-        }) {
-            Image(systemName: audioEngine.standaloneEnabled ? "applewatch" : "iphone")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(audioEngine.standaloneEnabled ? WatchStylePalette.accentBlue : .gray)
+    private func dashboardCellSpan(for widget: WatchWidgetConfig) -> Int {
+        guard widget.type == .levelMeter else { return 1 }
+        return widget.resolvedLevelMeterOrientation() == .horizontal ? 2 : 1
+    }
+
+    private func dashboardCellHeight(for widget: WatchWidgetConfig) -> CGFloat {
+        switch widget.type {
+        case .levelMeter:
+            return widget.resolvedLevelMeterOrientation() == .vertical ? 72 : 28
+        default:
+            return 52
         }
-        .buttonStyle(.plain)
-        .disabled(isRecording)
-        .accessibilityIdentifier("watchStandaloneToggle")
-        .accessibilityLabel(audioEngine.standaloneEnabled ? "Betriebsmodus: eigenständig" : "Betriebsmodus: mit iPhone")
     }
 
     private var recordButton: some View {
         Button(action: {
             if isRecording {
                 audioEngine.stopRecording()
-                if !audioEngine.standaloneEnabled {
+                if audioEngine.coordinatesRecordingWithPhone {
                     connectivityManager.requestWearableRecordingStop()
                 }
             } else {
-                if !audioEngine.standaloneEnabled {
+                if audioEngine.coordinatesRecordingWithPhone {
                     connectivityManager.requestWearableRecordingStart()
                 }
                 audioEngine.startRecording()

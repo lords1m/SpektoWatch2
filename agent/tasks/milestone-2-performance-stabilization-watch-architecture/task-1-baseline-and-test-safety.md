@@ -28,7 +28,7 @@ Establish a safe baseline before changing audio hot paths or watch transport.
 
 ## Suggested Validation
 
-Use `SpektoWatch2.xctestplan` when running the broad suite. At minimum, target:
+Use `TestPlans/spekto-watch2.xctestplan` when running the broad suite. At minimum, target:
 
 - `AudioEngineTests`
 - `FFTProcessorTests`
@@ -54,8 +54,7 @@ Dirty files present before implementation work:
 - `AGENT.md`
 - `agent/`
 
-The root `SpektoWatch2.xctestplan` and
-`.claude/worktrees/nostalgic-jackson/SpektoWatch2.xctestplan` are identical.
+Default broad-suite plan: `TestPlans/spekto-watch2.xctestplan` (see `docs/test-plans/README.md`).
 The plan includes `SpektoWatch2Tests` and `SpektoWatch2UITests`, enables code
 coverage for `SpektoWatch2`, uses random execution ordering, and enables
 timeouts.
@@ -69,7 +68,7 @@ platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1
 Build baseline command:
 
 ```sh
-xcodebuild build-for-testing -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan SpektoWatch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1"
+xcodebuild build-for-testing -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan spekto-watch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1"
 ```
 
 Result: `TEST BUILD SUCCEEDED`.
@@ -77,7 +76,7 @@ Result: `TEST BUILD SUCCEEDED`.
 Targeted test command attempted:
 
 ```sh
-xcodebuild test -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan SpektoWatch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1" -only-testing:SpektoWatch2Tests/AudioEngineTests -only-testing:SpektoWatch2Tests/FFTProcessorTests -only-testing:SpektoWatch2Tests/FrequencyWeightingTests -only-testing:SpektoWatch2Tests/MeasurementDataIOTests -only-testing:SpektoWatch2Tests/WatchConnectivityTests -only-testing:SpektoWatch2Tests/PerformanceProfilingTests -resultBundlePath /private/tmp/SpektoWatch2BaselineTask1-20260511b.xcresult
+xcodebuild test -project SpektoWatch2.xcodeproj -scheme SpektoWatch2 -testPlan spekto-watch2 -destination "platform=iOS Simulator,name=iPhone 12 mini,OS=26.3.1" -only-testing:SpektoWatch2Tests/AudioEngineTests -only-testing:SpektoWatch2Tests/FFTProcessorTests -only-testing:SpektoWatch2Tests/FrequencyWeightingTests -only-testing:SpektoWatch2Tests/MeasurementDataIOTests -only-testing:SpektoWatch2Tests/WatchConnectivityTests -only-testing:SpektoWatch2Tests/PerformanceProfilingTests -resultBundlePath /private/tmp/SpektoWatch2BaselineTask1-20260511b.xcresult
 ```
 
 Result: blocked before test results. The first sandboxed run could not access

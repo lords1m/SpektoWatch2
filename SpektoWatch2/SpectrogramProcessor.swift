@@ -21,7 +21,7 @@ class SpectrogramProcessor {
     /// Duration of one FFT hop in seconds – must be kept in sync with the audio engine.
     var hopDuration: Float = 512.0 / 44100.0
     /// 0 = no temporal smoothing, 1 = full IEC time weighting smoothing.
-    var temporalSmoothingIntensity: Float = 1.0
+    var temporalSmoothingIntensity: Float = 0.6
 
     var binningFactor: Int = 2
     

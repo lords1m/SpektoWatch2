@@ -24,6 +24,8 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     @Published public var watchDashboardConfig: WatchDashboardConfig?
     @Published public var frequencyWeighting: String = "A"
     #if os(watchOS)
+    @Published public private(set) var phoneAppState: WatchAppState?
+    @Published public private(set) var lastPhoneSpectrogramReceivedAt: Date?
     private var lastComplicationReload = Date.distantPast
     #endif
     
@@ -151,6 +153,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             DispatchQueue.main.async {
                 self.spectrogramData = specData
                 #if os(watchOS)
+                self.lastPhoneSpectrogramReceivedAt = Date()
                 self.updateComplicationState(from: specData)
                 #endif
             }
@@ -210,16 +213,28 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
                     self.watchDashboardConfig = config
                     config.save()
                 }
+            case .watchMeterLayoutConfig:
+                if let configString = WatchConnectivityProtocol.dashboardConfigString(from: message),
+                   let configData = configString.data(using: .utf8),
+                   let config = WatchMeterLayoutConfig.decode(from: configData) {
+                    WatchAppSettingsSync.applyMeterLayoutConfig(config)
+                }
+            case .watchMeasurementSourcePreference:
+                if let preference = WatchConnectivityProtocol.measurementSourcePreference(from: message) {
+                    WatchAppSettingsSync.applyMeasurementSourcePreference(preference)
+                }
             case .gain:
                 if let gain = WatchConnectivityProtocol.gain(from: message) {
                     NotificationCenter.default.post(name: .gainOrBandwidthChangedNotification, object: gain)
                 }
             case .appStateUpdate:
-                // iOS-side receives no appStateUpdate today (envelope
-                // flows iOS → watch only). Reserved for the watch's
-                // future ability to push state back. Decode-and-drop
-                // to keep the protocol future-proof.
+                #if os(watchOS)
+                if let state = WatchConnectivityProtocol.appStateUpdate(from: message) {
+                    self.phoneAppState = state
+                }
+                #else
                 _ = WatchConnectivityProtocol.appStateUpdate(from: message)
+                #endif
             case .recordingFileTransfer, .recordingSynced:
                 // These are delivered via transferFile / transferUserInfo,
                 // not sendMessage — handled in session(_:didReceive:) and
@@ -240,6 +255,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
                 self.watchDashboardConfig = config
                 config.save()
             }
+            WatchAppSettingsSync.applyApplicationContext(applicationContext)
         }
     }
     
@@ -350,6 +366,56 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         // Also send via application context for background delivery
         do {
             try WCSession.default.updateApplicationContext([PersistenceKeys.watchDashboardConfig: configString])
+        } catch {
+            // Ignore context errors
+        }
+    }
+
+    /// Pushes the spectrogram quality preset to the watch via application context.
+    public func sendSpectrogramResolution(_ resolution: SpectrogramResolution) {
+        WatchAppSettingsSync.applySpectrogramResolution(resolution)
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        do {
+            var context = session.receivedApplicationContext
+            context[PersistenceKeys.spectrogramResolution] = resolution.rawValue
+            try session.updateApplicationContext(context)
+        } catch {
+            // Ignore context errors
+        }
+    }
+
+    /// Pushes all watch-app settings the phone can edit (meter layout, live source, gain).
+    public func sendWatchAppSettings(
+        meterLayout: WatchMeterLayoutConfig,
+        measurementSource: WatchMeasurementSourcePreference,
+        gain: Float,
+        spectrogramResolution: SpectrogramResolution = .current
+    ) {
+        meterLayout.save()
+        UserDefaults.standard.set(measurementSource.rawValue, forKey: PersistenceKeys.Watch.measurementSourcePreference)
+        UserDefaults.standard.set(measurementSource == .appleWatch, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        UserDefaults.standard.set(gain, forKey: PersistenceKeys.Watch.gain)
+        WatchAppSettingsSync.applySpectrogramResolution(spectrogramResolution)
+
+        if let configData = meterLayout.encode(),
+           let configString = String(data: configData, encoding: .utf8) {
+            sendWithRetry(WatchConnectivityProtocol.makeWatchMeterLayoutConfigMessage(configString))
+        }
+        sendWithRetry(WatchConnectivityProtocol.makeWatchMeasurementSourcePreferenceMessage(measurementSource))
+        sendWithRetry(WatchConnectivityProtocol.makeGainMessage(gain))
+
+        do {
+            var context: [String: Any] = ["frequencyWeighting": frequencyWeighting]
+            if let configData = meterLayout.encode(),
+               let configString = String(data: configData, encoding: .utf8) {
+                context[PersistenceKeys.Watch.meterLayoutConfig] = configString
+            }
+            context[PersistenceKeys.Watch.measurementSourcePreference] = measurementSource.rawValue
+            context[PersistenceKeys.Watch.gain] = gain
+            context[PersistenceKeys.spectrogramResolution] = spectrogramResolution.rawValue
+            try WCSession.default.updateApplicationContext(context)
         } catch {
             // Ignore context errors
         }

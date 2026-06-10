@@ -31,6 +31,8 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     private var seekFrame: AVAudioFramePosition = 0
     private var sampleRate: Double = 44100.0
     private var wasPlayingBeforeScrub = false
+    /// True after `pause()` / scrub-hold while scheduled buffers are still valid.
+    private var canResumeAfterPause = false
     private let processingQueue = DispatchQueue(label: "com.spektowatch.audioprocessing", qos: .userInteractive)
 
     override init() {
@@ -45,8 +47,6 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     private func setupEngine() {
         engine.attach(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
-
         engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self, self.isPlaying, let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
@@ -63,16 +63,28 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     /// only logged, so a missing/corrupt file left the play button silently dead.
     @discardableResult
     func loadAudio(url: URL) -> Bool {
+        stop()
         do {
-            audioFile = try AVAudioFile(forReading: url)
-            if let file = audioFile {
-                sampleRate = file.processingFormat.sampleRate
-                duration = Double(file.length) / sampleRate
+            let file = try AVAudioFile(forReading: url)
+            guard file.length > 0 else {
+                print("[AudioPlayerManager] ERROR: audio file has zero frames: \(url.lastPathComponent)")
+                audioFile = nil
+                isLoaded = false
+                duration = 0
+                return false
             }
-            isLoaded = true
-            return true
+            audioFile = file
+            sampleRate = file.processingFormat.sampleRate
+            duration = Double(file.length) / sampleRate
+            seekFrame = 0
+            currentTime = 0
+            scrubTime = 0
+            reconnectPlayer(to: file.processingFormat)
+            isLoaded = duration > 0
+            return isLoaded
         } catch {
             print("[AudioPlayerManager] ERROR loading audio: \(error.localizedDescription)")
+            audioFile = nil
             isLoaded = false
             return false
         }
@@ -81,12 +93,7 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     func play() {
         guard let file = audioFile, !isPlaying else { return }
 
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("[AudioPlayerManager] Session error: \(error)")
-        }
+        activatePlaybackSession()
 
         if !engine.isRunning {
             do {
@@ -97,19 +104,36 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             }
         }
 
-        let clampedSeekFrame = max(0, min(seekFrame, file.length))
-        seekFrame = clampedSeekFrame
-        let remainingFrames = AVAudioFrameCount(max(0, file.length - clampedSeekFrame))
-        guard remainingFrames > 0 else {
-            // Already at EOF: keep UI in a stable stopped state instead of
-            // attempting to play an empty segment.
-            currentTime = duration
-            scrubTime = duration
-            isPlaying = false
-            stopTimer()
+        if canResumeAfterPause {
+            canResumeAfterPause = false
+            playerNode.play()
+            isPlaying = true
+            startTimer()
             return
         }
-        playerNode.scheduleSegment(file, startingFrame: clampedSeekFrame, frameCount: remainingFrames, at: nil) { [weak self] in
+
+        playerNode.stop()
+        var startFrame = max(0, min(seekFrame, file.length))
+        var remainingFrames = AVAudioFrameCount(max(0, file.length - startFrame))
+
+        // At EOF, restart from the beginning instead of doing nothing.
+        if remainingFrames == 0, file.length > 0 {
+            startFrame = 0
+            seekFrame = 0
+            currentTime = 0
+            scrubTime = 0
+            remainingFrames = AVAudioFrameCount(file.length)
+        }
+
+        guard remainingFrames > 0 else {
+            isLoaded = false
+            return
+        }
+
+        seekFrame = startFrame
+        reconnectPlayer(to: file.processingFormat)
+
+        playerNode.scheduleSegment(file, startingFrame: startFrame, frameCount: remainingFrames, at: nil) { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isPlaying else { return }
                 self.stop()
@@ -122,17 +146,23 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     func pause() {
+        guard isPlaying else { return }
         playerNode.pause()
         isPlaying = false
         stopTimer()
         seekFrame = AVAudioFramePosition(currentTime * sampleRate)
+        canResumeAfterPause = true
     }
 
     func stop() {
         playerNode.stop()
-        engine.stop()
+        if engine.isRunning {
+            engine.stop()
+        }
         isPlaying = false
+        canResumeAfterPause = false
         currentTime = 0
+        scrubTime = 0
         seekFrame = 0
         stopTimer()
     }
@@ -142,6 +172,9 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         if isPlaying {
             playerNode.pause()
             stopTimer()
+            seekFrame = AVAudioFramePosition(currentTime * sampleRate)
+            canResumeAfterPause = true
+            isPlaying = false
         }
     }
 
@@ -154,11 +187,12 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     func seek(to time: TimeInterval) {
         let clampedTime = max(0, min(time, duration))
         let wasPlaying = isPlaying
-        if wasPlaying {
+        if wasPlaying || canResumeAfterPause {
             playerNode.stop()
             isPlaying = false
             stopTimer()
         }
+        canResumeAfterPause = false
 
         currentTime = clampedTime
         scrubTime = clampedTime
@@ -172,6 +206,32 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     func seek(by offset: TimeInterval) {
         let newTime = currentTime + offset
         seek(to: max(0, min(newTime, duration)))
+    }
+
+    // MARK: - Private
+
+    /// After live measurement the session is often `.record` / `.measurement`.
+    /// Use a category that can actually route to the speaker, matching the
+    /// tone-generator and masking players.
+    private func activatePlaybackSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if session.category != .playAndRecord && session.category != .playback {
+                try session.setCategory(
+                    .playAndRecord,
+                    mode: .default,
+                    options: [.defaultToSpeaker, .mixWithOthers]
+                )
+            }
+            try session.setActive(true)
+        } catch {
+            print("[AudioPlayerManager] Session error: \(error)")
+        }
+    }
+
+    private func reconnectPlayer(to format: AVAudioFormat) {
+        engine.disconnectNodeOutput(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
     }
 
     private func startTimer() {

@@ -14,7 +14,7 @@ workflow.
 User request 2026-05-25 (Track B of M18). Builds on task-6 + task-7.
 
 Existing infrastructure:
-- `SpektoWatch2.xctestplan` already includes `SpektoWatch2UITests`.
+- `TestPlans/spekto-watch2.xctestplan` already includes `SpektoWatch2UITests`.
 - `agent/scripts/capture-screenshots.py` extracts PNG attachments
   from a `.xcresult` bundle.
 - `ci_scripts/ci_pre_xcodebuild.sh` is the Xcode Cloud pre-build hook

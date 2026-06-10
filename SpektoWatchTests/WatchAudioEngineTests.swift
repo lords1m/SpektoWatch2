@@ -40,6 +40,50 @@ final class WatchAudioEngineTests: XCTestCase {
         try await super.tearDown()
     }
 
+    // MARK: - Measurement source preference
+
+    func testResolvedPreferenceDefaultsAppleWatchForWatchOnly() {
+        let defaults = UserDefaults(suiteName: "WatchAudioEngineTests")!
+        defaults.removePersistentDomain(forName: "WatchAudioEngineTests")
+        XCTAssertEqual(
+            WatchAudioEngine.resolvedMeasurementSourcePreference(defaults: defaults, isWatchOnlyApp: true),
+            .appleWatch
+        )
+    }
+
+    func testResolvedPreferenceOverridesStoredFalseOnWatchOnly() {
+        let defaults = UserDefaults(suiteName: "WatchAudioEngineTests.stored")!
+        defaults.removePersistentDomain(forName: "WatchAudioEngineTests.stored")
+        defaults.set(false, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        XCTAssertEqual(
+            WatchAudioEngine.resolvedMeasurementSourcePreference(defaults: defaults, isWatchOnlyApp: true),
+            .appleWatch
+        )
+    }
+
+    func testResolvedPreferenceDefaultsAutoForCompanionFirstLaunch() {
+        let defaults = UserDefaults(suiteName: "WatchAudioEngineTests.companion")!
+        defaults.removePersistentDomain(forName: "WatchAudioEngineTests.companion")
+        XCTAssertEqual(
+            WatchAudioEngine.resolvedMeasurementSourcePreference(defaults: defaults, isWatchOnlyApp: false),
+            .auto
+        )
+    }
+
+    func testResolvedPreferenceMigratesLegacyStandaloneFlag() {
+        let defaults = UserDefaults(suiteName: "WatchAudioEngineTests.legacy")!
+        defaults.removePersistentDomain(forName: "WatchAudioEngineTests.legacy")
+        defaults.set(true, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        XCTAssertEqual(
+            WatchAudioEngine.resolvedMeasurementSourcePreference(defaults: defaults, isWatchOnlyApp: false),
+            .appleWatch
+        )
+        XCTAssertEqual(
+            defaults.string(forKey: PersistenceKeys.Watch.measurementSourcePreference),
+            WatchMeasurementSourcePreference.appleWatch.rawValue
+        )
+    }
+
     // MARK: - Initialization
 
     func testInitialIsRecordingIsFalse() {

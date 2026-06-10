@@ -3,7 +3,6 @@ import AVFoundation
 
 struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
-    @Binding var watchGain: Float
     @ObservedObject var audioEngine: AudioEngine
     @EnvironmentObject var fftConfiguration: FFTConfiguration
 
@@ -43,20 +42,6 @@ struct SpectrogramSettingsView: View {
                     }
                 }
 
-                if selectedMicrophoneSource == .appleWatch {
-                    Section(header: Text("Watch-Verstärkung: \(String(format: "%.1f", watchGain))x")) {
-                        HStack {
-                            Text("0x")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Slider(value: $watchGain, in: 0...10, step: 0.1)
-                            Text("10x")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
                 Section(header: Text("Messung")) {
                     Picker("Zeitbewertung", selection: $audioEngine.timeWeighting) {
                         ForEach(TimeWeighting.allCases, id: \.self) { weighting in
@@ -73,34 +58,57 @@ struct SpectrogramSettingsView: View {
                 }
 
                 Section(header: Text("Spektrogramm")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Frequenzglättung")
-                            Spacer()
-                            Text(smoothingLabel(audioEngine.spectrogramFrequencySmoothing))
-                                .foregroundColor(.secondary)
+                    Picker("Auflösung", selection: $audioEngine.spectrogramResolution) {
+                        ForEach(SpectrogramResolution.allCases) { resolution in
+                            Text(resolution.germanTitle).tag(resolution)
                         }
-
-                        Slider(value: $audioEngine.spectrogramFrequencySmoothing, in: 0...1, step: 0.05)
-
-                        Text("0 = aus, höher = weichere Frequenzverläufe")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
 
+                    Text(audioEngine.spectrogramResolution.germanDetail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Frequenzachse", selection: $audioEngine.spectrogramFrequencyScale) {
+                        ForEach(SpectrogramFrequencyScale.allCases) { scale in
+                            Text(scale.germanTitle).tag(scale)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(audioEngine.spectrogramFrequencyScale.germanDetail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Zeitglättung")
+                            Text("Frequenzbereich")
                             Spacer()
-                            Text(smoothingLabel(audioEngine.spectrogramTemporalSmoothing))
+                            Text("\(frequencyLabel(audioEngine.spectrogramMinFrequency)) – \(frequencyLabel(audioEngine.spectrogramMaxFrequency))")
                                 .foregroundColor(.secondary)
                         }
 
-                        Slider(value: $audioEngine.spectrogramTemporalSmoothing, in: 0...1, step: 0.05)
+                        HStack {
+                            Text("Min")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Slider(value: $audioEngine.spectrogramMinFrequency, in: 0...2000, step: 10)
+                        }
+                        HStack {
+                            Text("Max")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Slider(value: $audioEngine.spectrogramMaxFrequency, in: 1000...maxFrequencyCeiling, step: 100)
+                        }
 
-                        Text("0 = aus, 1 = volle IEC-Zeitbewertung")
+                        Button {
+                            audioEngine.resetSpectrogramFrequencyRangeToMicrophoneDefault()
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.counterclockwise")
+                                Text("Auf Mikrofon-Standard zurücksetzen")
+                            }
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                        }
                     }
                 }
 
@@ -190,12 +198,17 @@ struct SpectrogramSettingsView: View {
         }
     }
 
-    private func smoothingLabel(_ value: Float) -> String {
-        switch value {
-        case ..<0.05: return "Aus"
-        case ..<0.35: return "Leicht"
-        case ..<0.7: return "Mittel"
-        default: return "Stark"
-        }
+    /// Upper bound for the "Max" slider: the smaller of 24 kHz and the device
+    /// Nyquist (44.1 kHz mic → ~22.05 kHz). Kept ≥ 2 kHz so the slider is valid.
+    private var maxFrequencyCeiling: Double {
+        let nyquist = AVAudioSession.sharedInstance().sampleRate / 2.0
+        let resolved = nyquist > 1000 ? nyquist : 22_050
+        return max(2_000, min(SpectrogramFrequencyRange.absoluteMax, resolved))
+    }
+
+    private func frequencyLabel(_ freq: Double) -> String {
+        freq >= 1000
+            ? String(format: "%.1f kHz", freq / 1000)
+            : String(format: "%.0f Hz", freq)
     }
 }

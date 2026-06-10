@@ -30,7 +30,8 @@ final class WidgetGridScreenshotTests: XCTestCase {
             "-UIAnimationsDisabled", "YES",
             "-ResetState", "YES",
             "-SeedTestData", "YES",
-            "-SnapshotCatalog", "YES"
+            "-SnapshotCatalog", "YES",
+            "-InstallWidgetSizeScreenshotPreset", "YES"
         ]
 
         addUIInterruptionMonitor(withDescription: "System Permission Alert") { [weak self] element in
@@ -54,11 +55,10 @@ final class WidgetGridScreenshotTests: XCTestCase {
 
         _ = handleSystemAlertsIfNeeded(timeout: 5.0)
 
-        // Wait for the dashboard control bar — either play or pause button.
-        let playVisible = app.descendants(matching: .any)["playButton"].waitForExistence(timeout: launchWait)
-        let pauseVisible = playVisible ? false
-            : app.descendants(matching: .any)["pauseButton"].waitForExistence(timeout: 5.0)
-        XCTAssertTrue(playVisible || pauseVisible, "Dashboard controls should be visible")
+        XCTAssertTrue(
+            waitForDashboardReady(timeout: launchWait),
+            "Dashboard should be visible (controls or layouts button)"
+        )
 
         _ = handleSystemAlertsIfNeeded(timeout: 1.0)
     }
@@ -73,7 +73,7 @@ final class WidgetGridScreenshotTests: XCTestCase {
     /// then pages through all 9 widget-type layouts capturing one screenshot each.
     @MainActor
     func testWidgetSizeGrid() throws {
-        try installWidgetSizePreset()
+        try waitForWidgetSizePresetInstalled()
 
         // AudioWidgetType.allCases order (matches DashboardManager.installWidgetSizeScreenshotPreset)
         let pages: [(num: String, name: String)] = [
@@ -102,7 +102,7 @@ final class WidgetGridScreenshotTests: XCTestCase {
     /// widget chrome doesn't obscure edit affordances at small sizes.
     @MainActor
     func testWidgetSizeGridEditMode() throws {
-        try installWidgetSizePreset()
+        try waitForWidgetSizePresetInstalled()
 
         let pages: [(num: String, name: String)] = [
             ("01", "Spektrogramm"),
@@ -140,27 +140,34 @@ final class WidgetGridScreenshotTests: XCTestCase {
     /// Opens the Layouts confirmation dialog and taps "Screenshot-Preset: Widgetgrößen".
     /// Retries once because the dialog may be dismissed by an overlapping animation on the
     /// first tap (observed in ScreenshotCatalogTests which also uses a two-tap pattern).
-    private func installWidgetSizePreset() throws {
-        let layoutsButton = app.descendants(matching: .any)["layoutsButton"]
-        XCTAssertTrue(layoutsButton.waitForExistence(timeout: viewWait), "layoutsButton must be visible")
+    /// Launch argument `-InstallWidgetSizeScreenshotPreset` installs layouts in
+    /// `ModularDashboardView`; wait until edit mode chrome is available.
+    private func waitForWidgetSizePresetInstalled() throws {
+        let editButton = app.descendants(matching: .any)["editDashboardButton"]
+        XCTAssertTrue(
+            editButton.waitForExistence(timeout: launchWait),
+            "Dashboard should load with widget-size screenshot preset"
+        )
+        settle(1.0)
+    }
 
-        // Attempt 1 — tap the layouts button and look for the preset action.
-        layoutsButton.tap()
-        _ = handleSystemAlertsIfNeeded(timeout: 0.5)
-        let presetButton = app.buttons["layoutsScreenshotPreset"]
-
-        if !presetButton.waitForExistence(timeout: 4.0) {
-            // Dialog may have been dismissed by an overlapping animation; try once more.
-            XCTAssertTrue(layoutsButton.waitForExistence(timeout: viewWait), "layoutsButton must reappear")
-            layoutsButton.tap()
-            _ = handleSystemAlertsIfNeeded(timeout: 0.5)
-            XCTAssertTrue(presetButton.waitForExistence(timeout: viewWait),
-                          "Screenshot preset button should appear in Layouts dialog")
+    /// Waits until the main dashboard chrome is on screen (deferred audio startup
+    /// can delay `playButton` after the splash placeholder).
+    private func waitForDashboardReady(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            _ = handleSystemAlertsIfNeeded(timeout: 0.25)
+            let layouts = app.descendants(matching: .any)["layoutsButton"].exists
+            let play = app.descendants(matching: .any)["playButton"].exists
+            let pause = app.descendants(matching: .any)["pauseButton"].exists
+            let playLabel = app.buttons["Play"].exists
+            let pauseLabel = app.buttons["Pause"].exists
+            if layouts || play || pause || playLabel || pauseLabel {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
-
-        presetButton.tap()
-        // Allow time for the 9 layout pages to be installed and the first page to render.
-        settle(1.5)
+        return false
     }
 
     @discardableResult

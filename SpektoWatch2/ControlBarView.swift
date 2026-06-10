@@ -33,6 +33,7 @@ private struct PlayPauseButton: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
                             .accessibilityLabel(state.playPauseAccessibilityLabel)
+                            .accessibilityAddTraits(.isButton)
                     } else {
                         Image(systemName: "play.circle")
                             .font(.system(size: iconSize))
@@ -40,6 +41,7 @@ private struct PlayPauseButton: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
                             .accessibilityLabel(state.playPauseAccessibilityLabel)
+                            .accessibilityAddTraits(.isButton)
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
@@ -83,6 +85,7 @@ private struct RecordStopButton: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
                             .accessibilityLabel(baseState.recordStopAccessibilityLabel)
+                            .accessibilityAddTraits(.isButton)
                     } else {
                         Image(systemName: "record.circle.fill")
                             .font(.system(size: iconSize))
@@ -90,6 +93,7 @@ private struct RecordStopButton: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
                             .accessibilityLabel(baseState.recordStopAccessibilityLabel)
+                            .accessibilityAddTraits(.isButton)
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: isActive)
@@ -211,6 +215,8 @@ struct ControlBarView: View {
                     .foregroundColor(statusColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier("controlBarStatusLabel")
+                    .accessibilityLabel(statusText)
                 if state.isRecording {
                     Text(timeString(from: recordingManager.currentRecordingDuration))
                         .font(.numerals(numerals, size: 11))
@@ -267,6 +273,7 @@ struct ControlBarView: View {
                     .overlay(Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
                     .accessibilityIdentifier("recordingsListButton")
                     .accessibilityLabel("Aufnahmen")
+                    .accessibilityAddTraits(.isButton)
 
                 if recordingManager.recordings.count > 0 {
                     Text("\(recordingManager.recordings.count)")
@@ -280,6 +287,7 @@ struct ControlBarView: View {
                 }
             }
         }
+        .buttonStyle(.plain)
     }
 
     private var statusText: String {

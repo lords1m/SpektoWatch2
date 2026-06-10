@@ -11,7 +11,7 @@ Repo: `SpektoWatch2` (iOS + watchOS, Swift/SwiftUI)
 - Kommunikation: WatchConnectivity
 - State/Reactive: Combine, `@Published`, `EnvironmentObject`
 - Logging/Profiling: `OSLog`, `os_signpost`, Diagnose-Flags via Scheme-Env
-- Tests: XCTest (Unit, Integration, UI), SnapshotTesting, `.xctestplan`, `run_tests.sh`
+- Tests: XCTest (Unit, Integration, UI), SnapshotTesting, `TestPlans/*.xctestplan`, `docs/test-plans/`, `run_tests.sh`
 
 ## 2) Targets und Projektstruktur
 

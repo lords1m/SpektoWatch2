@@ -173,6 +173,53 @@ final class StoredDataProvider: AudioDataProvider {
         return SpectrogramFrameWindow(startFrame: 0, frameCount: bins.count, bins: bins)
     }
 
+    /// Reads a higher-resolution spectrogram window for a sub-range of the
+    /// recording, used by the navigable spectrogram for level-of-detail
+    /// zoom-in. When the range fits within `maxColumns` frames the frames are
+    /// returned at full disk resolution; otherwise they are decimated to
+    /// `maxColumns` columns. Returns frames covering exactly the requested time
+    /// range so the caller can map them across the visible window.
+    func spectrogramTile(
+        timeRange: ClosedRange<TimeInterval>,
+        maxColumns: Int,
+        weighting: FrequencyWeighting = .z
+    ) async throws -> SpectrogramFrameWindow {
+        try Task.checkCancellation()
+
+        let totalFrameCount = reader.frameCount
+        guard totalFrameCount > 0 else {
+            return SpectrogramFrameWindow(startFrame: 0, frameCount: 0, bins: [])
+        }
+
+        let lower = frameIndex(for: timeRange.lowerBound)
+        let upper = min(frameIndex(for: timeRange.upperBound) + 1, totalFrameCount)
+        let start = max(0, min(lower, upper))
+        let end = max(start + 1, upper)
+        let span = end - start
+        let columns = max(1, maxColumns)
+
+        if span <= columns {
+            return try await spectrogramFrames(in: start..<end, weighting: weighting)
+        }
+
+        var bins: [[Float]] = []
+        bins.reserveCapacity(columns)
+        let reader = try MeasurementDataReader(fileURL: fileURL)
+        let denominator = Double(max(columns - 1, 1))
+
+        for outputIndex in 0..<columns {
+            if outputIndex.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
+            let position = Double(outputIndex) / denominator
+            let sourceIndex = start + Int((position * Double(span - 1)).rounded())
+            let frame = try reader.readFrame(at: min(sourceIndex, totalFrameCount - 1))
+            bins.append(Self.spectralBins(from: frame, weighting: weighting))
+        }
+
+        return SpectrogramFrameWindow(startFrame: start, frameCount: bins.count, bins: bins)
+    }
+
     private static func spectralBins(from frame: MeasurementFrame, weighting: FrequencyWeighting) -> [Float] {
         WaterfallSpectrogramBins.bins(
             from: frame,
