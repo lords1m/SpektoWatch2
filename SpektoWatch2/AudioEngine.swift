@@ -128,22 +128,18 @@ class AudioEngine: ObservableObject {
     private var isStartingCapture = false
     private var hasLoggedSilence = false
     private var debugPrintCounter = 0
-    private var lastWatchUpdate: TimeInterval = 0
     private let maxHistorySize = 1000
     private var lastAudioBufferTimestamp: TimeInterval = 0
     private var latencyLogCounter = 0
     private var fftProcessTimeAccumMs: Double = 0
     private var fftProcessCount: Int = 0
     private var maxBufferedSeconds: Double = 0
-    private var lastUIEnqueueTime: TimeInterval = 0
-    private var lastSpectrogramUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
     private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
-    // Internal (not private) so the Phase-3 characterization tests can pin the
-    // 60 Hz / 15 Hz publish cadences that the planned `UIPublishThrottle`
-    // extraction must preserve (VERBESSERUNGSPLAN Phase 3, Task 3.1).
-    let targetUIInterval: TimeInterval = 1.0 / 60.0
-    let targetSpectrogramUIInterval: TimeInterval = 1.0 / 15.0
+    /// Pure timing gates for the publish path: 60 Hz UI / 15 Hz spectrogram /
+    /// 0.1 s watch send (extracted in Phase 3, Task 3.5). Internal so the
+    /// characterization tests can pin the cadences.
+    let uiThrottle = UIPublishThrottle()
 
     /// Direct high-rate subject for spectrogram renderers — does NOT trigger objectWillChange.
     let spectrogramSubject = PassthroughSubject<SpectrogramData, Never>()
@@ -1746,10 +1742,9 @@ class AudioEngine: ObservableObject {
         peakLevel: Float,
         processEndTime: TimeInterval
     ) {
-        if processEndTime - lastUIEnqueueTime < targetUIInterval {
+        guard uiThrottle.shouldEnqueueUI(now: processEndTime) else {
             return
         }
-        lastUIEnqueueTime = processEndTime
 
         let bufferTs = lastAudioBufferTimestamp
         let processingLagMs = (processEndTime - bufferTs) * 1000.0
@@ -1798,9 +1793,7 @@ class AudioEngine: ObservableObject {
             // Update data — currentSpectrogramData throttled to 15 Hz to reduce
             // objectWillChange pressure on the SwiftUI hierarchy (spectrogram
             // renderers get data at full rate via spectrogramSubject).
-            let nowMain = CFAbsoluteTimeGetCurrent()
-            if nowMain - self.lastSpectrogramUIEnqueueTime >= self.targetSpectrogramUIInterval {
-                self.lastSpectrogramUIEnqueueTime = nowMain
+            if self.uiThrottle.shouldPublishSpectrogram(now: CFAbsoluteTimeGetCurrent()) {
                 self.live.currentSpectrogramData = spectrogramData
             }
             self.live.currentOctaveBandsZ = octaveBandsZ
@@ -1848,8 +1841,7 @@ class AudioEngine: ObservableObject {
             // Send to watch (throttled)
             // Watch display expects dBFS magnitudes (-180…-40), not dB SPL.
             // Subtract calibrationOffset to convert back from dB SPL → dBFS.
-            let now = Date().timeIntervalSince1970
-            if now - self.lastWatchUpdate > 0.1 {
+            if self.uiThrottle.shouldSendToWatch(now: Date().timeIntervalSince1970) {
                 let offset = self.calibrationOffset
                 var negOffset = -offset
                 var dbfsMagnitudes = spectrogramData.magnitudes
@@ -1872,7 +1864,6 @@ class AudioEngine: ObservableObject {
                     timestamp: spectrogramData.timestamp
                 )
                 self.connectivityManager.sendSpectrogramData(watchData)
-                self.lastWatchUpdate = now
             }
         }
     }

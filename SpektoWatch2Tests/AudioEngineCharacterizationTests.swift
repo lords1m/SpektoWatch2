@@ -78,14 +78,34 @@ final class AudioEngineCharacterizationTests: XCTestCase {
 
     // MARK: - 2. UI throttling intervals
 
-    /// The live-metric and spectrogram publish cadences are the contract for the
-    /// planned `UIPublishThrottle`. Pin the exact 60 Hz / 15 Hz values.
+    /// The live-metric, spectrogram, and watch publish cadences are the contract
+    /// for `UIPublishThrottle`. Pin the exact 60 Hz / 15 Hz / 0.1 s values.
     func testUIThrottleIntervalsMatchTargetRates() {
         let engine = makeEngine()
-        XCTAssertEqual(engine.targetUIInterval, 1.0 / 60.0, accuracy: 1e-9,
+        XCTAssertEqual(engine.uiThrottle.uiInterval, 1.0 / 60.0, accuracy: 1e-9,
                        "Live-metric publish cadence must stay 60 Hz")
-        XCTAssertEqual(engine.targetSpectrogramUIInterval, 1.0 / 15.0, accuracy: 1e-9,
+        XCTAssertEqual(engine.uiThrottle.spectrogramInterval, 1.0 / 15.0, accuracy: 1e-9,
                        "Spectrogram publish cadence must stay 15 Hz")
+        XCTAssertEqual(engine.uiThrottle.watchInterval, 0.1, accuracy: 1e-9,
+                       "Watch send cadence must stay 0.1 s")
+    }
+
+    /// The throttle gates must drop calls inside the interval and admit calls
+    /// once it has clearly elapsed. Margins avoid exact-boundary FP fragility.
+    func testUIPublishThrottleGating() {
+        let throttle = UIPublishThrottle()
+        XCTAssertTrue(throttle.shouldEnqueueUI(now: 100.0))
+        XCTAssertFalse(throttle.shouldEnqueueUI(now: 100.0 + throttle.uiInterval * 0.5),
+                       "Second call within the 60 Hz window must be dropped")
+        XCTAssertTrue(throttle.shouldEnqueueUI(now: 100.0 + throttle.uiInterval * 2))
+
+        XCTAssertTrue(throttle.shouldPublishSpectrogram(now: 200.0))
+        XCTAssertFalse(throttle.shouldPublishSpectrogram(now: 200.0 + throttle.spectrogramInterval * 0.5))
+        XCTAssertTrue(throttle.shouldPublishSpectrogram(now: 200.0 + throttle.spectrogramInterval * 2))
+
+        XCTAssertTrue(throttle.shouldSendToWatch(now: 300.0))
+        XCTAssertFalse(throttle.shouldSendToWatch(now: 300.0 + throttle.watchInterval * 0.5))
+        XCTAssertTrue(throttle.shouldSendToWatch(now: 300.0 + throttle.watchInterval * 2))
     }
 
     // MARK: - 3. Wearable ingest fallback Leq
