@@ -127,7 +127,6 @@ class AudioEngine: ObservableObject {
 
     private var isUsingDummyData = false
     private var isStartingCapture = false
-    private var hasLoggedSilence = false
     private var debugPrintCounter = 0
     private let maxHistorySize = 1000
     private var lastAudioBufferTimestamp: TimeInterval = 0
@@ -145,10 +144,9 @@ class AudioEngine: ObservableObject {
     /// Direct high-rate subject for spectrogram renderers — does NOT trigger objectWillChange.
     let spectrogramSubject = PassthroughSubject<SpectrogramData, Never>()
     private let maxRealtimeBacklogSeconds: Double = 0.12
-    private let impulseThresholdDbfs: Float = -35.0
-    private let impulseCooldownSeconds: TimeInterval = 1.0
-    private var lastImpulseTime: TimeInterval = 0
-    private var pendingImpulseLog = false
+    /// Live input-signal diagnostics (impulse latency + silence warning) that
+    /// span the audio render thread and the UI publish path.
+    private let signalMonitor = InputSignalMonitor()
     private var spectrumDiagnosticsCounter = 0
     private var lastObservedInputSampleRate: Double = 44100.0
     // State-isolated unfair lock matches the M6 task-6 pattern: the audio
@@ -748,7 +746,7 @@ class AudioEngine: ObservableObject {
 
         recordingStartTime = Date()
         recording.recordingDuration = 0.0
-        hasLoggedSilence = false
+        signalMonitor.resetSilenceLog()
 
         resetMetrics()
 
@@ -1387,18 +1385,9 @@ class AudioEngine: ObservableObject {
             Logger.audioEngine.debug("Input RMS: \(signalDB, format: .fixed(precision: 1)) dB SPL (dBFS: \(signalDBFS, format: .fixed(precision: 1))), Samples: [\(minSample, format: .fixed(precision: 3)) ... \(maxSample, format: .fixed(precision: 3))]")
         }
         
-        // Impulse detection (measure end-to-end latency)
-        let now = CFAbsoluteTimeGetCurrent()
-        if signalDBFS > impulseThresholdDbfs && (now - lastImpulseTime) > impulseCooldownSeconds {
-            lastImpulseTime = now
-            pendingImpulseLog = true
-        }
-        
-
-        if signalDBFS < -120 && !hasLoggedSilence {
-            Logger.audioEngine.warning("Audio buffer silent/empty: \(signalDBFS, format: .fixed(precision: 1)) dBFS")
-            hasLoggedSilence = true
-        }
+        // Impulse detection (measure end-to-end latency) + one-shot silence warning.
+        signalMonitor.detectImpulse(signalDBFS: signalDBFS, now: CFAbsoluteTimeGetCurrent())
+        signalMonitor.logSilenceIfNeeded(signalDBFS: signalDBFS)
         
         // Append + downstream ring mutations are serialised against
         // `applyFFTConfiguration` / `setBlockSize` / `setWindowFunction` (which
@@ -1679,15 +1668,7 @@ class AudioEngine: ObservableObject {
                 self.maxBufferedSeconds = 0
             }
 
-            if self.pendingImpulseLog {
-                let peakDbfs = peakLevel - self.calibrationOffset
-                if peakDbfs > self.impulseThresholdDbfs {
-                    let dtMs = (CFAbsoluteTimeGetCurrent() - self.lastImpulseTime) * 1000.0
-                    let impulseLine = String(format: "[Impulse] end-to-end %.0f ms (threshold %.0f dBFS)", dtMs, self.impulseThresholdDbfs)
-                    print(impulseLine)
-                    self.pendingImpulseLog = false
-                }
-            }
+            self.signalMonitor.reportPendingImpulse(peakDbfs: peakLevel - self.calibrationOffset)
 
             // AE-5: Drain any write error reported from the audio thread.
             if let errDesc = self.lastWriteErrorLock.withLock({ old -> String? in
