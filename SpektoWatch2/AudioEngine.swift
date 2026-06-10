@@ -134,8 +134,11 @@ class AudioEngine: ObservableObject {
     private var lastSpectrogramUIEnqueueTime: TimeInterval = 0
     private let enableVerboseLogs = false
     private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
-    private let targetUIInterval: TimeInterval = 1.0 / 60.0
-    private let targetSpectrogramUIInterval: TimeInterval = 1.0 / 15.0
+    // Internal (not private) so the Phase-3 characterization tests can pin the
+    // 60 Hz / 15 Hz publish cadences that the planned `UIPublishThrottle`
+    // extraction must preserve (VERBESSERUNGSPLAN Phase 3, Task 3.1).
+    let targetUIInterval: TimeInterval = 1.0 / 60.0
+    let targetSpectrogramUIInterval: TimeInterval = 1.0 / 15.0
 
     /// Direct high-rate subject for spectrogram renderers — does NOT trigger objectWillChange.
     let spectrogramSubject = PassthroughSubject<SpectrogramData, Never>()
