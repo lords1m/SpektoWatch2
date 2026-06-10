@@ -99,9 +99,10 @@ class AudioEngine: ObservableObject {
     
     // MARK: - Buffer Management
 
-    private var sampleBuffer: [Float] = []
-    private var sampleBufferOffset: Int = 0  // Index-basierter Ansatz für O(1) "removeFirst"
-    private var fftInputBuffer: [Float] = []
+    /// Offset-based FFT-window accumulator (sampleBuffer/offset/frame scratch).
+    /// Always touched under `processingLock`, except the lockless reset in
+    /// `stopAudioCapture` (matching the pre-extraction inline buffers).
+    private let sampleRing = SampleRingBuffer()
     private var visualDBMagnitudesScratch: [Float] = []
     private var gainBoost: Float = 10.0
 
@@ -541,9 +542,7 @@ class AudioEngine: ObservableObject {
         // Thread-sichere Rekonfiguration
         processingLock.withLockUnchecked {
             // Buffer leeren um Race-Conditions zu vermeiden
-            sampleBuffer.removeAll()
-            sampleBufferOffset = 0
-            fftInputBuffer.removeAll()
+            sampleRing.reset()
             visualDBMagnitudesScratch.removeAll()
 
             // AE-7: Pre-allocate energy scratch buffers to the new FFT bin count so
@@ -597,9 +596,7 @@ class AudioEngine: ObservableObject {
 
         processingLock.withLockUnchecked {
             // Buffer leeren um Race-Conditions zu vermeiden
-            sampleBuffer.removeAll()
-            sampleBufferOffset = 0
-            fftInputBuffer.removeAll()
+            sampleRing.reset()
             visualDBMagnitudesScratch.removeAll()
 
             // AE-7: Pre-allocate energy scratch buffers.
@@ -864,9 +861,7 @@ class AudioEngine: ObservableObject {
         }
 
         // Reset buffer state
-        sampleBuffer.removeAll()
-        sampleBufferOffset = 0
-        fftInputBuffer.removeAll()
+        sampleRing.reset()
     }
 
     private func setupRecordingFile() {
@@ -1405,24 +1400,21 @@ class AudioEngine: ObservableObject {
             hasLoggedSilence = true
         }
         
-        // Append + downstream sampleBuffer/sampleBufferOffset mutations are
-        // serialised against `applyFFTConfiguration` / `setBlockSize` /
-        // `setWindowFunction` (which also reset the buffer under
-        // `processingLock` on main). Without this guard a reconfigure
-        // during a tap callback races on Swift array storage. Lock width is
-        // kept to the array operations themselves; downstream FFT work
-        // already takes its own snapshots.
+        // Append + downstream ring mutations are serialised against
+        // `applyFFTConfiguration` / `setBlockSize` / `setWindowFunction` (which
+        // also reset the ring under `processingLock` on main). Without this
+        // guard a reconfigure during a tap callback races on Swift array
+        // storage. Lock width is kept to the array operations themselves;
+        // downstream FFT work already takes its own snapshots.
         processingLock.withLockUnchecked {
-            sampleBuffer.append(contentsOf: newSamples)
+            sampleRing.append(newSamples)
         }
 
         // Lese aktuelle FFT-Größe thread-sicher.
         let currentFFTSize = processingLock.withLockUnchecked { fftSize }
 
         // Backlog (wie viel Audio noch in der Queue steckt)
-        let bufferedSamples = processingLock.withLockUnchecked {
-            max(0, sampleBuffer.count - sampleBufferOffset)
-        }
+        let bufferedSamples = processingLock.withLockUnchecked { sampleRing.bufferedCount }
         let bufferedSeconds = Double(bufferedSamples) / processingSampleRate
         if bufferedSeconds > maxBufferedSeconds {
             maxBufferedSeconds = bufferedSeconds
@@ -1439,7 +1431,7 @@ class AudioEngine: ObservableObject {
             if samplesToDrop > 0 {
                 samplesToDrop = (samplesToDrop / hop) * hop
                 processingLock.withLockUnchecked {
-                    sampleBufferOffset += samplesToDrop
+                    sampleRing.dropOldest(samplesToDrop)
                 }
             }
         }
@@ -1451,42 +1443,20 @@ class AudioEngine: ObservableObject {
         // unbounded under sustained pressure.
         let absoluteCompactionThreshold = currentFFTSize * 4
         processingLock.withLockUnchecked {
-            if sampleBufferOffset > absoluteCompactionThreshold {
-                sampleBuffer.removeFirst(sampleBufferOffset)
-                sampleBufferOffset = 0
-            }
+            sampleRing.compactIfNeeded(threshold: absoluteCompactionThreshold)
         }
 
         // Process when we have enough samples (using offset for O(1) instead of O(n) removeFirst).
         // Lock spans the read+copy+offset advance; processFFTFrame runs outside
         // the lock so we don't hold it across FFT/weighting work.
         while true {
-            let frameReady: Bool = processingLock.withLockUnchecked {
-                guard sampleBuffer.count - sampleBufferOffset >= currentFFTSize else { return false }
-                if fftInputBuffer.count != currentFFTSize {
-                    fftInputBuffer = [Float](repeating: 0, count: currentFFTSize)
-                }
-                sampleBuffer.withUnsafeBufferPointer { source in
-                    fftInputBuffer.withUnsafeMutableBufferPointer { target in
-                        guard let sourceBase = source.baseAddress, let targetBase = target.baseAddress else { return }
-                        memcpy(
-                            targetBase,
-                            sourceBase.advanced(by: sampleBufferOffset),
-                            currentFFTSize * MemoryLayout<Float>.stride
-                        )
-                    }
-                }
-                sampleBufferOffset += hop
-                if sampleBufferOffset > currentFFTSize * 2 {
-                    sampleBuffer.removeFirst(sampleBufferOffset)
-                    sampleBufferOffset = 0
-                }
-                return true
+            let frame: [Float]? = processingLock.withLockUnchecked {
+                sampleRing.nextFrame(frameSize: currentFFTSize, hop: hop)
             }
-            if !frameReady { break }
+            guard let frame else { break }
 
             let t0 = CFAbsoluteTimeGetCurrent()
-            processFFTFrame(samples: fftInputBuffer, peakLevel: peakDB)
+            processFFTFrame(samples: frame, peakLevel: peakDB)
             let t1 = CFAbsoluteTimeGetCurrent()
             fftProcessTimeAccumMs += (t1 - t0) * 1000.0
             fftProcessCount += 1
@@ -1884,9 +1854,7 @@ class AudioEngine: ObservableObject {
 
         processingLock.withLockUnchecked {
             processingSampleRate = normalized
-            sampleBuffer.removeAll()
-            sampleBufferOffset = 0
-            fftInputBuffer.removeAll()
+            sampleRing.reset()
 
             fftProcessor = FFTProcessor(
                 fftSize: fftSize,
