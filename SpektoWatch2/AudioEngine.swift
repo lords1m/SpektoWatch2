@@ -195,28 +195,21 @@ class AudioEngine: ObservableObject {
     //
     // The lock duration covers only the reference load/store, not the write call
     // itself — the strong reference keeps the object alive past the unlock.
-    private let audioFileWriterLock = OSAllocatedUnfairLock<RealtimeAudioFileWriter?>(initialState: nil)
-    private let measurementWriterLock = OSAllocatedUnfairLock<MeasurementDataWriter?>(initialState: nil)
+    /// Owns the real-time audio + measurement file writers, their cross-thread
+    /// locks, the last-file URLs, and the metric-key schema (extracted in
+    /// Phase 3, post-3.5 shrink). Recording-mode gating stays here.
+    private let recordingWriter = RecordingWriterCoordinator()
 
-    /// Main-thread accessor for `audioFileWriter`. All main-thread sites use this;
-    /// the audio thread loads directly from `audioFileWriterLock`.
-    private var audioFileWriter: RealtimeAudioFileWriter? {
-        get { audioFileWriterLock.withLockUnchecked { $0 } }
-        set { audioFileWriterLock.withLock { $0 = newValue } }
+    /// Forwarders so existing call sites (ControlBarView, RecordingManager, and
+    /// the `… = nil` reset sites below) keep working unchanged.
+    var lastRecordingURL: URL? {
+        get { recordingWriter.lastRecordingURL }
+        set { recordingWriter.lastRecordingURL = newValue }
     }
-    /// Main-thread accessor for `measurementWriter`. Audio thread loads directly from
-    /// `measurementWriterLock`.
-    private var measurementWriter: MeasurementDataWriter? {
-        get { measurementWriterLock.withLockUnchecked { $0 } }
-        set { measurementWriterLock.withLock { $0 = newValue } }
+    var lastMeasurementDataURL: URL? {
+        get { recordingWriter.lastMeasurementDataURL }
+        set { recordingWriter.lastMeasurementDataURL = newValue }
     }
-    private let measurementMetricKeys: [String] = [
-        "LAF", "LAS", "LCF", "LCS", "LZF", "LZS",
-        "LAeq", "LAFmin", "LAFmax", "LCpeak",
-        "LAFT5", "LAF5", "LAF95", "LAFTeq"
-    ]
-    var lastRecordingURL: URL?
-    var lastMeasurementDataURL: URL?
     
     // MARK: - Published Properties
 
@@ -878,22 +871,10 @@ class AudioEngine: ObservableObject {
 
     private func setupRecordingFile() {
         guard recording.isRecordingToFile else { return }
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-        let recordingFormat = captureSession.inputFormat()
-        do {
-            self.audioFileWriter = try RealtimeAudioFileWriter(
-                fileURL: tempURL,
-                format: recordingFormat,
-                settings: recordingFormat.settings,
-                frameCapacity: max(tapBlockSize, 4096)
-            )
-            self.lastRecordingURL = tempURL
-            Logger.audioEngine.info("Recording file setup at: \(tempURL.lastPathComponent)")
-        } catch {
-            self.audioFileWriter = nil
-            self.lastRecordingURL = nil
-            Logger.audioEngine.error("Recording file setup failed: \(error.localizedDescription)")
-        }
+        recordingWriter.setupRecordingFile(
+            format: captureSession.inputFormat(),
+            frameCapacity: max(tapBlockSize, 4096)
+        )
     }
 
     private func setupMeasurementDataFileIfNeeded() {
@@ -902,50 +883,21 @@ class AudioEngine: ObservableObject {
             return
         }
 
-        if measurementWriter != nil { return }
-
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("measurement_\(Date().timeIntervalSince1970).spekto")
         let fps = Float(processingSampleRate / Double(max(1, scrollSpeed.rawValue)))
-
-        do {
-            let writer = try MeasurementDataWriter(
-                fileURL: tempURL,
-                metricKeys: measurementMetricKeys,
-                sampleRate: processingSampleRate,
-                fps: fps,
-                fftBlockSize: fftSize,
-                fftBinCount: max(1, fftSize / 2)
-            )
-            measurementWriter = writer
-            lastMeasurementDataURL = tempURL
-            Logger.audioEngine.info("Measurement file setup at: \(tempURL.lastPathComponent)")
-        } catch {
-            measurementWriter = nil
-            lastMeasurementDataURL = nil
-            Logger.audioEngine.error("Measurement writer setup failed: \(error.localizedDescription)")
-        }
+        recordingWriter.setupMeasurementFileIfNeeded(
+            sampleRate: processingSampleRate,
+            fps: fps,
+            fftBlockSize: fftSize,
+            fftBinCount: max(1, fftSize / 2)
+        )
     }
 
     private func closeMeasurementWriter() {
-        // Atomically swap nil so the audio thread sees nil before close() runs.
-        let writer = measurementWriterLock.withLock { old -> MeasurementDataWriter? in
-            let w = old; old = nil; return w
-        }
-        guard let writer else { return }
-        do {
-            try writer.close()
-        } catch {
-            Logger.audioEngine.error("Measurement writer close failed: \(error.localizedDescription)")
-        }
+        recordingWriter.closeMeasurement()
     }
 
     private func closeAudioFileWriter() {
-        // Atomically swap nil into the lock so the audio thread sees nil immediately,
-        // then call close() outside the lock (close() may block briefly).
-        let writer = audioFileWriterLock.withLock { old -> RealtimeAudioFileWriter? in
-            let w = old; old = nil; return w
-        }
-        writer?.close()
+        recordingWriter.closeAudio()
     }
 
     func checkAvailableInputs() {
@@ -1208,21 +1160,10 @@ class AudioEngine: ObservableObject {
 
             // Setup recording file only if recording to file
             if isRecording {
-                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-                do {
-                    self.audioFileWriter = try RealtimeAudioFileWriter(
-                        fileURL: tempURL,
-                        format: recordingFormat,
-                        settings: recordingFormat.settings,
-                        frameCapacity: max(tapBlockSize, 4096)
-                    )
-                    self.lastRecordingURL = tempURL
-                    Logger.audioEngine.info("Recording to file: \(tempURL.lastPathComponent)")
-                } catch {
-                    self.audioFileWriter = nil
-                    self.lastRecordingURL = nil
-                    Logger.audioEngine.error("Recording file setup failed: \(error.localizedDescription)")
-                }
+                recordingWriter.setupRecordingFile(
+                    format: recordingFormat,
+                    frameCapacity: max(tapBlockSize, 4096)
+                )
                 setupMeasurementDataFileIfNeeded()
             } else {
                 closeAudioFileWriter()
@@ -1390,7 +1331,7 @@ class AudioEngine: ObservableObject {
         // Load the writer reference under the lock; the strong ref keeps it alive
         // past the unlock even if the main thread nils it concurrently.
         if audioThreadIsRecordingToFile.withLockUnchecked({ $0 }),
-           let writer = audioFileWriterLock.withLockUnchecked({ $0 }) {
+           let writer = recordingWriter.rtLoadAudioWriter() {
             writer.write(buffer)
         }
         
@@ -1646,14 +1587,14 @@ class AudioEngine: ObservableObject {
         let atIsRecording = audioThreadIsRecordingToFile.withLockUnchecked { $0 }
         let atIsMeasurement = audioThreadIsMeasurementRecording.withLockUnchecked { $0 }
         if atIsRecording && atIsMeasurement {
-            if let writer = measurementWriterLock.withLockUnchecked({ $0 }) {
+            if let writer = recordingWriter.rtLoadMeasurementWriter() {
                 let timestampSeconds: Float
                 if let startTime = recordingStartTime {
                     timestampSeconds = Float(Date().timeIntervalSince(startTime))
                 } else {
                     timestampSeconds = Float(recording.recordingDuration)
                 }
-                let metricValues = measurementMetricKeys.map { levels[$0] ?? -120.0 }
+                let metricValues = recordingWriter.metricKeys.map { levels[$0] ?? -120.0 }
                 do {
                     try writer.writeFrame(
                         timestamp: timestampSeconds,
