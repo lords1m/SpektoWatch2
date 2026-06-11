@@ -245,6 +245,10 @@ final class WatchConnectivityTests: XCTestCase {
 
         let gainMessage = WatchConnectivityProtocol.makeGainMessage(2.5)
         XCTAssertEqual(WatchConnectivityProtocol.messageType(from: gainMessage), .gain)
+        XCTAssertEqual(
+            WatchConnectivityProtocol.protocolVersion(from: gainMessage),
+            WatchConnectivityProtocol.protocolVersion
+        )
         let parsedGain = try XCTUnwrap(WatchConnectivityProtocol.gain(from: gainMessage))
         XCTAssertEqual(parsedGain, 2.5, accuracy: 0.001)
 

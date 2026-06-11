@@ -23,6 +23,8 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
     @Published public var watchDashboardConfig: WatchDashboardConfig?
     @Published public var frequencyWeighting: String = "A"
+    /// Protocol version reported by the paired device (0 = legacy build).
+    @Published public private(set) var peerProtocolVersion: UInt16 = WatchConnectivityProtocol.legacyProtocolVersion
     #if os(watchOS)
     @Published public private(set) var phoneAppState: WatchAppState?
     @Published public private(set) var lastPhoneSpectrogramReceivedAt: Date?
@@ -96,6 +98,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
+            if activationState == .activated {
+                self.publishLocalProtocolVersion()
+            }
             self.processQueue()
         }
         #if os(watchOS)
@@ -109,6 +114,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
             if self.isReachable {
+                self.publishLocalProtocolVersion()
                 self.processQueue()
             }
         }
@@ -182,6 +188,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         DispatchQueue.main.async {
+            self.peerProtocolVersion = WatchConnectivityProtocol.protocolVersion(from: message)
             guard let type = WatchConnectivityProtocol.messageType(from: message) else {
                 if let typeRaw = message[WatchConnectivityProtocol.Key.type] as? String {
                     Logger.connectivity.info("Ignored unknown message type: \(typeRaw)")
@@ -246,6 +253,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
         DispatchQueue.main.async {
+            self.peerProtocolVersion = WatchConnectivityProtocol.peerProtocolVersion(from: applicationContext)
             if let weighting = applicationContext["frequencyWeighting"] as? String {
                 self.frequencyWeighting = weighting
             }
@@ -332,7 +340,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     public func sendFrequencyWeightingSelection(_ weighting: String) {
         sendWithRetry(WatchConnectivityProtocol.makeFrequencyWeightingMessage(weighting))
         do {
-            try WCSession.default.updateApplicationContext(["frequencyWeighting": weighting])
+            try WCSession.default.updateApplicationContext(
+                WatchConnectivityProtocol.mergingProtocolVersion(into: ["frequencyWeighting": weighting])
+            )
         } catch {
             // Ignore context errors
         }
@@ -365,7 +375,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
 
         // Also send via application context for background delivery
         do {
-            try WCSession.default.updateApplicationContext([PersistenceKeys.watchDashboardConfig: configString])
+            try WCSession.default.updateApplicationContext(
+                WatchConnectivityProtocol.mergingProtocolVersion(into: [PersistenceKeys.watchDashboardConfig: configString])
+            )
         } catch {
             // Ignore context errors
         }
@@ -380,7 +392,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         do {
             var context = session.receivedApplicationContext
             context[PersistenceKeys.spectrogramResolution] = resolution.rawValue
-            try session.updateApplicationContext(context)
+            try session.updateApplicationContext(WatchConnectivityProtocol.mergingProtocolVersion(into: context))
         } catch {
             // Ignore context errors
         }
@@ -415,9 +427,26 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             context[PersistenceKeys.Watch.measurementSourcePreference] = measurementSource.rawValue
             context[PersistenceKeys.Watch.gain] = gain
             context[PersistenceKeys.spectrogramResolution] = spectrogramResolution.rawValue
-            try WCSession.default.updateApplicationContext(context)
+            try WCSession.default.updateApplicationContext(
+                WatchConnectivityProtocol.mergingProtocolVersion(into: context)
+            )
         } catch {
             // Ignore context errors
+        }
+    }
+
+    /// Publishes our protocol version via application context so the peer can
+    /// gate features without waiting for a live `sendMessage`.
+    private func publishLocalProtocolVersion() {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        do {
+            var context = session.receivedApplicationContext
+            context = WatchConnectivityProtocol.mergingProtocolVersion(into: context)
+            try session.updateApplicationContext(context)
+        } catch {
+            // Ignore context errors — same policy as other publish sites.
         }
     }
 

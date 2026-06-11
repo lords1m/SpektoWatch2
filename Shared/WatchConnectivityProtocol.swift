@@ -49,6 +49,45 @@ enum WatchConnectivityProtocol {
         static let recordingId = "recordingId"
         static let fileKind = "fileKind"
         static let recordingMetadata = "recordingMetadata"
+        /// Wire protocol version (UInt16). Absent on legacy peers / messages ⇒ 0.
+        static let protocolVersion = "protocolVersion"
+    }
+
+    // MARK: - Protocol version (Phase 6, task 6.1)
+
+    /// Current control-message / application-context protocol version.
+    static let protocolVersion: UInt16 = 1
+    /// Peers omitting `Key.protocolVersion` are pre-versioning builds.
+    static let legacyProtocolVersion: UInt16 = 0
+
+    static func protocolVersion(from message: [String: Any]) -> UInt16 {
+        protocolVersionValue(from: message[Key.protocolVersion])
+    }
+
+    static func peerProtocolVersion(from applicationContext: [String: Any]) -> UInt16 {
+        protocolVersionValue(from: applicationContext[Key.protocolVersion])
+    }
+
+    private static func protocolVersionValue(from raw: Any?) -> UInt16 {
+        guard let raw else { return legacyProtocolVersion }
+        if let version = raw as? UInt16 { return version }
+        if let version = raw as? Int, version >= 0 { return UInt16(version) }
+        if let version = raw as? NSNumber { return version.uint16Value }
+        return legacyProtocolVersion
+    }
+
+    /// Stamps `Key.protocolVersion` onto an outgoing control message.
+    static func stampedMessage(_ message: [String: Any]) -> [String: Any] {
+        var stamped = message
+        stamped[Key.protocolVersion] = NSNumber(value: protocolVersion)
+        return stamped
+    }
+
+    /// Merges `Key.protocolVersion` into an `updateApplicationContext` payload.
+    static func mergingProtocolVersion(into context: [String: Any]) -> [String: Any] {
+        var context = context
+        context[Key.protocolVersion] = NSNumber(value: protocolVersion)
+        return context
     }
 
     // Watch live display data should remain fresher than one second in both
@@ -66,7 +105,7 @@ enum WatchConnectivityProtocol {
         if let source {
             message[Key.source] = source.rawValue
         }
-        return message
+        return stampedMessage(message)
     }
 
     static func makeRecordingStopMessage(source: MicrophoneSource? = nil) -> [String: Any] {
@@ -74,34 +113,34 @@ enum WatchConnectivityProtocol {
         if let source {
             message[Key.source] = source.rawValue
         }
-        return message
+        return stampedMessage(message)
     }
 
     static func makeGainMessage(_ gain: Float) -> [String: Any] {
-        [Key.type: MessageType.gain.rawValue, Key.value: gain]
+        stampedMessage([Key.type: MessageType.gain.rawValue, Key.value: gain])
     }
 
     static func makeMicrophoneSourceMessage(_ source: MicrophoneSource) -> [String: Any] {
-        [Key.type: MessageType.microphoneSource.rawValue, Key.source: source.rawValue]
+        stampedMessage([Key.type: MessageType.microphoneSource.rawValue, Key.source: source.rawValue])
     }
 
     static func makeFrequencyWeightingMessage(_ weighting: String) -> [String: Any] {
-        [Key.type: MessageType.frequencyWeighting.rawValue, Key.value: weighting]
+        stampedMessage([Key.type: MessageType.frequencyWeighting.rawValue, Key.value: weighting])
     }
 
     static func makeWatchDashboardConfigMessage(_ configString: String) -> [String: Any] {
-        [Key.type: MessageType.watchDashboardConfig.rawValue, Key.config: configString]
+        stampedMessage([Key.type: MessageType.watchDashboardConfig.rawValue, Key.config: configString])
     }
 
     static func makeWatchMeterLayoutConfigMessage(_ configString: String) -> [String: Any] {
-        [Key.type: MessageType.watchMeterLayoutConfig.rawValue, Key.config: configString]
+        stampedMessage([Key.type: MessageType.watchMeterLayoutConfig.rawValue, Key.config: configString])
     }
 
     static func makeWatchMeasurementSourcePreferenceMessage(_ preference: WatchMeasurementSourcePreference) -> [String: Any] {
-        [
+        stampedMessage([
             Key.type: MessageType.watchMeasurementSourcePreference.rawValue,
             Key.value: preference.rawValue
-        ]
+        ])
     }
 
     static func measurementSourcePreference(from message: [String: Any]) -> WatchMeasurementSourcePreference? {
@@ -115,7 +154,7 @@ enum WatchConnectivityProtocol {
     /// are all primitive).
     static func makeAppStateUpdateMessage(_ state: WatchAppState) -> [String: Any]? {
         guard let data = try? state.encode() else { return nil }
-        return [Key.type: MessageType.appStateUpdate.rawValue, Key.value: data]
+        return stampedMessage([Key.type: MessageType.appStateUpdate.rawValue, Key.value: data])
     }
 
     /// Decode an appStateUpdate message envelope. Returns nil for
@@ -168,12 +207,12 @@ enum WatchConnectivityProtocol {
         kind: RecordingFileKind,
         metadata: Data
     ) -> [String: Any] {
-        [
+        stampedMessage([
             Key.type: MessageType.recordingFileTransfer.rawValue,
             Key.recordingId: id.uuidString,
             Key.fileKind: kind.rawValue,
             Key.recordingMetadata: metadata
-        ]
+        ])
     }
 
     static func recordingFileKind(fromTransfer metadata: [String: Any]) -> RecordingFileKind? {
@@ -193,10 +232,10 @@ enum WatchConnectivityProtocol {
 
     /// Phone → watch "ingested, mark synced" acknowledgement payload.
     static func makeRecordingSyncedUserInfo(id: UUID) -> [String: Any] {
-        [
+        stampedMessage([
             Key.type: MessageType.recordingSynced.rawValue,
             Key.recordingId: id.uuidString
-        ]
+        ])
     }
 
     static func syncedRecordingId(fromUserInfo userInfo: [String: Any]) -> UUID? {

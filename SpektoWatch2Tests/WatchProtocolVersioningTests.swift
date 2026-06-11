@@ -129,4 +129,49 @@ final class WatchProtocolVersioningTests: XCTestCase {
         ]
         XCTAssertNil(WatchConnectivityProtocol.appStateUpdate(from: badMessage))
     }
+
+    // MARK: - WatchConnectivityProtocol wire version (Phase 6, task 6.1)
+
+    func testMissingProtocolVersionIsLegacy() {
+        let legacy: [String: Any] = [
+            WatchConnectivityProtocol.Key.type: WatchConnectivityProtocol.MessageType.gain.rawValue,
+            WatchConnectivityProtocol.Key.value: Float(1.0)
+        ]
+        XCTAssertEqual(
+            WatchConnectivityProtocol.protocolVersion(from: legacy),
+            WatchConnectivityProtocol.legacyProtocolVersion
+        )
+    }
+
+    func testOutgoingMessagesEmbedProtocolVersion() {
+        let gain = WatchConnectivityProtocol.makeGainMessage(1.5)
+        XCTAssertEqual(
+            WatchConnectivityProtocol.protocolVersion(from: gain),
+            WatchConnectivityProtocol.protocolVersion
+        )
+        XCTAssertEqual(
+            WatchConnectivityProtocol.protocolVersion(from: WatchConnectivityProtocol.makeRecordingStartMessage()),
+            WatchConnectivityProtocol.protocolVersion
+        )
+    }
+
+    func testFutureProtocolVersionStillParsesPayload() throws {
+        var message = WatchConnectivityProtocol.makeGainMessage(2.5)
+        message[WatchConnectivityProtocol.Key.protocolVersion] = NSNumber(value: 99)
+        message["futureField"] = "ignored"
+
+        XCTAssertEqual(WatchConnectivityProtocol.protocolVersion(from: message), 99)
+        XCTAssertEqual(WatchConnectivityProtocol.messageType(from: message), .gain)
+        let parsedGain = try XCTUnwrap(WatchConnectivityProtocol.gain(from: message))
+        XCTAssertEqual(parsedGain, 2.5, accuracy: 0.001)
+    }
+
+    func testMergingProtocolVersionIntoApplicationContext() {
+        let context = WatchConnectivityProtocol.mergingProtocolVersion(into: ["frequencyWeighting": "A"])
+        XCTAssertEqual(
+            WatchConnectivityProtocol.peerProtocolVersion(from: context),
+            WatchConnectivityProtocol.protocolVersion
+        )
+        XCTAssertEqual(context["frequencyWeighting"] as? String, "A")
+    }
 }
