@@ -27,20 +27,9 @@ struct SpektoWatch2App: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if let engine = services.audioEngine,
-                   let maskingEngine = services.maskingEngine {
-                    // Consumer views still pull individual services via
-                    // @EnvironmentObject for backward compatibility. M13
-                    // task-1 only consolidates the producer side.
+                if services.isAudioReady {
                     ContentView()
                         .environmentObject(services)
-                        .environmentObject(engine)
-                        .environmentObject(services.filterManager)
-                        .environmentObject(services.connectivityManager)
-                        .environmentObject(services.recordingManager)
-                        .environmentObject(services.fftConfiguration)
-                        .environmentObject(maskingEngine)
-                        .environmentObject(services.maskingProfileManager)
                 } else {
                     GlassBackground()
                         .ignoresSafeArea()

@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
     @StateObject private var dashboardManager: DashboardManager
-    @EnvironmentObject private var fftConfig: FFTConfiguration
+    @EnvironmentObject private var services: AppServices
     @Environment(\.designDensity) private var density
     @State private var isHeaderVisible: Bool = true
     @State private var isFooterVisible: Bool = true
@@ -121,8 +121,7 @@ struct ModularDashboardView: View {
                 watchGain: $viewModel.watchGain,
                 audioEngine: viewModel.audioEngine
             )
-            .environmentObject(fftConfig)
-            .environmentObject(viewModel.connectivityManager)
+            .environmentObject(services)
             .polishedSheetChrome()
         }
         .onChange(of: viewModel.selectedMicrophoneSource) { _, newSource in
@@ -434,7 +433,7 @@ struct ModularDashboardView: View {
         WidgetCardView(
             widget: widget,
             audioEngine: viewModel.audioEngine,
-            fftConfig: fftConfig,
+            fftConfig: services.fftConfiguration,
             isEditMode: dashboardManager.isEditMode && isActiveLayout,
             columnWidth: columnWidth,
             onDelete: {

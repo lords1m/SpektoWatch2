@@ -18,12 +18,12 @@ struct RecordingDetailView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var recordingManager: RecordingManager
+    @EnvironmentObject private var services: AppServices
     // Main shared AudioEngine — used for playback via PlaybackAnalyzer (M14/R1).
     // The second @StateObject vizAudioEngine was removed: constructing a new
     // AudioEngine per detail view allocated a full second DSP pipeline including
     // WatchConnectivityManager, BandstopFilterManager, and all @Published state.
-    @EnvironmentObject private var audioEngine: AudioEngine
+    private var audioEngine: AudioEngine { services.audioEngine! }
 
     @State private var recording: Recording
     @State private var selectedTab: DetailTab = .overview
@@ -102,7 +102,7 @@ struct RecordingDetailView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button {
-                            shareItems = [recordingManager.url(for: recording)]
+                            shareItems = [services.recordingManager.url(for: recording)]
                             showShareSheet = true
                         } label: {
                             Label("Audio teilen", systemImage: "square.and.arrow.up")
@@ -168,7 +168,7 @@ struct RecordingDetailView: View {
         }
         .onAppear {
             reloadRecordingState()
-            let audioURL = recordingManager.url(for: recording)
+            let audioURL = services.recordingManager.url(for: recording)
             if !audioPlayer.loadAudio(url: audioURL) {
                 showExportError(
                     title: "Wiedergabe nicht möglich",
@@ -195,7 +195,7 @@ struct RecordingDetailView: View {
             loadPlaybackWidgets()
             configureSpectrogramModel()
             spectrogramModel.load(
-                measurementURL: recordingManager.measurementURL(for: recording),
+                measurementURL: services.recordingManager.measurementURL(for: recording),
                 audioURL: audioURL,
                 calibrationOffset: recording.calibrationOffset,
                 fftBlockSize: recording.fftBlockSize,
@@ -258,21 +258,21 @@ struct RecordingDetailView: View {
                     calibrationOffset: recording.calibrationOffset
                 )
                 RecordingNotesCard(text: $recording.description) {
-                    recordingManager.updateRecording(recording)
+                    services.recordingManager.updateRecording(recording)
                 }
                 RecordingPhotosCard(
                     photoFileNames: recording.photoFileNames,
-                    photoURL: { recordingManager.getPhotoURL(fileName: $0) },
+                    photoURL: { services.recordingManager.getPhotoURL(fileName: $0) },
                     onDelete: { fileName in
-                        recordingManager.deletePhoto(fileName: fileName)
+                        services.recordingManager.deletePhoto(fileName: fileName)
                         recording.photoFileNames.removeAll { $0 == fileName }
-                        recordingManager.updateRecording(recording)
+                        services.recordingManager.updateRecording(recording)
                     },
                     onAdd: { imageData in
                         guard let data = imageData else { return }
-                        if let fileName = try? recordingManager.savePhoto(data, recordingID: recording.id) {
+                        if let fileName = try? services.recordingManager.savePhoto(data, recordingID: recording.id) {
                             recording.photoFileNames.append(fileName)
-                            recordingManager.updateRecording(recording)
+                            services.recordingManager.updateRecording(recording)
                         }
                     }
                 )
@@ -298,7 +298,7 @@ struct RecordingDetailView: View {
                     title: "Audio",
                     systemImage: "square.and.arrow.up"
                 ) {
-                    shareItems = [recordingManager.url(for: recording)]
+                    shareItems = [services.recordingManager.url(for: recording)]
                     showShareSheet = true
                 }
 
@@ -777,7 +777,7 @@ struct RecordingDetailView: View {
         markers.append(marker)
         markers.sort { $0.time < $1.time }
         recording.markers = markers
-        recordingManager.updateRecording(recording)
+        services.recordingManager.updateRecording(recording)
     }
 
     private func loadPlaybackWidgets() {
@@ -823,12 +823,12 @@ struct RecordingDetailView: View {
         var updated = recording
         updated.spectralDataAvailable = spectralOK
         recording = updated
-        recordingManager.updateRecording(updated)
+        services.recordingManager.updateRecording(updated)
     }
 
     private func createCSVExport() {
         guard activeExportKind == nil else { return }
-        guard let measurementURL = recordingManager.measurementURL(for: recording) else {
+        guard let measurementURL = services.recordingManager.measurementURL(for: recording) else {
             showExportError(title: "Export fehlgeschlagen", message: "Keine Messdaten vorhanden.")
             return
         }
@@ -865,9 +865,9 @@ struct RecordingDetailView: View {
         guard activeExportKind == nil else { return }
 
         let recordingSnapshot = recording
-        let audioURL = recordingManager.url(for: recording)
-        let measurementURL = recordingManager.measurementURL(for: recording)
-        let photoURLs = recording.photoFileNames.map { recordingManager.getPhotoURL(fileName: $0) }
+        let audioURL = services.recordingManager.url(for: recording)
+        let measurementURL = services.recordingManager.measurementURL(for: recording)
+        let photoURLs = recording.photoFileNames.map { services.recordingManager.getPhotoURL(fileName: $0) }
 
         activeExportKind = .pdf
         exportTask = Task.detached(priority: .userInitiated) {
@@ -928,7 +928,7 @@ struct RecordingDetailView: View {
 
     private func exportSpectrogramImage() {
         spectrogramExportTask?.cancel()
-        let audioURL = recordingManager.url(for: recording)
+        let audioURL = services.recordingManager.url(for: recording)
         let recordingID = recording.id.uuidString
         let historySnapshot = spectrogramModel.history
         let axisSnapshot = spectrogramModel.axis
@@ -1000,14 +1000,14 @@ struct RecordingDetailView: View {
     }
 
     private func shareRawMeasurementData() {
-        guard let measurementURL = recordingManager.measurementURL(for: recording),
+        guard let measurementURL = services.recordingManager.measurementURL(for: recording),
               FileManager.default.fileExists(atPath: measurementURL.path) else { return }
         shareItems = [measurementURL]
         showShareSheet = true
     }
 
     private func reloadRecordingState() {
-        if let updated = recordingManager.recordings.first(where: { $0.id == recording.id }) {
+        if let updated = services.recordingManager.recordings.first(where: { $0.id == recording.id }) {
             recording = updated
         }
     }

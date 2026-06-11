@@ -8,7 +8,9 @@ struct WidgetCardView: View {
     /// chrome (material, shadows, header) on every 15 Hz audio publish.
     let audioEngine: AudioEngine
     @ObservedObject var fftConfig: FFTConfiguration
-    @EnvironmentObject private var maskingEngine: MaskingEngine
+    @EnvironmentObject private var services: AppServices
+
+    private var maskingEngine: MaskingEngine { services.maskingEngine! }
     var isEditMode: Bool
     var columnWidth: CGFloat = 160 // Default fallback
     var onDelete: () -> Void

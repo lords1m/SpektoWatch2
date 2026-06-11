@@ -4,7 +4,16 @@ import AVFoundation
 struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
     @ObservedObject var audioEngine: AudioEngine
-    @EnvironmentObject var fftConfiguration: FFTConfiguration
+    @EnvironmentObject private var services: AppServices
+
+    private var fftConfiguration: FFTConfiguration { services.fftConfiguration }
+
+    private var blockSizeBinding: Binding<FFTBlockSize> {
+        Binding(
+            get: { services.fftConfiguration.blockSize },
+            set: { services.fftConfiguration.blockSize = $0 }
+        )
+    }
 
     @Environment(\.dismiss) var dismiss
     @State private var isStereo = false
@@ -137,7 +146,7 @@ struct SpectrogramSettingsView: View {
                 }
 
                 Section {
-                    Picker("Zeitauflösung (FFT-Blockgröße)", selection: $fftConfiguration.blockSize) {
+                    Picker("Zeitauflösung (FFT-Blockgröße)", selection: blockSizeBinding) {
                         ForEach(FFTBlockSize.allCases) { size in
                             Text(size.shortDescription).tag(size)
                         }

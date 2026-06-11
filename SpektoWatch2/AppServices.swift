@@ -5,10 +5,10 @@ import SwiftUI
 ///
 /// Replaces the previous pattern of seven hand-wired `@StateObject`s in
 /// `SpektoWatch2App` + seven `.environmentObject(...)` calls under
-/// `ContentView`. This is *only* the producer side — consumer views
-/// Consumer migration to `@EnvironmentObject var services: AppServices` is
-/// in progress (Phase 4); some views still read individual services for now.
-/// Source: M13 task-1 (architecture review A7).
+/// `ContentView`. Consumer views read sub-services via
+/// `@EnvironmentObject var services: AppServices`; deferred audio engines
+/// are exposed as `services.audioEngine` / `services.maskingEngine` after
+/// `startAudio()`. Source: M13 task-1 (architecture review A7).
 @MainActor
 final class AppServices: ObservableObject {
 

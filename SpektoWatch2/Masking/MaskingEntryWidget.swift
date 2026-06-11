@@ -6,7 +6,7 @@ import SwiftUI
 struct MaskingEntryWidget: View {
 
     @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var profileManager: MaskingProfileManager
+    @EnvironmentObject private var services: AppServices
     @State private var showSheet = false
     @State private var showProfiles = false
     @State private var showResetConfirmation = false
@@ -144,7 +144,7 @@ struct MaskingEntryWidget: View {
                             }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
-                            if !profileManager.profiles.isEmpty {
+                            if !services.maskingProfileManager.profiles.isEmpty {
                                 Button("Profile") { showProfiles = true }
                                     .font(.system(size: 12, design: .monospaced))
                                     .foregroundStyle(.secondary)
@@ -154,7 +154,7 @@ struct MaskingEntryWidget: View {
             }
             .sheet(isPresented: $showProfiles) {
                 ProfileListView(engine: engine)
-                    .environmentObject(profileManager)
+                    .environmentObject(services)
             }
         } else {
             TriggerAcquisitionView(engine: engine)

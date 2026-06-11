@@ -3,7 +3,7 @@ import SwiftUI
 struct TriggerAcquisitionView: View {
 
     @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var profileManager: MaskingProfileManager
+    @EnvironmentObject private var services: AppServices
     @State private var showPresets = false
     @State private var showProfiles = false
 
@@ -60,7 +60,7 @@ struct TriggerAcquisitionView: View {
             }
             .sheet(isPresented: $showProfiles) {
                 ProfileListView(engine: engine)
-                    .environmentObject(profileManager)
+                    .environmentObject(services)
             }
             // Bug #2: Reset mid-acquisition state if the sheet is dismissed unexpectedly
             .onDisappear {
@@ -125,7 +125,7 @@ struct TriggerAcquisitionView: View {
             }
 
             // Saved profiles — quick restore
-            if !profileManager.profiles.isEmpty {
+            if !services.maskingProfileManager.profiles.isEmpty {
                 Divider().opacity(0.12)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -133,7 +133,7 @@ struct TriggerAcquisitionView: View {
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
 
-                    ForEach(profileManager.profiles.prefix(3)) { profile in
+                    ForEach(services.maskingProfileManager.profiles.prefix(3)) { profile in
                         Button(action: { engine.useProfile(profile) }) {
                             HStack {
                                 Text(profile.name)
@@ -147,8 +147,8 @@ struct TriggerAcquisitionView: View {
                         .foregroundStyle(.primary)
                     }
 
-                    if profileManager.profiles.count > 3 {
-                        Button("Alle anzeigen (\(profileManager.profiles.count))") {
+                    if services.maskingProfileManager.profiles.count > 3 {
+                        Button("Alle anzeigen (\(services.maskingProfileManager.profiles.count))") {
                             showProfiles = true
                         }
                         .font(.system(size: 11, design: .monospaced))
@@ -342,13 +342,13 @@ struct PresetPickerView: View {
 
 struct ProfileListView: View {
     @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var profileManager: MaskingProfileManager
+    @EnvironmentObject private var services: AppServices
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(profileManager.profiles) { profile in
+                ForEach(services.maskingProfileManager.profiles) { profile in
                     Button(action: {
                         engine.useProfile(profile)
                         dismiss()
@@ -364,7 +364,7 @@ struct ProfileListView: View {
                     .foregroundStyle(.primary)
                 }
                 .onDelete { offsets in
-                    profileManager.delete(offsets: offsets)
+                    services.maskingProfileManager.delete(offsets: offsets)
                 }
             }
             .navigationTitle("Gespeicherte Profile")

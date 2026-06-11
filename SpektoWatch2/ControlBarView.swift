@@ -108,8 +108,9 @@ private struct RecordStopButton: View {
 
 struct ControlBarView: View {
     @ObservedObject var audioEngine: AudioEngine
-    @EnvironmentObject private var recordingManager: RecordingManager
-    @EnvironmentObject private var maskingEngine: MaskingEngine
+    @EnvironmentObject private var services: AppServices
+
+    private var maskingEngine: MaskingEngine { services.maskingEngine! }
     @Environment(\.designNumerals) private var numerals
 
     @State private var showRecordingsList = false
@@ -173,32 +174,32 @@ struct ControlBarView: View {
         .padding(.bottom, 8)
         .sheet(isPresented: $showRecordingsList) {
             RecordingsListView()
-                .environmentObject(recordingManager)
+                .environmentObject(services)
                 .polishedSheetChrome()
         }
         .onAppear {
             audioEngine.prewarmAudioSession()
         }
-        .onChange(of: recordingManager.persistenceError) { _, error in
+        .onChange(of: services.recordingManager.persistenceError) { _, error in
             guard let error else { return }
             showPersistenceError = true
             persistenceErrorMessage = error
         }
-        .onChange(of: recordingManager.liveActivityError) { _, error in
+        .onChange(of: services.recordingManager.liveActivityError) { _, error in
             if error != nil { liveActivityAlert = true }
         }
         .alert("Speichern fehlgeschlagen", isPresented: $showPersistenceError) {
             Button("OK") {
-                recordingManager.persistenceError = nil
+                services.recordingManager.persistenceError = nil
                 showPersistenceError = false
             }
         } message: {
             Text(persistenceErrorMessage)
         }
         .alert("Live Activity", isPresented: $liveActivityAlert) {
-            Button("OK") { recordingManager.liveActivityError = nil }
+            Button("OK") { services.recordingManager.liveActivityError = nil }
         } message: {
-            Text(recordingManager.liveActivityError ?? "")
+            Text(services.recordingManager.liveActivityError ?? "")
         }
         // NOTE: No .accessibilityIdentifier("controlBarView") here — in iOS 26,
         // named container identifiers are inherited by all PlainButtonStyle descendant
@@ -218,7 +219,7 @@ struct ControlBarView: View {
                     .accessibilityIdentifier("controlBarStatusLabel")
                     .accessibilityLabel(statusText)
                 if state.isRecording {
-                    Text(timeString(from: recordingManager.currentRecordingDuration))
+                    Text(timeString(from: services.recordingManager.currentRecordingDuration))
                         .font(.numerals(numerals, size: 11))
                         .monospacedDigit()
                         .foregroundColor(.secondary)
@@ -247,7 +248,7 @@ struct ControlBarView: View {
                     action: toggleMaskingCapture
                 )
             } else {
-                let canStopRecording = !(state.isRecording && recordingManager.currentRecordingDuration < 1.0)
+                let canStopRecording = !(state.isRecording && services.recordingManager.currentRecordingDuration < 1.0)
                 RecordStopButton(
                     audioEngine: audioEngine,
                     diameter: diameter,
@@ -275,8 +276,8 @@ struct ControlBarView: View {
                     .accessibilityLabel("Aufnahmen")
                     .accessibilityAddTraits(.isButton)
 
-                if recordingManager.recordings.count > 0 {
-                    Text("\(recordingManager.recordings.count)")
+                if services.recordingManager.recordings.count > 0 {
+                    Text("\(services.recordingManager.recordings.count)")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
@@ -359,7 +360,7 @@ struct ControlBarView: View {
             if audioEngine.recording.isRecordingToFile {
                 print("[ControlBarView] Cancelling pending recording while starting")
                 audioEngine.stopRecording()
-                recordingManager.stopRecording(audioEngine: audioEngine) { _ in }
+                services.recordingManager.stopRecording(audioEngine: audioEngine) { _ in }
             } else {
                 print("[ControlBarView] Ignoring toggleRecording while starting live mode")
             }
@@ -373,7 +374,7 @@ struct ControlBarView: View {
         print("  isRecording: \(state.isRecording)")
 
         if state.isRecording {
-            guard recordingManager.currentRecordingDuration >= 1.0 else {
+            guard services.recordingManager.currentRecordingDuration >= 1.0 else {
                 let notificationGenerator = UINotificationFeedbackGenerator()
                 notificationGenerator.notificationOccurred(.warning)
                 print("[ControlBarView] Recording too short (min 1 second)")
@@ -383,18 +384,18 @@ struct ControlBarView: View {
             print("[ControlBarView] Stopping recording...")
             
             // Dauer vor dem Stoppen speichern
-            let recordedDuration = recordingManager.currentRecordingDuration
+            let recordedDuration = services.recordingManager.currentRecordingDuration
             
             audioEngine.stopRecording()
 
-            recordingManager.stopRecording(audioEngine: audioEngine) { audioURL in
+            services.recordingManager.stopRecording(audioEngine: audioEngine) { audioURL in
                 if let url = audioURL {
                     // Automatisch speichern mit Zeitstempel als Name
                     let dateFormatter = DateFormatter()
                     dateFormatter.dateFormat = "dd.MM.yyyy HH:mm"
                     let saveDate = Date()
                     let timestamp = dateFormatter.string(from: saveDate)
-                    let startDate = recordingManager.recordingStartDate
+                    let startDate = services.recordingManager.recordingStartDate
                         ?? saveDate.addingTimeInterval(-recordedDuration)
                     let measurementURL = audioEngine.lastMeasurementDataURL
                     let duration = RecordingManager.resolvedRecordingDuration(
@@ -427,7 +428,7 @@ struct ControlBarView: View {
                         recording.minLevel = data.levels["LAFmin"] ?? -120.0
                     }
                     
-                    recordingManager.addRecording(recording)
+                    services.recordingManager.addRecording(recording)
                     
                     // Success feedback
                     let notificationGenerator = UINotificationFeedbackGenerator()
@@ -439,7 +440,7 @@ struct ControlBarView: View {
         } else {
             print("[ControlBarView] Starting recording...")
             audioEngine.recording.isMeasurementRecording = true
-            let recordingStarted = recordingManager.startRecording(audioEngine: audioEngine)
+            let recordingStarted = services.recordingManager.startRecording(audioEngine: audioEngine)
             print("[ControlBarView] RecordingManager.startRecording() returned: \(recordingStarted)")
             if recordingStarted {
                 print("[ControlBarView] Calling audioEngine.startRecording()...")

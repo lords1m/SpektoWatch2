@@ -9,14 +9,16 @@ private let isDebugBuild: Bool = {
 }()
 
 struct ContentView: View {
-    @EnvironmentObject var audioEngine: AudioEngine
-    @EnvironmentObject var connectivityManager: WatchConnectivityManager
-    
+    @EnvironmentObject var services: AppServices
+
     var body: some View {
         ZStack {
             GlassBackground()
                 .ignoresSafeArea()
-            ModularDashboardView(audioEngine: audioEngine, connectivityManager: connectivityManager)
+            ModularDashboardView(
+                audioEngine: services.audioEngine!,
+                connectivityManager: services.connectivityManager
+            )
 
             if isDebugBuild {
                 VStack {
