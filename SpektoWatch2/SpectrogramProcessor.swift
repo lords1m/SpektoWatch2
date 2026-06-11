@@ -5,10 +5,6 @@ import os.lock
 
 class SpectrogramProcessor {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.spectrogram")
-    private static let thirdOctaveCenters: [Float] = [
-        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-        1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-    ]
 
     enum SmoothingTrack: Hashable {
         case z
@@ -273,7 +269,7 @@ class SpectrogramProcessor {
                     RangeDiagnostic(label: "250-8k", lowerHz: 250, upperHz: 8000, totalBins: 0, energeticBins: 0, maxDb: -120),
                     RangeDiagnostic(label: "8k-16k", lowerHz: 8000, upperHz: 16000, totalBins: 0, energeticBins: 0, maxDb: -120)
                 ],
-                emptyThirdOctaveBands: Self.thirdOctaveCenters,
+                emptyThirdOctaveBands: SpectrumBandAggregator.thirdOctaveCenters,
                 highestEnergeticFrequencyHz: 0
             )
         }
@@ -317,7 +313,7 @@ class SpectrogramProcessor {
         let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
         let upperFactor = pow(2.0 as Float, 1.0 / 6.0)
         var emptyBands: [Float] = []
-        for center in Self.thirdOctaveCenters {
+        for center in SpectrumBandAggregator.thirdOctaveCenters {
             let lower = center * lowerFactor
             let upper = center * upperFactor
             var bandHasBin = false
