@@ -32,6 +32,19 @@ brief and roadmap.
 - Watch code lives in `SpektoWatch Watch App/` and should remain optimized for
   battery, bandwidth, and small-screen scanability.
 
+## Naming Conventions
+
+- **Code identifiers** (types, files, functions, properties) use **English**.
+  Legacy German names (e.g. `WatchPegelmesserFace`, `SpektralanalyseLaborWidget`)
+  remain until a file is already being changed — no big-bang rename.
+- **User-visible strings** belong in localization (`Localizable.xcstrings`), not
+  in type names or `RawValue` strings when avoidable. Persisted enum raw values
+  that already store German text need a `PersistenceMigrator` step before
+  switching to stable English keys.
+- **Shared DSP constants** (third-octave centers, band labels) have a single
+  canonical source (`SpectrumBandAggregator`); do not duplicate frequency lists
+  in processors or exporters.
+
 ## Quality Constraints
 
 - Avoid avoidable allocation in audio hot paths.
