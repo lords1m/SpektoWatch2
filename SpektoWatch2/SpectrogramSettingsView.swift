@@ -38,7 +38,7 @@ struct SpectrogramSettingsView: View {
                         if isStereo {
                             Picker("Stereo-Konfiguration", selection: $audioEngine.selectedStereoMode) {
                                 ForEach(StereoInputMode.allCases, id: \.self) { mode in
-                                    Text(mode.rawValue).tag(mode)
+                                    Text(mode.displayName).tag(mode)
                                 }
                             }
                         } else {

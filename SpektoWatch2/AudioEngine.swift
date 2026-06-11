@@ -17,11 +17,11 @@ enum ScrollSpeed: Int, CaseIterable {
     
     var label: String {
         switch self {
-        case .verySlow: return "Sehr Langsam"
-        case .slow: return "Langsam"
-        case .normal: return "Normal"
-        case .fast: return "Schnell"
-        case .veryFast: return "Sehr Schnell"
+        case .verySlow: return String(localized: "scroll_speed.very_slow")
+        case .slow: return String(localized: "scroll_speed.slow")
+        case .normal: return String(localized: "scroll_speed.normal")
+        case .fast: return String(localized: "scroll_speed.fast")
+        case .veryFast: return String(localized: "scroll_speed.very_fast")
         }
     }
 
@@ -39,9 +39,18 @@ enum EngineStatus: Equatable {
 }
 
 enum StereoInputMode: String, CaseIterable {
-    case bottomBack = "Unten / Hinten"
-    case frontBack = "Vorne / Hinten"
-    case frontBottom = "Vorne / Unten"
+    case bottomBack
+    case frontBack
+    case frontBottom
+
+    /// Localized picker label. Raw values are stable English keys (not persisted).
+    var displayName: String {
+        switch self {
+        case .bottomBack: return String(localized: "stereo_input.bottom_back")
+        case .frontBack: return String(localized: "stereo_input.front_back")
+        case .frontBottom: return String(localized: "stereo_input.front_bottom")
+        }
+    }
 }
 
 /// Main audio engine coordinating FFT processing, frequency weighting, and acoustic metrics

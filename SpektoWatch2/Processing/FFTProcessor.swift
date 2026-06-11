@@ -17,15 +17,15 @@ enum WindowFunction: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Deutscher Name für UI
+    /// Localized display name (`rawValue` stays English for persistence).
     var localizedName: String {
         switch self {
-        case .rectangular: return "Rechteck"
-        case .hann: return "Hann"
-        case .hamming: return "Hamming"
-        case .blackman: return "Blackman"
-        case .blackmanHarris: return "Blackman-Harris"
-        case .flatTop: return "Flat Top"
+        case .rectangular: return String(localized: "window_function.rectangular.name")
+        case .hann: return String(localized: "window_function.hann.name")
+        case .hamming: return String(localized: "window_function.hamming.name")
+        case .blackman: return String(localized: "window_function.blackman.name")
+        case .blackmanHarris: return String(localized: "window_function.blackman_harris.name")
+        case .flatTop: return String(localized: "window_function.flat_top.name")
         }
     }
 
@@ -53,21 +53,21 @@ enum WindowFunction: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Kurze Beschreibung der Eigenschaften
+    /// Localized short description of spectral properties.
     var description: String {
         switch self {
         case .rectangular:
-            return "Beste Frequenzauflösung, aber starke spektrale Leckage. Geeignet wenn Signalfrequenz exakt auf FFT-Bin fällt."
+            return String(localized: "window_function.rectangular.description")
         case .hann:
-            return "Guter Kompromiss zwischen Auflösung und Leckage. Standard für allgemeine Anwendungen."
+            return String(localized: "window_function.hann.description")
         case .hamming:
-            return "Ähnlich wie Hann, aber bessere Seitenlappen-Unterdrückung auf Kosten von mehr Hauptlappen-Breite."
+            return String(localized: "window_function.hamming.description")
         case .blackman:
-            return "Sehr gute Leckage-Unterdrückung. Ideal für Breitbandanalyse mit schwachen Signalen neben starken."
+            return String(localized: "window_function.blackman.description")
         case .blackmanHarris:
-            return "Exzellente Leckage-Unterdrückung (-92 dB). Für präzise Amplitudenmessung bei bekannten Frequenzen."
+            return String(localized: "window_function.blackman_harris.description")
         case .flatTop:
-            return "Optimiert für genaue Amplitudenmessung. Breitester Hauptlappen, aber präziseste Pegelwerte."
+            return String(localized: "window_function.flat_top.description")
         }
     }
 
