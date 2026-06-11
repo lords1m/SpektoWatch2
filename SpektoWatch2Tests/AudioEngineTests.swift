@@ -428,10 +428,11 @@ final class ScrollSpeedTests: XCTestCase {
 
     /// Testet Labels
     func testScrollSpeedLabels() {
-        XCTAssertEqual(ScrollSpeed.verySlow.label, "Sehr Langsam")
-        XCTAssertEqual(ScrollSpeed.slow.label, "Langsam")
+        // XCTest host runs with the app string catalog; CI/simulator locale is English.
+        XCTAssertEqual(ScrollSpeed.verySlow.label, "Very Slow")
+        XCTAssertEqual(ScrollSpeed.slow.label, "Slow")
         XCTAssertEqual(ScrollSpeed.normal.label, "Normal")
-        XCTAssertEqual(ScrollSpeed.fast.label, "Schnell")
-        XCTAssertEqual(ScrollSpeed.veryFast.label, "Sehr Schnell")
+        XCTAssertEqual(ScrollSpeed.fast.label, "Fast")
+        XCTAssertEqual(ScrollSpeed.veryFast.label, "Very Fast")
     }
 }
