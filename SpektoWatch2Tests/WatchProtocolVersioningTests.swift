@@ -174,4 +174,143 @@ final class WatchProtocolVersioningTests: XCTestCase {
         )
         XCTAssertEqual(context["frequencyWeighting"] as? String, "A")
     }
+
+    // MARK: - WatchConnectivityMessageCodec round-trips (Phase 6, task 6.2)
+
+    func testCodecRecordingControlRoundTrip() {
+        let cases: [(WatchConnectivityProtocol.MessageType, MicrophoneSource?)] = [
+            (.startRecording, nil),
+            (.startRecording, .appleWatch),
+            (.stopRecording, .iPhone)
+        ]
+        for (type, source) in cases {
+            let wire: [String: Any]
+            switch type {
+            case .startRecording:
+                wire = WatchConnectivityProtocol.makeRecordingStartMessage(source: source)
+            case .stopRecording:
+                wire = WatchConnectivityProtocol.makeRecordingStopMessage(source: source)
+            default:
+                continue
+            }
+            let payload = WatchConnectivityMessageCodec.decodeRecordingControl(from: wire, type: type)
+            XCTAssertEqual(payload, WatchConnectivityMessageCodec.RecordingControlPayload(source: source))
+            let reencoded = WatchConnectivityMessageCodec.encode(payload!, type: type)
+            XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+        }
+    }
+
+    func testCodecGainRoundTrip() {
+        let wire = WatchConnectivityProtocol.makeGainMessage(2.5)
+        let payload = WatchConnectivityMessageCodec.decodeGain(from: wire)
+        XCTAssertEqual(payload, WatchConnectivityMessageCodec.GainPayload(gain: 2.5))
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+    }
+
+    func testCodecMicrophoneSourceRoundTrip() {
+        let wire = WatchConnectivityProtocol.makeMicrophoneSourceMessage(.appleWatch)
+        let payload = WatchConnectivityMessageCodec.decodeMicrophoneSource(from: wire)
+        XCTAssertEqual(payload, WatchConnectivityMessageCodec.MicrophoneSourcePayload(source: .appleWatch))
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+    }
+
+    func testCodecFrequencyWeightingRoundTrip() {
+        let wire = WatchConnectivityProtocol.makeFrequencyWeightingMessage("C")
+        let payload = WatchConnectivityMessageCodec.decodeFrequencyWeighting(from: wire)
+        XCTAssertEqual(payload, WatchConnectivityMessageCodec.FrequencyWeightingPayload(weighting: "C"))
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+    }
+
+    func testCodecConfigStringRoundTrip() {
+        let dashboard = WatchConnectivityProtocol.makeWatchDashboardConfigMessage("{\"v\":1}")
+        let dashboardPayload = WatchConnectivityMessageCodec.decodeConfigString(from: dashboard, type: .watchDashboardConfig)
+        XCTAssertEqual(dashboardPayload, WatchConnectivityMessageCodec.ConfigStringPayload(config: "{\"v\":1}"))
+        XCTAssertTrue(
+            WatchConnectivityMessageCodec.wireMessagesEqual(
+                dashboard,
+                WatchConnectivityMessageCodec.encode(dashboardPayload!, type: .watchDashboardConfig)
+            )
+        )
+
+        let meter = WatchConnectivityProtocol.makeWatchMeterLayoutConfigMessage("[]")
+        let meterPayload = WatchConnectivityMessageCodec.decodeConfigString(from: meter, type: .watchMeterLayoutConfig)
+        XCTAssertEqual(meterPayload, WatchConnectivityMessageCodec.ConfigStringPayload(config: "[]"))
+        XCTAssertTrue(
+            WatchConnectivityMessageCodec.wireMessagesEqual(
+                meter,
+                WatchConnectivityMessageCodec.encode(meterPayload!, type: .watchMeterLayoutConfig)
+            )
+        )
+    }
+
+    func testCodecMeasurementSourcePreferenceRoundTrip() {
+        let wire = WatchConnectivityProtocol.makeWatchMeasurementSourcePreferenceMessage(.appleWatch)
+        let payload = WatchConnectivityMessageCodec.decodeMeasurementSourcePreference(from: wire)
+        XCTAssertEqual(
+            payload,
+            WatchConnectivityMessageCodec.MeasurementSourcePreferencePayload(preference: .appleWatch)
+        )
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+    }
+
+    func testCodecAppStateUpdateRoundTrip() throws {
+        let state = WatchAppState(
+            activePresetID: "overview",
+            isRecording: false,
+            designAccent: "cyan",
+            theme: "dark"
+        )
+        guard let wire = WatchConnectivityProtocol.makeAppStateUpdateMessage(state) else {
+            XCTFail("Failed to encode app state")
+            return
+        }
+        let payload = WatchConnectivityMessageCodec.decodeAppStateUpdate(from: wire)
+        XCTAssertEqual(payload, WatchConnectivityMessageCodec.AppStateUpdatePayload(state: state))
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded!))
+    }
+
+    func testCodecRecordingFileTransferRoundTrip() throws {
+        let id = UUID()
+        let metadata = try JSONEncoder().encode(
+            WatchRecordingMetadata(
+                id: id,
+                title: "Test",
+                createdAt: Date(timeIntervalSince1970: 1_000),
+                duration: 12,
+                sampleRate: 44_100,
+                weighting: "A",
+                audioFileName: "\(id.uuidString).caf",
+                measurementFileName: "\(id.uuidString).swr",
+                laeq: 60,
+                lcPeak: 80,
+                minLevel: 40
+            )
+        )
+        let wire = WatchConnectivityProtocol.makeRecordingFileTransferMetadata(
+            id: id,
+            kind: .audio,
+            metadata: metadata
+        )
+        let payload = WatchConnectivityMessageCodec.decodeRecordingFileTransfer(from: wire)
+        XCTAssertEqual(
+            payload,
+            WatchConnectivityMessageCodec.RecordingFileTransferPayload(id: id, kind: .audio, metadata: metadata)
+        )
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+    }
+
+    func testCodecRecordingSyncedRoundTrip() {
+        let id = UUID()
+        let wire = WatchConnectivityProtocol.makeRecordingSyncedUserInfo(id: id)
+        let payload = WatchConnectivityMessageCodec.decodeRecordingSynced(from: wire)
+        XCTAssertEqual(payload, WatchConnectivityMessageCodec.RecordingSyncedPayload(id: id))
+        let reencoded = WatchConnectivityMessageCodec.encode(payload!)
+        XCTAssertTrue(WatchConnectivityMessageCodec.wireMessagesEqual(wire, reencoded))
+    }
 }

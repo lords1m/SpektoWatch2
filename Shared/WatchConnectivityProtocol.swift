@@ -101,51 +101,53 @@ enum WatchConnectivityProtocol {
     static let criticalThermalSpectrogramSendInterval: TimeInterval = 0.5
 
     static func makeRecordingStartMessage(source: MicrophoneSource? = nil) -> [String: Any] {
-        var message: [String: Any] = [Key.type: MessageType.startRecording.rawValue]
-        if let source {
-            message[Key.source] = source.rawValue
-        }
-        return stampedMessage(message)
+        WatchConnectivityMessageCodec.encode(
+            WatchConnectivityMessageCodec.RecordingControlPayload(source: source),
+            type: .startRecording
+        )
     }
 
     static func makeRecordingStopMessage(source: MicrophoneSource? = nil) -> [String: Any] {
-        var message: [String: Any] = [Key.type: MessageType.stopRecording.rawValue]
-        if let source {
-            message[Key.source] = source.rawValue
-        }
-        return stampedMessage(message)
+        WatchConnectivityMessageCodec.encode(
+            WatchConnectivityMessageCodec.RecordingControlPayload(source: source),
+            type: .stopRecording
+        )
     }
 
     static func makeGainMessage(_ gain: Float) -> [String: Any] {
-        stampedMessage([Key.type: MessageType.gain.rawValue, Key.value: gain])
+        WatchConnectivityMessageCodec.encode(WatchConnectivityMessageCodec.GainPayload(gain: gain))
     }
 
     static func makeMicrophoneSourceMessage(_ source: MicrophoneSource) -> [String: Any] {
-        stampedMessage([Key.type: MessageType.microphoneSource.rawValue, Key.source: source.rawValue])
+        WatchConnectivityMessageCodec.encode(WatchConnectivityMessageCodec.MicrophoneSourcePayload(source: source))
     }
 
     static func makeFrequencyWeightingMessage(_ weighting: String) -> [String: Any] {
-        stampedMessage([Key.type: MessageType.frequencyWeighting.rawValue, Key.value: weighting])
+        WatchConnectivityMessageCodec.encode(WatchConnectivityMessageCodec.FrequencyWeightingPayload(weighting: weighting))
     }
 
     static func makeWatchDashboardConfigMessage(_ configString: String) -> [String: Any] {
-        stampedMessage([Key.type: MessageType.watchDashboardConfig.rawValue, Key.config: configString])
+        WatchConnectivityMessageCodec.encode(
+            WatchConnectivityMessageCodec.ConfigStringPayload(config: configString),
+            type: .watchDashboardConfig
+        )
     }
 
     static func makeWatchMeterLayoutConfigMessage(_ configString: String) -> [String: Any] {
-        stampedMessage([Key.type: MessageType.watchMeterLayoutConfig.rawValue, Key.config: configString])
+        WatchConnectivityMessageCodec.encode(
+            WatchConnectivityMessageCodec.ConfigStringPayload(config: configString),
+            type: .watchMeterLayoutConfig
+        )
     }
 
     static func makeWatchMeasurementSourcePreferenceMessage(_ preference: WatchMeasurementSourcePreference) -> [String: Any] {
-        stampedMessage([
-            Key.type: MessageType.watchMeasurementSourcePreference.rawValue,
-            Key.value: preference.rawValue
-        ])
+        WatchConnectivityMessageCodec.encode(
+            WatchConnectivityMessageCodec.MeasurementSourcePreferencePayload(preference: preference)
+        )
     }
 
     static func measurementSourcePreference(from message: [String: Any]) -> WatchMeasurementSourcePreference? {
-        guard let raw = message[Key.value] as? String else { return nil }
-        return WatchMeasurementSourcePreference(rawValue: raw)
+        WatchConnectivityMessageCodec.decodeMeasurementSourcePreference(from: message)?.preference
     }
 
     /// Build an appStateUpdate message envelope from a
@@ -153,16 +155,14 @@ enum WatchConnectivityProtocol {
     /// JSON-encode (shouldn't happen in practice — Codable values
     /// are all primitive).
     static func makeAppStateUpdateMessage(_ state: WatchAppState) -> [String: Any]? {
-        guard let data = try? state.encode() else { return nil }
-        return stampedMessage([Key.type: MessageType.appStateUpdate.rawValue, Key.value: data])
+        WatchConnectivityMessageCodec.encode(WatchConnectivityMessageCodec.AppStateUpdatePayload(state: state))
     }
 
     /// Decode an appStateUpdate message envelope. Returns nil for
     /// unknown schema versions (handled inside `WatchAppState.decode`)
     /// or malformed payloads.
     static func appStateUpdate(from message: [String: Any]) -> WatchAppState? {
-        guard let data = message[Key.value] as? Data else { return nil }
-        return WatchAppState.decode(data)
+        WatchConnectivityMessageCodec.decodeAppStateUpdate(from: message)?.state
     }
 
     static func messageType(from message: [String: Any]) -> MessageType? {
@@ -171,30 +171,28 @@ enum WatchConnectivityProtocol {
     }
 
     static func gain(from message: [String: Any]) -> Float? {
-        if let gain = message[Key.value] as? Float {
-            return gain
-        }
-        if let number = message[Key.value] as? NSNumber {
-            return number.floatValue
-        }
-        return nil
+        WatchConnectivityMessageCodec.decodeGain(from: message)?.gain
     }
 
     static func microphoneSource(from message: [String: Any]) -> MicrophoneSource? {
-        guard let sourceString = message[Key.source] as? String else { return nil }
-        return MicrophoneSource(rawValue: sourceString)
+        WatchConnectivityMessageCodec.decodeMicrophoneSource(from: message)?.source
     }
 
     static func recordingSource(from message: [String: Any]) -> MicrophoneSource? {
-        microphoneSource(from: message)
+        if let control = WatchConnectivityMessageCodec.decodeRecordingControl(from: message, type: .startRecording)
+            ?? WatchConnectivityMessageCodec.decodeRecordingControl(from: message, type: .stopRecording) {
+            return control.source
+        }
+        return microphoneSource(from: message)
     }
 
     static func frequencyWeighting(from message: [String: Any]) -> String? {
-        message[Key.value] as? String
+        WatchConnectivityMessageCodec.decodeFrequencyWeighting(from: message)?.weighting
     }
 
     static func dashboardConfigString(from message: [String: Any]) -> String? {
-        message[Key.config] as? String
+        WatchConnectivityMessageCodec.decodeConfigString(from: message, type: .watchDashboardConfig)?.config
+            ?? WatchConnectivityMessageCodec.decodeConfigString(from: message, type: .watchMeterLayoutConfig)?.config
     }
 
     // MARK: - Standalone recording sync-back (M21 task-5)
@@ -207,41 +205,34 @@ enum WatchConnectivityProtocol {
         kind: RecordingFileKind,
         metadata: Data
     ) -> [String: Any] {
-        stampedMessage([
-            Key.type: MessageType.recordingFileTransfer.rawValue,
-            Key.recordingId: id.uuidString,
-            Key.fileKind: kind.rawValue,
-            Key.recordingMetadata: metadata
-        ])
+        WatchConnectivityMessageCodec.encode(
+            WatchConnectivityMessageCodec.RecordingFileTransferPayload(id: id, kind: kind, metadata: metadata)
+        )
     }
 
     static func recordingFileKind(fromTransfer metadata: [String: Any]) -> RecordingFileKind? {
-        guard let raw = metadata[Key.fileKind] as? String else { return nil }
-        return RecordingFileKind(rawValue: raw)
+        WatchConnectivityMessageCodec.decodeRecordingFileTransfer(from: metadata)?.kind
     }
 
     static func recordingId(fromTransfer metadata: [String: Any]) -> UUID? {
-        guard let raw = metadata[Key.recordingId] as? String else { return nil }
-        return UUID(uuidString: raw)
+        WatchConnectivityMessageCodec.decodeRecordingFileTransfer(from: metadata)?.id
+            ?? WatchConnectivityMessageCodec.decodeRecordingSynced(from: metadata)?.id
     }
 
     static func recordingMetadata(fromTransfer metadata: [String: Any]) -> WatchRecordingMetadata? {
-        guard let data = metadata[Key.recordingMetadata] as? Data else { return nil }
+        guard let data = WatchConnectivityMessageCodec.decodeRecordingFileTransfer(from: metadata)?.metadata else {
+            return nil
+        }
         return try? JSONDecoder().decode(WatchRecordingMetadata.self, from: data)
     }
 
     /// Phone → watch "ingested, mark synced" acknowledgement payload.
     static func makeRecordingSyncedUserInfo(id: UUID) -> [String: Any] {
-        stampedMessage([
-            Key.type: MessageType.recordingSynced.rawValue,
-            Key.recordingId: id.uuidString
-        ])
+        WatchConnectivityMessageCodec.encode(WatchConnectivityMessageCodec.RecordingSyncedPayload(id: id))
     }
 
     static func syncedRecordingId(fromUserInfo userInfo: [String: Any]) -> UUID? {
-        guard (userInfo[Key.type] as? String) == MessageType.recordingSynced.rawValue,
-              let raw = userInfo[Key.recordingId] as? String else { return nil }
-        return UUID(uuidString: raw)
+        WatchConnectivityMessageCodec.decodeRecordingSynced(from: userInfo)?.id
     }
 
     static func makeSpectrogramPacket(_ data: SpectrogramData) -> Data {
