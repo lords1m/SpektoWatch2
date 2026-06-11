@@ -56,6 +56,27 @@ final class WatchProtocolVersioningTests: XCTestCase {
         XCTAssertNil(SpectrogramData.fromBinaryData(Data()))
     }
 
+    // MARK: - Binary packet header (Phase 6, task 6.3)
+
+    func testBinaryPacketHeaderRoundTrip() {
+        let header = WatchConnectivityProtocol.BinaryPacketHeader(kind: .spectrogram)
+        let decoded = WatchConnectivityProtocol.BinaryPacketHeader.decode(from: header.encode())
+        XCTAssertEqual(decoded, header)
+    }
+
+    func testMakeSpectrogramPacketUsesFourByteHeader() {
+        let original = SpectrogramData(
+            frequencies: [100],
+            magnitudes: [50],
+            broadbandLevel: 55,
+            sampleRate: 44_100
+        )
+        let packet = WatchConnectivityProtocol.makeSpectrogramPacket(original)
+        XCTAssertGreaterThanOrEqual(packet.count, WatchConnectivityProtocol.BinaryPacketHeader.byteLength + 1)
+        XCTAssertEqual(packet[0], WatchConnectivityProtocol.BinaryPacketKind.spectrogram.rawValue)
+        XCTAssertEqual(packet[1], WatchConnectivityProtocol.binaryPacketFormatVersion)
+    }
+
     // MARK: - WatchAppState envelope
 
     func testWatchAppStateRoundTrip() throws {

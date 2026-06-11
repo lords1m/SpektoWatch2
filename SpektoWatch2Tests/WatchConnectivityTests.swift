@@ -213,7 +213,7 @@ final class WatchConnectivityTests: XCTestCase {
 
     // MARK: - Binary Protocol Tests
 
-    /// Testet Spektrogramm-Paket Header
+    /// Testet Spektrogramm-Paket Header (4-byte mini-header, Phase 6.3)
     func testSpectrogramPacketHeader() {
         let data = SpectrogramData(
             frequencies: [100, 200],
@@ -224,7 +224,40 @@ final class WatchConnectivityTests: XCTestCase {
 
         let packet = WatchConnectivityProtocol.makeSpectrogramPacket(data)
 
-        XCTAssertEqual(packet[0], WatchConnectivityProtocol.BinaryPacketKind.spectrogram.rawValue, "First byte should be spectrogram header")
+        XCTAssertEqual(packet[0], WatchConnectivityProtocol.BinaryPacketKind.spectrogram.rawValue)
+        XCTAssertEqual(packet[1], WatchConnectivityProtocol.binaryPacketFormatVersion)
+        XCTAssertEqual(packet[2], 0)
+        XCTAssertEqual(packet[3], 0)
+        XCTAssertEqual(packet[4], SpectrogramData.currentSchemaVersion)
+    }
+
+    func testLegacyAndNewSpectrogramPacketDecodeParity() {
+        let original = SpectrogramData(
+            frequencies: [100, 200, 500],
+            magnitudes: [50, 60, 55],
+            broadbandLevel: 57.0,
+            levels: ["LAF": 57.0],
+            sampleRate: 44_100
+        )
+
+        let legacyPacket: Data = {
+            var packet = Data([WatchConnectivityProtocol.BinaryPacketKind.spectrogram.rawValue])
+            packet.append(original.toBinaryData())
+            return packet
+        }()
+        let newPacket = WatchConnectivityProtocol.makeSpectrogramPacket(original)
+
+        guard case .spectrogram(let fromLegacy) = WatchConnectivityProtocol.decodeBinaryPayload(legacyPacket),
+              case .spectrogram(let fromNew) = WatchConnectivityProtocol.decodeBinaryPayload(newPacket) else {
+            XCTFail("Expected spectrogram payloads")
+            return
+        }
+
+        XCTAssertEqual(fromLegacy.frequencies, fromNew.frequencies)
+        XCTAssertEqual(fromLegacy.magnitudes, fromNew.magnitudes)
+        XCTAssertEqual(fromLegacy.broadbandLevel, fromNew.broadbandLevel, accuracy: 0.001)
+        XCTAssertEqual(fromLegacy.levels, fromNew.levels)
+        XCTAssertEqual(fromLegacy.sampleRate, fromNew.sampleRate, accuracy: 0.001)
     }
 
     func testTypedControlMessageFactories() throws {

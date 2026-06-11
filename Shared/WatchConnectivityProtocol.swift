@@ -37,6 +37,47 @@ enum WatchConnectivityProtocol {
         case spectrogram = 0x01
     }
 
+    /// Version of the 4-byte WC binary packet header (`kind`, `version`, `reserved`).
+    /// Legacy packets carry only the kind byte (Phase 6, task 6.3).
+    static let binaryPacketFormatVersion: UInt8 = 1
+
+    struct BinaryPacketHeader: Equatable {
+        let kind: BinaryPacketKind
+        let version: UInt8
+        let reserved: UInt16
+
+        static let byteLength = 4
+
+        init(kind: BinaryPacketKind, version: UInt8 = binaryPacketFormatVersion, reserved: UInt16 = 0) {
+            self.kind = kind
+            self.version = version
+            self.reserved = reserved
+        }
+
+        func encode() -> Data {
+            var data = Data(capacity: Self.byteLength)
+            data.append(kind.rawValue)
+            data.append(version)
+            var reserved = reserved
+            data.append(Data(bytes: &reserved, count: MemoryLayout<UInt16>.size))
+            return data
+        }
+
+        static func decode(from packet: Data) -> BinaryPacketHeader? {
+            guard packet.count >= byteLength else { return nil }
+            guard let kind = BinaryPacketKind(rawValue: packet[packet.startIndex]) else { return nil }
+            let version = packet[packet.startIndex + 1]
+            let reserved = packet.withUnsafeBytes { raw in
+                raw.loadUnaligned(fromByteOffset: 2, as: UInt16.self)
+            }
+            return BinaryPacketHeader(
+                kind: kind,
+                version: version,
+                reserved: UInt16(littleEndian: reserved)
+            )
+        }
+    }
+
     enum BinaryPayload {
         case spectrogram(SpectrogramData)
     }
@@ -236,22 +277,43 @@ enum WatchConnectivityProtocol {
     }
 
     static func makeSpectrogramPacket(_ data: SpectrogramData) -> Data {
-        var packet = Data([BinaryPacketKind.spectrogram.rawValue])
+        var packet = BinaryPacketHeader(kind: .spectrogram).encode()
         packet.append(data.toBinaryData())
         return packet
     }
 
     static func decodeBinaryPayload(_ packet: Data) -> BinaryPayload? {
-        guard let header = packet.first,
-              let kind = BinaryPacketKind(rawValue: header) else {
+        guard let kindByte = packet.first,
+              let kind = BinaryPacketKind(rawValue: kindByte) else {
             return nil
         }
 
-        let payload = Data(packet.dropFirst())
+        let payload: Data
+        if usesFourByteBinaryHeader(packet) {
+            payload = Data(packet.dropFirst(BinaryPacketHeader.byteLength))
+        } else {
+            payload = Data(packet.dropFirst())
+        }
+
         switch kind {
         case .spectrogram:
             guard let data = SpectrogramData.fromBinaryData(payload) else { return nil }
             return .spectrogram(data)
         }
+    }
+
+    /// Legacy packets: `[kind][spectrogram payload…]` where payload begins with
+    /// `SpectrogramData.currentSchemaVersion`. New packets prepend a 4-byte header
+    /// before the same payload.
+    private static func usesFourByteBinaryHeader(_ packet: Data) -> Bool {
+        guard packet.count >= BinaryPacketHeader.byteLength + 1,
+              let header = BinaryPacketHeader.decode(from: packet),
+              header.kind == .spectrogram,
+              header.version == binaryPacketFormatVersion,
+              header.reserved == 0 else {
+            return false
+        }
+        let schemaOffset = packet.startIndex + BinaryPacketHeader.byteLength
+        return packet[schemaOffset] == SpectrogramData.currentSchemaVersion
     }
 }
