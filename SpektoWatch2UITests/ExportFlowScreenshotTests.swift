@@ -36,12 +36,7 @@ final class ExportFlowScreenshotTests: XCTestCase {
     @MainActor
     func testExportFlowScreenshots() throws {
         // Navigate to recordings list → first recording detail
-        let recordingsButton = app.buttons["recordingsListButton"]
-        guard recordingsButton.waitForExistence(timeout: viewWait) else {
-            XCTFail("Recordings button not found")
-            return
-        }
-        recordingsButton.tap()
+        tapControl(in: app, identifier: "recordingsListButton", timeout: viewWait)
         settle()
 
         let firstCell = app.cells.element(boundBy: 0)

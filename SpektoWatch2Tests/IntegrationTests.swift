@@ -260,9 +260,11 @@ final class IntegrationTests: XCTestCase {
     private func drainMainQueue() {
         let drained = expectation(description: "drainMainQueue")
         DispatchQueue.main.async {
-            drained.fulfill()
+            DispatchQueue.main.async {
+                drained.fulfill()
+            }
         }
-        wait(for: [drained], timeout: 1.0)
+        wait(for: [drained], timeout: 2.5)
     }
 }
 

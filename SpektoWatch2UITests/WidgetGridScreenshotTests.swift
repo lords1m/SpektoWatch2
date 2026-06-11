@@ -118,7 +118,7 @@ final class WidgetGridScreenshotTests: XCTestCase {
 
         for (index, page) in pages.enumerated() {
             // Enter edit mode
-            let editButton = app.descendants(matching: .any)["editDashboardButton"]
+            let editButton = controlElement(in: app, identifier: "editDashboardButton")
             if editButton.waitForExistence(timeout: viewWait) {
                 editButton.tap()
                 settle()
@@ -143,7 +143,7 @@ final class WidgetGridScreenshotTests: XCTestCase {
     /// Launch argument `-InstallWidgetSizeScreenshotPreset` installs layouts in
     /// `ModularDashboardView`; wait until edit mode chrome is available.
     private func waitForWidgetSizePresetInstalled() throws {
-        let editButton = app.descendants(matching: .any)["editDashboardButton"]
+        let editButton = controlElement(in: app, identifier: "editDashboardButton")
         XCTAssertTrue(
             editButton.waitForExistence(timeout: launchWait),
             "Dashboard should load with widget-size screenshot preset"

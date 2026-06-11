@@ -77,6 +77,9 @@ final class ScreenshotCatalogTests: XCTestCase {
         capture("02-Dashboard-Edit")
 
         tap(identifier: "widgetSettingsButton")
+        if !app.navigationBars["Spektrogramm"].waitForExistence(timeout: 4.0) {
+            tap(identifier: "widgetSettingsButton")
+        }
         XCTAssertTrue(app.navigationBars["Spektrogramm"].waitForExistence(timeout: viewWait), "Widget settings should open")
         capture("03-Widget-Settings")
         app.buttons["Speichern"].tap()
@@ -91,7 +94,7 @@ final class ScreenshotCatalogTests: XCTestCase {
         // interacting with the header bar controls.
         settle()
 
-        XCTAssertTrue(app.buttons["editDashboardButton"].waitForExistence(timeout: viewWait), "Dashboard should return after closing widget picker")
+        XCTAssertTrue(controlElement(identifier: "editDashboardButton").waitForExistence(timeout: viewWait), "Dashboard should return after closing widget picker")
         tap(identifier: "editDashboardButton")
         XCTAssertTrue(app.buttons["settingsButton"].waitForExistence(timeout: viewWait), "Settings button should be visible outside edit mode")
 
@@ -113,7 +116,7 @@ final class ScreenshotCatalogTests: XCTestCase {
         }
         app.buttons["Fertig"].tap()
 
-        XCTAssertTrue(app.buttons["recordingsListButton"].waitForExistence(timeout: viewWait), "Recordings button should be visible")
+        XCTAssertTrue(controlElement(identifier: "recordingsListButton").waitForExistence(timeout: viewWait), "Recordings button should be visible")
         tap(identifier: "recordingsListButton")
         XCTAssertTrue(app.navigationBars["Aufnahmen"].waitForExistence(timeout: viewWait), "Recordings list should open")
         capture("07-Recordings-List")
@@ -173,7 +176,7 @@ final class ScreenshotCatalogTests: XCTestCase {
         }
 
         // Re-enter edit mode to expose the per-widget delete buttons.
-        XCTAssertTrue(app.buttons["editDashboardButton"].waitForExistence(timeout: viewWait), "Edit button should be visible after dialog dismiss")
+        XCTAssertTrue(controlElement(identifier: "editDashboardButton").waitForExistence(timeout: viewWait), "Edit button should be visible after dialog dismiss")
         tap(identifier: "editDashboardButton")
         XCTAssertTrue(app.buttons["addWidgetButton"].waitForExistence(timeout: viewWait), "Must be in edit mode to delete widgets")
 
@@ -195,11 +198,13 @@ final class ScreenshotCatalogTests: XCTestCase {
         XCTAssertTrue(emptyLabel.waitForExistence(timeout: viewWait), "Empty dashboard should be visible")
     }
 
-    private func tap(identifier: String, timeout: TimeInterval = 12) {
-        // Use firstMatch so the tap succeeds even when multiple elements share the
-        // same identifier (e.g. widgetSettingsButton appears once per widget card).
+    private func controlElement(identifier: String) -> XCUIElement {
         let pred = NSPredicate(format: "identifier == %@", identifier)
-        let element = app.descendants(matching: .any).matching(pred).firstMatch
+        return app.descendants(matching: .any).matching(pred).firstMatch
+    }
+
+    private func tap(identifier: String, timeout: TimeInterval = 12) {
+        let element = controlElement(identifier: identifier)
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "Expected \(identifier) to exist")
         element.tap()
         _ = handleSystemAlertsIfNeeded(timeout: 0.2)

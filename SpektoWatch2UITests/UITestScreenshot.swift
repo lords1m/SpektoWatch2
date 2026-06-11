@@ -54,6 +54,26 @@ extension XCTestCase {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
     }
 
+    /// Resolves a control by accessibility identifier; uses `firstMatch` when
+    /// multiple elements share an id (e.g. iOS 26 button/image duplication).
+    func controlElement(in app: XCUIApplication, identifier: String) -> XCUIElement {
+        let pred = NSPredicate(format: "identifier == %@", identifier)
+        return app.descendants(matching: .any).matching(pred).firstMatch
+    }
+
+    func tapControl(
+        in app: XCUIApplication,
+        identifier: String,
+        timeout: TimeInterval = 12,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
+        let element = controlElement(in: app, identifier: identifier)
+        XCTAssertTrue(element.waitForExistence(timeout: timeout), "Expected \(identifier) to exist", file: file, line: line)
+        element.tap()
+        settle(0.25)
+    }
+
     // MARK: - Private
 
     private func deviceTag() -> String {

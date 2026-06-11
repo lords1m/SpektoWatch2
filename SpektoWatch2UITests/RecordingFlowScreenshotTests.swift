@@ -73,8 +73,8 @@ final class RecordingFlowScreenshotTests: XCTestCase {
         }
 
         // 05 — navigate to recordings list and open the new (or first) recording
-        let recordingsButton = app.buttons["recordingsListButton"]
         XCTContext.runActivity(named: "05-Recording-Detail") { _ in
+            let recordingsButton = controlElement(in: app, identifier: "recordingsListButton")
             if recordingsButton.waitForExistence(timeout: viewWait) {
                 recordingsButton.tap()
                 settle()

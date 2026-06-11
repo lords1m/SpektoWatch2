@@ -454,10 +454,16 @@ final class SpektoWatch2UITests: XCTestCase {
         XCTAssertTrue(statusText("Bereit").waitForExistence(timeout: mediumWait))
         XCTAssertTrue(controlElement(identifier: "playButton").exists)
 
-        // 4. Recording: "Aufnahme läuft" + Stop-Button
+        // 4. Recording: "Aufnahme läuft" + Stop-Button (async via RecordingManager)
         tapAndHandleAlerts(controlElement(identifier: "recordButton"))
-        XCTAssertTrue(statusText("Aufnahme läuft").waitForExistence(timeout: longWait))
-        XCTAssertTrue(controlElement(identifier: "stopButton").exists)
+        XCTAssertTrue(
+            waitForCondition(timeout: longWait) { self.statusText("Aufnahme läuft").exists },
+            "Recording status should appear"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: mediumWait) { self.controlElement(identifier: "stopButton").exists },
+            "Stop button should appear while recording"
+        )
         XCTAssertTrue(controlElement(identifier: "playButton").exists)
         XCTAssertTrue(controlElement(identifier: "playButton").isEnabled)
 
