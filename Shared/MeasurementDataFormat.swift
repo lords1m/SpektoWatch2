@@ -4,6 +4,7 @@ enum MeasurementDataError: LocalizedError {
     case invalidMagic
     case unsupportedVersion(UInt16)
     case invalidHeader
+    case invalidChecksum
     case metricCountMismatch(expected: Int, got: Int)
     case invalidFrameIndex
     case ioFailure(String)
@@ -16,6 +17,8 @@ enum MeasurementDataError: LocalizedError {
             return "Nicht unterstützte .spekto-Version: \(version)."
         case .invalidHeader:
             return "Ungültiger .spekto-Header."
+        case .invalidChecksum:
+            return "Ungültige .spekto-Prüfsumme (Header CRC32)."
         case .metricCountMismatch(let expected, let got):
             return "Metrikanzahl passt nicht (erwartet \(expected), erhalten \(got))."
         case .invalidFrameIndex:
@@ -29,10 +32,23 @@ enum MeasurementDataError: LocalizedError {
 enum MeasurementDataFormat {
     static let magic: UInt32 = 0x53504B54 // "SPKT"
     static let version: UInt16 = 2
+    static let version3: UInt16 = 3
     static let thirdOctaveBandCount = 31
     static let fixedHeaderSize = 36
+    static let v3FixedHeaderSize = 52
+    static let v3HeaderCRCOffset = 36
+    static let v3SeekIndexOffsetField = 40
+    static let v3TLVLengthOffset = 48
     static let frameCountOffset = 8
     static let flagHasFullFFT: UInt16 = 1 << 0
+    static let flagCompressedFFT: UInt16 = 1 << 1
+    static let flagHasSeekIndex: UInt16 = 1 << 2
+    static let seekIndexMagic: UInt32 = 0x58444E49 // "INDX"
+
+    /// v2 remains the default write format; set `SPEKTO_SPEKTO_V3=1` to exercise v3.
+    static var preferredWriteVersion: UInt16 {
+        ProcessInfo.processInfo.environment["SPEKTO_SPEKTO_V3"] == "1" ? version3 : version
+    }
 }
 
 struct MeasurementDataHeader {
@@ -45,8 +61,12 @@ struct MeasurementDataHeader {
     let fftBinCount: Int
     let flags: UInt16
     let headerSize: Int
+    let headerCRC32: UInt32
+    let seekIndexOffset: UInt64
+    let calibration: MeasurementCalibrationMetadata?
 
     var hasFullFFT: Bool { (flags & MeasurementDataFormat.flagHasFullFFT) != 0 }
+    var hasSeekIndex: Bool { (flags & MeasurementDataFormat.flagHasSeekIndex) != 0 }
 }
 
 struct MeasurementFrame {

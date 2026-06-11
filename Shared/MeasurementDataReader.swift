@@ -8,6 +8,7 @@ final class MeasurementDataReader {
 
     private let fileHandle: FileHandle
     private let frameStartOffset: UInt64
+    private let frameOffsets: [UInt64]?
 
     var frameCount: Int {
         Int(header.frameCount)
@@ -17,11 +18,6 @@ final class MeasurementDataReader {
         self.fileURL = fileURL
         self.fileHandle = try FileHandle(forReadingFrom: fileURL)
 
-        // Parse the header directly from the open file handle. Previously the
-        // initialiser also memory-mapped the full file via
-        // `Data(contentsOf: ..., options: .mappedIfSafe)` purely to read the
-        // header, holding two OS-level resources against the same inode for the
-        // reader's entire lifetime.
         let fixedHeader = try MeasurementDataReader.readExactly(
             MeasurementDataFormat.fixedHeaderSize, from: fileHandle)
         var cursor = MeasurementDataCursor(data: fixedHeader)
@@ -31,7 +27,7 @@ final class MeasurementDataReader {
             throw MeasurementDataError.invalidMagic
         }
         let version = try cursor.readUInt16()
-        guard version == 1 || version == MeasurementDataFormat.version else {
+        guard version == 1 || version == MeasurementDataFormat.version || version == MeasurementDataFormat.version3 else {
             throw MeasurementDataError.unsupportedVersion(version)
         }
 
@@ -42,12 +38,29 @@ final class MeasurementDataReader {
         let fftBlockSize = Int(try cursor.readUInt32())
         let metricCount = Int(try cursor.readUInt16())
         let flags = try cursor.readUInt16()
+
+        var headerCRC32: UInt32 = 0
+        var seekIndexOffset: UInt64 = 0
+        var tlvSectionLength = 0
+        if version >= MeasurementDataFormat.version3 {
+            let v3Extension = try MeasurementDataReader.readExactly(
+                MeasurementDataFormat.v3FixedHeaderSize - MeasurementDataFormat.fixedHeaderSize,
+                from: fileHandle
+            )
+            var v3Cursor = MeasurementDataCursor(data: v3Extension)
+            headerCRC32 = try v3Cursor.readUInt32()
+            seekIndexOffset = try v3Cursor.readUInt64()
+            tlvSectionLength = Int(try v3Cursor.readUInt32())
+        }
+
         let fftBinCount = version >= 2 ? fftBinCountField : 0
         let resolvedFlags: UInt16 = version >= 2 ? flags : 0
 
         var metricKeys: [String] = []
         metricKeys.reserveCapacity(metricCount)
-        var bytesConsumed = MeasurementDataFormat.fixedHeaderSize
+        var bytesConsumed = version >= MeasurementDataFormat.version3
+            ? MeasurementDataFormat.v3FixedHeaderSize
+            : MeasurementDataFormat.fixedHeaderSize
         for _ in 0..<metricCount {
             let lengthData = try MeasurementDataReader.readExactly(2, from: fileHandle)
             var lengthCursor = MeasurementDataCursor(data: lengthData)
@@ -59,6 +72,22 @@ final class MeasurementDataReader {
             bytesConsumed += 2 + length
         }
 
+        var calibration: MeasurementCalibrationMetadata?
+        if tlvSectionLength > 0 {
+            let tlvData = try MeasurementDataReader.readExactly(tlvSectionLength, from: fileHandle)
+            calibration = MeasurementDataV3Support.decodeTLV(tlvData)
+            bytesConsumed += tlvSectionLength
+        }
+
+        if version >= MeasurementDataFormat.version3, headerCRC32 != 0 {
+            try fileHandle.seek(toOffset: 0)
+            let headerBytes = try MeasurementDataReader.readExactly(bytesConsumed, from: fileHandle)
+            let expected = MeasurementDataV3Support.headerCRC32(for: headerBytes)
+            guard expected == headerCRC32 else {
+                throw MeasurementDataError.invalidChecksum
+            }
+        }
+
         self.header = MeasurementDataHeader(
             version: version,
             frameCount: frameCount,
@@ -68,7 +97,10 @@ final class MeasurementDataReader {
             fftBlockSize: fftBlockSize,
             fftBinCount: fftBinCount,
             flags: resolvedFlags,
-            headerSize: bytesConsumed
+            headerSize: bytesConsumed,
+            headerCRC32: headerCRC32,
+            seekIndexOffset: seekIndexOffset,
+            calibration: calibration
         )
         self.frameStartOffset = UInt64(bytesConsumed)
         let fullFftCount = header.hasFullFFT ? header.fftBinCount : 0
@@ -76,6 +108,20 @@ final class MeasurementDataReader {
             * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3))
         self.frameSize = MemoryLayout<Float>.size
             * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
+
+        if header.hasSeekIndex, seekIndexOffset > 0, frameCount > 0 {
+            try fileHandle.seek(toOffset: seekIndexOffset)
+            let indexByteCount = 12 + Int(frameCount) * MemoryLayout<UInt64>.size
+            let indexData = try MeasurementDataReader.readExactly(indexByteCount, from: fileHandle)
+            if let offsets = MeasurementDataV3Support.decodeSeekIndex(from: indexData),
+               offsets.count == Int(frameCount) {
+                self.frameOffsets = offsets
+            } else {
+                self.frameOffsets = nil
+            }
+        } else {
+            self.frameOffsets = nil
+        }
     }
 
     deinit {
@@ -94,13 +140,19 @@ final class MeasurementDataReader {
         guard index >= 0, index < frameCount, frameSize >= 0 else {
             throw MeasurementDataError.invalidFrameIndex
         }
-        // PE-1: multiply in UInt64 with overflow detection so a very large
-        // `index * frameSize` cannot trap on Int overflow before the conversion.
-        let (mul, mulOverflow) = UInt64(index).multipliedReportingOverflow(by: UInt64(frameSize))
-        let (offset, addOverflow) = frameStartOffset.addingReportingOverflow(mul)
-        guard !mulOverflow, !addOverflow else {
-            throw MeasurementDataError.invalidFrameIndex
+
+        let offset: UInt64
+        if let frameOffsets, index < frameOffsets.count {
+            offset = frameOffsets[index]
+        } else {
+            let (mul, mulOverflow) = UInt64(index).multipliedReportingOverflow(by: UInt64(frameSize))
+            let (computed, addOverflow) = frameStartOffset.addingReportingOverflow(mul)
+            guard !mulOverflow, !addOverflow else {
+                throw MeasurementDataError.invalidFrameIndex
+            }
+            offset = computed
         }
+
         try fileHandle.seek(toOffset: offset)
         let bytesToRead = includingFullFFT ? frameSize : summaryFrameSize
         guard let frameData = try fileHandle.read(upToCount: bytesToRead), frameData.count == bytesToRead else {

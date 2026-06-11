@@ -15,9 +15,12 @@ final class MeasurementDataWriter {
     let fps: Float
     let fftBlockSize: Int
     let fftBinCount: Int
+    let fileFormatVersion: UInt16
 
     private let fileHandle: FileHandle
     private let frameSize: Int
+    private let headerByteCount: Int
+    private let headerFlags: UInt16
     private(set) var frameCount: UInt64 = 0
     private(set) var droppedFrameCount: UInt64 = 0
     private var isClosed = false
@@ -40,7 +43,9 @@ final class MeasurementDataWriter {
         fps: Float,
         fftBlockSize: Int,
         fftBinCount: Int,
-        maxPendingFrames: Int = 32
+        maxPendingFrames: Int = 32,
+        fileFormatVersion: UInt16 = MeasurementDataFormat.preferredWriteVersion,
+        calibration: MeasurementCalibrationMetadata? = nil
     ) throws {
         self.fileURL = fileURL
         self.metricKeys = metricKeys
@@ -48,18 +53,36 @@ final class MeasurementDataWriter {
         self.fps = fps
         self.fftBlockSize = fftBlockSize
         self.fftBinCount = max(0, fftBinCount)
+        self.fileFormatVersion = fileFormatVersion
         let pendingFrameCapacity = max(0, maxPendingFrames)
         let fullFftCount = max(0, fftBinCount)
         let frameFloatCount = 1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount
-        // Frame layout (floats): timestamp + metrics + broadband + 3×thirdOctave + fullFFT
         self.frameFloatCount = frameFloatCount
         self.frameSize = MemoryLayout<Float>.size * frameFloatCount
+        var flags: UInt16 = fftBinCount > 0 ? MeasurementDataFormat.flagHasFullFFT : 0
+        if fileFormatVersion >= MeasurementDataFormat.version3 {
+            // Seek index is patched on close; CRC is patched after the trailer.
+            flags &= ~MeasurementDataFormat.flagHasSeekIndex
+        }
+        self.headerFlags = flags
         self.frameFloatBuffers = (0..<pendingFrameCapacity).map { _ in MeasurementFrameBuffer(floatCount: frameFloatCount) }
         self.availableFrameBufferIndices = Array(0..<pendingFrameCapacity)
 
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-        self.fileHandle = try FileHandle(forWritingTo: fileURL)
-        try writeHeader(frameCount: 0)
+        // Updating (not write-only) so v3 close can re-read the header for CRC32.
+        self.fileHandle = try FileHandle(forUpdating: fileURL)
+        self.headerByteCount = try Self.writeHeader(
+            to: fileHandle,
+            metricKeys: metricKeys,
+            sampleRate: sampleRate,
+            fps: fps,
+            fftBlockSize: fftBlockSize,
+            fftBinCount: self.fftBinCount,
+            flags: flags,
+            frameCount: 0,
+            fileFormatVersion: fileFormatVersion,
+            calibration: calibration
+        )
     }
 
     deinit {
@@ -99,8 +122,6 @@ final class MeasurementDataWriter {
             return
         }
 
-        // Fill a checked-out reusable buffer directly. The buffer will not be
-        // returned to the pool until the writer queue has finished writing it.
         let frameBuffer = frameFloatBuffers[bufferIndex]
         var idx = 0
         frameBuffer.values[idx] = timestamp; idx += 1
@@ -118,16 +139,8 @@ final class MeasurementDataWriter {
             let data = frameBuffer.values.withUnsafeBytes { Data($0) }
             do {
                 try handle.write(contentsOf: data)
-                // Increment the persisted frame count only AFTER the bytes have
-                // been handed to the file handle. Crashing between increment and
-                // write would leave the header claiming more frames than the file
-                // actually holds; the reader would then seek past EOF and throw.
-                // `frameCount` is otherwise touched only from `updateFrameCount`
-                // (called from `close`, which drains this queue first).
                 self.frameCount += 1
             } catch {
-                // Disk failure (e.g. disk full): do not advance frameCount; record
-                // the drop so the header's frame count stays consistent with bytes.
                 NSLog("MeasurementDataWriter: frame write failed: %@", String(describing: error))
                 _ = self.recordDroppedFrame()
             }
@@ -144,25 +157,86 @@ final class MeasurementDataWriter {
         isClosed = true
         lifecycleLock.unlock()
 
-        // Drain all pending async writes before syncing the file
         writeQueue.sync {}
         try fileHandle.synchronize()
         try updateFrameCount()
+        if fileFormatVersion >= MeasurementDataFormat.version3 {
+            try finalizeV3Trailer()
+        }
+        try fileHandle.synchronize()
         try fileHandle.close()
     }
 
-    private func writeHeader(frameCount: UInt64) throws {
-        var header = Data(capacity: MeasurementDataFormat.fixedHeaderSize + (metricKeys.count * 16))
+    private func finalizeV3Trailer() throws {
+        guard frameCount > 0 else { return }
+
+        let indexOffset = UInt64(headerByteCount) + frameCount * UInt64(frameSize)
+        let offsets = (0..<frameCount).map { index in
+            UInt64(headerByteCount) + UInt64(index) * UInt64(frameSize)
+        }
+        try fileHandle.seek(toOffset: indexOffset)
+        try fileHandle.write(contentsOf: MeasurementDataV3Support.encodeSeekIndex(frameOffsets: offsets))
+
+        try fileHandle.seek(toOffset: UInt64(MeasurementDataFormat.v3SeekIndexOffsetField))
+        var seekPatch = Data()
+        seekPatch.appendUInt64LE(indexOffset)
+        try fileHandle.write(contentsOf: seekPatch)
+
+        var finalizedFlags = headerFlags | MeasurementDataFormat.flagHasSeekIndex
+        try fileHandle.seek(toOffset: 34)
+        var flagsPatch = Data()
+        flagsPatch.appendUInt16LE(finalizedFlags)
+        try fileHandle.write(contentsOf: flagsPatch)
+
+        try fileHandle.seek(toOffset: 0)
+        guard let headerBytes = try fileHandle.read(upToCount: headerByteCount),
+              headerBytes.count == headerByteCount else {
+            throw MeasurementDataError.ioFailure("Header konnte nicht für CRC gelesen werden.")
+        }
+        let crc = MeasurementDataV3Support.headerCRC32(for: headerBytes)
+        try fileHandle.seek(toOffset: UInt64(MeasurementDataFormat.v3HeaderCRCOffset))
+        var crcPatch = Data()
+        crcPatch.appendUInt32LE(crc)
+        try fileHandle.write(contentsOf: crcPatch)
+    }
+
+    private func updateFrameCount() throws {
+        try fileHandle.seek(toOffset: UInt64(MeasurementDataFormat.frameCountOffset))
+        var countData = Data()
+        countData.appendUInt64LE(frameCount)
+        try fileHandle.write(contentsOf: countData)
+    }
+
+    @discardableResult
+    private static func writeHeader(
+        to fileHandle: FileHandle,
+        metricKeys: [String],
+        sampleRate: Double,
+        fps: Float,
+        fftBlockSize: Int,
+        fftBinCount: Int,
+        flags: UInt16,
+        frameCount: UInt64,
+        fileFormatVersion: UInt16,
+        calibration: MeasurementCalibrationMetadata?
+    ) throws -> Int {
+        let tlvData = calibration.map(MeasurementDataV3Support.encodeTLV) ?? Data()
+        var header = Data(capacity: MeasurementDataFormat.v3FixedHeaderSize + (metricKeys.count * 16) + tlvData.count)
         header.appendUInt32LE(MeasurementDataFormat.magic)
-        header.appendUInt16LE(MeasurementDataFormat.version)
+        header.appendUInt16LE(fileFormatVersion)
         header.appendUInt16LE(UInt16(min(fftBinCount, Int(UInt16.max))))
         header.appendUInt64LE(frameCount)
         header.appendDoubleLE(sampleRate)
         header.appendFloatLE(fps)
         header.appendUInt32LE(UInt32(max(1, fftBlockSize)))
         header.appendUInt16LE(UInt16(min(metricKeys.count, Int(UInt16.max))))
-        let flags: UInt16 = fftBinCount > 0 ? MeasurementDataFormat.flagHasFullFFT : 0
         header.appendUInt16LE(flags)
+
+        if fileFormatVersion >= MeasurementDataFormat.version3 {
+            header.appendUInt32LE(0)
+            header.appendUInt64LE(0)
+            header.appendUInt32LE(UInt32(min(tlvData.count, Int(UInt32.max))))
+        }
 
         for key in metricKeys {
             let utf8 = key.data(using: .utf8) ?? Data()
@@ -171,14 +245,12 @@ final class MeasurementDataWriter {
             header.append(utf8.prefix(Int(length)))
         }
 
-        try fileHandle.write(contentsOf: header)
-    }
+        if !tlvData.isEmpty {
+            header.append(tlvData)
+        }
 
-    private func updateFrameCount() throws {
-        try fileHandle.seek(toOffset: UInt64(MeasurementDataFormat.frameCountOffset))
-        var countData = Data()
-        countData.appendUInt64LE(frameCount)
-        try fileHandle.write(contentsOf: countData)
+        try fileHandle.write(contentsOf: header)
+        return header.count
     }
 
     private func acquireFrameBufferIndex() -> Int? {
