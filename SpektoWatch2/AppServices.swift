@@ -76,10 +76,10 @@ final class AppServices: ObservableObject {
     func startAudio() {
         guard audioEngine == nil else { return }
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        Task.detached(priority: .userInitiated) { [weak self] in
             MetalWidgetManager.shared.prewarmSharedDevice()
 
-            DispatchQueue.main.async {
+            await MainActor.run {
                 guard let self, self.audioEngine == nil else { return }
 
                 let engine = AudioEngine(
@@ -93,7 +93,9 @@ final class AppServices: ObservableObject {
                 self.maskingEngine = MaskingEngine(audioEngine: engine)
 
                 if Self.shouldPrewarmCaptureGraph {
-                    DispatchQueue.main.async {
+                    // Defer graph prewarm so published engine state reaches
+                    // SwiftUI before AVAudioEngine graph work on the main actor.
+                    Task { @MainActor in
                         engine.prewarmCaptureGraph()
                     }
                 }
