@@ -31,7 +31,10 @@ enum MeasurementDataError: LocalizedError {
 
 enum MeasurementDataFormat {
     static let magic: UInt32 = 0x53504B54 // "SPKT"
-    static let version: UInt16 = 2
+    /// Default on-disk version for new iOS `.spekto` files (Phase 7.4).
+    static let version: UInt16 = 3
+    /// Legacy v2 write path — watch `.swr` until the phone fleet reads v3.
+    static let version2: UInt16 = 2
     static let version3: UInt16 = 3
     static let thirdOctaveBandCount = 31
     static let fixedHeaderSize = 36
@@ -45,9 +48,13 @@ enum MeasurementDataFormat {
     static let flagHasSeekIndex: UInt16 = 1 << 2
     static let seekIndexMagic: UInt32 = 0x58444E49 // "INDX"
 
-    /// v2 remains the default write format; set `SPEKTO_SPEKTO_V3=1` to exercise v3.
+    /// Default write version for iOS. Set `SPEKTO_SPEKTO_V2=1` to force legacy v2 output.
     static var preferredWriteVersion: UInt16 {
-        ProcessInfo.processInfo.environment["SPEKTO_SPEKTO_V3"] == "1" ? version3 : version
+        ProcessInfo.processInfo.environment["SPEKTO_SPEKTO_V2"] == "1" ? version2 : version
+    }
+
+    static func isSupportedReadVersion(_ fileVersion: UInt16) -> Bool {
+        fileVersion == 1 || fileVersion == version2 || fileVersion == version3
     }
 }
 

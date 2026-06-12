@@ -65,7 +65,8 @@ final class WatchRecordingSession {
             sampleRate: format.sampleRate,
             fps: fps,
             fftBlockSize: fftBlockSize,
-            fftBinCount: 0
+            fftBinCount: 0,
+            fileFormatVersion: MeasurementDataFormat.version2
         )
     }
 

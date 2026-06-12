@@ -1,7 +1,7 @@
 # .spekto measurement format — version 3
 
-Status: **implemented (write gated)** — reader dual v2+v3; writer v3 behind
-`SPEKTO_SPEKTO_V3=1`; default write remains v2 until Phase 7.4 acceptance.
+Status: **implemented** — reader dual v1/v2/v3; iOS default write is **v3**
+(Phase 7.4); watch `.swr` stays **v2**; opt out with `SPEKTO_SPEKTO_V2=1`.
 
 ## Goals
 
@@ -103,8 +103,8 @@ fixed stride (`frameSize`) like v2.
 | Version | Write default | Read |
 |---------|---------------|------|
 | 1 | no | yes (legacy) |
-| 2 | **yes** | yes |
-| 3 | env `SPEKTO_SPEKTO_V3=1` | yes |
+| 2 | watch `.swr` only | yes |
+| 3 | **iOS `.spekto`** | yes |
 | >3 | no | `unsupportedVersion` |
 
 ## Migration policy
@@ -112,8 +112,27 @@ fixed stride (`frameSize`) like v2.
 **No conversion.** Dual-read makes migration unnecessary. v2 golden files must
 round-trip unchanged.
 
+## Consumers (Phase 7.4 audit)
+
+All readers go through `MeasurementDataReader` — no raw `[String: Any]` or
+manual header parsing outside `Shared/MeasurementData*.swift`:
+
+| Consumer | Path |
+|----------|------|
+| `StoredDataProvider` | `MeasurementDataReader` |
+| `WaterfallDataBuilder` | via `StoredDataProvider` / frame arrays |
+| `PlaybackAnalyzer` | via `StoredDataProvider` |
+| `CSVExporter` | `MeasurementDataReader` parameter |
+| `PDFReportGenerator` | `MeasurementDataReader` optional |
+| `RecordingDetailView` | `MeasurementDataReader` for export paths |
+| Watch ingest | `.swr` renamed to `.spekto`; same binary layout |
+
+**Migration:** v2 files are never converted; dual-read is permanent.
+
 ## Deferred (v3.1+)
 
 - `flagCompressedFFT` + lzfse per-frame blocks (gated on profiling evidence).
-- v3 as default write (`MeasurementDataFormat.version = 3`) after manual
-  waterfall/export acceptance (Phase 7.4).
+- iOS writer TLV calibration populated from live capture metadata (partially
+  wired via `MeasurementCalibrationMetadata`; phone writer does not yet pass
+  device fields automatically).
+- Manual waterfall/export sign-off on a long real v2 recording.

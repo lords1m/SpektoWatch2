@@ -27,7 +27,7 @@ final class MeasurementDataReader {
             throw MeasurementDataError.invalidMagic
         }
         let version = try cursor.readUInt16()
-        guard version == 1 || version == MeasurementDataFormat.version || version == MeasurementDataFormat.version3 else {
+        guard MeasurementDataFormat.isSupportedReadVersion(version) else {
             throw MeasurementDataError.unsupportedVersion(version)
         }
 

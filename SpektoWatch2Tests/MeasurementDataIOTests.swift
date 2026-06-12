@@ -2,6 +2,34 @@ import XCTest
 @testable import SpektoWatch2
 
 final class MeasurementDataIOTests: XCTestCase {
+    func testDefaultWriterUsesV3Format() throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("measurement_io_default_v3.spekto")
+        try? FileManager.default.removeItem(at: tempURL)
+
+        let writer = try MeasurementDataWriter(
+            fileURL: tempURL,
+            metricKeys: ["LAF"],
+            sampleRate: 44_100,
+            fps: 86.0,
+            fftBlockSize: 4096,
+            fftBinCount: 0
+        )
+        let bands = Array(repeating: Float(42), count: MeasurementDataFormat.thirdOctaveBandCount)
+        try writer.writeFrame(
+            timestamp: 0,
+            metricValues: [50],
+            broadbandLevel: 50,
+            thirdOctaveZ: bands,
+            thirdOctaveA: bands,
+            thirdOctaveC: bands,
+            fullFFT: []
+        )
+        try writer.close()
+
+        let reader = try MeasurementDataReader(fileURL: tempURL)
+        XCTAssertEqual(reader.header.version, MeasurementDataFormat.version3)
+    }
+
     func testWriterAndReaderRoundtrip() throws {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("measurement_io_test.spekto")
         try? FileManager.default.removeItem(at: tempURL)
@@ -246,7 +274,7 @@ final class MeasurementDataIOTests: XCTestCase {
             try writer.close()
         }
 
-        try writeFrames(to: v2URL, version: MeasurementDataFormat.version)
+        try writeFrames(to: v2URL, version: MeasurementDataFormat.version2)
         try writeFrames(to: v3URL, version: MeasurementDataFormat.version3)
 
         let v2Reader = try MeasurementDataReader(fileURL: v2URL)
@@ -268,7 +296,7 @@ final class MeasurementDataIOTests: XCTestCase {
     func testV2GoldenFixtureRemainsReadable() throws {
         let fixtureURL = try writeV2GoldenFixture()
         let reader = try MeasurementDataReader(fileURL: fixtureURL)
-        XCTAssertEqual(reader.header.version, MeasurementDataFormat.version)
+        XCTAssertEqual(reader.header.version, MeasurementDataFormat.version2)
         XCTAssertEqual(reader.frameCount, 2)
         XCTAssertEqual(reader.header.metricKeys, ["LAF", "LAeq"])
         XCTAssertEqual(reader.header.headerCRC32, 0)
@@ -278,6 +306,68 @@ final class MeasurementDataIOTests: XCTestCase {
         let frame = try reader.readFrame(at: 0)
         XCTAssertEqual(frame.timestamp, 0.25, accuracy: 0.0001)
         XCTAssertEqual(frame.metrics, [54.0, 51.0])
+    }
+
+    func testV3GoldenFixtureRemainsReadable() throws {
+        let fixtureURL = try writeV3GoldenFixture()
+        let reader = try MeasurementDataReader(fileURL: fixtureURL)
+        XCTAssertEqual(reader.header.version, MeasurementDataFormat.version3)
+        XCTAssertNotEqual(reader.header.headerCRC32, 0)
+        XCTAssertTrue(reader.header.hasSeekIndex)
+        XCTAssertEqual(reader.frameCount, 2)
+
+        let frame = try reader.readFrame(at: 1)
+        XCTAssertEqual(frame.timestamp, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(frame.metrics, [55.0, 52.0])
+    }
+
+    private func writeV3GoldenFixture() throws -> URL {
+        let fixturesDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
+        try FileManager.default.createDirectory(at: fixturesDirectory, withIntermediateDirectories: true)
+        let fixtureURL = fixturesDirectory.appendingPathComponent("measurement_v3_golden.spekto")
+
+        if FileManager.default.fileExists(atPath: fixtureURL.path) {
+            return fixtureURL
+        }
+
+        let metrics = ["LAF", "LAeq"]
+        let writer = try MeasurementDataWriter(
+            fileURL: fixtureURL,
+            metricKeys: metrics,
+            sampleRate: 44_100,
+            fps: 86.0,
+            fftBlockSize: 4096,
+            fftBinCount: 0,
+            fileFormatVersion: MeasurementDataFormat.version3,
+            calibration: MeasurementCalibrationMetadata(
+                microphoneSource: "builtInMic",
+                gain: 0,
+                calibrationOffset: -1.5,
+                deviceModel: "GoldenFixture",
+                frequencyWeighting: "A"
+            )
+        )
+        let (z, a, c) = sampleBands()
+        try writer.writeFrame(
+            timestamp: 0.25,
+            metricValues: [54.0, 51.0],
+            broadbandLevel: 53.0,
+            thirdOctaveZ: z,
+            thirdOctaveA: a,
+            thirdOctaveC: c,
+            fullFFT: []
+        )
+        try writer.writeFrame(
+            timestamp: 0.75,
+            metricValues: [55.0, 52.0],
+            broadbandLevel: 54.0,
+            thirdOctaveZ: z,
+            thirdOctaveA: a,
+            thirdOctaveC: c,
+            fullFFT: []
+        )
+        try writer.close()
+        return fixtureURL
     }
 
     private func writeV2GoldenFixture() throws -> URL {
@@ -297,7 +387,7 @@ final class MeasurementDataIOTests: XCTestCase {
             fps: 86.0,
             fftBlockSize: 4096,
             fftBinCount: 0,
-            fileFormatVersion: MeasurementDataFormat.version
+            fileFormatVersion: MeasurementDataFormat.version2
         )
         let (z, a, c) = sampleBands()
         try writer.writeFrame(

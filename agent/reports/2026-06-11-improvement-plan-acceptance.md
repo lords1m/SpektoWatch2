@@ -17,7 +17,7 @@ Source: `VERBESSERUNGSPLAN.md` Phases 1–8
 | 4 DI / AppServices | ✅ | All views on `@EnvironmentObject services` |
 | 5 Quality items | ✅ | l10n catalog, chart axis dedup, naming docs, DSP dedup |
 | 6 Watch protocol | ✅ | protocolVersion, typed codec, 4-byte binary header |
-| 7 .spekto v3 | ✅ partial | Dual-read + gated write; **v3 default write deferred** |
+| 7 .spekto v3 | ✅ | Dual-read; iOS default write v3; watch stays v2 (7.4) |
 | 8 Verification | ✅ partial | 497 unit tests green; UI tests flaky; device smoke pending |
 
 ## Commits (plan execution)
@@ -53,9 +53,9 @@ Extracted: `AudioCaptureSession`, `ProcessingPipeline`, `WearableIngestCoordinat
 Spec: `agent/design/spekto-format-v3.md`.
 
 - **Reader:** v1/v2/v3; header CRC32, TLV calibration metadata, EOF seek index.
-- **Writer:** v3 when `SPEKTO_SPEKTO_V3=1`; default remains v2.
-- **Golden file:** `SpektoWatch2Tests/Fixtures/measurement_v2_golden.spekto`.
-- **Watch:** continues writing v2 `.swr` until v3 default is promoted.
+- **Writer:** iOS default **v3** (Phase 7.4); `SPEKTO_SPEKTO_V2=1` forces legacy v2.
+- **Golden files:** `measurement_v2_golden.spekto`, `measurement_v3_golden.spekto`.
+- **Watch:** explicitly writes v2 `.swr` (`WatchRecordingSession`).
 
 ## Test validation (2026-06-11)
 
@@ -79,7 +79,7 @@ Spec: `agent/design/spekto-format-v3.md`.
 ## Deferred / out of scope
 
 1. **AudioEngine `<600` lines** — remaining capture lifecycle + UI publish path.
-2. **v3 default write** (Phase 7.4) — enable after manual waterfall/export on legacy recording.
+2. ~~**v3 default write** (Phase 7.4)~~ — shipped; manual waterfall/export on legacy recording still recommended.
 3. **lzfse FFT compression** (Phase 6.3 optional, Phase 7.4) — needs signpost evidence.
 4. **Legacy binary packet 1-byte header removal** — two releases after 4-byte header.
 5. **v2→v3 file migration** — explicitly not required (dual-read).
@@ -88,10 +88,10 @@ Spec: `agent/design/spekto-format-v3.md`.
 
 - [ ] Waterfall scrub on a long **v2** recording (real device or fixture import).
 - [ ] CSV/PDF export on v2 recording after plan changes.
-- [ ] `SPEKTO_SPEKTO_V3=1` recording → reader round-trip on device.
+- [ ] v3 `.spekto` recording → reader round-trip on device (default write since 7.4).
 - [ ] Watch standalone recording → phone ingest (`.swr` still v2).
 - [ ] Instruments: `performance.audio`, `performance.spectrogram` vs baseline matrix.
-- [ ] Promote v3 write default when above are green.
+- [x] Promote v3 write default (7.4 — watch `.swr` remains v2).
 
 ## Risk register
 
