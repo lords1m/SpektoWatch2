@@ -384,6 +384,47 @@ struct WidgetSettingsView: View {
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
 
+                    Section(header: Text("Farbzonen"), footer: Text("dB-Schwellen, ab denen die Segmente von Grün auf Gelb bzw. Rot wechseln.")) {
+                        Stepper(value: Binding(
+                            get: { Double(WidgetSettings.levelMeterZoneLow(settings)) },
+                            set: { settings[WidgetSettings.levelMeterZoneLowKey] = String(Int($0)) }
+                        ), in: 40...100, step: 1) {
+                            HStack {
+                                Text("Grün bis")
+                                Spacer()
+                                Text("\(Int(WidgetSettings.levelMeterZoneLow(settings))) dB")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Stepper(value: Binding(
+                            get: { Double(WidgetSettings.levelMeterZoneHigh(settings)) },
+                            set: { settings[WidgetSettings.levelMeterZoneHighKey] = String(Int($0)) }
+                        ), in: Double(Int(WidgetSettings.levelMeterZoneLow(settings)) + 1)...110, step: 1) {
+                            HStack {
+                                Text("Gelb bis")
+                                Spacer()
+                                Text("\(Int(WidgetSettings.levelMeterZoneHigh(settings))) dB")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
+                    Section(header: Text("Angezeigte Werte"), footer: Text("Statistik-Kacheln unter bzw. neben dem Meter.")) {
+                        ForEach(WidgetSettings.availableLevelMeterStats, id: \.self) { key in
+                            Toggle(WidgetSettings.levelMeterStatLabel(key), isOn: Binding(
+                                get: { WidgetSettings.levelMeterStats(settings).contains(key) },
+                                set: { on in
+                                    var current = Set(WidgetSettings.levelMeterStats(settings))
+                                    if on { current.insert(key) } else { current.remove(key) }
+                                    let ordered = WidgetSettings.availableLevelMeterStats.filter { current.contains($0) }
+                                    settings[WidgetSettings.levelMeterStatsKey] = ordered.joined(separator: ",")
+                                }
+                            ))
+                        }
+                    }
+                    .disabled(supportsOverrideToggle && !useWidgetOverrides)
+
                     yAxisBoundsSection
                         .disabled(supportsOverrideToggle && !useWidgetOverrides)
                     Section(header: Text("Erweitert")) {

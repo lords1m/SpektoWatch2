@@ -430,153 +430,177 @@ struct LevelMeterWidget: View {
         WidgetSettings.levelMeterShowPeak(settings)
     }
 
+    private var zoneLow: Float { WidgetSettings.levelMeterZoneLow(settings) }
+    private var zoneHigh: Float { WidgetSettings.levelMeterZoneHigh(settings) }
+    private var statKeys: [String] { WidgetSettings.levelMeterStats(settings) }
+    private var levels: [String: Float] { live.currentSpectrogramData?.levels ?? [:] }
+
     var body: some View {
         let minDB = yMinDB
         let maxDB = max(yMaxDB, yMinDB + 5)
         let level = live.currentLevel
-        let norm = CGFloat((level - minDB) / (maxDB - minDB))
-        let clamped = max(0, min(1, norm))
         let peak = live.currentPeakLevel
-        let peakNorm = CGFloat((peak - minDB) / (maxDB - minDB))
-        let peakClamped = max(0, min(1, peakNorm))
 
         Group {
             if orientation == .vertical {
-                verticalMeterBody(
-                    clamped: clamped,
-                    peakClamped: peakClamped,
-                    minDB: minDB,
-                    maxDB: maxDB
-                )
+                verticalMeterBody(level: level, peak: peak, minDB: minDB, maxDB: maxDB)
             } else {
-                horizontalMeterBody(
-                    clamped: clamped,
-                    peakClamped: peakClamped,
-                    peakDB: peak,
-                    minDB: minDB,
-                    maxDB: maxDB
-                )
+                horizontalMeterBody(level: level, peak: peak, minDB: minDB, maxDB: maxDB)
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .innerCanvas(cornerRadius: 0)
-        .onAppear {
-            #if DEBUG
-            print("[LevelMeterWidget] View appeared")
-            #endif
-        }
     }
 
     @ViewBuilder
-    private func horizontalMeterBody(
-        clamped: CGFloat,
-        peakClamped: CGFloat,
-        peakDB: Float,
-        minDB: Float,
-        maxDB: Float
-    ) -> some View {
-        VStack(spacing: 4) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.gray.opacity(0.2))
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width * clamped)
-                        .animation(.easeOut(duration: 0.15), value: clamped)
-                    // Minor scale ticks (eighths) so a glance reads an approximate
-                    // value off the bar, not just the three numeric endpoints.
-                    ForEach(1..<8) { i in
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.16))
-                            .frame(width: 1, height: geo.size.height * 0.45)
-                            .offset(x: geo.size.width * CGFloat(i) / 8)
-                    }
-                    .allowsHitTesting(false)
-                    if showPeak {
-                        // Peak-hold marker — distinct accent color so it reads as
-                        // a separate "max" indicator rather than a stray divider
-                        // sitting on the level fill.
-                        Rectangle()
-                            .fill(ScientificChartPalette.secondarySeries)
-                            .frame(width: 2, height: geo.size.height)
-                            .offset(x: geo.size.width * peakClamped)
-                            .animation(.easeOut(duration: 0.15), value: peakClamped)
-                            .accessibilityLabel("Spitzenpegel")
-                    }
-                }
-            }
+    private func horizontalMeterBody(level: Float, peak: Float, minDB: Float, maxDB: Float) -> some View {
+        VStack(spacing: 6) {
+            SegmentedLevelBar(
+                value: level, peak: peak, minDB: minDB, maxDB: maxDB,
+                zoneLow: zoneLow, zoneHigh: zoneHigh, showPeak: showPeak, axis: .horizontal
+            )
             .frame(maxHeight: .infinity)
 
-            scaleRow(minDB: minDB, maxDB: maxDB, peakDB: showPeak ? peakDB : nil)
+            scaleRow(minDB: minDB, maxDB: maxDB, peakDB: showPeak ? peak : nil)
+
+            if !statKeys.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(statKeys, id: \.self) { key in
+                        statTile(key)
+                    }
+                }
+            }
         }
     }
 
     @ViewBuilder
-    private func verticalMeterBody(
-        clamped: CGFloat,
-        peakClamped: CGFloat,
-        minDB: Float,
-        maxDB: Float
-    ) -> some View {
-        HStack(spacing: 4) {
-            GeometryReader { geo in
-                ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.gray.opacity(0.2))
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .bottom, endPoint: .top))
-                        .frame(height: geo.size.height * clamped)
-                        .animation(.easeOut(duration: 0.15), value: clamped)
-                    if showPeak {
-                        // Peak-hold marker — see horizontal variant above.
-                        Rectangle()
-                            .fill(ScientificChartPalette.secondarySeries)
-                            .frame(width: geo.size.width, height: 2)
-                            .offset(y: geo.size.height * (1 - peakClamped))
-                            .animation(.easeOut(duration: 0.15), value: peakClamped)
-                            .accessibilityLabel("Spitzenpegel")
+    private func verticalMeterBody(level: Float, peak: Float, minDB: Float, maxDB: Float) -> some View {
+        HStack(spacing: 12) {
+            // Narrow bar column — the segments carry the reading; stats sit beside.
+            SegmentedLevelBar(
+                value: level, peak: peak, minDB: minDB, maxDB: maxDB,
+                zoneLow: zoneLow, zoneHigh: zoneHigh, showPeak: showPeak, axis: .vertical
+            )
+            .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("\(Int(minDB))–\(Int(maxDB)) \(weightingLabel)")
+                    .font(.readout(size: 10))
+                    .foregroundStyle(.tertiary)
+                ForEach(statKeys, id: \.self) { key in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(WidgetSettings.levelMeterStatLabel(key))
+                            .font(.readout(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text(statValue(key))
+                            .font(.readout(size: 17, weight: .medium))
+                            .foregroundStyle(statColor(key))
                     }
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-
-            VStack {
-                Text("\(Int(maxDB))").font(.caption2).foregroundColor(.gray)
-                Spacer()
-                Text(weightingLabel)
-                    .font(.caption2.weight(.medium))
-                    .foregroundColor(.secondary)
-                    .rotationEffect(.degrees(-90))
-                Spacer()
-                Text("\(Int(minDB))").font(.caption2).foregroundColor(.gray)
-            }
-            .frame(width: 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func statTile(_ key: String) -> some View {
+        VStack(spacing: 1) {
+            Text(WidgetSettings.levelMeterStatLabel(key))
+                .font(.readout(size: 10))
+                .foregroundStyle(.secondary)
+            Text(statValue(key))
+                .font(.readout(size: 15, weight: .medium))
+                .foregroundStyle(statColor(key))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Color.primary.opacity(0.05)))
+    }
+
+    /// Max/Peak share the amber peak-hold accent so the readouts tie back to
+    /// the orange peak segment; the rest stay neutral.
+    private func statColor(_ key: String) -> Color {
+        (key == "LAFmax" || key == "LCpeak") ? ScientificChartPalette.secondarySeries : .primary
+    }
+
+    private func statValue(_ key: String) -> String {
+        guard let v = levels[key], v.isFinite, v > -119 else { return "—" }
+        return String(format: "%.1f", v)
     }
 
     private func scaleRow(minDB: Float, maxDB: Float, peakDB: Float?) -> some View {
         HStack(spacing: 0) {
-            Text("\(Int(minDB))").font(.caption2).foregroundColor(.gray)
+            Text("\(Int(minDB))").font(.readout(size: 10)).foregroundStyle(.tertiary)
             Spacer()
-            Text("\(Int((minDB + maxDB) / 2))").font(.caption2).foregroundColor(.gray)
+            Text("\(Int((minDB + maxDB) / 2))").font(.readout(size: 10)).foregroundStyle(.tertiary)
             Spacer()
-            Text("\(Int(maxDB))").font(.caption2).foregroundColor(.gray)
+            Text("\(Int(maxDB))").font(.readout(size: 10)).foregroundStyle(.tertiary)
             Text(weightingLabel)
-                .font(.caption2.weight(.medium))
-                .foregroundColor(.secondary)
+                .font(.readout(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
                 .padding(.leading, 4)
-            // Peak readout — ties the orange peak-hold marker to a number and
-            // uses some of the meter's otherwise-empty width.
             if let peakDB, peakDB > minDB {
                 Spacer(minLength: 8)
                 Text(String(format: "Spitze %.0f", peakDB))
-                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .font(.readout(size: 10, weight: .medium))
                     .foregroundColor(ScientificChartPalette.secondarySeries)
             }
         }
+    }
+}
+
+/// Segmented (LED-ladder) level bar shared by both orientations. Each segment
+/// maps to a dB value and is colored by the configurable zone thresholds;
+/// segments above the current level are dimmed. The peak-hold segment stays
+/// lit (dimmer) at the highest recent level. Snaps per segment — no fill
+/// animation — for the classic LED-meter feel.
+private struct SegmentedLevelBar: View {
+    let value: Float
+    let peak: Float
+    let minDB: Float
+    let maxDB: Float
+    let zoneLow: Float
+    let zoneHigh: Float
+    let showPeak: Bool
+    let axis: Axis
+
+    var body: some View {
+        Canvas { ctx, size in
+            let span = max(maxDB - minDB, 1)
+            let horizontal = axis == .horizontal
+            let length = horizontal ? size.width : size.height
+            let thickness = horizontal ? size.height : size.width
+            guard length > 4, thickness > 0 else { return }
+
+            let targetSegment: CGFloat = horizontal ? 9 : 8   // px per segment incl. gap
+            let n = max(6, Int(length / targetSegment))
+            let gap: CGFloat = 2
+            let segLen = max(1, (length - CGFloat(n - 1) * gap) / CGFloat(n))
+
+            let valFrac = max(0, min(1, CGFloat((value - minDB) / span)))
+            let peakFrac = max(0, min(1, CGFloat((peak - minDB) / span)))
+            let litCount = Int((valFrac * CGFloat(n)).rounded())
+            let peakIdx = showPeak ? Int((peakFrac * CGFloat(n)).rounded()) - 1 : -1
+
+            for i in 0..<n {
+                let segDB = minDB + (Float(i) + 0.5) / Float(n) * span
+                let zoneColor = MeterZone.color(for: segDB, low: zoneLow, high: zoneHigh)
+                let lit = i < litCount
+                let isPeak = i == peakIdx
+                let opacity: Double = lit ? 1.0 : (isPeak ? 0.85 : 0.10)
+                let fill = (lit || isPeak) ? zoneColor : Color.primary
+                let off = CGFloat(i) * (segLen + gap)
+                let rect = horizontal
+                    ? CGRect(x: off, y: 0, width: segLen, height: thickness)
+                    : CGRect(x: 0, y: size.height - off - segLen, width: thickness, height: segLen)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(fill.opacity(opacity)))
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Pegel")
+        .accessibilityValue(String(format: "%.0f dB", value))
     }
 }
 

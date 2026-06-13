@@ -170,6 +170,25 @@ enum StatusColor {
     static let badge = Color.red
 }
 
+// MARK: - Level-meter zone colors
+//
+// Traffic-light zones for the segmented level meter. The dB thresholds that
+// split them are user-configurable (WidgetSettings.levelMeterZone*); these
+// are just the three colors a segment can take.
+enum MeterZone {
+    /// Below the low threshold — comfortable.
+    static let safe = Color(red: 0.25, green: 0.82, blue: 0.48)
+    /// Between low and high — getting loud.
+    static let caution = AccentChoice.amber.color
+    /// At/above the high threshold — loud.
+    static let loud = Color(red: 1.0, green: 0.32, blue: 0.32)
+
+    /// Zone color for a given dB value against the configured thresholds.
+    static func color(for db: Float, low: Float, high: Float) -> Color {
+        db < low ? safe : (db < high ? caution : loud)
+    }
+}
+
 // MARK: - Font helpers
 
 extension Font {

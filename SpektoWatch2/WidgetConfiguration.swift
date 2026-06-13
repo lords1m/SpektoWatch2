@@ -430,4 +430,49 @@ enum WidgetSettings {
               let raw = settings["levelMeterShowPeak"]?.lowercased() else { return defaultLevelMeterShowPeak }
         return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
     }
+
+    // MARK: Level-meter color zones (user-configurable dB thresholds)
+    //
+    // Read directly (not gated behind usesWidgetOverrides) — these are display
+    // preferences, not signal-processing overrides, so they should always apply.
+    static let defaultLevelMeterZoneLow: Float = 70
+    static let defaultLevelMeterZoneHigh: Float = 90
+    static let levelMeterZoneLowKey = "levelMeterZoneLow"
+    static let levelMeterZoneHighKey = "levelMeterZoneHigh"
+
+    static func levelMeterZoneLow(_ settings: [String: String]) -> Float {
+        Float(settings[levelMeterZoneLowKey] ?? "") ?? defaultLevelMeterZoneLow
+    }
+    /// High threshold, kept at least 1 dB above the low threshold.
+    static func levelMeterZoneHigh(_ settings: [String: String]) -> Float {
+        let high = Float(settings[levelMeterZoneHighKey] ?? "") ?? defaultLevelMeterZoneHigh
+        return max(high, levelMeterZoneLow(settings) + 1)
+    }
+
+    // MARK: Level-meter statistics (user-selectable readouts)
+    //
+    // Ordered metric keys shown beneath/beside the meter. Stored as a CSV so an
+    // empty string means "show none"; an absent key means "show the default set".
+    static let levelMeterStatsKey = "levelMeterStats"
+    static let defaultLevelMeterStats = "LAeq,LAFmax,LAFmin"
+    /// Every stat the picker offers, in display order.
+    static let availableLevelMeterStats = ["LAeq", "LAFmax", "LAFmin", "LCpeak"]
+
+    static func levelMeterStats(_ settings: [String: String]) -> [String] {
+        let raw = settings[levelMeterStatsKey] ?? defaultLevelMeterStats
+        return raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Short label for a stat metric key (used in the meter and the picker).
+    static func levelMeterStatLabel(_ key: String) -> String {
+        switch key {
+        case "LAeq":   return "Leq"
+        case "LAFmax": return "Max"
+        case "LAFmin": return "Min"
+        case "LCpeak": return "Peak"
+        default:       return key
+        }
+    }
 }
