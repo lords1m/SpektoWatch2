@@ -332,8 +332,9 @@ struct OscilloscopeView: View {
         // TimelineView drives animation without a per-struct Combine subscription.
         // When the parent re-renders (e.g. isPlaying toggles), the TimelineView
         // schedule is preserved by the view graph — no subscription cancel/restart
-        // = no dropped animation frame = no flicker.
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isPlaying)) { context in
+        // = no dropped animation frame = no flicker. No minimumInterval cap:
+        // the trace follows the display's native refresh rate (120 Hz ProMotion).
+        return TimelineView(.animation(paused: !isPlaying)) { context in
             let phase = isPlaying
                 ? context.date.timeIntervalSince(animationStartDate) * Double(frequency) * 2.0 * .pi
                 : 0.0

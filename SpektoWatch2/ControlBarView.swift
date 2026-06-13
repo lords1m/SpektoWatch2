@@ -467,7 +467,9 @@ private struct StatusLED: View {
     let pulsing: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.05, paused: !pulsing)) { context in
+        // Native display rate (no minimumInterval cap) — at 20 Hz the glow
+        // pulse stepped visibly; the view is a 6pt circle, redraw is trivial.
+        TimelineView(.animation(paused: !pulsing)) { context in
             let phase = pulsing
                 ? 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * .pi * 1.1)
                 : 1.0

@@ -235,6 +235,15 @@ class HighEndSpectrogramAdapter: MTKView {
         setupMetal()
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // Match the actual display's refresh rate (60 on LCD models, 120 on
+        // ProMotion). window is nil on removal — keep the last value then.
+        if let maxFPS = window?.screen.maximumFramesPerSecond {
+            preferredFramesPerSecond = maxFPS
+        }
+    }
+
     // MARK: - Metal Setup
 
     private func setupMetal() {
@@ -246,6 +255,10 @@ class HighEndSpectrogramAdapter: MTKView {
         self.framebufferOnly = true   // We only render to it, no compute writes
         self.enableSetNeedsDisplay = false
         self.isPaused = false
+        // Fallback until the view joins a window; didMoveToWindow raises this
+        // to the display's native rate (120 on ProMotion, requires the
+        // CADisableMinimumFrameDurationOnPhone Info.plist key). Scrolling is
+        // CACurrentMediaTime()-based, so speed is frame-rate independent.
         self.preferredFramesPerSecond = 60
         self.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         self.colorPixelFormat = .bgra8Unorm
