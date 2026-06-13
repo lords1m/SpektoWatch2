@@ -91,14 +91,12 @@ struct SingleValueWidget: View {
     }
 
     var body: some View {
-        // Frameless layout: rely on the card's own header for the widget
-        // name + dB(A) meta pill, so the kernel surfaces only the value
-        // and its unit. No internal title row, no surrounding padding —
-        // numerals fill the kernel area edge-to-edge and animate with
-        // SwiftUI's numericText content transition.
-        VStack(spacing: 0) {
+        // The card header is hidden for value widgets when idle, so the kernel
+        // itself carries the value's designation (metric name + unit) — that is
+        // what tells the otherwise-identical single-value cards apart.
+        VStack(spacing: 2) {
             Text(displayValue)
-                .font(.numerals(numerals, size: 36, weight: .semibold))
+                .font(.numerals(numerals, size: 34, weight: .semibold))
                 .monospacedDigit()
                 .foregroundColor(engineStatus == .running ? .primary : .gray)
                 .minimumScaleFactor(0.4)
@@ -106,11 +104,13 @@ struct SingleValueWidget: View {
                 .contentTransition(.numericText(value: Double(value ?? 0)))
                 .animation(.easeOut(duration: 0.2), value: value)
 
-            Text(unitLabel)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.top, 2)
+            (Text(displayTitle) + Text("  \(unitLabel)"))
+                .font(.readout(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .innerCanvas(cornerRadius: 0)
         .onReceive(live.$currentSpectrogramData) { data in

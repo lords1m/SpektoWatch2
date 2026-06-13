@@ -403,6 +403,7 @@ private struct SpectrumBandChartView: View {
 struct LevelMeterWidget: View {
     @ObservedObject private var live: LiveAcousticState
     @ObservedObject private var audioEngine: AudioEngine
+    @Environment(\.designNumerals) private var numerals
     var settings: [String: String] = [:]
 
     init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
@@ -454,9 +455,31 @@ struct LevelMeterWidget: View {
         .innerCanvas(cornerRadius: 0)
     }
 
+    /// Current level as the kernel headline (the card header no longer carries
+    /// it). "—" below the floor; colored by the (muted) zone it falls in.
+    private func levelText(_ level: Float, minDB: Float) -> String {
+        level.isFinite && level > minDB ? String(format: "%.1f", level) : "—"
+    }
+    private func levelColor(_ level: Float, minDB: Float) -> Color {
+        level > minDB ? MeterZone.color(for: level, low: zoneLow, high: zoneHigh) : .secondary
+    }
+
     @ViewBuilder
     private func horizontalMeterBody(level: Float, peak: Float, minDB: Float, maxDB: Float) -> some View {
         VStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(levelText(level, minDB: minDB))
+                    .font(.numerals(numerals, size: 30, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(levelColor(level, minDB: minDB))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text(weightingLabel)
+                    .font(.readout(size: 11))
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+            }
+
             SegmentedLevelBar(
                 value: level, peak: peak, minDB: minDB, maxDB: maxDB,
                 zoneLow: zoneLow, zoneHigh: zoneHigh, showPeak: showPeak, axis: .horizontal
@@ -478,24 +501,35 @@ struct LevelMeterWidget: View {
     @ViewBuilder
     private func verticalMeterBody(level: Float, peak: Float, minDB: Float, maxDB: Float) -> some View {
         HStack(spacing: 12) {
-            // Narrow bar column — the segments carry the reading; stats sit beside.
+            // Narrow bar column — the segments carry the reading; number + stats sit beside.
             SegmentedLevelBar(
                 value: level, peak: peak, minDB: minDB, maxDB: maxDB,
                 zoneLow: zoneLow, zoneHigh: zoneHigh, showPeak: showPeak, axis: .vertical
             )
             .frame(width: 24)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("\(Int(minDB))–\(Int(maxDB)) \(weightingLabel)")
-                    .font(.readout(size: 10))
-                    .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(levelText(level, minDB: minDB))
+                        .font(.numerals(numerals, size: 28, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(levelColor(level, minDB: minDB))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(weightingLabel)
+                        .font(.readout(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                // Compact label-left / value-right rows so a few stats fit
+                // without clipping even in a short widget.
                 ForEach(statKeys, id: \.self) { key in
-                    VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
                         Text(WidgetSettings.levelMeterStatLabel(key))
                             .font(.readout(size: 10))
                             .foregroundStyle(.secondary)
+                        Spacer(minLength: 2)
                         Text(statValue(key))
-                            .font(.readout(size: 17, weight: .medium))
+                            .font(.readout(size: 14, weight: .medium))
                             .foregroundStyle(statColor(key))
                     }
                 }

@@ -226,11 +226,11 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         case .levelHistory, .frequencyDisplay, .octaveBands:
             return (min: WidgetSize(columns: 2, rows: 1), max: WidgetSize(columns: 3, rows: 3))
         case .levelMeter:
-            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 3))
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 3, rows: 4))
         case .phaseMeter:
             return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 2))
         case .singleValue:
-            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 2))
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 3, rows: 3))
         case .masking:
             return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 3, rows: 3))
         }

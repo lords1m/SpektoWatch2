@@ -47,6 +47,25 @@ struct WidgetCardView: View {
         max(60, widget.frameHeight - chromeOverhead)
     }
 
+    /// Value widgets (number / meter) print their own designation inside the
+    /// kernel, so the chrome header is clutter when idle: it appears only in
+    /// edit mode, and the kernel fills the whole card otherwise. Chart widgets
+    /// keep their header (title + live meta readout) visible as before.
+    private var hidesHeaderWhenIdle: Bool {
+        widget.type == .singleValue || widget.type == .levelMeter
+    }
+    private var showsHeaderStrip: Bool {
+        hidesHeaderWhenIdle ? isEditMode : true
+    }
+    private var headerOpacity: Double {
+        hidesHeaderWhenIdle ? (isEditMode ? 1 : 0) : (isEditMode ? 0 : 1)
+    }
+    /// Value widgets reclaim the header strip when idle → larger content.
+    /// Reflow on the edit toggle is harmless for these (Text / Canvas kernels).
+    private var resolvedKernelHeight: CGFloat {
+        (hidesHeaderWhenIdle && !isEditMode) ? widget.frameHeight : kernelHeight
+    }
+
     // Stable per-widget jiggle phase so cards rotate out of sync. Uses
     // the UUID byte sum rather than `hashValue` (which is salted per
     // launch) so the rotation phase survives cold restarts.
@@ -61,14 +80,17 @@ struct WidgetCardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header strip — always reserved; hidden visually in edit mode
-            // so the kernel area doesn't reflow when toggling.
-            cardHeader
-                .frame(height: headerHeight)
-                .padding(.horizontal, 14)
-                .padding(.top, cardTopInset)
-                .padding(.bottom, headerGap)
-                .opacity(isEditMode ? 0 : 1)
+            // Header strip. Chart widgets: reserved always, hidden via opacity
+            // in edit mode (no reflow). Value widgets: omitted from layout when
+            // idle (kernel fills the card) and shown only in edit mode.
+            if showsHeaderStrip {
+                cardHeader
+                    .frame(height: headerHeight)
+                    .padding(.horizontal, 14)
+                    .padding(.top, cardTopInset)
+                    .padding(.bottom, headerGap)
+                    .opacity(headerOpacity)
+            }
 
             // Kernel fills the remaining card area edge-to-edge so the
             // card material (.thinMaterial) acts as the kernel background,
@@ -76,7 +98,7 @@ struct WidgetCardView: View {
             // card itself clip overflow.
             renderWidgetContent()
                 .frame(maxWidth: .infinity)
-                .frame(height: kernelHeight)
+                .frame(height: resolvedKernelHeight)
                 .clipped()
         }
         .frame(height: widget.frameHeight)

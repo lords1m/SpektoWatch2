@@ -176,12 +176,14 @@ enum StatusColor {
 // split them are user-configurable (WidgetSettings.levelMeterZone*); these
 // are just the three colors a segment can take.
 enum MeterZone {
+    // Muted, desaturated traffic-light tones — readable as zones without the
+    // neon glare of fully-saturated green/amber/red.
     /// Below the low threshold — comfortable.
-    static let safe = Color(red: 0.25, green: 0.82, blue: 0.48)
+    static let safe = Color(red: 0.40, green: 0.66, blue: 0.49)
     /// Between low and high — getting loud.
-    static let caution = AccentChoice.amber.color
+    static let caution = Color(red: 0.81, green: 0.64, blue: 0.34)
     /// At/above the high threshold — loud.
-    static let loud = Color(red: 1.0, green: 0.32, blue: 0.32)
+    static let loud = Color(red: 0.78, green: 0.42, blue: 0.42)
 
     /// Zone color for a given dB value against the configured thresholds.
     static func color(for db: Float, low: Float, high: Float) -> Color {
