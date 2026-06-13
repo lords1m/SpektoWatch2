@@ -11,9 +11,9 @@ struct WidgetPickerView: View {
     }
 
     private static let sections: [SectionSpec] = [
-        .init(id: "viz", title: "Visualisierung", types: [.spectrogram, .waterfall, .frequencyDisplay, .octaveBands]),
-        .init(id: "levels", title: "Pegel & Metriken", types: [.levelHistory, .levelMeter, .singleValue, .phaseMeter]),
-        .init(id: "tools", title: "Werkzeuge", types: [.toneGenerator, .masking, .spektralanalyseLab])
+        .init(id: "viz", title: "Visualisierung", types: [.spectrogram, .frequencyDisplay, .octaveBands]),
+        .init(id: "levels", title: "Pegel & Metriken", types: [.levelHistory, .levelMeter, .singleValue]),
+        .init(id: "tools", title: "Werkzeuge", types: [.toneGenerator, .spektralanalyseLab])
     ]
 
     var body: some View {

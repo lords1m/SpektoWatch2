@@ -525,6 +525,7 @@ class DashboardManager: ObservableObject {
 
     nonisolated private static func normalizeWidgets(_ widgets: [WidgetConfiguration]) -> [WidgetConfiguration] {
         widgets.compactMap { widget in
+            guard widget.type.isAvailable else { return nil }
             var normalized = widget
             if normalized.type == .octaveBands {
                 normalized.type = .frequencyDisplay

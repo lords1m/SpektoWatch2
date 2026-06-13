@@ -9,17 +9,17 @@ final class DashboardStateMigrationTests: XCTestCase {
         XCTAssertEqual(Set(state.presetSlots.map(\.presetID)), Set(PresetCatalogue.all.map(\.id)))
     }
 
-    func testMigrateV1PresetLayoutIntoSlot() {
+    func testMigrateV1DeactivatedPresetBecomesCustomLayout() {
         let widgets = [WidgetConfiguration(type: .waterfall, size: WidgetConfiguration.defaultSize(for: .waterfall))]
         let v1 = DashboardLayout(name: "Preset: waterfall", widgets: widgets)
         let migrated = DashboardStateMigration.migrateFromV1(
             DashboardV1Snapshot(layouts: [v1], activeLayoutIndex: 0)
         )
-        let slot = migrated.presetSlots.first { $0.presetID == "waterfall" }
-        XCTAssertEqual(slot?.widgets.count, 1)
-        XCTAssertEqual(slot?.widgets.first?.type, .waterfall)
+        XCTAssertNil(migrated.presetSlots.first { $0.presetID == "waterfall" })
+        XCTAssertEqual(migrated.customLayouts.first?.name, "Preset: waterfall")
+        XCTAssertTrue(migrated.customLayouts.first?.widgets.isEmpty == true)
         if case .preset(let id) = migrated.navigation {
-            XCTAssertEqual(id, "waterfall")
+            XCTAssertEqual(id, "overview")
         } else {
             XCTFail("Expected preset navigation")
         }
@@ -37,9 +37,9 @@ final class DashboardStateMigrationTests: XCTestCase {
         }
     }
 
-    func testReconcileAddsMissingPhaseSlot() {
+    func testReconcileAddsMissingActivePresetSlot() {
         var state = DashboardStateV2(
-            presetSlots: PresetCatalogue.all.filter { $0.id != "phase" }.map {
+            presetSlots: PresetCatalogue.all.filter { $0.id != "lab" }.map {
                 PresetSlot(presetID: $0.id, widgets: PresetCompositions.widgets(forPresetID: $0.id))
             },
             customLayouts: [],
@@ -52,6 +52,9 @@ final class DashboardStateMigrationTests: XCTestCase {
             return XCTFail("encode/decode failed")
         }
         decoded = DashboardManager.reconcileSlots(decoded)
-        XCTAssertTrue(decoded.presetSlots.contains { $0.presetID == "phase" })
+        XCTAssertTrue(decoded.presetSlots.contains { $0.presetID == "lab" })
+        XCTAssertFalse(decoded.presetSlots.contains { $0.presetID == "phase" })
+        XCTAssertFalse(decoded.presetSlots.contains { $0.presetID == "waterfall" })
+        XCTAssertFalse(decoded.presetSlots.contains { $0.presetID == "masking" })
     }
 }

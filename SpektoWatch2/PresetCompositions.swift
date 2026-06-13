@@ -12,14 +12,13 @@ enum PresetCompositions {
         switch id {
         case "overview":    return overview()
         case "spectrogram": return [.init(type: .spectrogram, size: WidgetSize(columns: 3, rows: 4))]
-        case "waterfall":   return [.init(type: .waterfall,   size: WidgetSize(columns: 3, rows: 4))]
+        case "waterfall", "phase", "masking":
+            return overview()
         case "level-time":  return [.init(type: .levelHistory, size: WidgetSize(columns: 3, rows: 3))]
         case "spectrum":    return [.init(type: .frequencyDisplay, size: WidgetSize(columns: 3, rows: 3))]
         case "level-meter": return [.init(type: .levelMeter,  size: WidgetSize(columns: 2, rows: 3))]
         case "single":      return singleValueGrid()
         case "tone":        return [.init(type: .toneGenerator, size: WidgetSize(columns: 3, rows: 4))]
-        case "phase":       return [.init(type: .phaseMeter, size: WidgetSize(columns: 3, rows: 3))]
-        case "masking":     return [.init(type: .masking, size: WidgetSize(columns: 3, rows: 3))]
         case "lab":         return [.init(type: .spektralanalyseLab, size: WidgetSize(columns: 3, rows: 4))]
         default:            return overview()
         }
