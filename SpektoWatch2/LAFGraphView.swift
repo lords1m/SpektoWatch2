@@ -155,7 +155,7 @@ struct LevelHistoryView: View {
                         grid.addLine(to: CGPoint(x: chartRect.maxX, y: y))
                         context.stroke(grid, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.8)
 
-                        let label = Text("\(Int(tick))").font(.system(size: 9, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis)
+                        let label = Text("\(Int(tick))").font(.readout(size: 9, weight: .regular)).foregroundColor(ScientificChartPalette.axis)
                         context.draw(label, at: CGPoint(x: chartRect.minX - 16, y: y))
                     }
 
@@ -169,33 +169,64 @@ struct LevelHistoryView: View {
 
                         let secondsFromNow = Double(timeSpan.rawValue) * (Double(division) / Double(timeDivisions) - 1.0)
                         let label = Text(String(format: "%.1fs", secondsFromNow))
-                            .font(.system(size: 8, weight: .regular, design: .monospaced))
+                            .font(.readout(size: 8, weight: .regular))
                             .foregroundColor(ScientificChartPalette.axis)
                         context.draw(label, at: CGPoint(x: x, y: chartRect.maxY + 10))
                     }
 
-                    var path = Path()
                     let offsetSamples = 0
-                    for i in 0..<count {
-                        let x = chartRect.minX + chartRect.width * CGFloat(i) / CGFloat(max(count - 1, 1))
+                    let rawValues: [Float] = (0..<count).map { i in
                         let index = (writeIndex + offsetSamples - i + 2 * count) % count
-                        let level = Double(levelBuffer[index] + dbOffset)
+                        return levelBuffer[index]
+                    }
+                    func xFor(_ i: Int) -> CGFloat {
+                        chartRect.minX + chartRect.width * CGFloat(i) / CGFloat(max(count - 1, 1))
+                    }
+                    func yFor(_ v: Float) -> CGFloat {
+                        let level = Double(v + dbOffset)
                         let clampedLevel = min(max(level, minDB), maxDB)
                         let yNorm = ScientificAxis.normalized(clampedLevel, min: minDB, max: maxDB)
-                        let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
-                        if i == 0 {
-                            path.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            path.addLine(to: CGPoint(x: x, y: y))
-                        }
+                        return chartRect.maxY - CGFloat(yNorm) * chartRect.height
                     }
 
-                    var fillPath = path
-                    fillPath.addLine(to: CGPoint(x: chartRect.maxX, y: chartRect.maxY))
-                    fillPath.addLine(to: CGPoint(x: chartRect.minX, y: chartRect.maxY))
-                    fillPath.closeSubpath()
-                    context.fill(fillPath, with: .color(ScientificChartPalette.fill))
-                    context.stroke(path, with: .color(ScientificChartPalette.series), lineWidth: 1.6)
+                    // Slots never written hold the pre-fill sentinel (-120 dB).
+                    // Render those as a gap — breaking the line — instead of a
+                    // plunge to the axis floor, which otherwise reads as a sudden
+                    // silence at the leading edge of a partially-filled buffer.
+                    let dataFloor: Float = -119.0
+                    var runStart: Int? = nil
+                    func flushRun(_ end: Int) {
+                        defer { runStart = nil }
+                        guard let start = runStart, end >= start else { return }
+                        // A run of one valid sample (isolated between gaps) would
+                        // otherwise be a move-only path with no visible stroke;
+                        // draw it as a small dot so a lone reading still shows.
+                        if start == end {
+                            let p = CGPoint(x: xFor(start), y: yFor(rawValues[start]))
+                            let dot = Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3))
+                            context.fill(dot, with: .color(ScientificChartPalette.series))
+                            return
+                        }
+                        var line = Path()
+                        for i in start...end {
+                            let p = CGPoint(x: xFor(i), y: yFor(rawValues[i]))
+                            if i == start { line.move(to: p) } else { line.addLine(to: p) }
+                        }
+                        var fill = line
+                        fill.addLine(to: CGPoint(x: xFor(end), y: chartRect.maxY))
+                        fill.addLine(to: CGPoint(x: xFor(start), y: chartRect.maxY))
+                        fill.closeSubpath()
+                        context.fill(fill, with: .color(ScientificChartPalette.fill))
+                        context.stroke(line, with: .color(ScientificChartPalette.series), lineWidth: 1.6)
+                    }
+                    for i in 0..<count {
+                        if rawValues[i] > dataFloor {
+                            if runStart == nil { runStart = i }
+                        } else {
+                            flushRun(i - 1)
+                        }
+                    }
+                    flushRun(count - 1)
 
                     var axisPath = Path()
                     axisPath.move(to: CGPoint(x: chartRect.minX, y: chartRect.minY))

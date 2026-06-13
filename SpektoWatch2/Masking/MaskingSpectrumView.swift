@@ -67,7 +67,7 @@ struct MaskingSpectrumView: View {
 
             let lbl = f >= 1000 ? "\(Int(f / 1000))k" : "\(Int(f))"
             let t = ctx.resolve(
-                Text(lbl).font(.system(size: 7.5, design: .monospaced)).foregroundStyle(tick)
+                Text(lbl).font(.readout(size: 7.5)).foregroundStyle(tick)
             )
             ctx.draw(t, at: CGPoint(x: x, y: chart.maxY + 3), anchor: .top)
         }
@@ -82,7 +82,7 @@ struct MaskingSpectrumView: View {
 
             let lbl = "\(Int(db))"
             let t = ctx.resolve(
-                Text(lbl).font(.system(size: 7.5, design: .monospaced)).foregroundStyle(tick)
+                Text(lbl).font(.readout(size: 7.5)).foregroundStyle(tick)
             )
             ctx.draw(t, at: CGPoint(x: chart.minX - 2, y: y), anchor: .trailing)
         }

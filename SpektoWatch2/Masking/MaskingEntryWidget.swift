@@ -17,7 +17,7 @@ struct MaskingEntryWidget: View {
                 // Header row
                 HStack(alignment: .center) {
                     Text("MASKING")
-                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 8, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
                     stateIndicator
@@ -40,7 +40,7 @@ struct MaskingEntryWidget: View {
                     Spacer()
                     if engine.previewPlayer.isPlaying {
                         Text("▶ AKTIV")
-                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                            .font(.readout(size: 8, weight: .semibold))
                             .foregroundStyle(.green)
                     }
                 }
@@ -111,7 +111,7 @@ struct MaskingEntryWidget: View {
                     .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.30))
             }
         }
-        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .font(.readout(size: 9, weight: .medium))
     }
 
     private func maskerCode(_ type: MaskerType) -> String {
@@ -146,7 +146,7 @@ struct MaskingEntryWidget: View {
                         ToolbarItem(placement: .topBarTrailing) {
                             if !services.maskingProfileManager.profiles.isEmpty {
                                 Button("Profile") { showProfiles = true }
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(.readout(size: 12))
                                     .foregroundStyle(.secondary)
                             }
                         }

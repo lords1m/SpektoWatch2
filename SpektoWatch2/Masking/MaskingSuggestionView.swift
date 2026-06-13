@@ -42,7 +42,7 @@ struct MaskingSuggestionView: View {
 
                 Button(action: { showSaveSheet = true }) {
                     Text("ALS PROFIL SPEICHERN")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 11, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                 }
@@ -65,16 +65,16 @@ struct MaskingSuggestionView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 legendDot(Color(red: 0.0, green: 0.85, blue: 1.0))
-                Text("TRIGGER").font(.system(size: 8, design: .monospaced)).foregroundStyle(.secondary)
+                Text("TRIGGER").font(.readout(size: 8)).foregroundStyle(.secondary)
                 Spacer().frame(width: 10)
                 legendDot(Color(red: 1.0, green: 0.80, blue: 0.30))
-                Text("MASKER EQ").font(.system(size: 8, design: .monospaced)).foregroundStyle(.secondary)
+                Text("MASKER EQ").font(.readout(size: 8)).foregroundStyle(.secondary)
                 Spacer().frame(width: 10)
                 legendDot(Color(white: 0.4))
-                Text("MASKER NAT").font(.system(size: 8, design: .monospaced)).foregroundStyle(.secondary)
+                Text("MASKER NAT").font(.readout(size: 8)).foregroundStyle(.secondary)
                 Spacer()
                 Text("KONFIDENZ \(Int(suggestion.confidenceScore * 100)) %")
-                    .font(.system(size: 8, design: .monospaced))
+                    .font(.readout(size: 8))
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
@@ -108,7 +108,7 @@ struct MaskingSuggestionView: View {
                     }) {
                         VStack(spacing: 3) {
                             Text(maskerCode(masker))
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .font(.readout(size: 9, weight: .semibold))
                             Text(masker.displayName)
                                 .font(.system(size: 10))
                                 .lineLimit(1)
@@ -138,7 +138,7 @@ struct MaskingSuggestionView: View {
 
             if suggestion.maskerType == selectedMasker {
                 Text("↑ EMPFOHLEN")
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .font(.readout(size: 8, weight: .semibold))
                     .foregroundStyle(Color(red: 0.0, green: 0.85, blue: 1.0))
             }
         }
@@ -178,7 +178,7 @@ struct MaskingSuggestionView: View {
                 sectionHeader("PEGEL")
                 Spacer()
                 Text(String(format: "%.0f dBFS", volumeDB))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.readout(size: 11))
                     .foregroundStyle(.secondary)
             }
 
@@ -198,7 +198,7 @@ struct MaskingSuggestionView: View {
                     .fill(preview.isPlaying ? Color.green : Color.accentColor)
                     .frame(width: 8, height: 8)
                 Text(preview.isPlaying ? "STOP" : "VORSCHAU")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .font(.readout(size: 12, weight: .semibold))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
@@ -215,7 +215,7 @@ struct MaskingSuggestionView: View {
             Form {
                 Section("Profilname") {
                     TextField("z. B. Büro – Tastatur", text: $profileName)
-                        .font(.system(size: 14, design: .monospaced))
+                        .font(.readout(size: 14))
                 }
                 Section {
                     Button("Speichern") {
@@ -239,7 +239,7 @@ struct MaskingSuggestionView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .font(.readout(size: 9, weight: .semibold))
             .foregroundStyle(.secondary)
     }
 
@@ -288,12 +288,12 @@ private struct InstrumentEQRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(bandCode)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(.readout(size: 9, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 32, alignment: .leading)
 
             Text("\(Int(band.frequency)) Hz")
-                .font(.system(size: 9, design: .monospaced))
+                .font(.readout(size: 9))
                 .foregroundStyle(.secondary)
                 .frame(width: 52, alignment: .leading)
 
@@ -303,7 +303,7 @@ private struct InstrumentEQRow: View {
             .tint(gainColor)
 
             Text(String(format: "%+.1f", gain))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.readout(size: 10))
                 .foregroundStyle(gainColor)
                 .frame(width: 38, alignment: .trailing)
         }

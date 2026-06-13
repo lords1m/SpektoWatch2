@@ -24,6 +24,20 @@ struct PresetRailView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
+            .mask(
+                // Edge fades so chips clipped at the screen border read as
+                // "scrolls further" rather than an accidental hard cut.
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.04),
+                        .init(color: .black, location: 0.96),
+                        .init(color: .clear, location: 1.0)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
             .onChange(of: activeID) { _, newID in
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     proxy.scrollTo(newID, anchor: .center)
@@ -58,7 +72,9 @@ struct PresetRailView: View {
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
+            .frame(minHeight: 38)
+            .contentShape(Capsule())
             .foregroundStyle(isActive ? Color.black : Color.primary.opacity(0.92))
             .background(
                 Capsule(style: .continuous)

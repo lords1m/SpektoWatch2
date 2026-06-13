@@ -137,6 +137,39 @@ enum DesignColormap {
     }
 }
 
+// MARK: - Radius scale
+//
+// Four-step scale covering the chrome layer. Canvas-internal micro-radii
+// (piano keys, markers, 2–4pt) intentionally stay as literals — they are
+// drawing details, not chrome.
+enum Radius {
+    /// Small controls: chips, preset buttons, inline badges.
+    static let control: CGFloat = 8
+    /// Chart kernels / inner canvases.
+    static let kernel: CGFloat = 14
+    /// Widget cards.
+    static let card: CGFloat = 22
+    /// Floating header / transport pills.
+    static let pill: CGFloat = 28
+}
+
+// MARK: - Semantic status colors
+//
+// Named roles so "green" can mean exactly one thing per context.
+// `designAccent` stays the brand/interaction color; these cover state:
+enum StatusColor {
+    /// Live monitoring is active (LED, live tint).
+    static let live = Color.green
+    /// Recording to file (LED, record button, badges).
+    static let recording = Color.red
+    /// Masking trigger-capture armed state.
+    static let trigger = Color(red: 0.0, green: 0.85, blue: 1.0)
+    /// Count/notification badge (e.g. recordings count) — an attention marker,
+    /// not a recording-state indicator, so it gets its own role even though it
+    /// currently shares red.
+    static let badge = Color.red
+}
+
 // MARK: - Font helpers
 
 extension Font {
@@ -175,7 +208,7 @@ extension Font {
 /// own opaque background will still cover this material; for those,
 /// seamlessness depends on the kernel itself using a matching color.
 struct InnerCanvas: ViewModifier {
-    var cornerRadius: CGFloat = 14
+    var cornerRadius: CGFloat = Radius.kernel
     @Environment(\.designUseDarkCanvas) private var useDarkCanvas
 
     func body(content: Content) -> some View {
@@ -211,7 +244,7 @@ struct InnerCanvas: ViewModifier {
 /// iPhone 12 mini (A14), so we picked the cheaper material tier and
 /// collapsed the two prior shadows into one conditional shadow.
 struct LiquidGlassCard: ViewModifier {
-    var cornerRadius: CGFloat = 22
+    var cornerRadius: CGFloat = Radius.card
     var isEditing: Bool = false
     var accent: Color = .green
 
@@ -237,7 +270,7 @@ struct LiquidGlassCard: ViewModifier {
 
 /// Floating header / transport pill chrome.
 struct FloatingPill: ViewModifier {
-    var cornerRadius: CGFloat = 28
+    var cornerRadius: CGFloat = Radius.pill
     func body(content: Content) -> some View {
         content
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -250,13 +283,13 @@ struct FloatingPill: ViewModifier {
 }
 
 extension View {
-    func innerCanvas(cornerRadius: CGFloat = 14) -> some View {
+    func innerCanvas(cornerRadius: CGFloat = Radius.kernel) -> some View {
         modifier(InnerCanvas(cornerRadius: cornerRadius))
     }
-    func liquidGlassCard(cornerRadius: CGFloat = 22, isEditing: Bool = false, accent: Color = .green) -> some View {
+    func liquidGlassCard(cornerRadius: CGFloat = Radius.card, isEditing: Bool = false, accent: Color = .green) -> some View {
         modifier(LiquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditing, accent: accent))
     }
-    func floatingPill(cornerRadius: CGFloat = 28) -> some View {
+    func floatingPill(cornerRadius: CGFloat = Radius.pill) -> some View {
         modifier(FloatingPill(cornerRadius: cornerRadius))
     }
 }
@@ -329,17 +362,16 @@ struct DashboardPreset: Identifiable, Equatable {
 }
 
 enum PresetCatalogue {
+    private static let deactivatedPresetIDs: Set<String> = ["waterfall", "phase", "masking"]
+
     static let all: [DashboardPreset] = [
         .init(id: "overview",    label: "Übersicht",            symbol: "square.grid.2x2"),
         .init(id: "spectrogram", label: "Spektrogramm",         symbol: "waveform.path.ecg"),
-        .init(id: "waterfall",   label: "Wasserfall",           symbol: "square.stack.3d.up"),
         .init(id: "level-time",  label: "Pegelverlauf",         symbol: "chart.xyaxis.line"),
         .init(id: "spectrum",    label: "Frequenz-Spektrum",    symbol: "chart.bar"),
         .init(id: "level-meter", label: "Pegel-Meter",          symbol: "speedometer"),
         .init(id: "single",      label: "Einzelwert",           symbol: "123.rectangle"),
         .init(id: "tone",        label: "Tongenerator",         symbol: "waveform"),
-        .init(id: "phase",       label: "Phasen-Meter",         symbol: "circle.lefthalf.filled"),
-        .init(id: "masking",     label: "Sound Masking",        symbol: "square.grid.2x2"),
         .init(id: "lab",         label: "Spektralanalyse-Labor", symbol: "atom")
     ]
 }

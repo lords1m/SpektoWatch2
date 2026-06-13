@@ -77,19 +77,27 @@ struct LevelHistoryWidget: View {
         }
         .onChange(of: resolvedMetricKey) { _, _ in store.reset() }
         .overlay(alignment: .topLeading) {
+            // Leading inset clears the chart's y-axis gutter (36pt) so the
+            // metric badge never collides with the top axis label ("110").
             Text(metricLabel)
                 .font(.caption)
                 .foregroundColor(.white)
-                .padding(4)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
                 .background(Color.black.opacity(0.5))
                 .cornerRadius(4)
-                .padding(4)
+                .padding(.top, 6)
+                .padding(.leading, 40)
         }
         .overlay(alignment: .topTrailing) {
-            HStack(alignment: .top, spacing: 4) {
+            HStack(alignment: .top, spacing: 6) {
                 // Phon/sone are A-weighted perceptual units; showing them alongside
                 // an explicit non-A metric (e.g. LCpeak) would be misleading.
+                // Suppress at/near silence — phon≈0 / sone≈0 are not meaningful
+                // loudness readings and rendered as "0.0 phon / 0.00 sone" they
+                // read as a broken value rather than "quiet".
                 if let phon = phonValue, let sone = soneValue,
+                   phon >= 1, sone >= 0.05,
                    selectedHistoryMetric == WidgetSettings.defaultLevelHistoryMetric {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(String(format: "%.1f phon", phon))

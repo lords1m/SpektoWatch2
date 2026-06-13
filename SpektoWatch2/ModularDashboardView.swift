@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct ModularDashboardView: View {
     @StateObject private var viewModel: DashboardViewModel
-    @StateObject private var dashboardManager: DashboardManager
+    @ObservedObject private var dashboardManager: DashboardManager
     @EnvironmentObject private var services: AppServices
     @Environment(\.designDensity) private var density
     @State private var isHeaderVisible: Bool = true
@@ -17,10 +17,14 @@ struct ModularDashboardView: View {
     private let handleDragThreshold: CGFloat = 12
     private let scrollThreshold: CGFloat = 20
 
-    init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
-        let dm = DashboardManager()
-        _viewModel = StateObject(wrappedValue: DashboardViewModel(dashboardManager: dm, audioEngine: audioEngine, connectivityManager: connectivityManager))
-        _dashboardManager = StateObject(wrappedValue: dm)
+    /// `dashboardManager` is owned by the caller (ContentView's @StateObject) —
+    /// creating it here meant every re-init of this struct allocated a
+    /// throwaway manager that @StateObject then discarded. The view-model
+    /// autoclosure below is deferred, so it is built once with the stable
+    /// instance from the first init.
+    init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager, dashboardManager: DashboardManager) {
+        _viewModel = StateObject(wrappedValue: DashboardViewModel(dashboardManager: dashboardManager, audioEngine: audioEngine, connectivityManager: connectivityManager))
+        _dashboardManager = ObservedObject(wrappedValue: dashboardManager)
     }
 
     var body: some View {
@@ -157,11 +161,23 @@ struct ModularDashboardView: View {
                 )
                 TabView(selection: selection) {
                     ForEach(Array(PresetCatalogue.all.indices), id: \.self) { index in
-                        scrollableDashboard(
-                            geo: geo,
-                            widgets: dashboardManager.widgets(forPresetIndex: index),
-                            isActive: index == dashboardManager.activePresetIndex
-                        )
+                        Group {
+                            // Paged TabView mounts all pages eagerly. Only the
+                            // active page and its swipe neighbors get a live
+                            // dashboard — otherwise every off-screen preset's
+                            // widgets stay subscribed and re-render on each
+                            // 15 Hz audio publish. Far pages mount on demand
+                            // as the window moves with the selection.
+                            if abs(index - dashboardManager.activePresetIndex) <= 1 {
+                                scrollableDashboard(
+                                    geo: geo,
+                                    widgets: dashboardManager.widgets(forPresetIndex: index),
+                                    isActive: index == dashboardManager.activePresetIndex
+                                )
+                            } else {
+                                Color.clear
+                            }
+                        }
                         .tag(index)
                     }
                 }
@@ -302,6 +318,9 @@ struct ModularDashboardView: View {
         .background(.thinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.primary.opacity(0.18), lineWidth: 1))
         .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 4)
+        // Invisible padding lifts the tap target to ≥44pt while keeping the
+        // 28pt visual; contentShape makes the padded area hit-testable.
+        .padding(.vertical, 8)
         .contentShape(Rectangle())
     }
 
@@ -357,11 +376,14 @@ struct ModularDashboardView: View {
                 let columnWidth = (availableWidth - CGFloat(colCount - 1) * gridSpacing) / CGFloat(colCount)
 
                 Grid(horizontalSpacing: gridSpacing, verticalSpacing: gridSpacing) {
-                    ForEach(0..<rows.count, id: \.self) { rowIndex in
+                    // Rows are identified by their first widget's id (computeRows
+                    // never emits an empty row) so a widget moving between rows
+                    // animates as a move, not as two rows changing content.
+                    ForEach(rows, id: \.first?.id) { row in
                         GridRow {
-                            ForEach(rows[rowIndex], id: \.id) { widget in
+                            ForEach(row, id: \.id) { widget in
                                 let span = viewModel.getSpan(for: widget, colCount: colCount)
-                                let card = widgetCard(widget: widget, columnWidth: columnWidth, isActiveLayout: isActiveLayout)
+                                let card = widgetCard(widget: widget, columnWidth: columnWidth, gridSpacing: gridSpacing, isActiveLayout: isActiveLayout)
 
                                 if dashboardManager.isEditMode && isActiveLayout {
                                     card
@@ -382,7 +404,10 @@ struct ModularDashboardView: View {
                                             )
                                         )
                                         .overlay(
-                                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                            // Radius.card so the drop-target dash
+                                            // hugs the card shape exactly (was 20
+                                            // on a 22pt card — visibly offset).
+                                            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                                                 .stroke(
                                                     dropTargetWidgetID == widget.id ? Color.accentColor.opacity(0.65) : .clear,
                                                     style: StrokeStyle(lineWidth: 2, dash: [6, 5])
@@ -429,13 +454,14 @@ struct ModularDashboardView: View {
         .accessibilityIdentifier("addWidgetDashedButton")
     }
 
-    private func widgetCard(widget: WidgetConfiguration, columnWidth: CGFloat, isActiveLayout: Bool) -> some View {
+    private func widgetCard(widget: WidgetConfiguration, columnWidth: CGFloat, gridSpacing: CGFloat, isActiveLayout: Bool) -> some View {
         WidgetCardView(
             widget: widget,
             audioEngine: viewModel.audioEngine,
             fftConfig: services.fftConfiguration,
             isEditMode: dashboardManager.isEditMode && isActiveLayout,
             columnWidth: columnWidth,
+            gridSpacing: gridSpacing,
             onDelete: {
                 viewModel.deleteWidget(widget)
             },
@@ -446,6 +472,13 @@ struct ModularDashboardView: View {
             },
             onUpdateSettings: { newSettings in
                 dashboardManager.updateWidgetSettings(id: widget.id, settings: newSettings)
+            },
+            onRequestEditMode: {
+                // Same spring as DashboardHeaderView.toggleEdit so both entry
+                // points into edit mode feel identical.
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    dashboardManager.isEditMode = true
+                }
             }
         )
         .equatable()
@@ -494,7 +527,9 @@ struct WidgetDropDelegate: DropDelegate {
     var onSave: () -> Void
 
     func performDrop(info: DropInfo) -> Bool {
-        guard isEnabled else { return false }
+        // draggedItem != nil rejects foreign text drags (iPad multitasking,
+        // hardware-keyboard drags) that would otherwise trigger a spurious save.
+        guard isEnabled, draggedItem != nil else { return false }
         dropTargetWidgetID = nil
         draggedItem = nil
         onSave()

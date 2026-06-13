@@ -13,14 +13,20 @@ struct WidgetCardView: View {
     private var maskingEngine: MaskingEngine { services.maskingEngine! }
     var isEditMode: Bool
     var columnWidth: CGFloat = 160 // Default fallback
+    /// Actual grid spacing from the dashboard (density-dependent, 6–16pt).
+    /// Used so drag-resize snap math matches the rendered geometry.
+    var gridSpacing: CGFloat = 12
     var onDelete: () -> Void
     var onResize: (WidgetSize) -> Void
     var onUpdateSettings: ([String: String]) -> Void
+    /// Invoked when the user long-presses the card outside edit mode.
+    var onRequestEditMode: () -> Void = {}
 
     @State private var showSettings = false
+    @State private var deleteRequested = false
     @Environment(\.designAccent) private var accent
     @Environment(\.designNumerals) private var numerals
-    private let cornerRadius: CGFloat = 22
+    private let cornerRadius: CGFloat = Radius.card
     private let overlayTopInset: CGFloat = 46
 
     // Card-internal geometry. Header height is reserved unconditionally
@@ -96,11 +102,14 @@ struct WidgetCardView: View {
             }
         }
         .editJiggle(active: isEditMode, phase: jigglePhase)
+        // Long-press enters edit mode (iOS home-screen convention: hold →
+        // jiggle → move/resize). Widget settings are reached via the gear
+        // button each card shows in edit mode.
         .highPriorityGesture(
             LongPressGesture(minimumDuration: 0.55).onEnded { _ in
                 guard !isEditMode else { return }
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                showSettings = true
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                onRequestEditMode()
             }
         )
         .sheet(isPresented: $showSettings) {
@@ -114,7 +123,7 @@ struct WidgetCardView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(headerTitle)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .font(.readout(size: 10, weight: .regular))
                 .tracking(1.8)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -132,7 +141,14 @@ struct WidgetCardView: View {
     }
 
     private var headerTitle: String {
-        widget.type.rawValue.uppercased()
+        // Single-value cards otherwise all read "EINZELWERT"; surfacing the
+        // configured metric (LAF / LAEQ / LCPEAK …) is what tells the four
+        // near-identical cards apart at a glance.
+        if widget.type == .singleValue {
+            let metric = widget.settings["metric"] ?? WidgetSettings.defaultSingleValueMetric
+            return metric.uppercased()
+        }
+        return widget.type.rawValue.uppercased()
     }
 
     private var dragHandle: some View {
@@ -145,38 +161,26 @@ struct WidgetCardView: View {
     }
 
     private var settingsButton: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        // usesHighPriorityTap: the parent .onDrag in ModularDashboardView
+        // would otherwise swallow the tap.
+        GlassIconButton(
+            symbol: "gearshape.fill",
+            iconSize: 13,
+            diameter: 32,
+            identifier: "widgetSettingsButton",
+            label: "Widget-Einstellungen",
+            usesHighPriorityTap: true
+        ) {
             showSettings = true
-        } label: {
-            // Identifier directly on the Image leaf — .accessibilityElement(children: .ignore)
-            // on an inner container triggers parent-identifier inheritance in iOS 26.
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(.thinMaterial))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
-                .contentShape(Circle())
-                .accessibilityIdentifier("widgetSettingsButton")
-                .accessibilityLabel("Widget-Einstellungen")
-                .accessibilityAddTraits(.isButton)
         }
-        .buttonStyle(.plain)
-        // High priority so the parent .onDrag in ModularDashboardView
-        // can't swallow the tap.
-        .highPriorityGesture(
-            TapGesture().onEnded {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                showSettings = true
-            }
-        )
     }
 
     private var deleteButton: some View {
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
-        } label: {
+        // Two trigger paths by necessity: touch goes through the
+        // highPriorityGesture (it must outrank the parent .onDrag), VoiceOver
+        // activation goes through the Button action. requestDelete() guards
+        // so the destructive callback can only ever fire once.
+        Button(action: requestDelete) {
             // Identifier directly on the Image leaf — same iOS 26 PlainButtonStyle fix
             // as settingsButton: .accessibilityIdentifier on the Button wrapper is
             // ignored when PlainButtonStyle makes the Button accessibility-transparent.
@@ -193,12 +197,16 @@ struct WidgetCardView: View {
         }
         .buttonStyle(.plain)
         .highPriorityGesture(
-            TapGesture().onEnded {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
-            }
+            TapGesture().onEnded { requestDelete() }
         )
     }
-    
+
+    private func requestDelete() {
+        guard !deleteRequested else { return }
+        deleteRequested = true
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onDelete() }
+    }
+
     @ViewBuilder
     private func renderWidgetContent() -> some View {
         switch widget.type {
@@ -246,7 +254,7 @@ struct WidgetCardView: View {
                                 alignment: .center
                             )
                     }
-                    .frame(width: 20)
+                    .frame(width: 28)
                 }
 
                 HStack {
@@ -263,7 +271,7 @@ struct WidgetCardView: View {
                                 alignment: .center
                             )
                     }
-                    .frame(width: 20)
+                    .frame(width: 28)
                     Spacer()
                 }
 
@@ -271,7 +279,7 @@ struct WidgetCardView: View {
                     Spacer()
                     Rectangle()
                         .fill(Color.accentColor.opacity(0.001))
-                        .frame(height: 20)
+                        .frame(height: 28)
                         .contentShape(Rectangle())
                         .gesture(DragGesture().onEnded { v in handleResize(translation: v.translation, edge: .bottom) })
                         .overlay(
@@ -284,6 +292,55 @@ struct WidgetCardView: View {
                 }
             }
             .allowsHitTesting(true)
+            // VoiceOver path for resizing: the drag handles are invisible
+            // gesture rects, so expose the whole handle layer as one
+            // adjustable element that steps through the allowed sizes.
+            .accessibilityElement()
+            .accessibilityLabel("Widgetgröße")
+            .accessibilityValue("\(widget.size.columns) Spalten, \(widget.size.rows) Zeilen")
+            .accessibilityAdjustableAction { direction in
+                adjustSizeForAccessibility(direction)
+            }
+        }
+    }
+
+    /// Allowed sizes for this widget type, deduplicated after per-type
+    /// normalization, ordered small → large for the adjustable action.
+    private var accessibilityResizeSteps: [WidgetSize] {
+        let range = WidgetConfiguration.sizeRange(for: widget.type)
+        var sizes: [WidgetSize] = []
+        for rows in range.min.rows...range.max.rows {
+            for columns in range.min.columns...range.max.columns {
+                let normalized = WidgetConfiguration.normalizedSize(
+                    for: widget.type,
+                    size: WidgetSize(columns: columns, rows: rows),
+                    settings: widget.settings
+                )
+                if !sizes.contains(normalized) {
+                    sizes.append(normalized)
+                }
+            }
+        }
+        return sizes.sorted {
+            ($0.columns * $0.rows, $0.columns) < ($1.columns * $1.rows, $1.columns)
+        }
+    }
+
+    private func adjustSizeForAccessibility(_ direction: AccessibilityAdjustmentDirection) {
+        let steps = accessibilityResizeSteps
+        guard let current = steps.firstIndex(of: widget.size) else {
+            if let first = steps.first { onResize(first) }
+            return
+        }
+        let next: Int
+        switch direction {
+        case .increment: next = current + 1
+        case .decrement: next = current - 1
+        @unknown default: return
+        }
+        guard steps.indices.contains(next) else { return }
+        withAnimation(.spring()) {
+            onResize(steps[next])
         }
     }
     
@@ -293,7 +350,9 @@ struct WidgetCardView: View {
         // Per-type bounds (M8) — drag snaps in whole grid cells and is
         // clamped against the widget type's allowed range.
         let range = WidgetConfiguration.sizeRange(for: widget.type)
-        let columnStride = columnWidth + 12 // grid spacing
+        let columnStride = columnWidth + gridSpacing
+        // Row stride stays at 12 to match WidgetConfiguration.frameHeight,
+        // which always uses 12pt inter-row spacing regardless of density.
         let rowStride: CGFloat = WidgetConfiguration.baseRowHeight(for: widget.type) + 12
 
         var newCols = widget.size.columns
@@ -341,7 +400,8 @@ extension WidgetCardView: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.widget == rhs.widget &&
         lhs.isEditMode == rhs.isEditMode &&
-        lhs.columnWidth == rhs.columnWidth
+        lhs.columnWidth == rhs.columnWidth &&
+        lhs.gridSpacing == rhs.gridSpacing
     }
 }
 

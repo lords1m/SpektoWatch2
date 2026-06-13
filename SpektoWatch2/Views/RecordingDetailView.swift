@@ -5,11 +5,13 @@ import Combine
 import PhotosUI
 
 struct RecordingDetailView: View {
-    enum DetailTab: String, CaseIterable, Identifiable {
+    enum DetailTab: String, Identifiable {
         case overview = "Details"
         case analysis = "Analyse"
-        case waterfall = "Wasserfall"
+
         var id: String { rawValue }
+
+        static let allCases: [DetailTab] = [.overview, .analysis]
     }
 
     private enum ExportKind: String {
@@ -91,8 +93,6 @@ struct RecordingDetailView: View {
                     overviewTab
                 case .analysis:
                     analysisTab
-                case .waterfall:
-                    waterfallTab
                 }
             }
             .background(GlassBackground())
@@ -125,17 +125,6 @@ struct RecordingDetailView: View {
                             }
                         }
                         .disabled(isExportingSpectrogram)
-
-                        Button {
-                            exportWaterfallImage()
-                        } label: {
-                            if isExportingWaterfall {
-                                Label("Wasserfall wird exportiert…", systemImage: "hourglass")
-                            } else {
-                                Label("Wasserfall exportieren", systemImage: "mountain.2")
-                            }
-                        }
-                        .disabled(isExportingWaterfall)
 
                         if spectrogramModel.hasMeasurementData {
                             Button {
@@ -307,12 +296,6 @@ struct RecordingDetailView: View {
                     systemImage: isExportingSpectrogram ? "hourglass" : "photo",
                     isLoading: isExportingSpectrogram
                 ) { exportSpectrogramImage() }
-
-                ExportActionButton(
-                    title: "Wasserfall",
-                    systemImage: isExportingWaterfall ? "hourglass" : "mountain.2",
-                    isLoading: isExportingWaterfall
-                ) { exportWaterfallImage() }
 
                 ExportActionButton(
                     title: "CSV",
@@ -729,20 +712,6 @@ struct RecordingDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(isExportingSpectrogram)
-
-                Button {
-                    exportWaterfallImage()
-                } label: {
-                    Group {
-                        if isExportingWaterfall {
-                            Label("Wasserfall…", systemImage: "hourglass").frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Label("Wasserfall", systemImage: "mountain.2").frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isExportingWaterfall)
 
                 Button {
                     shareRawMeasurementData()

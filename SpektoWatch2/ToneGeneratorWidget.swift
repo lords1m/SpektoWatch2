@@ -490,7 +490,7 @@ struct OscilloscopeView: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(wavelengthText)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.readout(size: 9, weight: .medium))
                     .foregroundColor(.green.opacity(0.9))
             }
             .padding(4)
@@ -607,6 +607,7 @@ struct OscilloscopeView: View {
 private struct PianoInputView: View {
     let octave: Int
     let selectedNote: MusicalNote?
+    var accent: Color = .green
     let onNoteSelected: (MusicalNote) -> Void
 
     private let whiteNames: [MusicalNote.Name] = [.C, .D, .E, .F, .G, .A, .B]
@@ -631,14 +632,14 @@ private struct PianoInputView: View {
                     let x = CGFloat(i) * (whiteW + spacing)
                     let rect = CGRect(x: x, y: 0, width: whiteW, height: size.height)
                     let path = Path(roundedRect: rect, cornerRadius: 3, style: .continuous)
-                    ctx.fill(path, with: .color(isSelected ? Color.blue.opacity(0.75) : Color.white))
+                    ctx.fill(path, with: .color(isSelected ? accent.opacity(0.75) : Color.white))
                     ctx.stroke(path, with: .color(.black.opacity(0.25)), lineWidth: 0.5)
                     if isSelected {
                         let r: CGFloat = 3
                         let dot = Path(ellipseIn: CGRect(
                             x: x + whiteW / 2 - r, y: size.height - 4 - r * 2,
                             width: r * 2, height: r * 2))
-                        ctx.fill(dot, with: .color(.blue))
+                        ctx.fill(dot, with: .color(.black))
                     }
                 }
                 for (leftIdx, name) in blackKeys {
@@ -647,7 +648,7 @@ private struct PianoInputView: View {
                     let xPos = CGFloat(leftIdx) * (whiteW + spacing) + whiteW + spacing / 2 - blackW / 2
                     let rect = CGRect(x: xPos, y: 0, width: blackW, height: blackH)
                     let path = Path(roundedRect: rect, cornerRadius: 2, style: .continuous)
-                    ctx.fill(path, with: .color(isSelected ? Color.blue : Color.black))
+                    ctx.fill(path, with: .color(isSelected ? accent : Color.black))
                 }
             }
             // Single gesture checks black keys first (they sit on top visually).
@@ -679,6 +680,7 @@ private struct PianoInputView: View {
 
 struct ToneGeneratorWidget: View {
     @StateObject private var toneGenerator = ToneGenerator()
+    @Environment(\.designAccent) private var accent
     @State private var showFullscreenOscilloscope = false
     private let outerPadding: CGFloat = 10
     private let minOscilloscopeHeight: CGFloat = 50
@@ -769,14 +771,15 @@ struct ToneGeneratorWidget: View {
                 .accessibilityLabel("Wellenansicht vergrößern")
             }
 
-            // Frequency Display
-            HStack {
-                Text(frequencyDisplayText)
-                    .font(.system(size: 24, weight: .bold, design: .monospaced))
+            // Frequency Display — value and unit are a single typographic unit:
+            // big mono number + small unit ("Hz" / "kHz"), no stray "k Hz" split.
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(frequencyValueText)
+                    .font(.readout(size: 24, weight: .bold))
                     .foregroundColor(toneGenerator.isPlaying ? .green : .primary)
-                Text("Hz")
+                Text(frequencyUnitText)
                     .font(.subheadline)
-                    .foregroundColor(.gray)
+                    .foregroundColor(.secondary)
             }
 
             // Input mode switch: Hz direct entry  /  Piano keyboard
@@ -796,43 +799,57 @@ struct ToneGeneratorWidget: View {
                         ),
                         in: log10(20)...log10(20000)
                     )
-                    .tint(toneGenerator.isPlaying ? .green : .blue)
+                    .tint(toneGenerator.isPlaying ? .green : accent)
 
                     HStack {
                         Text("20")
                             .font(.caption2)
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary)
                         Spacer()
                         Text("20k")
                             .font(.caption2)
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary)
                     }
                 }
 
-                // Preset Buttons
+                // Preset Buttons — octave centers. Trailing fade signals that the
+                // row scrolls past the visible edge (16k lives off-screen).
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(presetFrequencies, id: \.1) { preset in
+                            // 5 % relative tolerance so drag-release near a preset
+                            // highlights correctly (1 Hz was too tight on the
+                            // log-scaled slider — M9 task-8 finding).
+                            let isSelected = abs(toneGenerator.frequency - preset.1) / preset.1 < 0.05
                             Button(action: {
                                 toneGenerator.frequency = preset.1
                             }) {
                                 Text(preset.0)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        // 5 % relative tolerance so drag-release near a
-                                        // preset highlights correctly (1 Hz was too tight
-                                        // on the log-scaled slider — M9 task-8 finding).
-                                        abs(toneGenerator.frequency - preset.1) / preset.1 < 0.05 ?
-                                        Color.blue : Color.gray.opacity(0.3)
-                                    )
-                                    .foregroundColor(.white)
+                                    .font(.caption2.weight(isSelected ? .semibold : .regular))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .frame(minWidth: 40, minHeight: 32)
+                                    .background(isSelected ? AnyShapeStyle(accent) : AnyShapeStyle(Color.gray.opacity(0.3)))
+                                    .foregroundColor(isSelected ? .black : .primary)
                                     .cornerRadius(6)
+                                    .contentShape(Rectangle())
                             }
+                            .accessibilityLabel("\(preset.0) Hertz")
                         }
                     }
+                    .padding(.trailing, 12)
                 }
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.9),
+                            .init(color: .clear, location: 1.0)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
             } else {
                 // Piano keyboard input
                 VStack(spacing: 6) {
@@ -858,12 +875,12 @@ struct ToneGeneratorWidget: View {
                         if let note = selectedNote {
                             Text(note.label)
                                 .font(.caption.weight(.semibold).monospacedDigit())
-                                .foregroundColor(.blue)
+                                .foregroundColor(accent)
                         }
                     }
 
                     // One-octave piano keyboard
-                    PianoInputView(octave: pianoOctave, selectedNote: selectedNote) { note in
+                    PianoInputView(octave: pianoOctave, selectedNote: selectedNote, accent: accent) { note in
                         selectedNote  = note
                         selectedMidi  = note.midiNote   // persist across relaunches
                         toneGenerator.frequency = note.frequency
@@ -897,7 +914,9 @@ struct ToneGeneratorWidget: View {
                         ),
                         in: 0...1
                     )
+                    .tint(accent)
                     .frame(width: 80)
+                    .accessibilityLabel("Lautstärke")
                     Image(systemName: "speaker.wave.3.fill")
                         .font(.caption)
                         .foregroundColor(.gray)
@@ -910,7 +929,7 @@ struct ToneGeneratorWidget: View {
             }) {
                 HStack {
                     Image(systemName: toneGenerator.isPlaying ? "stop.fill" : "play.fill")
-                    Text(toneGenerator.isPlaying ? "Stop" : "Play")
+                    Text(toneGenerator.isPlaying ? "Stopp" : "Abspielen")
                 }
                 .font(.headline)
                 .frame(maxWidth: .infinity)
@@ -953,14 +972,18 @@ struct ToneGeneratorWidget: View {
         }
     }
 
-    private var frequencyDisplayText: String {
+    private var frequencyValueText: String {
         if toneGenerator.frequency >= 1000 {
-            return String(format: "%.2f k", toneGenerator.frequency / 1000)
+            return String(format: "%.2f", toneGenerator.frequency / 1000)
         } else if toneGenerator.frequency >= 100 {
             return String(format: "%.1f", toneGenerator.frequency)
         } else {
             return String(format: "%.2f", toneGenerator.frequency)
         }
+    }
+
+    private var frequencyUnitText: String {
+        toneGenerator.frequency >= 1000 ? "kHz" : "Hz"
     }
 }
 

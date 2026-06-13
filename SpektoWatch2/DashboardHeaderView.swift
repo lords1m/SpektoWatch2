@@ -34,11 +34,11 @@ struct DashboardHeaderView: View {
 
             HStack(spacing: 8) {
                 if !isEditMode {
-                    glassIconButton("gearshape.fill", id: "settingsButton", label: "Einstellungen", action: onShowSettings)
-                    glassIconButton("square.stack.3d.up", id: "layoutsButton", label: "Layouts verwalten", action: onShowLayouts)
+                    GlassIconButton(symbol: "gearshape.fill", identifier: "settingsButton", label: "Einstellungen", action: onShowSettings)
+                    GlassIconButton(symbol: "square.stack.3d.up", identifier: "layoutsButton", label: "Layouts verwalten", action: onShowLayouts)
                 } else {
                     // In edit mode show an "Add Widget" button alongside the Done button.
-                    glassIconButton("plus", id: "addWidgetButton", label: "Widget hinzufügen", action: onAddWidget)
+                    GlassIconButton(symbol: "plus", identifier: "addWidgetButton", label: "Widget hinzufügen", action: onAddWidget)
                 }
 
                 Button(action: toggleEdit) {
@@ -90,24 +90,6 @@ struct DashboardHeaderView: View {
         if isEditMode { return "LAYOUT BEARBEITEN" }
         if isCustomLayout { return "BENUTZERDEFINIERT · LIVE" }
         return "DASHBOARD · LIVE"
-    }
-
-    private func glassIconButton(_ symbol: String, id: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            // Identifier directly on the Image leaf — .accessibilityElement(children: .ignore)
-            // on an inner container triggers parent-identifier inheritance in iOS 26;
-            // placing the identifier on the leaf Image avoids that regression.
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(.thinMaterial))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
-                .accessibilityIdentifier(id)
-                .accessibilityLabel(label)
-                .accessibilityAddTraits(.isButton)
-        }
-        .buttonStyle(.plain)
     }
 
     private func toggleEdit() {

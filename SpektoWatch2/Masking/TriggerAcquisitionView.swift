@@ -37,21 +37,21 @@ struct TriggerAcquisitionView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if case .waitingForTrigger = engine.state {
                         Button("Zurücksetzen") { engine.reset() }
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.readout(size: 12))
                             .foregroundStyle(.secondary)
                     } else if case .calibratingAmbient = engine.state {
                         Button("Zurücksetzen") { engine.reset() }
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.readout(size: 12))
                             .foregroundStyle(.secondary)
                     } else if case .marking = engine.state {
                         Button("Zurücksetzen") { engine.reset() }
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.readout(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Presets") { showPresets = true }
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.readout(size: 12))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -96,7 +96,7 @@ struct TriggerAcquisitionView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("ANALYSE")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.readout(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text("Störgeräusch identifizieren")
                     .font(.system(size: 17, weight: .semibold))
@@ -110,7 +110,7 @@ struct TriggerAcquisitionView: View {
             VStack(spacing: 10) {
                 Button(action: { engine.startAmbientCalibration() }) {
                     Text("UMGEBUNG KALIBRIEREN")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 12, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                 }
@@ -130,7 +130,7 @@ struct TriggerAcquisitionView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("GESPEICHERTE PROFILE")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
 
                     ForEach(services.maskingProfileManager.profiles.prefix(3)) { profile in
@@ -151,7 +151,7 @@ struct TriggerAcquisitionView: View {
                         Button("Alle anzeigen (\(services.maskingProfileManager.profiles.count))") {
                             showProfiles = true
                         }
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.readout(size: 11))
                         .foregroundStyle(.secondary)
                     }
                 }
@@ -165,13 +165,13 @@ struct TriggerAcquisitionView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("KALIBRIERUNG")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.readout(size: 9, weight: .semibold))
                     .foregroundStyle(.orange)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(String(format: "%02d", remaining))")
-                        .font(.system(size: 40, weight: .thin, design: .monospaced))
+                        .font(.readout(size: 40, weight: .thin))
                     Text("s")
-                        .font(.system(size: 16, design: .monospaced))
+                        .font(.readout(size: 16))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -185,7 +185,7 @@ struct TriggerAcquisitionView: View {
             NoveltyBar(score: engine.noveltyScore)
 
             Button("Überspringen") { engine.skipAmbientCalibration() }
-                .font(.system(size: 12, design: .monospaced))
+                .font(.readout(size: 12))
                 .foregroundStyle(.secondary)
         }
     }
@@ -197,23 +197,23 @@ struct TriggerAcquisitionView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("TRIGGER MARKIEREN")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("\(engine.captureCount)")
-                            .font(.system(size: 40, weight: .thin, design: .monospaced))
+                            .font(.readout(size: 40, weight: .thin))
                         Text("/ \(engine.minimumCaptures)")
-                            .font(.system(size: 16, design: .monospaced))
+                            .font(.readout(size: 16))
                             .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("KONVERGENZ")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Text("\(Int(engine.convergenceScore * 100)) %")
-                        .font(.system(size: 20, weight: .thin, design: .monospaced))
+                        .font(.readout(size: 20, weight: .thin))
                         .foregroundStyle(engine.convergenceScore >= 0.7 ? Color(red: 0.0, green: 0.85, blue: 1.0) : .secondary)
                 }
             }
@@ -226,10 +226,10 @@ struct TriggerAcquisitionView: View {
                     .animation(.easeInOut(duration: 0.15), value: engine.state == .marking)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(engine.state == .marking ? "AUFZEICHNUNG LÄUFT" : "AUFNAHME-BUTTON DRÜCKEN")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(.readout(size: 10, weight: .semibold))
                         .foregroundStyle(engine.state == .marking ? .red : Color(red: 0.0, green: 0.85, blue: 1.0))
                     Text(engine.state == .marking ? "Erneut drücken, wenn der Trigger endet" : "Drücken, wenn der Trigger beginnt")
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.readout(size: 9))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -243,7 +243,7 @@ struct TriggerAcquisitionView: View {
 
             if engine.captureCount >= 1 {
                 Button("Vorschlag berechnen") { engine.computeSuggestionNow() }
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.readout(size: 12))
                     .foregroundStyle(.secondary)
             }
         }
@@ -258,7 +258,7 @@ struct TriggerAcquisitionView: View {
                     .fill(Color(red: 1.0, green: 0.80, blue: 0.30))
                     .frame(width: 6, height: 6)
                 Text("VORSCHLAG BEREIT")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.readout(size: 9, weight: .semibold))
                     .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.30))
             }
             Text("Masker-Vorschlag wurde berechnet.\nSchließe dieses Fenster, um ihn anzusehen.")
@@ -295,7 +295,7 @@ private struct NoveltyBar: View {
                 Text("AKTIVITÄT")
                 Spacer()
             }
-            .font(.system(size: 7.5, design: .monospaced))
+            .font(.readout(size: 7.5))
             .foregroundStyle(.secondary.opacity(0.6))
             .offset(y: -12)
         )
@@ -357,7 +357,7 @@ struct ProfileListView: View {
                             Text(profile.name)
                                 .font(.system(size: 14))
                             Text(profile.maskerType.displayName)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.readout(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                     }

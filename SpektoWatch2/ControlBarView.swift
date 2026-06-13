@@ -16,7 +16,7 @@ private struct PlayPauseButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(state.isLiveMode ? Color.green.opacity(0.2) : Color.clear)
+                    .fill(state.isLiveMode ? StatusColor.live.opacity(0.2) : Color.clear)
                     .frame(width: diameter, height: diameter)
 
                 // In iOS 26 with PlainButtonStyle the Button wrapper is accessibility-
@@ -29,7 +29,7 @@ private struct PlayPauseButton: View {
                     if state.isLiveMode {
                         Image(systemName: "pause.circle")
                             .font(.system(size: iconSize))
-                            .foregroundColor(.green)
+                            .foregroundColor(StatusColor.live)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
                             .accessibilityLabel(state.playPauseAccessibilityLabel)
@@ -37,7 +37,7 @@ private struct PlayPauseButton: View {
                     } else {
                         Image(systemName: "play.circle")
                             .font(.system(size: iconSize))
-                            .foregroundColor(.green.opacity(0.8))
+                            .foregroundColor(StatusColor.live.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
                             .accessibilityLabel(state.playPauseAccessibilityLabel)
@@ -72,7 +72,7 @@ private struct RecordStopButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(isActive ? Color.red.opacity(0.2) : Color.clear)
+                    .fill(isActive ? StatusColor.recording.opacity(0.2) : Color.clear)
                     .frame(width: diameter, height: diameter)
 
                 // Identifier directly on each Image leaf — same iOS 26 fix as
@@ -81,7 +81,7 @@ private struct RecordStopButton: View {
                     if isActive {
                         Image(systemName: "stop.circle")
                             .font(.system(size: iconSize))
-                            .foregroundColor(.red)
+                            .foregroundColor(StatusColor.recording)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
                             .accessibilityLabel(baseState.recordStopAccessibilityLabel)
@@ -89,7 +89,7 @@ private struct RecordStopButton: View {
                     } else {
                         Image(systemName: "record.circle.fill")
                             .font(.system(size: iconSize))
-                            .foregroundColor(.red.opacity(0.8))
+                            .foregroundColor(StatusColor.recording.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
                             .accessibilityLabel(baseState.recordStopAccessibilityLabel)
@@ -146,7 +146,7 @@ struct ControlBarView: View {
 
                     Spacer(minLength: 8)
 
-                    recordingsButton(font: .title2, badgeOffsetX: 10, badgeOffsetY: -10)
+                    recordingsButton(regular: true, badgeOffsetX: 10, badgeOffsetY: -10)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, footerVerticalPadding)
@@ -156,7 +156,7 @@ struct ControlBarView: View {
                     HStack {
                         statusInfo(alignment: .leading)
                         Spacer()
-                        recordingsButton(font: .headline, badgeOffsetX: 8, badgeOffsetY: -8)
+                        recordingsButton(regular: false, badgeOffsetX: 8, badgeOffsetY: -8)
                     }
                     controlsGroup(
                         diameter: compactControlDiameter,
@@ -260,35 +260,19 @@ struct ControlBarView: View {
         }
     }
 
-    private func recordingsButton(font: Font, badgeOffsetX: CGFloat, badgeOffsetY: CGFloat) -> some View {
-        let diameter: CGFloat = font == .title2 ? 38 : 36
-        return Button(action: {
+    private func recordingsButton(regular isRegular: Bool, badgeOffsetX: CGFloat, badgeOffsetY: CGFloat) -> some View {
+        GlassIconButton(
+            symbol: "folder.fill",
+            iconSize: isRegular ? 18 : 16,
+            diameter: isRegular ? 38 : 36,
+            identifier: "recordingsListButton",
+            label: "Aufnahmen",
+            value: "\(services.recordingManager.recordings.count) gespeichert",
+            badgeCount: services.recordingManager.recordings.count,
+            badgeOffset: CGPoint(x: badgeOffsetX, y: badgeOffsetY)
+        ) {
             showRecordingsList = true
-        }) {
-            ZStack {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: font == .title2 ? 18 : 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: diameter, height: diameter)
-                    .background(Circle().fill(.thinMaterial))
-                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
-                    .accessibilityIdentifier("recordingsListButton")
-                    .accessibilityLabel("Aufnahmen")
-                    .accessibilityAddTraits(.isButton)
-
-                if services.recordingManager.recordings.count > 0 {
-                    Text("\(services.recordingManager.recordings.count)")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(4)
-                        .background(Color.red)
-                        .clipShape(Circle())
-                        .offset(x: badgeOffsetX, y: badgeOffsetY)
-                }
-            }
         }
-        .buttonStyle(.plain)
     }
 
     private var statusText: String {
@@ -308,11 +292,11 @@ struct ControlBarView: View {
 
     private var statusColor: Color {
         switch maskingEngine.state {
-        case .marking:        return .red
-        case .waitingForTrigger: return Color(red: 0.0, green: 0.85, blue: 1.0)
+        case .marking:        return StatusColor.recording
+        case .waitingForTrigger: return StatusColor.trigger
         default:
-            if state.isRecording { return .red }
-            if state.isLiveMode  { return .green }
+            if state.isRecording { return StatusColor.recording }
+            if state.isLiveMode  { return StatusColor.live }
             return .gray
         }
     }

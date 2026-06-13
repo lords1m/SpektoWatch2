@@ -91,6 +91,33 @@ struct FrequencySpectrumWidget: View {
             yMaxDB: Double(WidgetSettings.chartYMaxDB(settings))
         )
         .innerCanvas(cornerRadius: 0)
+        .overlay(alignment: .topTrailing) {
+            // Legend for the two series — without it the orange Leq markers
+            // read as unexplained ticks over the live-spectrum bars.
+            if WidgetSettings.spectrumShowLeq(settings), bandMode != .continuous {
+                HStack(spacing: 10) {
+                    HStack(spacing: 4) {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(ScientificChartPalette.series)
+                            .frame(width: 10, height: 6)
+                        Text("Spektrum").font(.system(size: 9))
+                    }
+                    HStack(spacing: 4) {
+                        Rectangle()
+                            .fill(ScientificChartPalette.secondarySeries)
+                            .frame(width: 10, height: 2)
+                        Text("Leq").font(.system(size: 9))
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(.ultraThinMaterial))
+                .padding(6)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Legende: grün Spektrum, orange Leq")
+            }
+        }
         .onAppear {
             #if DEBUG
             print("[FrequencySpectrumWidget] View appeared (\(weighting), \(bandMode.rawValue), override=\(useWidgetOverrides))")
@@ -178,7 +205,7 @@ private struct SpectrumBandChartView: View {
                     path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
                     context.stroke(path, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.7)
                     context.draw(
-                        Text("\(Int(tick))").font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
                         at: CGPoint(x: chartRect.minX - 14, y: y)
                     )
                 }
@@ -187,7 +214,7 @@ private struct SpectrumBandChartView: View {
                     let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
                     let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
                     context.draw(
-                        Text("\(Int(tick))").font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
                         at: CGPoint(x: chartRect.minX - 14, y: y)
                     )
                 }
@@ -239,12 +266,12 @@ private struct SpectrumBandChartView: View {
 
             if mode == .continuous {
                 context.draw(
-                    Text(formatHz(frequencies.first ?? 0)).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                    Text(formatHz(frequencies.first ?? 0)).font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
                     at: CGPoint(x: chartRect.minX, y: height - bottomPadding / 2),
                     anchor: .leading
                 )
                 context.draw(
-                    Text(formatHz(frequencies.last ?? 0)).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                    Text(formatHz(frequencies.last ?? 0)).font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
                     at: CGPoint(x: chartRect.maxX, y: height - bottomPadding / 2),
                     anchor: .trailing
                 )
@@ -253,7 +280,7 @@ private struct SpectrumBandChartView: View {
                 for i in stride(from: 0, to: bandData.labels.count, by: max(1, bandData.labelStride)) {
                     let x = chartRect.minX + CGFloat(i) * barWidth + barWidth / 2
                     context.draw(
-                        Text(bandData.labels[i]).font(.system(size: 8, weight: .regular, design: .monospaced)).foregroundColor(ScientificChartPalette.axis),
+                        Text(bandData.labels[i]).font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
                         at: CGPoint(x: x, y: height - bottomPadding / 2)
                     )
                 }
@@ -425,6 +452,7 @@ struct LevelMeterWidget: View {
                 horizontalMeterBody(
                     clamped: clamped,
                     peakClamped: peakClamped,
+                    peakDB: peak,
                     minDB: minDB,
                     maxDB: maxDB
                 )
@@ -445,6 +473,7 @@ struct LevelMeterWidget: View {
     private func horizontalMeterBody(
         clamped: CGFloat,
         peakClamped: CGFloat,
+        peakDB: Float,
         minDB: Float,
         maxDB: Float
     ) -> some View {
@@ -457,18 +486,31 @@ struct LevelMeterWidget: View {
                         .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
                         .frame(width: geo.size.width * clamped)
                         .animation(.easeOut(duration: 0.15), value: clamped)
-                    if showPeak {
+                    // Minor scale ticks (eighths) so a glance reads an approximate
+                    // value off the bar, not just the three numeric endpoints.
+                    ForEach(1..<8) { i in
                         Rectangle()
-                            .fill(Color.primary)
+                            .fill(Color.primary.opacity(0.16))
+                            .frame(width: 1, height: geo.size.height * 0.45)
+                            .offset(x: geo.size.width * CGFloat(i) / 8)
+                    }
+                    .allowsHitTesting(false)
+                    if showPeak {
+                        // Peak-hold marker — distinct accent color so it reads as
+                        // a separate "max" indicator rather than a stray divider
+                        // sitting on the level fill.
+                        Rectangle()
+                            .fill(ScientificChartPalette.secondarySeries)
                             .frame(width: 2, height: geo.size.height)
                             .offset(x: geo.size.width * peakClamped)
                             .animation(.easeOut(duration: 0.15), value: peakClamped)
+                            .accessibilityLabel("Spitzenpegel")
                     }
                 }
             }
             .frame(maxHeight: .infinity)
 
-            scaleRow(minDB: minDB, maxDB: maxDB)
+            scaleRow(minDB: minDB, maxDB: maxDB, peakDB: showPeak ? peakDB : nil)
         }
     }
 
@@ -489,11 +531,13 @@ struct LevelMeterWidget: View {
                         .frame(height: geo.size.height * clamped)
                         .animation(.easeOut(duration: 0.15), value: clamped)
                     if showPeak {
+                        // Peak-hold marker — see horizontal variant above.
                         Rectangle()
-                            .fill(Color.primary)
+                            .fill(ScientificChartPalette.secondarySeries)
                             .frame(width: geo.size.width, height: 2)
                             .offset(y: geo.size.height * (1 - peakClamped))
                             .animation(.easeOut(duration: 0.15), value: peakClamped)
+                            .accessibilityLabel("Spitzenpegel")
                     }
                 }
             }
@@ -513,8 +557,8 @@ struct LevelMeterWidget: View {
         }
     }
 
-    private func scaleRow(minDB: Float, maxDB: Float) -> some View {
-        HStack {
+    private func scaleRow(minDB: Float, maxDB: Float, peakDB: Float?) -> some View {
+        HStack(spacing: 0) {
             Text("\(Int(minDB))").font(.caption2).foregroundColor(.gray)
             Spacer()
             Text("\(Int((minDB + maxDB) / 2))").font(.caption2).foregroundColor(.gray)
@@ -524,6 +568,14 @@ struct LevelMeterWidget: View {
                 .font(.caption2.weight(.medium))
                 .foregroundColor(.secondary)
                 .padding(.leading, 4)
+            // Peak readout — ties the orange peak-hold marker to a number and
+            // uses some of the meter's otherwise-empty width.
+            if let peakDB, peakDB > minDB {
+                Spacer(minLength: 8)
+                Text(String(format: "Spitze %.0f", peakDB))
+                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .foregroundColor(ScientificChartPalette.secondarySeries)
+            }
         }
     }
 }
