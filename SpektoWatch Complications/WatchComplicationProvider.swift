@@ -13,13 +13,17 @@ struct WatchComplicationProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WatchComplicationEntry>) -> Void) {
         let entry = currentEntry()
-        // Rely entirely on explicit `WidgetCenter.shared.reloadTimelines`
-        // calls from `Shared/WatchConnectivityManager.updateComplicationState`,
-        // which already throttles to ≥ 60 s. A timer-based `.after(60)` policy
-        // doubles budget consumption against the watchOS daily refresh cap
-        // without adding any new information (the explicit reload fires when
-        // new data actually arrives).
-        completion(Timeline(entries: [entry], policy: .never))
+        // Rely on explicit `WidgetCenter.shared.reloadTimelines` calls from
+        // `ComplicationFeed.publish` (throttled to ≥ 60 s). WL-3: a second,
+        // pre-computed entry at `updatedAt + staleAfter` flips the face to
+        // "–" when no new data arrives, without spending refresh budget.
+        var entries = [entry]
+        if let updatedAt = entry.updatedAt, !entry.isStale {
+            let staleDate = updatedAt.addingTimeInterval(ComplicationSharedKeys.staleAfter + 1)
+            entries.append(WatchComplicationEntry(
+                date: staleDate, level: entry.level, weighting: entry.weighting, updatedAt: updatedAt))
+        }
+        completion(Timeline(entries: entries, policy: .never))
     }
 
     private func currentEntry() -> WatchComplicationEntry {
@@ -33,6 +37,8 @@ struct WatchComplicationProvider: TimelineProvider {
             return defaults.float(forKey: ComplicationSharedKeys.level)
         }()
         let weighting = defaults.string(forKey: ComplicationSharedKeys.weighting) ?? "A"
-        return WatchComplicationEntry(date: .now, level: level, weighting: weighting)
+        let stamp = defaults.double(forKey: ComplicationSharedKeys.updatedAt)
+        let updatedAt: Date? = stamp > 0 ? Date(timeIntervalSince1970: stamp) : nil
+        return WatchComplicationEntry(date: .now, level: level, weighting: weighting, updatedAt: updatedAt)
     }
 }

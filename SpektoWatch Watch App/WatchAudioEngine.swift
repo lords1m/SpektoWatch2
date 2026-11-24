@@ -54,6 +54,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private let bufferSize: AVAudioFrameCount = 4096
     private let sampleRate: Double = 44100.0
     private var session: WKExtendedRuntimeSession?
+    /// WL-1: `true` once the current runtime session reported
+    /// `extendedRuntimeSessionDidStart`. An invalidation before that is a
+    /// start failure (not an expiry) and must not stop the recording.
+    private var runtimeSessionDidStart = false
+    /// WL-1: shown by the UI when the extended runtime session could not be
+    /// started; recording continues via the `audio` background mode.
+    @Published private(set) var backgroundRuntimeWarning: String?
     private let connectivityManager: WatchConnectivityManager
     private var gain: Float = 1.0
 
@@ -338,6 +345,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             }
             updateActiveMeasurementSource()
         } else {
+            if isMirroringPhone {
+                // WL-6: don't keep showing the last (now stale) phone frame.
+                liveData = nil
+            }
             phoneSpectrogramSubscription?.cancel()
             phoneSpectrogramSubscription = nil
             transition(to: .standalone)
@@ -346,26 +357,53 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
     }
 
+    /// WL-6: single staleness check armed at `lastPhoneFrame + freshness`.
+    private var phoneFreshnessWorkItem: DispatchWorkItem?
+
     private func bindConnectivityForAutoMode() {
         connectivityManager.$isReachable
-            .combineLatest(
-                connectivityManager.$phoneAppState,
-                connectivityManager.$lastPhoneSpectrogramReceivedAt
-            )
+            .combineLatest(connectivityManager.$phoneAppState)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in
+            .sink { [weak self] _, _ in
                 guard let self, self.measurementSourcePreference == .auto, !self.isRecording else { return }
                 self.reconcileLiveDataSource()
             }
             .store(in: &connectivityCancellables)
 
-        connectivityManager.$spectrogramData
+        // WL-6: per phone frame, only (re)arm the staleness timer and switch
+        // sources when the decision actually flips — no per-frame reconcile
+        // or subscription rebuild.
+        connectivityManager.$lastPhoneSpectrogramReceivedAt
+            .compactMap { $0 }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] receivedAt in
                 guard let self, self.measurementSourcePreference == .auto, !self.isRecording else { return }
-                self.reconcileLiveDataSource()
+                self.armPhoneFreshnessCheck(receivedAt: receivedAt)
+                if self.shouldMirrorPhone() != self.isMirroringPhone {
+                    self.reconcileLiveDataSource()
+                }
             }
             .store(in: &connectivityCancellables)
+    }
+
+    /// `true` while `liveData` is fed from the phone stream.
+    private var isMirroringPhone: Bool {
+        operatingMode == .companion && phoneSpectrogramSubscription != nil
+    }
+
+    private func armPhoneFreshnessCheck(receivedAt: Date) {
+        phoneFreshnessWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.phoneFreshnessWorkItem = nil
+            guard self.measurementSourcePreference == .auto, !self.isRecording else { return }
+            // Phone went quiet: fall back to the watch mic.
+            self.reconcileLiveDataSource()
+        }
+        phoneFreshnessWorkItem = work
+        let deadline = receivedAt.addingTimeInterval(Self.phoneStreamFreshness + 0.05)
+        let delay = max(0, deadline.timeIntervalSinceNow)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func shouldMirrorPhone() -> Bool {
@@ -499,6 +537,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                         fftBlockSize: fftSize,
                         calibrationOffset: watchMicCalibrationOffset
                     )
+                    // WL-2: catalog first, so a crash never leaves files the
+                    // launch sweep would treat as orphans.
+                    WatchRecordingStore.shared.beginRecording(
+                        newSession.provisionalMetadata(
+                            title: WatchAudioEngine.defaultRecordingTitle(for: newSession.startDate)
+                        )
+                    )
                     recordingSessionLock.withLock { $0 = newSession }
                 } catch {
                     print("[WatchAudioEngine] failed to open recording session: \(error)")
@@ -513,8 +558,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             if recording {
                 let runtimeSession = WKExtendedRuntimeSession()
                 runtimeSession.delegate = self
-                runtimeSession.start()
+                runtimeSessionDidStart = false
+                backgroundRuntimeWarning = nil
                 self.session = runtimeSession
+                runtimeSession.start()
             }
 
             print("[WatchAudioEngine] Mic capture active (recording=\(recording), tap \(tapFormat.sampleRate) Hz)")
@@ -523,7 +570,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             teardownMicCaptureOnMain(clearLiveDisplay: false)
             if recording {
                 isRecording = false
-                recordingSessionLock.withLock { $0 = nil }
+                let abandoned = recordingSessionLock.withLock { current -> WatchRecordingSession? in
+                    let s = current; current = nil; return s
+                }
+                if let abandoned {
+                    // Capture never started: drop the provisional entry + files.
+                    WatchRecordingStore.shared.discardInProgressRecording(id: abandoned.id)
+                }
                 transition(to: prefersWatchLocalRecording ? .standalone : .companion)
             } else {
                 isLiveMonitoring = false
@@ -547,13 +600,21 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
     }
 
-    func stopRecording() {
+    /// Stops the active recording.
+    /// - Parameter releaseCapture: WL-5 — `true` when the stop is triggered by
+    ///   the system (runtime expiry/invalidation, app backgrounded): the mic,
+    ///   tap and audio session are fully released instead of continuing as
+    ///   live monitoring without a runtime session. Live monitoring restarts
+    ///   via `reconcileLiveDataSource()` when the scene becomes active again.
+    func stopRecording(releaseCapture: Bool = false) {
         dispatchPrecondition(condition: .onQueue(.main))
         print("[WatchAudioEngine] Stopping...")
         guard isRecording else { return }
 
-        session?.invalidate()
+        let endingSession = session
         session = nil
+        runtimeSessionDidStart = false
+        endingSession?.invalidate()
 
         let takenSession: WatchRecordingSession? = recordingSessionLock.withLock { current in
             let s = current
@@ -568,8 +629,20 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
 
         isRecording = false
+        recordingStartDate = nil
+        if let level = liveData?.levels["LAF"] ?? liveData?.broadbandLevel {
+            ComplicationFeed.publish(level: level, weighting: "A", force: true)
+        }
 
-        if prefersWatchLocalRecording {
+        if releaseCapture {
+            teardownMicCaptureOnMain(clearLiveDisplay: true)
+            isLiveMonitoring = false
+            if !prefersWatchLocalRecording {
+                transition(to: .companion)
+            }
+            print("[WatchAudioEngine] Stopped (capture released)")
+            return
+        } else if prefersWatchLocalRecording {
             transition(to: .standalone)
             if !isLiveMonitoring {
                 isLiveMonitoring = true
@@ -612,6 +685,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// stream when the watch is in companion mode.
     private func subscribeToPhoneSpectrogram() {
         guard usesPhoneAsLiveDataSource else { return }
+        // WL-6: build the subscription once, not per frame.
+        guard phoneSpectrogramSubscription == nil else { return }
         phoneSpectrogramSubscription = connectivityManager.$spectrogramData
             .compactMap { $0 }
             .throttle(
@@ -639,6 +714,11 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// Persist `.swr` + local catalog when the watch owns the recording.
     private var prefersWatchLocalRecording: Bool {
         Self.isWatchOnlyApp || measurementSourcePreference != .iPhone
+    }
+
+    /// WL-1: `WKBackgroundModes` contains `audio` in the built Info.plist.
+    static var hasAudioBackgroundMode: Bool {
+        (Bundle.main.object(forInfoDictionaryKey: "WKBackgroundModes") as? [String])?.contains("audio") ?? false
     }
 
     /// `WKWatchOnly` App Store builds — never treat the phone as the live meter source.
@@ -894,6 +974,9 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                 if self.operatingMode.watchMicIsActive && (self.isRecording || self.isLiveMonitoring) {
                     self.liveData = data
                     self.updateActiveMeasurementSource()
+                    // WL-3: the watch's own engine feeds the complication
+                    // (throttled to ≤ 1 reload/min inside ComplicationFeed).
+                    ComplicationFeed.publish(level: data.levels["LAF"] ?? data.broadbandLevel, weighting: "A")
                 }
             }
         }
@@ -1083,6 +1166,28 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
     // MARK: - WKExtendedRuntimeSessionDelegate
 
+    /// What to do when a runtime session is invalidated (pure, testable).
+    enum RuntimeInvalidationAction: Equatable {
+        /// Callback from a session that is no longer ours (WL-4).
+        case ignore
+        /// Invalidated before it ever started: keep recording in the
+        /// foreground/`audio` background mode and warn (WL-1).
+        case keepRecordingWithWarning
+        /// A started session ended (expiry/user/system): stop and release.
+        case stopAndRelease
+    }
+
+    static func runtimeInvalidationAction(
+        isCurrentSession: Bool,
+        didStart: Bool,
+        hasError: Bool,
+        isRecording: Bool
+    ) -> RuntimeInvalidationAction {
+        guard isCurrentSession, isRecording else { return .ignore }
+        if !didStart && hasError { return .keepRecordingWithWarning }
+        return .stopAndRelease
+    }
+
     func extendedRuntimeSession(_ session: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: Error?) {
         print("[WatchAudioEngine] RuntimeSession invalidated: \(reason.rawValue) error: \(String(describing: error))")
         // WKExtendedRuntimeSession delegate callbacks arrive on an arbitrary
@@ -1090,31 +1195,50 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // calling stopRecording() (enforced by dispatchPrecondition there).
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.session = nil
-            // The session is gone; the audio tap is no longer "kept alive" by
-            // the system and would otherwise keep draining the battery in the
-            // background. Stop the engine if we still think we're recording.
-            if self.isRecording {
-                self.stopRecording()
+            let action = Self.runtimeInvalidationAction(
+                isCurrentSession: session === self.session,
+                didStart: self.runtimeSessionDidStart,
+                hasError: error != nil,
+                isRecording: self.isRecording
+            )
+            switch action {
+            case .ignore:
+                return
+            case .keepRecordingWithWarning:
+                self.session = nil
+                // With the `audio` background mode declared the mic capture
+                // itself keeps the app running; only warn when it is missing.
+                if !Self.hasAudioBackgroundMode {
+                    self.backgroundRuntimeWarning = "Hintergrundbetrieb nicht verfügbar – Aufnahme läuft weiter, solange die App aktiv bleibt."
+                }
+            case .stopAndRelease:
+                self.session = nil
+                self.stopRecording(releaseCapture: true)
             }
         }
     }
 
     func extendedRuntimeSessionDidStart(_ session: WKExtendedRuntimeSession) {
         print("[WatchAudioEngine] RuntimeSession started")
+        DispatchQueue.main.async { [weak self] in
+            guard let self, session === self.session else { return }
+            self.runtimeSessionDidStart = true
+            self.backgroundRuntimeWarning = nil
+        }
     }
 
     func extendedRuntimeSessionWillExpire(_ session: WKExtendedRuntimeSession) {
         print("[WatchAudioEngine] RuntimeSession will expire")
         // Hop to main — same rationale as didInvalidateWith above.
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, session === self.session else { return }
             // Graceful stop before the system invalidates the session. If the
             // user wants to keep going they'll need to restart explicitly — the
             // audit ("do NOT auto-resume; the user may have lowered the wrist
-            // deliberately") rules out automatic re-arming.
+            // deliberately") rules out automatic re-arming. WL-5: release the
+            // mic entirely instead of continuing as background monitoring.
             if self.isRecording {
-                self.stopRecording()
+                self.stopRecording(releaseCapture: true)
             }
         }
     }
@@ -1126,12 +1250,11 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// if the `WKExtendedRuntimeSession` is missed or rejected.
     func handleSceneBackgrounded() {
         if isRecording {
-            if let session, session.state == .running || session.state == .notStarted {
-                return
-            }
-            stopRecording()
+            // WL-1: with the `audio` background mode an active mic capture
+            // keeps running wrist-down, with or without a runtime session.
             return
         }
+        // WL-5: never keep the mic open for live preview in the background.
         stopLiveMonitoring()
     }
 }

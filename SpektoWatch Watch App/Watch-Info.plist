@@ -22,6 +22,10 @@
 	<true/>
 	<key>WKWatchOnly</key>
 	<true/>
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SpektoWatch verwendet das Mikrofon der Apple Watch, um Live-Spektrogramme und Schallpegelmessungen zu erstellen und eigenständige Aufnahmen zu speichern.</string>
 </dict>

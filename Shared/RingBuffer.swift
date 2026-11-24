@@ -57,6 +57,18 @@ public struct RingBuffer<Element> {
         return out
     }
 
+    /// Oldest element without allocating a snapshot.
+    public var oldest: Element? {
+        guard !storage.isEmpty else { return nil }
+        return storage.count < capacity ? storage.first : storage[head]
+    }
+
+    /// Newest element without allocating a snapshot.
+    public var newest: Element? {
+        guard !storage.isEmpty else { return nil }
+        return storage.count < capacity ? storage.last : storage[(head + capacity - 1) % capacity]
+    }
+
     /// Clears the buffer. Keeps the reserved storage capacity.
     public mutating func removeAll() {
         storage.removeAll(keepingCapacity: true)

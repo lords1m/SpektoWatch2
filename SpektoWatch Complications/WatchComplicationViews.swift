@@ -60,7 +60,7 @@ struct RectangularComplicationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("L\(entry.weighting)F · LIVE")
+            Text("L\(entry.weighting)F · \(entry.freshnessLabel)")
                 .font(.system(size: 9, weight: .regular, design: .monospaced))
                 .tracking(1.6)
                 .foregroundStyle(.secondary)
@@ -75,7 +75,7 @@ struct RectangularComplicationView: View {
             }
             Gauge(value: entry.gaugeValue) {}
                 .gaugeStyle(.accessoryLinear)
-                .tint(gaugeColor(for: entry.level))
+                .tint(gaugeColor(for: entry.displayLevel))
         }
     }
 
@@ -98,7 +98,7 @@ struct InlineComplicationView: View {
     let entry: WatchComplicationEntry
 
     var body: some View {
-        if let level = entry.level {
+        if let level = entry.displayLevel {
             Label(
                 String(format: "SPEKTO  %.0f %@", level, entry.labelText),
                 systemImage: "waveform"

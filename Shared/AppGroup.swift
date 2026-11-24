@@ -34,4 +34,46 @@ public enum AppGroup {
 public enum ComplicationSharedKeys {
     public static let level = "spw.complication.level"
     public static let weighting = "spw.complication.weighting"
+    /// WL-3: `timeIntervalSince1970` of the last level write. Lets the
+    /// complication show "–" instead of a frozen value once data goes stale.
+    public static let updatedAt = "spw.complication.updatedAt"
+    /// A value older than this is shown as stale.
+    public static let staleAfter: TimeInterval = 5 * 60
 }
+
+#if os(watchOS) && canImport(WidgetKit)
+import WidgetKit
+
+/// WL-3: single writer API for the complication feed, used by the watch's own
+/// engine (primary — works watch-only) and by the phone stream mirror
+/// (secondary). Reloads are throttled to protect the daily WidgetKit budget.
+public enum ComplicationFeed {
+    public static let widgetKinds = [
+        "SpektoWatchLevelCircular",
+        "SpektoWatchLevelRectangular",
+        "SpektoWatchLevelInline",
+        "SpektoWatchLevelCorner"
+    ]
+    public static let minimumReloadInterval: TimeInterval = 60
+
+    private static let lock = NSLock()
+    private static var lastReload = Date.distantPast
+
+    /// Stores the level and reloads timelines at most once per
+    /// `minimumReloadInterval` unless `force` (e.g. recording stopped).
+    public static func publish(level: Float, weighting: String, force: Bool = false, now: Date = Date()) {
+        guard level.isFinite else { return }
+        lock.lock()
+        let due = force || now.timeIntervalSince(lastReload) >= minimumReloadInterval
+        if due { lastReload = now }
+        lock.unlock()
+        guard due else { return }
+
+        let shared = AppGroup.defaults
+        shared.set(level, forKey: ComplicationSharedKeys.level)
+        shared.set(weighting, forKey: ComplicationSharedKeys.weighting)
+        shared.set(now.timeIntervalSince1970, forKey: ComplicationSharedKeys.updatedAt)
+        widgetKinds.forEach { WidgetCenter.shared.reloadTimelines(ofKind: $0) }
+    }
+}
+#endif

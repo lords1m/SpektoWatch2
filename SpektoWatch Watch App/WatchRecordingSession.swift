@@ -113,6 +113,26 @@ final class WatchRecordingSession {
         }
     }
 
+    /// WL-2: catalog entry written atomically before capture starts so a crash
+    /// mid-recording leaves a record that launch recovery can finalize.
+    func provisionalMetadata(title: String) -> WatchRecordingMetadata {
+        WatchRecordingMetadata(
+            id: id,
+            title: title,
+            createdAt: startDate,
+            duration: 0,
+            sampleRate: format.sampleRate,
+            weighting: weighting,
+            audioFileName: audioURL.lastPathComponent,
+            measurementFileName: measurementURL.lastPathComponent,
+            syncState: .local,
+            calibrationOffset: calibrationOffset,
+            timeWeighting: timeWeighting,
+            fftBlockSize: fftBlockSize,
+            isInProgress: true
+        )
+    }
+
     /// Flushes both files to disk and returns durable catalog metadata. Safe to
     /// call more than once; only the first call finalizes.
     @discardableResult

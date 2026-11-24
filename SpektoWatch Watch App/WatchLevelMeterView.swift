@@ -9,13 +9,14 @@ struct WatchLevelMeterView: View {
     private var isRecording: Bool { audioEngine.isRecording }
     private static let historyLength = 120
     @State private var levelHistory = RingBuffer<Float>(capacity: WatchLevelMeterView.historyLength)
+    @State private var levelTimes = RingBuffer<Date>(capacity: WatchLevelMeterView.historyLength)
     @State private var unitLabel: String = "dB(Z)"
     @State private var latestSampleRate: Double = 44100.0
     @State private var latestMagnitudesCount: Int = 1024
 
     private let historyLength = WatchLevelMeterView.historyLength
-    private let minDB: Float = -120.0
-    private let maxDB: Float = 0.0
+    private let minDB: Float = LevelDisplayRange.minDB
+    private let maxDB: Float = LevelDisplayRange.maxDB
 
     var body: some View {
         ZStack {
@@ -30,7 +31,7 @@ struct WatchLevelMeterView: View {
 
                 var path = Path()
                 for (index, value) in snapshot.enumerated() {
-                    let normalized = clamp((value - minDB) / (maxDB - minDB), 0, 1)
+                    let normalized = LevelDisplayRange.normalized(value)
                     let x = CGFloat(index) * step
                     let y = height - CGFloat(normalized) * height
                     if index == 0 {
@@ -71,7 +72,7 @@ struct WatchLevelMeterView: View {
             // Unterer Bereich (xAxisHeight) bleibt frei für X-Achse.
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("0")
+                    Text("\(Int(maxDB))")
                     Spacer()
                     Text("[\(unitLabel)]")
                     Spacer()
@@ -91,7 +92,7 @@ struct WatchLevelMeterView: View {
                 Spacer()
 
                 HStack {
-                    let totalSeconds = timeWindowSeconds(sampleCount: levelHistory.count, maxCount: historyLength)
+                    let totalSeconds = DisplayTimeWindow.seconds(oldest: levelTimes.oldest, newest: levelTimes.newest)
                     let tickLabels = timeTickLabels(totalSeconds: totalSeconds)
                     Text(tickLabels[0])
                         .font(.system(size: 7, weight: .medium, design: .monospaced))
@@ -113,6 +114,7 @@ struct WatchLevelMeterView: View {
 
     private func appendLevel(from data: SpectrogramData) {
         levelHistory.append(data.broadbandLevel)
+        levelTimes.append(data.timestamp)
         unitLabel = unitLabel(for: data)
         latestSampleRate = data.sampleRate
         latestMagnitudesCount = data.magnitudes.count
@@ -137,14 +139,6 @@ struct WatchLevelMeterView: View {
         case "Z": return "dB(Z)"
         default: return "dB(A)"
         }
-    }
-
-    private func timeWindowSeconds(sampleCount: Int, maxCount: Int) -> Double {
-        let count = max(sampleCount, 2)
-        let fftSize = max(latestMagnitudesCount * 2, 2)
-        let frameDuration = Double(fftSize) / max(latestSampleRate, 1.0)
-        let windowCount = min(count, maxCount)
-        return Double(windowCount - 1) * frameDuration
     }
 
     private func timeTickLabels(totalSeconds: Double) -> [String] {

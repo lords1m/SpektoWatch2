@@ -1076,9 +1076,9 @@ tasks:
       notes: "Code landed 2026-11-24 (tests: M22WatchTransferRegressionTests; WC-2/4/6 watch-only → task-8 hardware). Owns WC-1..6."
     - id: task-3-watch-lifecycle
       name: "Watch Lifecycle & Configuration"
-      status: pending
+      status: code_complete
       file: agent/tasks/milestone-22-code-review-remediation/task-3-watch-lifecycle.md
-      notes: "Owns WL-1..7; WL-3 blocked on Q1."
+      notes: "Code landed 2026-11-24 (tests: SpektoWatchTests/M22WatchLifecycleRegressionTests). WL-3 implemented Q1-independently (watch engine is primary complication writer). Finding: the wired INFOPLIST_FILE is root SpektoWatch-Watch-App-Info.plist + generated keys (WKCompanionAppBundleIdentifier, WKRunsIndependentlyOfCompanionApp=YES); folder Watch-Info.plist with WKWatchOnly is NOT the built Info.plist. Owns WL-1..7; WL-3 blocked on Q1."
     - id: task-4-audio-session-coordinator
       name: "Audio Session Coordinator"
       status: pending

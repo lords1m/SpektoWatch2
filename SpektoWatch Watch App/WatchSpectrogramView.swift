@@ -6,6 +6,8 @@ struct WatchSpectrogramView: View {
     @EnvironmentObject var audioEngine: WatchAudioEngine
     @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
     @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: SpectrogramResolution.current.watchHistoryFrameCount)
+    /// WL-7: arrival time of each frame in `frames` (same capacity/order).
+    @State private var frameTimes: RingBuffer<Date> = RingBuffer(capacity: SpectrogramResolution.current.watchHistoryFrameCount)
     @State private var zoomLevel: Double = 1.0
     @State private var crownZoomEnabled = false
     #if DEBUG
@@ -161,6 +163,7 @@ struct WatchSpectrogramView: View {
         let capacity = maxFrames
         if frames.capacity != capacity {
             frames = RingBuffer(capacity: capacity)
+            frameTimes = RingBuffer(capacity: capacity)
         }
     }
 
@@ -183,6 +186,7 @@ struct WatchSpectrogramView: View {
         // `append` is O(1) and drops the oldest slot in place when full,
         // replacing the previous O(n) `removeFirst()` per frame.
         frames.append(visualMagnitudes)
+        frameTimes.append(data.timestamp)
         latestFrequencies = data.visualFrequencies ?? data.frequencies
         latestSampleRate = data.sampleRate
         latestMagnitudesCount = data.magnitudes.count
@@ -248,7 +252,7 @@ struct WatchSpectrogramView: View {
                 Spacer()
 
                 HStack {
-                    let totalSeconds = timeWindowSeconds(frameCount: frames.count, maxCount: maxFrames)
+                    let totalSeconds = DisplayTimeWindow.seconds(oldest: frameTimes.oldest, newest: frameTimes.newest)
                     let tickLabels = timeTickLabels(totalSeconds: totalSeconds)
                     Text(tickLabels[0])
                         .font(.system(size: 7, weight: .medium, design: .monospaced))
@@ -295,14 +299,6 @@ struct WatchSpectrogramView: View {
             return String(format: "%.0fk", frequency / 1000)
         }
         return String(format: "%.0f", frequency)
-    }
-
-    private func timeWindowSeconds(frameCount: Int, maxCount: Int) -> Double {
-        let count = max(frameCount, 2)
-        let fftSize = max(latestMagnitudesCount * 2, 2)
-        let frameDuration = Double(fftSize) / max(latestSampleRate, 1.0)
-        let windowCount = min(count, maxCount)
-        return Double(windowCount - 1) * frameDuration
     }
 
     private func timeTickLabels(totalSeconds: Double) -> [String] {

@@ -7,16 +7,6 @@ import WidgetKit
 #endif
 
 public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
-    #if os(watchOS)
-    // Keys live in `Shared/AppGroup.swift` to avoid drift with the widget
-    // extension reader.
-    private static let complicationWidgetKinds = [
-        "SpektoWatchLevelCircular",
-        "SpektoWatchLevelRectangular",
-        "SpektoWatchLevelInline",
-        "SpektoWatchLevelCorner"
-    ]
-    #endif
     
     @Published public var isReachable = false
     @Published public var spectrogramData: SpectrogramData?
@@ -28,7 +18,6 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     #if os(watchOS)
     @Published public private(set) var phoneAppState: WatchAppState?
     @Published public private(set) var lastPhoneSpectrogramReceivedAt: Date?
-    private var lastComplicationReload = Date.distantPast
     #endif
     
     // MARK: - Queue Definitionen
@@ -217,22 +206,10 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     }
 
     #if os(watchOS)
-    private static let complicationReloadMinimumInterval: TimeInterval = 60
-
+    /// Secondary complication writer (phone stream). The watch engine is the
+    /// primary writer (WL-3); both go through the throttled `ComplicationFeed`.
     private func updateComplicationState(from data: SpectrogramData) {
-        let now = Date()
-        guard now.timeIntervalSince(lastComplicationReload) >= Self.complicationReloadMinimumInterval else { return }
-        // Assign before the reload so a near-simultaneous second call cannot
-        // race past the throttle check.
-        lastComplicationReload = now
-
-        let shared = AppGroup.defaults
-        shared.set(data.levels["LAF"] ?? data.broadbandLevel, forKey: ComplicationSharedKeys.level)
-        shared.set(frequencyWeighting, forKey: ComplicationSharedKeys.weighting)
-
-        Self.complicationWidgetKinds.forEach {
-            WidgetCenter.shared.reloadTimelines(ofKind: $0)
-        }
+        ComplicationFeed.publish(level: data.levels["LAF"] ?? data.broadbandLevel, weighting: frequencyWeighting)
     }
     #endif
     
@@ -585,6 +562,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         let store = WatchRecordingStore.shared
         let fm = FileManager.default
         for rec in store.recordings where rec.syncState == .local || rec.syncState == .syncing {
+            if rec.isInProgress == true { continue } // WL-2: still being written
             if outstanding.contains(rec.id) { continue }
             let audioURL = store.audioURL(for: rec)
             guard fm.fileExists(atPath: audioURL.path) else { continue }

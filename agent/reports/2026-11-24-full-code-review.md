@@ -47,13 +47,13 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| WL-1 ✔ | H | `SpektoWatch Watch App/Watch-Info.plist` | No `WKBackgroundModes`; `WKExtendedRuntimeSession` invalidates immediately → `didInvalidate` → `stopRecording()`. |
-| WL-2 ✔ | H | `WatchRecordingStore.swift:98-122` | Files cataloged only at stop; `cleanupOrphanedFiles()` deletes partial recordings after a crash. |
-| WL-3 | H | `Watch-Info.plist` `WKWatchOnly=true` + `WatchConnectivityManager.swift:172-185` | Complication fed only from phone stream, which watch-only disables → always "–"; never marked stale. |
-| WL-4 | M | `WatchAudioEngine.swift:1084-1098` | Invalidation callback lacks `session === self.session` guard → stale callback stops a new recording. |
-| WL-5 | M | `WatchAudioEngine.swift:570-574` | Stop from background/expiry keeps mic running as live monitoring with no runtime session. |
-| WL-6 | M | `WatchAudioEngine.swift:349-387` | `.auto` source: phone freshness only re-evaluated on connectivity change; stale phone frame shown forever; subscription rebuilt per frame. |
-| WL-7 | M | `WatchLevelMeterView.swift:17-115`, `WatchSpectrogramView.swift:300` | −120…0 dB scale for dB SPL values → flat line; time axis assumes 46 ms/frame at ~5 Hz updates. |
+| WL-1 ✔ | H | `SpektoWatch Watch App/Watch-Info.plist` | No `WKBackgroundModes`; `WKExtendedRuntimeSession` invalidates immediately → `didInvalidate` → `stopRecording()`. → fixed (M22 task-3, pending macOS verification) |
+| WL-2 ✔ | H | `WatchRecordingStore.swift:98-122` | Files cataloged only at stop; `cleanupOrphanedFiles()` deletes partial recordings after a crash. → fixed (M22 task-3, pending macOS verification) |
+| WL-3 | H | `Watch-Info.plist` `WKWatchOnly=true` + `WatchConnectivityManager.swift:172-185` | Complication fed only from phone stream, which watch-only disables → always "–"; never marked stale. → fixed (M22 task-3, pending macOS verification) |
+| WL-4 | M | `WatchAudioEngine.swift:1084-1098` | Invalidation callback lacks `session === self.session` guard → stale callback stops a new recording. → fixed (M22 task-3, pending macOS verification) |
+| WL-5 | M | `WatchAudioEngine.swift:570-574` | Stop from background/expiry keeps mic running as live monitoring with no runtime session. → fixed (M22 task-3, pending macOS verification) |
+| WL-6 | M | `WatchAudioEngine.swift:349-387` | `.auto` source: phone freshness only re-evaluated on connectivity change; stale phone frame shown forever; subscription rebuilt per frame. → fixed (M22 task-3, pending macOS verification) |
+| WL-7 | M | `WatchLevelMeterView.swift:17-115`, `WatchSpectrogramView.swift:300` | −120…0 dB scale for dB SPL values → flat line; time axis assumes 46 ms/frame at ~5 Hz updates. → fixed (M22 task-3, pending macOS verification) |
 
 ## Audio session ownership & engine state → task-4
 

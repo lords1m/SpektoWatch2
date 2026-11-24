@@ -9,11 +9,11 @@ struct WatchRecordingsView: View {
         ZStack {
             WatchAppBackground().ignoresSafeArea()
 
-            if store.recordings.isEmpty {
+            if store.finishedRecordings.isEmpty {
                 emptyState
             } else {
                 List {
-                    ForEach(store.recordings) { recording in
+                    ForEach(store.finishedRecordings) { recording in
                         NavigationLink {
                             WatchRecordingDetailView(recording: recording)
                         } label: {

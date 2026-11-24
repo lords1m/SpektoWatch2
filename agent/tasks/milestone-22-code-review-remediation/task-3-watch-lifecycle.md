@@ -1,6 +1,6 @@
 # Task 3: Watch Lifecycle & Configuration
 
-Status: pending
+Status: code_complete (pending macOS build + simulator tests)
 Created: 2026-11-24
 Milestone: `milestone-22-code-review-remediation`
 Owns: WL-1 … WL-7

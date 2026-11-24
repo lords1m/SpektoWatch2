@@ -40,6 +40,11 @@ public struct WatchRecordingMetadata: Codable, Identifiable, Sendable, Equatable
     public var fftBlockSize: Int?
     /// Session minimum broadband level (LAF), when captured.
     public var minLevel: Float?
+    /// WL-2: `true` for the provisional catalog entry written when a
+    /// recording starts; cleared at finalize. An entry still marked on launch
+    /// belongs to a recording interrupted by a crash and is recovered.
+    /// Optional for wire/catalog backward compatibility.
+    public var isInProgress: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -56,7 +61,8 @@ public struct WatchRecordingMetadata: Codable, Identifiable, Sendable, Equatable
         calibrationOffset: Float? = nil,
         timeWeighting: String? = nil,
         fftBlockSize: Int? = nil,
-        minLevel: Float? = nil
+        minLevel: Float? = nil,
+        isInProgress: Bool? = nil
     ) {
         self.id = id
         self.title = title
@@ -73,5 +79,6 @@ public struct WatchRecordingMetadata: Codable, Identifiable, Sendable, Equatable
         self.timeWeighting = timeWeighting
         self.fftBlockSize = fftBlockSize
         self.minLevel = minLevel
+        self.isInProgress = isInProgress
     }
 }
