@@ -48,11 +48,95 @@ final class RecordingManager: NSObject, ObservableObject {
         recordingsDirectory.appendingPathComponent("recordings_pending_soft_delete.json")
     }
 
-    init(baseDirectory: URL? = nil) {
+    /// - Parameter interruptedRecordingsDirectory: directory scanned on
+    ///   launch for writer temp files left behind by a crash/kill during a
+    ///   recording (DL-4). Defaults to the system temp directory for the
+    ///   production store only, so tests with a custom `baseDirectory` never
+    ///   pick up unrelated temp files.
+    init(baseDirectory: URL? = nil, interruptedRecordingsDirectory: URL? = nil) {
         self.baseDirectory = baseDirectory
         super.init()
         loadRecordings()
         restorePendingSoftDeletesFromSidecarIfNeeded()
+        let recoveryDirectory = interruptedRecordingsDirectory
+            ?? (baseDirectory == nil ? fileManager.temporaryDirectory : nil)
+        if let recoveryDirectory {
+            recoverInterruptedRecordings(in: recoveryDirectory)
+        }
+    }
+
+    // MARK: - Crash recovery (DL-4)
+
+    /// Re-catalogs `recording_<ts>.caf` (+ matching `measurement_<ts>.spekto`)
+    /// writer temp files that a previous process never handed to
+    /// `addRecording` because it died mid-recording. Must only run at launch
+    /// (no writer of this process is open yet).
+    func recoverInterruptedRecordings(in directory: URL) {
+        guard !metadataLoadFailed else { return }
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        func timestamp(_ url: URL, prefix: String, ext: String) -> TimeInterval? {
+            let name = url.lastPathComponent
+            guard name.hasPrefix(prefix), url.pathExtension.lowercased() == ext else { return nil }
+            let core = name.dropFirst(prefix.count).dropLast(ext.count + 1)
+            return TimeInterval(core)
+        }
+
+        let audioFiles = entries.compactMap { url -> (URL, TimeInterval)? in
+            timestamp(url, prefix: "recording_", ext: "caf").map { (url, $0) }
+        }
+        var measurementFiles = entries.compactMap { url -> (URL, TimeInterval)? in
+            timestamp(url, prefix: "measurement_", ext: "spekto").map { (url, $0) }
+        }
+        guard !audioFiles.isEmpty else { return }
+
+        var recovered = 0
+        for (audioURL, ts) in audioFiles.sorted(by: { $0.1 < $1.1 }) {
+            let size = (try? audioURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            // Pair with the measurement file opened within 5 s of the audio file.
+            var measurementURL: URL?
+            if let match = measurementFiles.enumerated().min(by: { abs($0.element.1 - ts) < abs($1.element.1 - ts) }),
+               abs(match.element.1 - ts) < 5 {
+                measurementURL = match.element.0
+                measurementFiles.remove(at: match.offset)
+            }
+            guard size > 4096 else {
+                // Header-only / empty file: nothing worth recovering.
+                try? fileManager.removeItem(at: audioURL)
+                if let measurementURL { try? fileManager.removeItem(at: measurementURL) }
+                continue
+            }
+
+            let startDate = Date(timeIntervalSince1970: ts)
+            let duration = Self.resolvedRecordingDuration(
+                audioURL: audioURL,
+                measurementURL: measurementURL,
+                fallback: 0
+            )
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .short
+            let recording = Recording(
+                name: "Wiederhergestellt \(formatter.string(from: startDate))",
+                description: "Nach einem unerwarteten Beenden der App wiederhergestellt.",
+                startDate: startDate,
+                duration: duration,
+                audioFileName: audioURL.path,
+                measurementDataFileName: measurementURL?.path,
+                tags: ["wiederhergestellt"],
+                calibrationOffset: CalibrationProvider.resolveStartupOffset()
+            )
+            if addRecording(recording) {
+                recovered += 1
+            }
+        }
+        if recovered > 0 {
+            Logger.recording.warning("Recovered \(recovered) interrupted recording(s) from temp files")
+        }
     }
 
     func startRecording(audioEngine: AudioEngine) -> Bool {
@@ -119,7 +203,17 @@ final class RecordingManager: NSObject, ObservableObject {
         completion(url)
     }
 
-    func addRecording(_ recording: Recording) {
+    /// Persists a finished recording: moves its files into the recordings
+    /// directory and writes the catalog. Returns `false` (and leaves the
+    /// in-memory list unchanged) when the audio file could not be moved or
+    /// the metadata could not be written — callers that acknowledge a
+    /// transfer (watch sync) must only do so on `true` (DL-3).
+    @discardableResult
+    func addRecording(_ recording: Recording) -> Bool {
+        guard !metadataLoadFailed else {
+            Logger.recording.error("addRecording refused: metadata failed to load")
+            return false
+        }
         var stored = recording
         if stored.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             stored.name = "Messung \(recordings.count + 1)"
@@ -127,6 +221,9 @@ final class RecordingManager: NSObject, ObservableObject {
 
         if let movedAudio = persistRecordingFile(pathOrName: stored.audioFileName, id: stored.id) {
             stored.audioFileName = movedAudio.lastPathComponent
+        } else if !fileManager.fileExists(atPath: url(for: stored).path) {
+            Logger.recording.error("addRecording failed: audio file \(stored.audioFileName, privacy: .public) missing")
+            return false
         }
 
         if let measurementName = stored.measurementDataFileName,
@@ -137,8 +234,15 @@ final class RecordingManager: NSObject, ObservableObject {
         stored.spectralDataAvailable = probeSpectralAvailability(for: stored)
 
         recordings.insert(stored, at: 0)
-        saveRecordings()
+        guard saveRecordings() else {
+            // Roll back the in-memory insert so the UI never shows a
+            // recording that is not in the on-disk catalog. The files stay
+            // in place and are re-cataloged by the next successful save.
+            recordings.removeAll { $0.id == stored.id }
+            return false
+        }
         removeOrphanedRecordingFiles()
+        return true
     }
 
     /// Ingests a standalone watch recording transferred via WatchConnectivity
@@ -151,8 +255,7 @@ final class RecordingManager: NSObject, ObservableObject {
         if recordings.contains(where: { $0.id == recording.id }) {
             return true
         }
-        addRecording(recording)
-        return true
+        return addRecording(recording)
     }
 
     func updateRecording(_ recording: Recording) {
@@ -511,10 +614,11 @@ final class RecordingManager: NSObject, ObservableObject {
         }
     }
 
-    private func saveRecordings() {
+    @discardableResult
+    private func saveRecordings() -> Bool {
         guard !metadataLoadFailed else {
             Logger.recording.error("Refusing to overwrite metadata after load failure")
-            return
+            return false
         }
         do {
             let encoder = JSONEncoder()
@@ -523,9 +627,11 @@ final class RecordingManager: NSObject, ObservableObject {
             let data = try encoder.encode(recordings)
             try data.write(to: metadataURL, options: .atomic)
             persistenceError = nil
+            return true
         } catch {
             persistenceError = error.localizedDescription
             Logger.recording.error("Metadata save failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -616,10 +722,34 @@ final class RecordingManager: NSObject, ObservableObject {
                 add(photo)
             }
         }
+        // DL-2: recordings parked in the soft-delete sidecar by a previous
+        // session are still recoverable — their files must survive the
+        // orphan sweep that `loadRecordings()` runs before the sidecar is
+        // restored. Reading the sidecar here keeps this robust to any
+        // future reordering of init.
+        for recording in sidecarRecordings() {
+            add(recording.audioFileName)
+            if let measurement = recording.measurementDataFileName {
+                add(measurement)
+            }
+            for photo in recording.photoFileNames {
+                add(photo)
+            }
+        }
         if let pendingAudioURL {
             add(pendingAudioURL.path)
         }
         return names
+    }
+
+    /// Recordings referenced by the on-disk soft-delete sidecar, or `[]`.
+    private func sidecarRecordings() -> [Recording] {
+        let url = pendingSoftDeleteSidecarURL
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(PendingSoftDeleteSidecar.self, from: data))?.recordings ?? []
     }
 
     @discardableResult

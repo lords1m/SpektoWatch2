@@ -11,6 +11,47 @@ struct PresetSlot: Codable, Equatable, Identifiable {
         self.presetID = presetID
         self.widgets = widgets
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case presetID, widgets
+    }
+
+    /// DL-8: element-wise widget decode (see `LossyWidgetList`).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        presetID = try container.decode(String.self, forKey: .presetID)
+        widgets = try container.decode(LossyWidgetList.self, forKey: .widgets).widgets
+    }
+}
+
+/// DL-8: decodes a `[WidgetConfiguration]` element by element, dropping
+/// entries that fail (unknown widget type from a newer build, corrupt
+/// fields) instead of failing the whole array.
+struct LossyWidgetList: Decodable {
+    let widgets: [WidgetConfiguration]
+    let droppedCount: Int
+
+    private struct Failable: Decodable {
+        let value: WidgetConfiguration?
+        init(from decoder: Decoder) throws {
+            value = try? decoder.singleValueContainer().decode(WidgetConfiguration.self)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var result: [WidgetConfiguration] = []
+        var dropped = 0
+        while !container.isAtEnd {
+            if let value = try container.decode(Failable.self).value {
+                result.append(value)
+            } else {
+                dropped += 1
+            }
+        }
+        widgets = result
+        droppedCount = dropped
+    }
 }
 
 enum DashboardNavigation: Codable, Equatable {

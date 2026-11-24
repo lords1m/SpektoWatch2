@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 
 // PlaybackAnalyzer — recording playback DSP coordinator (M14 task-8, R1).
 //
@@ -41,7 +42,6 @@ final class PlaybackAnalyzer: ObservableObject {
     // Saved main-engine settings — restored when `stop()` is called so the
     // user's live measurement configuration is not permanently affected by
     // playback.
-    private var savedCalibrationOffset: Float = 0
     private var savedFrequencyWeighting: FrequencyWeighting = .a
     private var savedTimeWeighting: TimeWeighting = .fast
     private var savedBlockSize: FFTBlockSize = .size4096
@@ -51,13 +51,21 @@ final class PlaybackAnalyzer: ObservableObject {
 
     /// Configure the main engine for recording playback.
     /// Call once in `RecordingDetailView.onAppear`.
-    func start(engine: AudioEngine, recording: Recording) {
-        guard !didStart else { return }
+    ///
+    /// Returns `false` (and leaves the engine untouched) while a file
+    /// recording is in progress — stopping live mode then would close the
+    /// writers and the recording would never reach the list (DL-1).
+    @discardableResult
+    func start(engine: AudioEngine, recording: Recording) -> Bool {
+        guard !didStart else { return true }
+        guard !Self.isRecordingInProgress(engine) else {
+            Logger.audioEngine.warning("PlaybackAnalyzer.start ignored: file recording in progress")
+            return false
+        }
         didStart = true
         audioEngine = engine
 
         // Save current live-measurement settings before overwriting.
-        savedCalibrationOffset   = engine.calibrationOffset
         savedFrequencyWeighting  = engine.frequencyWeighting
         savedTimeWeighting       = engine.timeWeighting
         savedBlockSize           = engine.currentBlockSize
@@ -66,8 +74,10 @@ final class PlaybackAnalyzer: ObservableObject {
         // source entering the pipeline.
         engine.stopLiveMode()
 
-        // Apply the recording's measurement parameters.
-        engine.calibrationOffset = recording.calibrationOffset
+        // Apply the recording's measurement parameters. Calibration goes
+        // through the non-persisted override (DL-10) so the user's stored
+        // calibration is never replaced, even if the app dies mid-playback.
+        engine.setCalibrationOverride(recording.calibrationOffset)
         if let w = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
             engine.setFrequencyWeighting(w)
         }
@@ -77,6 +87,12 @@ final class PlaybackAnalyzer: ObservableObject {
         if let b = FFTBlockSize(rawValue: recording.fftBlockSize) {
             engine.setBlockSize(b)
         }
+        return true
+    }
+
+    /// `true` while the engine is writing a recording to disk.
+    static func isRecordingInProgress(_ engine: AudioEngine) -> Bool {
+        engine.recording.isRecordingToFile
     }
 
     /// Restore the main engine to its live-measurement state.
@@ -87,7 +103,7 @@ final class PlaybackAnalyzer: ObservableObject {
 
         // Restore the user's live settings.
         engine.setBlockSize(savedBlockSize)
-        engine.calibrationOffset = savedCalibrationOffset
+        engine.setCalibrationOverride(nil)
         engine.setFrequencyWeighting(savedFrequencyWeighting)
         engine.setTimeWeighting(savedTimeWeighting)
 

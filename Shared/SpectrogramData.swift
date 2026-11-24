@@ -98,6 +98,22 @@ public struct SpectrogramData: Codable {
     // Trailing float arrays (count-prefixed, empty = absent) after magnitudesC:
     //   thirdOctaveBandsZ/A/C, bandLeqZ/A/C, barkBandsZ
 
+    /// DL-13: copies `count` Floats starting at a (possibly unaligned) byte
+    /// offset from the start of `bytes`. Replaces `bindMemory` on unaligned
+    /// pointers, which is undefined behaviour.
+    public static func copyFloats(from bytes: Data, byteOffset: Int, count: Int) -> [Float] {
+        guard count > 0 else { return [] }
+        var result = [Float](repeating: 0, count: count)
+        let byteCount = count * MemoryLayout<Float>.size
+        bytes.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress, byteOffset >= 0, byteOffset + byteCount <= raw.count else { return }
+            result.withUnsafeMutableBytes { dst in
+                dst.copyMemory(from: UnsafeRawBufferPointer(start: base.advanced(by: byteOffset), count: byteCount))
+            }
+        }
+        return result
+    }
+
     /// Current spectrogram-payload schema version. Bump on any
     /// breaking layout change to fields after this byte.
     public static let currentSchemaVersion: UInt8 = 0x01
@@ -212,9 +228,7 @@ public struct SpectrogramData: Codable {
             guard count > 0 else { return [] }
             let byteCount = count * floatSize
             guard canReadByteCount(byteCount, offset, bytes.count) else { return nil }
-            let values = bytes.withUnsafeBytes {
-                Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: count), count: count))
-            }
+            let values = SpectrogramData.copyFloats(from: bytes, byteOffset: offset, count: count)
             offset += byteCount
             return values
         }
@@ -244,9 +258,7 @@ public struct SpectrogramData: Codable {
 
         let magByteCount = magCount * floatSize
         guard canReadByteCount(magByteCount, offset, data.count) else { return nil }
-        let magnitudes = data.withUnsafeBytes {
-            Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: magCount), count: magCount))
-        }
+        let magnitudes = SpectrogramData.copyFloats(from: data, byteOffset: offset, count: magCount)
         offset += magByteCount
 
         guard let freqCountRaw = readInt32(data, &offset) else { return nil }
@@ -255,9 +267,7 @@ public struct SpectrogramData: Codable {
 
         let freqByteCount = freqCount * floatSize
         guard canReadByteCount(freqByteCount, offset, data.count) else { return nil }
-        let frequencies = data.withUnsafeBytes {
-            Array(UnsafeBufferPointer(start: $0.baseAddress!.advanced(by: offset).bindMemory(to: Float.self, capacity: freqCount), count: freqCount))
-        }
+        let frequencies = SpectrogramData.copyFloats(from: data, byteOffset: offset, count: freqCount)
         offset += freqByteCount
 
         guard let levelsCountRaw = readInt32(data, &offset) else { return nil }

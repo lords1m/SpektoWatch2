@@ -172,7 +172,10 @@ struct ControlBarView: View {
         .floatingPill(cornerRadius: 24)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
-        .sheet(isPresented: $showRecordingsList) {
+        .sheet(isPresented: $showRecordingsList, onDismiss: {
+            // DL-7: the undo window ends with the sheet.
+            services.recordingManager.commitPendingSoftDeletes()
+        }) {
             RecordingsListView()
                 .environmentObject(services)
                 .polishedSheetChrome()
@@ -428,13 +431,14 @@ struct ControlBarView: View {
                         recording.minLevel = data.levels["LAFmin"] ?? -120.0
                     }
                     
-                    services.recordingManager.addRecording(recording)
-                    
-                    // Success feedback
+                    let saved = services.recordingManager.addRecording(recording)
+
+                    // Feedback reflects whether the recording actually reached
+                    // the catalog (DL-3); failures surface via persistenceError.
                     let notificationGenerator = UINotificationFeedbackGenerator()
-                    notificationGenerator.notificationOccurred(.success)
-                    
-                    print("[ControlBarView] Recording automatically saved: \(recording.name)")
+                    notificationGenerator.notificationOccurred(saved ? .success : .error)
+
+                    print("[ControlBarView] Recording save \(saved ? "succeeded" : "FAILED"): \(recording.name)")
                 }
             }
         } else {

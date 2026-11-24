@@ -69,6 +69,9 @@ struct RecordingDetailView: View {
     @State private var showSpectrogramExportError = false
     @State private var autoFitToastText: String?
     @State private var autoFitToastTask: Task<Void, Never>?
+    /// DL-1: playback would stop live capture and close the active
+    /// recording's writers, so it is locked while a recording runs.
+    @State private var playbackLockedByRecording = false
 
     init(recording: Recording) {
         _recording = State(initialValue: recording)
@@ -180,10 +183,17 @@ struct RecordingDetailView: View {
             // PlaybackAnalyzer suspends the live mic engine and routes
             // playback samples through the shared pipeline (M14/R1).
             if let audioEngine {
-                playbackAnalyzer.start(engine: audioEngine, recording: recording)
-            }
-            audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples, sampleRate in
-                playbackAnalyzer?.processSamples(samples, sampleRate: sampleRate)
+                if playbackAnalyzer.start(engine: audioEngine, recording: recording) {
+                    playbackLockedByRecording = false
+                    audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples, sampleRate in
+                        playbackAnalyzer?.processSamples(samples, sampleRate: sampleRate)
+                    }
+                } else {
+                    // A recording is in progress: keep the stored-data views
+                    // usable but never feed playback into the live pipeline.
+                    playbackLockedByRecording = true
+                    audioPlayer.onAudioSamples = nil
+                }
             }
             if let weighting = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
                 playbackWeighting = weighting
@@ -451,6 +461,14 @@ struct RecordingDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            if playbackLockedByRecording {
+                Label("Aufnahme läuft – Wiedergabe ist gesperrt", systemImage: "record.circle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.isStaticText)
+            }
+
             HStack(spacing: 20) {
                 Button(action: { audioPlayer.seek(by: -5) }) {
                     Image(systemName: "gobackward.5").font(.title2)
@@ -462,7 +480,7 @@ struct RecordingDetailView: View {
                     Image(systemName: audioPlayer.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 58))
                 }
-                .disabled(!audioPlayer.isLoaded)
+                .disabled(!audioPlayer.isLoaded || playbackLockedByRecording)
                 .accessibilityLabel(audioPlayer.isPlaying ? "Wiedergabe pausieren" : "Wiedergabe starten")
 
                 Button(action: { audioPlayer.seek(by: 5) }) {
@@ -764,6 +782,7 @@ struct RecordingDetailView: View {
     // MARK: - Actions
 
     private func togglePlayback() {
+        guard !playbackLockedByRecording else { return }
         if audioPlayer.isPlaying {
             audioPlayer.pause()
             spectrogramModel.providerPause()

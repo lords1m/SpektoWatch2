@@ -24,6 +24,22 @@ final class MeasurementDataWriter {
     private var _frameCount: UInt64 = 0
     private var _droppedFrameCount: UInt64 = 0
     private var isClosed = false
+    /// DL-5: set once a frame write fails. Later frames are rejected so the
+    /// file never contains misaligned data after a partial write.
+    private var _writeFailed = false
+    /// Byte offset just past the last fully written frame (write queue only).
+    private var nextFrameOffset: UInt64 = 0
+    /// DL-4: header `frameCount` is checkpointed every this many frames so a
+    /// crash leaves a header the reader can trust (it additionally derives
+    /// the count from the file size for unfinalized files).
+    private let checkpointInterval: UInt64
+
+    /// `true` once a frame write failed; the writer stopped appending.
+    var writeFailed: Bool {
+        bufferPoolLock.lock()
+        defer { bufferPoolLock.unlock() }
+        return _writeFailed
+    }
 
     var frameCount: UInt64 {
         bufferPoolLock.lock()
@@ -81,6 +97,8 @@ final class MeasurementDataWriter {
         self.frameFloatBuffers = (0..<pendingFrameCapacity).map { _ in MeasurementFrameBuffer(floatCount: frameFloatCount) }
         self.availableFrameBufferIndices = Array(0..<pendingFrameCapacity)
         writeQueue.setSpecific(key: writeQueueKey, value: 1)
+        // ~10 s of frames between header checkpoints (at least 16 frames).
+        self.checkpointInterval = UInt64(max(16, Int((fps.isFinite ? fps : 10) * 10)))
 
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         // Updating (not write-only) so v3 close can re-read the header for CRC32.
@@ -97,6 +115,7 @@ final class MeasurementDataWriter {
             fileFormatVersion: fileFormatVersion,
             calibration: calibration
         )
+        self.nextFrameOffset = UInt64(headerByteCount)
     }
 
     deinit {
@@ -116,6 +135,9 @@ final class MeasurementDataWriter {
         defer { lifecycleLock.unlock() }
 
         guard !isClosed else { return }
+        if writeFailed {
+            throw MeasurementDataError.ioFailure("Messdaten-Datei: vorheriger Schreibfehler, Aufzeichnung gestoppt.")
+        }
         guard metricValues.count == metricKeys.count else {
             throw MeasurementDataError.metricCountMismatch(expected: metricKeys.count, got: metricValues.count)
         }
@@ -148,16 +170,8 @@ final class MeasurementDataWriter {
             for v in fullFFT { frameBuffer.values[idx] = v; idx += 1 }
         }
 
-        let handle = fileHandle
         writeQueue.async {
-            let data = frameBuffer.values.withUnsafeBytes { Data($0) }
-            do {
-                try handle.write(contentsOf: data)
-                self.incrementFrameCount()
-            } catch {
-                NSLog("MeasurementDataWriter: frame write failed: %@", String(describing: error))
-                _ = self.recordDroppedFrame()
-            }
+            self.performFrameWrite(frameBuffer)
             self.releaseFrameBufferIndex(bufferIndex)
         }
     }
@@ -182,6 +196,43 @@ final class MeasurementDataWriter {
         }
         try fileHandle.synchronize()
         try fileHandle.close()
+    }
+
+    /// Runs on `writeQueue`. Writes one frame at the tracked offset; on
+    /// failure truncates back to the last good frame and stops appending
+    /// (DL-5). Checkpoints the header frame count periodically (DL-4).
+    private func performFrameWrite(_ frameBuffer: MeasurementFrameBuffer) {
+        if writeFailed { return }
+        let goodOffset = nextFrameOffset
+        let data = frameBuffer.values.withUnsafeBytes { Data($0) }
+        do {
+            try fileHandle.seek(toOffset: goodOffset)
+            try fileHandle.write(contentsOf: data)
+            nextFrameOffset = goodOffset + UInt64(data.count)
+            let count = incrementFrameCount()
+            if count % checkpointInterval == 0 {
+                checkpointFrameCount(count)
+            }
+        } catch {
+            NSLog("MeasurementDataWriter: frame write failed, truncating to last good frame: %@", String(describing: error))
+            try? fileHandle.truncate(atOffset: goodOffset)
+            bufferPoolLock.lock()
+            _writeFailed = true
+            bufferPoolLock.unlock()
+            _ = recordDroppedFrame()
+        }
+    }
+
+    /// Positional header patch that does not move the handle's offset.
+    private func checkpointFrameCount(_ count: UInt64) {
+        var le = count.littleEndian
+        let fd = fileHandle.fileDescriptor
+        let written = withUnsafeBytes(of: &le) { raw in
+            pwrite(fd, raw.baseAddress, raw.count, off_t(MeasurementDataFormat.frameCountOffset))
+        }
+        if written != MemoryLayout<UInt64>.size {
+            NSLog("MeasurementDataWriter: frame-count checkpoint failed")
+        }
     }
 
     private func finalizeV3Trailer() throws {
@@ -283,10 +334,13 @@ final class MeasurementDataWriter {
         bufferPoolLock.unlock()
     }
 
-    private func incrementFrameCount() {
+    @discardableResult
+    private func incrementFrameCount() -> UInt64 {
         bufferPoolLock.lock()
         _frameCount += 1
+        let count = _frameCount
         bufferPoolLock.unlock()
+        return count
     }
 
     private func recordDroppedFrame() -> UInt64 {

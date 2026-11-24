@@ -7,6 +7,7 @@ import SwiftUI
 struct RecordingsListView: View {
     @EnvironmentObject private var services: AppServices
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     // Browsing state
     @State private var searchText: String = ""
@@ -94,15 +95,29 @@ struct RecordingsListView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: undoToast?.id)
-                .onDisappear {
-                    // Sheet closed mid-window: commit pending deletes so the
-                    // files don't linger orphaned in the recordings folder.
-                    undoTask?.cancel()
-                    undoTask = nil
-                    services.recordingManager.commitPendingSoftDeletes()
-                }
                 .accessibilityIdentifier("recordingsListView")
         }
+        // DL-7: attached to the NavigationStack (not its root content), so
+        // pushing a recording's detail view no longer commits pending
+        // deletes while the undo toast is still visible. Fires only when the
+        // whole list sheet goes away.
+        .onDisappear {
+            commitPendingDeletesNow()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Process may be suspended/killed in the background: make the
+            // user's delete permanent instead of relying on the sidecar.
+            if phase == .background {
+                commitPendingDeletesNow()
+            }
+        }
+    }
+
+    private func commitPendingDeletesNow() {
+        undoTask?.cancel()
+        undoTask = nil
+        undoToast = nil
+        services.recordingManager.commitPendingSoftDeletes()
     }
 
     // MARK: - Content branches

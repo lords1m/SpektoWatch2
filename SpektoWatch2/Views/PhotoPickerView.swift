@@ -36,9 +36,13 @@ struct PhotoPickerView: UIViewControllerRepresentable {
                 onPick(nil)
                 return
             }
-            provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+            // DL-14: capture `onPick` strongly — the coordinator can be
+            // released as soon as the picker is dismissed, before
+            // `loadObject` returns, which silently dropped the photo.
+            let onPick = self.onPick
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
                 let data = (object as? UIImage).flatMap { $0.jpegData(compressionQuality: 0.85) }
-                DispatchQueue.main.async { self?.onPick(data) }
+                DispatchQueue.main.async { onPick(data) }
             }
         }
     }

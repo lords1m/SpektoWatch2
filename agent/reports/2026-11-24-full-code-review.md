@@ -17,20 +17,20 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| DL-1 ✔ | H | `PlaybackAnalyzer.swift:67` | `start()` calls `engine.stopLiveMode()` during an active file recording → writers closed, recording never added to the list. |
-| DL-2 ✔ | H | `RecordingManager.swift:54-55` | `loadRecordings()` (orphan sweep) runs before `restorePendingSoftDeletesFromSidecarIfNeeded()` → soft-deleted files are deleted, then metadata restored pointing at nothing. |
-| DL-3 | M | `RecordingManager.swift` `ingestWatchRecording` / `addRecording` | Always returns `true`; "synced" ack sent even if save/move failed. |
-| DL-4 | M | `Shared/MeasurementDataWriter.swift` `close()` | `frameCount`/seek index/CRC only written at close → crash leaves header with 0 frames, reader returns empty. |
-| DL-5 | L | `MeasurementDataWriter.swift` write path | Partial write failure misaligns all later frames vs seek index. |
-| DL-6 | L | `MeasurementDataReader.swift`, `MeasurementDataV3Support.swift` `decodeSeekIndex` | `Int(header.frameCount)` traps ≥2^63; `reserveCapacity` from untrusted count before bounds check. |
-| DL-7 | M | `Views/RecordingsListView.swift:97` | `onDisappear` fires on push to detail → pending deletes committed while undo toast visible. |
-| DL-8 | M | `DashboardManager.swift:136-139`, `WidgetConfiguration.swift` | One undecodable widget fails whole v2 decode; `configurationLoadFailed` then silently blocks all saves. |
-| DL-9 ✔ | M | `Masking/MaskingProfileManager.swift:38` | `try?` decode → empty list → next `save()` overwrites `profiles.json`; write errors swallowed. |
-| DL-10 | L | `AudioEngine.swift:206` via `PlaybackAnalyzer` | Playback writes the recording's calibration into the persisted `calibrationOffset`; crash mid-playback replaces user calibration. |
-| DL-11 | L | `CSVExporter.swift:146` (`JSONMeasurementExporter`) | `JSONSerialization` raises ObjC exception on NaN/Inf → crash on export. |
-| DL-12 | L | `StoredDataProvider.swift:86, 308` | Frame index = `time·fps`, but writer drops frames under back-pressure → scrubbing maps to wrong frames. |
-| DL-13 | L | `Shared/SpectrogramData.swift:215-259` | Float arrays read via `bindMemory` at unaligned offsets (UB). |
-| DL-14 | M | `Views/PhotoPickerView.swift:39` ✔ | `[weak self]` coordinator may be freed before `loadObject` returns → picked photo silently dropped. |
+| DL-1 ✔ | H | `PlaybackAnalyzer.swift:67` | `start()` calls `engine.stopLiveMode()` during an active file recording → writers closed, recording never added to the list. → fixed (M22 task-1, pending macOS verification) |
+| DL-2 ✔ | H | `RecordingManager.swift:54-55` | `loadRecordings()` (orphan sweep) runs before `restorePendingSoftDeletesFromSidecarIfNeeded()` → soft-deleted files are deleted, then metadata restored pointing at nothing. → fixed (M22 task-1, pending macOS verification) |
+| DL-3 | M | `RecordingManager.swift` `ingestWatchRecording` / `addRecording` | Always returns `true`; "synced" ack sent even if save/move failed. → fixed (M22 task-1, pending macOS verification) |
+| DL-4 | M | `Shared/MeasurementDataWriter.swift` `close()` | `frameCount`/seek index/CRC only written at close → crash leaves header with 0 frames, reader returns empty. → fixed (M22 task-1, pending macOS verification) |
+| DL-5 | L | `MeasurementDataWriter.swift` write path | Partial write failure misaligns all later frames vs seek index. → fixed (M22 task-1, pending macOS verification) |
+| DL-6 | L | `MeasurementDataReader.swift`, `MeasurementDataV3Support.swift` `decodeSeekIndex` | `Int(header.frameCount)` traps ≥2^63; `reserveCapacity` from untrusted count before bounds check. → fixed (M22 task-1, pending macOS verification) |
+| DL-7 | M | `Views/RecordingsListView.swift:97` | `onDisappear` fires on push to detail → pending deletes committed while undo toast visible. → fixed (M22 task-1, pending macOS verification) |
+| DL-8 | M | `DashboardManager.swift:136-139`, `WidgetConfiguration.swift` | One undecodable widget fails whole v2 decode; `configurationLoadFailed` then silently blocks all saves. → fixed (M22 task-1, pending macOS verification) |
+| DL-9 ✔ | M | `Masking/MaskingProfileManager.swift:38` | `try?` decode → empty list → next `save()` overwrites `profiles.json`; write errors swallowed. → fixed (M22 task-1, pending macOS verification) |
+| DL-10 | L | `AudioEngine.swift:206` via `PlaybackAnalyzer` | Playback writes the recording's calibration into the persisted `calibrationOffset`; crash mid-playback replaces user calibration. → fixed (M22 task-1, pending macOS verification) |
+| DL-11 | L | `CSVExporter.swift:146` (`JSONMeasurementExporter`) | `JSONSerialization` raises ObjC exception on NaN/Inf → crash on export. → fixed (M22 task-1, pending macOS verification) |
+| DL-12 | L | `StoredDataProvider.swift:86, 308` | Frame index = `time·fps`, but writer drops frames under back-pressure → scrubbing maps to wrong frames. → fixed (M22 task-1, pending macOS verification) |
+| DL-13 | L | `Shared/SpectrogramData.swift:215-259` | Float arrays read via `bindMemory` at unaligned offsets (UB). → fixed (M22 task-1, pending macOS verification) |
+| DL-14 | M | `Views/PhotoPickerView.swift:39` ✔ | `[weak self]` coordinator may be freed before `loadObject` returns → picked photo silently dropped. → fixed (M22 task-1, pending macOS verification) |
 
 ## WatchConnectivity transfer pipeline → task-2
 

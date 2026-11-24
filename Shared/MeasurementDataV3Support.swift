@@ -87,7 +87,10 @@ enum MeasurementDataV3Support {
         guard data.count >= 12 else { return nil }
         var cursor = MeasurementDataCursor(data: data)
         guard (try? cursor.readUInt32()) == MeasurementDataFormat.seekIndexMagic else { return nil }
-        guard let count = try? cursor.readUInt64(), count <= UInt64(Int.max) else { return nil }
+        // DL-6: validate the untrusted count against the bytes actually
+        // present before using it to size an allocation.
+        let maxEntries = UInt64((data.count - 12) / MemoryLayout<UInt64>.size)
+        guard let count = try? cursor.readUInt64(), count <= maxEntries else { return nil }
         var offsets: [UInt64] = []
         offsets.reserveCapacity(Int(count))
         for _ in 0..<count {

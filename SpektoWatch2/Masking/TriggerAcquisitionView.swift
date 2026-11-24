@@ -124,6 +124,21 @@ struct TriggerAcquisitionView: View {
                 }
             }
 
+            // DL-9: unreadable profiles file — saving is blocked until the
+            // user confirms (the original file has been backed up).
+            if services.maskingProfileManager.loadFailed {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Gespeicherte Profile konnten nicht gelesen werden. Eine Sicherungskopie wurde angelegt.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.orange)
+                    Button("Profile zurücksetzen") {
+                        services.maskingProfileManager.resetAfterLoadFailure()
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                }
+            }
+
             // Saved profiles — quick restore
             if !services.maskingProfileManager.profiles.isEmpty {
                 Divider().opacity(0.12)

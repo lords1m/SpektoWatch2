@@ -16,6 +16,20 @@ struct DashboardLayout: Identifiable, Codable, Equatable {
         self.widgets = widgets
         self.createdAt = createdAt
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, widgets, createdAt
+    }
+
+    /// DL-8: widgets decode element-wise so one unknown/corrupt widget no
+    /// longer fails the whole layout (and with it the whole dashboard).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        widgets = try container.decode(LossyWidgetList.self, forKey: .widgets).widgets
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
 }
 
 private struct DashboardLayoutsStateV1: Codable {
@@ -114,7 +128,8 @@ class DashboardManager: ObservableObject {
 
     private enum LoadResult {
         case loadedV2(DashboardStateV2, needsMigrationSave: Bool)
-        case loadFailed
+        /// Structurally unreadable payload (not just one bad widget).
+        case loadFailed(Data)
         case noSavedData
     }
 
@@ -135,7 +150,7 @@ class DashboardManager: ObservableObject {
                 return .loadedV2(state, needsMigrationSave: hadLegacyOctave)
             } catch {
                 Logger.ui.error("Error loading dashboard v2: \(error.localizedDescription)")
-                return .loadFailed
+                return .loadFailed(data)
             }
         }
 
@@ -148,18 +163,18 @@ class DashboardManager: ObservableObject {
                 return .loadedV2(reconcileSlots(migrated), needsMigrationSave: true)
             } catch {
                 Logger.ui.error("Error loading dashboard v1: \(error.localizedDescription)")
-                return .loadFailed
+                return .loadFailed(data)
             }
         }
 
         if let data = legacyData {
             do {
-                let decoded = try decoder.decode([WidgetConfiguration].self, from: data)
+                let decoded = try decoder.decode(LossyWidgetList.self, from: data).widgets
                 let migrated = DashboardStateMigration.migrateFromLegacyWidgets(decoded)
                 return .loadedV2(reconcileSlots(migrated), needsMigrationSave: true)
             } catch {
                 Logger.ui.error("Error loading legacy dashboard: \(error.localizedDescription)")
-                return .loadFailed
+                return .loadFailed(data)
             }
         }
 
@@ -203,9 +218,16 @@ class DashboardManager: ObservableObject {
                 persistConfigurationAfterLoad()
             }
             Logger.ui.info("DashboardManager loaded v2 (\(self.presetSlots.count) presets, \(self.customLayouts.count) custom)")
-        case .loadFailed:
-            configurationLoadFailed = true
-            Logger.ui.error("DashboardManager load failed — keeping defaults")
+        case .loadFailed(let data):
+            // DL-8: back the unreadable payload up, then allow saves again so
+            // the user's future edits are not silently discarded forever.
+            if let backupURL = Self.backupCorruptConfiguration(data) {
+                configurationLoadFailed = false
+                Logger.ui.error("DashboardManager load failed — backed up to \(backupURL.lastPathComponent, privacy: .public), using defaults")
+            } else {
+                configurationLoadFailed = true
+                Logger.ui.error("DashboardManager load failed and backup failed — keeping defaults, saves blocked")
+            }
         case .noSavedData:
             persistConfigurationAfterLoad()
             Logger.ui.info("DashboardManager: no saved config — defaults persisted")
@@ -213,6 +235,22 @@ class DashboardManager: ObservableObject {
 
         if let dashboardLoadSignpostID {
             PerformanceSignpost.end("DashboardLoad", signpostID: dashboardLoadSignpostID)
+        }
+    }
+
+    /// Writes an unreadable dashboard payload to
+    /// `Documents/dashboard.corrupt-<date>.json`. Returns the URL on success.
+    static func backupCorruptConfiguration(_ data: Data, directory: URL? = nil) -> URL? {
+        let fm = FileManager.default
+        guard let dir = directory ?? fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let url = dir.appendingPathComponent("dashboard.corrupt-\(stamp).json")
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            Logger.ui.error("Dashboard backup failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

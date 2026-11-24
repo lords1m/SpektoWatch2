@@ -1,5 +1,28 @@
 import Foundation
 
+/// DL-11: shared sanitising of non-finite measurement values for exporters.
+/// `JSONSerialization` raises an Objective-C exception (crash) on NaN/Inf,
+/// and CSV consumers choke on "nan"/"inf" tokens.
+enum ExportValueSanitizer {
+    /// JSON-safe value: the number, or `NSNull()` when non-finite.
+    static func json(_ value: Float) -> Any {
+        value.isFinite ? Double(value) : NSNull()
+    }
+
+    static func json(_ values: [Float]) -> [Any] {
+        values.map { json($0) }
+    }
+
+    static func json(_ value: Double) -> Any {
+        value.isFinite ? value : NSNull()
+    }
+
+    /// CSV field: formatted number, or an empty field when non-finite.
+    static func csv(_ value: Float) -> String {
+        value.isFinite ? String(format: "%.3f", value) : ""
+    }
+}
+
 final class CSVExporter {
     private static let thirdOctaveCenters: [Float] = [
         20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
@@ -92,7 +115,7 @@ final class CSVExporter {
     }
 
     private static func format(_ value: Float) -> String {
-        String(format: "%.3f", value)
+        ExportValueSanitizer.csv(value)
     }
 
     private static func bandLabel(_ center: Float) -> String {
@@ -113,17 +136,17 @@ final class JSONMeasurementExporter {
                 try Task.checkCancellation()
             }
             let frame = try reader.readFrameSummary(at: index)
-            var metrics: [String: Float] = [:]
+            var metrics: [String: Any] = [:]
             for (metricIndex, key) in reader.header.metricKeys.enumerated() where metricIndex < frame.metrics.count {
-                metrics[key] = frame.metrics[metricIndex]
+                metrics[key] = ExportValueSanitizer.json(frame.metrics[metricIndex])
             }
             frames.append([
-                "timestamp": frame.timestamp,
+                "timestamp": ExportValueSanitizer.json(frame.timestamp),
                 "metrics": metrics,
-                "broadband": frame.broadbandLevel,
-                "thirdOctaveZ": frame.thirdOctaveZ,
-                "thirdOctaveA": frame.thirdOctaveA,
-                "thirdOctaveC": frame.thirdOctaveC
+                "broadband": ExportValueSanitizer.json(frame.broadbandLevel),
+                "thirdOctaveZ": ExportValueSanitizer.json(frame.thirdOctaveZ),
+                "thirdOctaveA": ExportValueSanitizer.json(frame.thirdOctaveA),
+                "thirdOctaveC": ExportValueSanitizer.json(frame.thirdOctaveC)
             ])
         }
 
@@ -132,14 +155,14 @@ final class JSONMeasurementExporter {
                 "id": recording.id.uuidString,
                 "name": recording.name,
                 "startDate": ISO8601DateFormatter().string(from: recording.startDate),
-                "duration": recording.duration,
-                "calibrationOffset": recording.calibrationOffset,
+                "duration": ExportValueSanitizer.json(recording.duration),
+                "calibrationOffset": ExportValueSanitizer.json(recording.calibrationOffset),
                 "fftBlockSize": recording.fftBlockSize
             ],
             "widgetConfigurations": recording.widgetConfigurations?.base64EncodedString() as Any,
             "metricKeys": reader.header.metricKeys,
-            "sampleRate": reader.header.sampleRate,
-            "fps": reader.header.fps,
+            "sampleRate": ExportValueSanitizer.json(reader.header.sampleRate),
+            "fps": ExportValueSanitizer.json(reader.header.fps),
             "frames": frames
         ]
 

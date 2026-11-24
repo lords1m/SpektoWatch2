@@ -205,9 +205,27 @@ class AudioEngine: ObservableObject {
     // dB SPL = dBFS + calibrationOffset.
     @Published var calibrationOffset: Float = CalibrationProvider.defaultOffset {
         didSet {
-            rtSettingsLock.withLock { $0.calibrationOffset = calibrationOffset }
+            let effective = calibrationOverride ?? calibrationOffset
+            rtSettingsLock.withLock { $0.calibrationOffset = effective }
             CalibrationProvider.persist(offset: calibrationOffset)
         }
+    }
+
+    /// DL-10: Non-persisted calibration used by the DSP path while a stored
+    /// recording is analysed (`PlaybackAnalyzer`). Never written to
+    /// `CalibrationProvider`, so a crash mid-playback cannot replace the
+    /// user's calibration with the recording's.
+    private(set) var calibrationOverride: Float?
+
+    /// The calibration the DSP path is currently applying
+    /// (`calibrationOverride` when set, otherwise the user's offset).
+    var effectiveCalibrationOffset: Float { calibrationOverride ?? calibrationOffset }
+
+    /// Sets or clears the non-persisted DSP calibration override (DL-10).
+    func setCalibrationOverride(_ value: Float?) {
+        calibrationOverride = value
+        let effective = value ?? calibrationOffset
+        rtSettingsLock.withLock { $0.calibrationOffset = effective }
     }
     private var currentInputGain: Float = 1.0
 
@@ -1670,7 +1688,7 @@ class AudioEngine: ObservableObject {
                 self.live.currentStereoPhase = stereo.phase
             }
 
-            self.signalMonitor.reportPendingImpulse(peakDbfs: peakLevel - self.calibrationOffset)
+            self.signalMonitor.reportPendingImpulse(peakDbfs: peakLevel - self.effectiveCalibrationOffset)
 
             // AE-5: Drain any write error reported from the audio thread.
             if let errDesc = self.lastWriteErrorLock.withLock({ old -> String? in
@@ -1736,7 +1754,7 @@ class AudioEngine: ObservableObject {
             // Watch display expects dBFS magnitudes (-180…-40), not dB SPL.
             // Subtract calibrationOffset to convert back from dB SPL → dBFS.
             if self.uiThrottle.shouldSendToWatch(now: Date().timeIntervalSince1970) {
-                let offset = self.calibrationOffset
+                let offset = self.effectiveCalibrationOffset
                 var negOffset = -offset
                 var dbfsMagnitudes = spectrogramData.magnitudes
                 vDSP_vsadd(dbfsMagnitudes, 1, &negOffset, &dbfsMagnitudes, 1, vDSP_Length(dbfsMagnitudes.count))

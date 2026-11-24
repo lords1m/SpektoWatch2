@@ -16,6 +16,43 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// DL-8: every case, including those hidden from `allCases`.
+    static let everyCase: [AudioWidgetType] = [
+        .spectrogram, .waterfall, .levelHistory, .frequencyDisplay, .levelMeter,
+        .octaveBands, .phaseMeter, .singleValue, .toneGenerator, .spektralanalyseLab, .masking
+    ]
+
+    /// Legacy / alternative spellings seen in older persisted dashboards.
+    /// Accepts the Swift case names as well so an English-keyed export or a
+    /// future raw-value rename still decodes.
+    static let legacyRawValueMap: [String: AudioWidgetType] = {
+        var map: [String: AudioWidgetType] = [:]
+        for type in everyCase {
+            map[String(describing: type)] = type
+            map[String(describing: type).lowercased()] = type
+        }
+        map["Oktavbänder"] = .octaveBands
+        map["Oktavbaender"] = .octaveBands
+        map["Frequenzspektrum"] = .frequencyDisplay
+        map["Pegelmeter"] = .levelMeter
+        map["Phasenmeter"] = .phaseMeter
+        map["Spektralanalyse Labor"] = .spektralanalyseLab
+        map["Masking"] = .masking
+        return map
+    }()
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if let value = AudioWidgetType(rawValue: raw) ?? Self.legacyRawValueMap[raw] {
+            self = value
+        } else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unknown widget type \(raw)"
+            ))
+        }
+    }
+
     // Keep `octaveBands` and `phaseMeter` for backward-compatible
     // decoding, but hide them from picker options. phaseMeter is
     // deactivated as a product decision; existing instances are

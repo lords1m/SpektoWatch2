@@ -83,7 +83,7 @@ final class StoredDataProvider: AudioDataProvider {
         // Advance the play cursor to the requested time up front so playback keeps
         // progressing even if the frame read below fails.
         playCursor = clamped
-        let index = min(max(Int(clamped / max(frameDuration, 1e-6)), 0), reader.frameCount - 1)
+        let index = frameIndex(for: clamped)
 
         do {
             let frame = try reader.readFrameSummary(at: index)
@@ -305,8 +305,13 @@ final class StoredDataProvider: AudioDataProvider {
         return max(1, (frameCount + Self.maxBootstrapRows - 1) / Self.maxBootstrapRows)
     }
 
+    /// DL-12: maps a time to a frame via the stored frame timestamps
+    /// (binary search), so dropped frames don't skew scrubbing.
     private func frameIndex(for time: TimeInterval) -> Int {
         let clamped = max(0, min(time, duration))
+        if let index = reader.frameIndex(forTime: clamped) {
+            return index
+        }
         return min(max(Int(clamped / max(frameDuration, 1e-6)), 0), max(reader.frameCount - 1, 0))
     }
 

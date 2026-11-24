@@ -10,9 +10,13 @@ final class MeasurementDataReader {
     private let frameStartOffset: UInt64
     private let frameOffsets: [UInt64]?
 
-    var frameCount: Int {
-        Int(header.frameCount)
-    }
+    /// Number of readable frames. Validated against the file size, so it is
+    /// always safe to index (DL-6).
+    let frameCount: Int
+
+    /// `true` when the header was never finalized (app crash / kill during
+    /// recording) and `frameCount` was derived from the file size (DL-4).
+    let isRecovered: Bool
 
     init(fileURL: URL) throws {
         self.fileURL = fileURL
@@ -55,6 +59,7 @@ final class MeasurementDataReader {
 
         let fftBinCount = version >= 2 ? fftBinCountField : 0
         let resolvedFlags: UInt16 = version >= 2 ? flags : 0
+        guard metricCount <= 4096 else { throw MeasurementDataError.invalidHeader }
 
         var metricKeys: [String] = []
         metricKeys.reserveCapacity(metricCount)
@@ -91,9 +96,42 @@ final class MeasurementDataReader {
             }
         }
 
+        // DL-4 / DL-6: derive how many complete frames the file can actually
+        // hold and validate the header's count against it before it is ever
+        // converted to `Int` or used to size an allocation.
+        let fullFftCountForSize = (resolvedFlags & MeasurementDataFormat.flagHasFullFFT) != 0 ? fftBinCount : 0
+        let computedFrameSize = MemoryLayout<Float>.size
+            * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCountForSize)
+        let fileSize = try fileHandle.seekToEnd()
+        var frameRegionEnd = fileSize
+        if version >= MeasurementDataFormat.version3,
+           seekIndexOffset > UInt64(bytesConsumed), seekIndexOffset <= fileSize {
+            frameRegionEnd = seekIndexOffset
+        }
+        let frameRegionBytes = frameRegionEnd > UInt64(bytesConsumed) ? frameRegionEnd - UInt64(bytesConsumed) : 0
+        let availableFrames = computedFrameSize > 0 ? frameRegionBytes / UInt64(computedFrameSize) : 0
+        let isFinalized = version >= MeasurementDataFormat.version3 ? headerCRC32 != 0 : frameCount > 0
+        let resolvedFrameCount: UInt64
+        let recovered: Bool
+        if frameCount == 0 || !isFinalized {
+            // Never finalized: the header count is either 0 or the last
+            // periodic checkpoint — the data on disk is authoritative.
+            resolvedFrameCount = max(frameCount, availableFrames)
+            recovered = resolvedFrameCount > 0 && resolvedFrameCount != frameCount
+        } else {
+            resolvedFrameCount = frameCount
+            recovered = false
+        }
+        guard resolvedFrameCount <= availableFrames,
+              let resolvedFrameCountInt = Int(exactly: resolvedFrameCount) else {
+            throw MeasurementDataError.invalidHeader
+        }
+        self.frameCount = resolvedFrameCountInt
+        self.isRecovered = recovered
+
         self.header = MeasurementDataHeader(
             version: version,
-            frameCount: frameCount,
+            frameCount: resolvedFrameCount,
             metricKeys: metricKeys,
             sampleRate: sampleRate,
             fps: fps,
@@ -112,11 +150,14 @@ final class MeasurementDataReader {
         self.frameSize = MemoryLayout<Float>.size
             * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
 
-        if header.hasSeekIndex, seekIndexOffset > 0, frameCount > 0,
-           let count = Int(exactly: frameCount) {
+        if header.hasSeekIndex, !recovered, seekIndexOffset > 0, resolvedFrameCountInt > 0 {
+            let count = resolvedFrameCountInt
             let (entriesBytes, mulOverflow) = count.multipliedReportingOverflow(by: MemoryLayout<UInt64>.size)
             let (indexByteCount, addOverflow) = 12.addingReportingOverflow(entriesBytes)
-            if !mulOverflow, !addOverflow {
+            let fitsInFile = !mulOverflow && !addOverflow
+                && seekIndexOffset <= fileSize
+                && UInt64(indexByteCount) <= fileSize - seekIndexOffset
+            if fitsInFile {
                 do {
                     try fileHandle.seek(toOffset: seekIndexOffset)
                     let indexData = try MeasurementDataReader.readExactly(indexByteCount, from: fileHandle)
@@ -151,22 +192,67 @@ final class MeasurementDataReader {
         try readFrame(at: index, includingFullFFT: false)
     }
 
-    private func readFrame(at index: Int, includingFullFFT: Bool) throws -> MeasurementFrame {
+    private func byteOffset(ofFrame index: Int) throws -> UInt64 {
         guard index >= 0, index < frameCount, frameSize >= 0 else {
             throw MeasurementDataError.invalidFrameIndex
         }
-
-        let offset: UInt64
         if let frameOffsets, index < frameOffsets.count {
-            offset = frameOffsets[index]
-        } else {
-            let (mul, mulOverflow) = UInt64(index).multipliedReportingOverflow(by: UInt64(frameSize))
-            let (computed, addOverflow) = frameStartOffset.addingReportingOverflow(mul)
-            guard !mulOverflow, !addOverflow else {
-                throw MeasurementDataError.invalidFrameIndex
-            }
-            offset = computed
+            return frameOffsets[index]
         }
+        let (mul, mulOverflow) = UInt64(index).multipliedReportingOverflow(by: UInt64(frameSize))
+        let (computed, addOverflow) = frameStartOffset.addingReportingOverflow(mul)
+        guard !mulOverflow, !addOverflow else {
+            throw MeasurementDataError.invalidFrameIndex
+        }
+        return computed
+    }
+
+    /// Reads only the 4-byte timestamp of a frame (cheap; used for the
+    /// time → frame binary search, DL-12).
+    func readTimestamp(at index: Int) throws -> Float {
+        let offset = try byteOffset(ofFrame: index)
+        ioLock.lock()
+        let data: Data?
+        do {
+            try fileHandle.seek(toOffset: offset)
+            data = try fileHandle.read(upToCount: MemoryLayout<Float>.size)
+            ioLock.unlock()
+        } catch {
+            ioLock.unlock()
+            throw error
+        }
+        guard let data, data.count == MemoryLayout<Float>.size else {
+            throw MeasurementDataError.ioFailure("Zeitstempel konnte nicht gelesen werden.")
+        }
+        var cursor = MeasurementDataCursor(data: data)
+        return try cursor.readFloat()
+    }
+
+    /// Index of the last frame whose stored timestamp is `<= time`
+    /// (0 when `time` precedes the first frame). Uses the stored timestamps,
+    /// not `time · fps`, so frames dropped by the writer under back-pressure
+    /// do not shift the mapping (DL-12). Returns `nil` for an empty file.
+    func frameIndex(forTime time: TimeInterval) -> Int? {
+        guard frameCount > 0 else { return nil }
+        var lo = 0
+        var hi = frameCount - 1
+        let target = Float(time)
+        guard let last = try? readTimestamp(at: hi) else { return nil }
+        if target >= last { return hi }
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            guard let ts = try? readTimestamp(at: mid) else { return lo }
+            if ts <= target {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
+        }
+        return lo
+    }
+
+    private func readFrame(at index: Int, includingFullFFT: Bool) throws -> MeasurementFrame {
+        let offset = try byteOffset(ofFrame: index)
 
         let bytesToRead = includingFullFFT ? frameSize : summaryFrameSize
         ioLock.lock()

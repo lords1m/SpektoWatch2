@@ -1066,9 +1066,9 @@ tasks:
   M22:
     - id: task-1-data-loss-persistence
       name: "Data-Loss & Persistence Fixes"
-      status: pending
+      status: code_complete
       file: agent/tasks/milestone-22-code-review-remediation/task-1-data-loss-persistence.md
-      notes: "Owns DL-1..14."
+      notes: "Code landed 2026-11-24 (tests: M22DataLossRegressionTests); needs macOS build/test. Owns DL-1..14."
     - id: task-2-watch-connectivity-transfers
       name: "WatchConnectivity Transfer Pipeline"
       status: pending
