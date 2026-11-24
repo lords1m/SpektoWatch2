@@ -54,12 +54,15 @@ struct SpektoWatch2WidgetLiveActivity: Widget {
             } compactLeading: {
                 Image(systemName: context.state.isPaused ? "pause.fill" : "waveform")
                     .foregroundStyle(context.state.isPaused ? .orange : .green)
+                    .accessibilityLabel(context.state.isPaused ? "Messung pausiert" : "Messung aktiv")
             } compactTrailing: {
                 Text("\(Int(context.state.currentLevel))")
                     .font(.caption.monospacedDigit())
+                    .accessibilityLabel("\(Int(context.state.currentLevel)) Dezibel")
             } minimal: {
                 Image(systemName: "waveform")
                     .foregroundStyle(.green)
+                    .accessibilityLabel("SpektoWatch Messung")
             }
             .widgetURL(URL(string: "spektowatch://measurement"))
             .keylineTint(.green)

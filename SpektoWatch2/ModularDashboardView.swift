@@ -302,7 +302,11 @@ struct ModularDashboardView: View {
         .background(.thinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.primary.opacity(0.18), lineWidth: 1))
         .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 4)
+        .frame(minWidth: 44, minHeight: 44)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Leiste einblenden")
+        .accessibilityAddTraits(.isButton)
     }
 
     @ViewBuilder

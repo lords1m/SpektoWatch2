@@ -71,6 +71,7 @@ struct NavigableSpectrogramView: View {
                 colormapType: colormapType,
                 sampleRate: sampleRate,
                 calibrationOffset: calibrationOffset,
+                axisKind: axisKind,
                 viewport: viewport,
                 normalizedPlayhead: normalizedPlayhead,
                 onNavigate: { tNorm, fNorm in
@@ -390,14 +391,16 @@ private struct NavigationGestures: ViewModifier {
     let onSeek: (TimeInterval) -> Void
     let onInteractionEnd: () -> Void
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        guard enabled else { return AnyView(content) }
-        return AnyView(
+        if enabled {
             content
                 .simultaneousGesture(magnifyGesture)
                 .simultaneousGesture(dragGesture)
                 .simultaneousGesture(tapGesture)
-        )
+        } else {
+            content
+        }
     }
 
     private var magnifyGesture: some Gesture {
@@ -582,6 +585,7 @@ private struct SpectrogramMinimap: View {
     let colormapType: Int
     let sampleRate: Float
     let calibrationOffset: Float
+    let axisKind: SpectrogramHistoryAxisKind
     let viewport: SpectrogramViewport
     let normalizedPlayhead: Float
     /// `(timeNorm, freqNorm)` of the requested centre, both `0…1`.
@@ -603,7 +607,8 @@ private struct SpectrogramMinimap: View {
                     sampleRate: sampleRate,
                     viewWidth: size.width,
                     viewHeight: size.height,
-                    calibrationOffset: calibrationOffset
+                    calibrationOffset: calibrationOffset,
+                    axisKind: axisKind
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
