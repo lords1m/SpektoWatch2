@@ -91,6 +91,12 @@ class AudioEngine: ObservableObject {
         session.onBuffer = { [weak self] buffer in
             self?.processAudioBuffer(buffer)
         }
+        // AS-1: AVAudioEngine stops itself on I/O configuration changes
+        // (route change, sample-rate change); restart instead of leaving the
+        // UI in `.running` with a dead graph.
+        session.onConfigurationChange = { [weak self] in
+            self?.restartCaptureAfterDisruption(reason: "configuration change")
+        }
         return session
     }()
     private var fftSize: Int = FFTBlockSize.size4096.rawValue
@@ -164,6 +170,26 @@ class AudioEngine: ObservableObject {
 
     private var isUsingDummyData = false
     private var isStartingCapture = false
+    /// AS-7: bumped by every stop so a capture start that is still
+    /// configuring the session in the background cannot flip the engine back
+    /// to `.running` after the user (or a suspend) stopped it.
+    private var captureGeneration: UInt64 = 0
+    /// AS-1: `true` while an audio-session interruption (call, Siri, …) has
+    /// paused the iPhone mic. Recording files stay open.
+    @Published private(set) var isCaptureInterrupted = false
+    private var sessionEventsCancellable: AnyCancellable?
+
+    /// AS-2 / Q3: the synthetic test-audio fallback after a mic failure is a
+    /// debugging aid only — release builds surface the error instead of
+    /// presenting synthetic audio as a measurement.
+    static var allowsSyntheticFallback: Bool {
+        #if DEBUG
+        return UITestRuntime.useTestAudio
+            || ProcessInfo.processInfo.environment["SPEKTO_SYNTHETIC_FALLBACK"] == "1"
+        #else
+        return false
+        #endif
+    }
     private var debugPrintCounter = 0
     private let maxHistorySize = 1000
     private var latencyLogCounter = 0
@@ -515,6 +541,136 @@ class AudioEngine: ObservableObject {
             name: .spectrogramResolutionChanged,
             object: nil
         )
+
+        sessionEventsCancellable = AudioSessionCoordinator.shared.events
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                self?.handleSessionEvent(event)
+            }
+    }
+
+    // MARK: - Interruptions / route changes (AS-1)
+
+    private var isRealIPhoneCaptureActive: Bool {
+        activeMicrophoneSource == .iPhone
+            && engineStatus == .running
+            && !isUsingDummyData
+            && !shouldUseTestAudioCapture
+    }
+
+    private func handleSessionEvent(_ event: AudioSessionCoordinator.SessionEvent) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        switch event {
+        case .interruptionBegan:
+            guard isRealIPhoneCaptureActive else { return }
+            isCaptureInterrupted = true
+            Logger.audioEngine.warning("Capture interrupted (recording=\(self.recording.isRecordingToFile))")
+        case .interruptionEnded:
+            // A measurement app resumes after a call/Siri even without
+            // `.shouldResume`; the restart fails cleanly if the mic is busy.
+            if isCaptureInterrupted {
+                restartCaptureAfterDisruption(reason: "interruption ended")
+            }
+        case .mediaServicesReset:
+            guard isRealIPhoneCaptureActive || isCaptureInterrupted else { return }
+            captureSession.resetEngine()
+            restartCaptureAfterDisruption(reason: "media services reset", reconfigureSession: true)
+        case .routeChanged:
+            // The engine posts AVAudioEngineConfigurationChange when the
+            // route change affects I/O; that path restarts capture.
+            break
+        }
+    }
+
+    /// AS-1: reinstalls the tap and restarts the capture graph. The
+    /// measurement file keeps its open writer — the timestamp jump of the
+    /// next frame marks the gap. If the hardware format changed mid-recording
+    /// the audio writer is closed (the file so far is kept) because the
+    /// `.caf` cannot change format. If restart fails during a recording the
+    /// files are finalized and the error is surfaced.
+    func restartCaptureAfterDisruption(reason: String, reconfigureSession: Bool = false) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.restartCaptureAfterDisruption(reason: reason, reconfigureSession: reconfigureSession) }
+            return
+        }
+        guard activeMicrophoneSource == .iPhone,
+              engineStatus == .running || isCaptureInterrupted,
+              !isUsingDummyData, !shouldUseTestAudioCapture else { return }
+        do {
+            if reconfigureSession {
+                _ = try captureSession.configureCaptureSession(
+                    stereoMode: selectedStereoMode,
+                    selectedDataSource: selectedDataSource
+                )
+            }
+            let format = try captureSession.restart()
+            updateProcessingSampleRateIfNeeded(format.sampleRate, source: "Mic restart")
+            if recording.isRecordingToFile, let fileFormat = recordingWriter.audioFormat,
+               fileFormat.sampleRate != format.sampleRate || fileFormat.channelCount != format.channelCount {
+                Logger.audioEngine.error("Input format changed during recording — audio file closed, measurement continues")
+                closeAudioFileWriter()
+            }
+            isCaptureInterrupted = false
+            engineStatus = .running
+            Logger.audioEngine.info("Capture restarted after \(reason)")
+        } catch {
+            isCaptureInterrupted = false
+            Logger.audioEngine.error("Capture restart after \(reason) failed: \(error.localizedDescription)")
+            if recording.isRecordingToFile {
+                // Finalize what we have; URLs stay set so stopping the
+                // recording still saves it.
+                closeAudioFileWriter()
+                closeMeasurementWriter()
+            }
+            lastError = .audioEngineFailure(reason: error.localizedDescription)
+            engineStatus = .error("Audioaufnahme konnte nach einer Unterbrechung nicht fortgesetzt werden.")
+        }
+    }
+
+    // MARK: - Suspend / resume (AS-5 / AS-7)
+
+    /// What `suspendCapture()` stopped, so `resumeCapture(_:)` restores
+    /// exactly that (nothing, iPhone mic, or Apple Watch source).
+    struct CaptureToken: Equatable {
+        let wasActive: Bool
+        let source: MicrophoneSource?
+    }
+
+    /// Stops whatever live source is running (synchronously updating
+    /// `engineStatus`) and returns a token describing it. Never call during a
+    /// file recording (`PlaybackAnalyzer` refuses, DL-1).
+    func suspendCapture() -> CaptureToken {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let wasActive = engineStatus == .running || engineStatus == .starting || isStartingCapture
+        let token = CaptureToken(wasActive: wasActive, source: activeMicrophoneSource)
+        guard wasActive else { return token }
+        if activeMicrophoneSource == .appleWatch {
+            stopWearableLiveMode()
+        } else {
+            stopLiveMode()
+        }
+        return token
+    }
+
+    /// Restores the state captured by `suspendCapture()`. A token for an
+    /// idle engine leaves it idle (AS-5: no forced iPhone mic).
+    func resumeCapture(_ token: CaptureToken) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard token.wasActive else { return }
+        if token.source == .appleWatch {
+            startWearableLiveMode()
+        } else {
+            startLiveMode()
+        }
+    }
+
+    /// Runs `body` now when on main, otherwise asynchronously on main (AS-7).
+    private func onMain(_ body: @escaping () -> Void) {
+        if Thread.isMainThread {
+            body()
+        } else {
+            DispatchQueue.main.async(execute: body)
+        }
     }
 
     @objc private func handleSpectrogramResolutionChanged(_ notification: Notification) {
@@ -719,7 +875,7 @@ class AudioEngine: ObservableObject {
         recording.recordingDuration = 0.0
         resetMetrics()
 
-        DispatchQueue.main.async {
+        onMain {
             self.engineStatus = .running
             self.isStartingCapture = false
         }
@@ -739,13 +895,12 @@ class AudioEngine: ObservableObject {
             return
         }
         isStartingCapture = true
+        // AS-2: every start begins from real capture; a previous session's
+        // fallback must not leak into this one.
+        isUsingDummyData = false
 
-        if Thread.isMainThread {
-            engineStatus = .starting
-        } else {
-            DispatchQueue.main.async {
-                self.engineStatus = .starting
-            }
+        onMain {
+            self.engineStatus = .starting
         }
 
         recordingStartTime = Date()
@@ -824,7 +979,7 @@ class AudioEngine: ObservableObject {
         recordingStartTime = nil
         closeMeasurementWriter()
 
-        DispatchQueue.main.async {
+        onMain {
             self.engineStatus = .idle
             self.recording.isRecordingToFile = false
             self.isStartingCapture = false
@@ -837,24 +992,26 @@ class AudioEngine: ObservableObject {
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
 
         recordingStartTime = nil
+        captureGeneration &+= 1
         closeAudioFileWriter()
         closeMeasurementWriter()
-        DispatchQueue.main.async {
-            print("[AudioEngine] Setting engineStatus to .idle")
+        // AS-7: synchronous when already on main, so an immediate
+        // `startLiveMode()` no longer early-returns on a stale `.running`.
+        onMain {
             self.engineStatus = .idle
-            print("[AudioEngine] Setting recording.isRecordingToFile to false")
             self.recording.isRecordingToFile = false
             self.activeMicrophoneSource = nil
             self.isStartingCapture = false
-            print("[AudioEngine] engineStatus is now: \(self.engineStatus)")
-            print("[AudioEngine] recording.isRecordingToFile is now: \(self.recording.isRecordingToFile)")
+            self.isCaptureInterrupted = false
         }
 
-        if shouldUseTestAudioCapture || isUsingDummyData {
-            testGenerator.stop()
-        } else {
+        // AS-2: always stop both sources — a previous fallback or a test
+        // generator must never keep running next to (or instead of) the mic.
+        testGenerator.stop()
+        if !shouldUseTestAudioCapture {
             captureSession.stop()
         }
+        isUsingDummyData = false
 
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
@@ -1093,6 +1250,7 @@ class AudioEngine: ObservableObject {
         #endif
 
         // Capture state needed for background work
+        let generation = captureGeneration
         let isRecording = self.recording.isRecordingToFile
         let selectedSource = self.selectedDataSource
         let stereoMode = self.selectedStereoMode
@@ -1110,18 +1268,19 @@ class AudioEngine: ObservableObject {
 
                 // Now setup audio engine on main thread (required for AVAudioEngine)
                 DispatchQueue.main.async {
+                    guard generation == self.captureGeneration else {
+                        // Stopped while configuring (AS-7): drop the lease.
+                        self.captureSession.stop()
+                        return
+                    }
                     self.finishAudioEngineSetup(isRecording: isRecording, dataSources: dataSources, audioSession: audioSession)
                 }
 
             } catch {
                 DispatchQueue.main.async {
+                    guard generation == self.captureGeneration else { return }
                     Logger.audioEngine.error("Audio engine failed to start: \(error.localizedDescription)")
-                    self.engineStatus = .error(error.localizedDescription)
-                    self.isStartingCapture = false
-                    Logger.audioEngine.info("Falling back to test audio generator")
-                    self.testGenerator.start()
-                    self.engineStatus = .running
-                    self.isUsingDummyData = true
+                    self.handleCaptureStartFailure(error.localizedDescription)
                 }
             }
         }
@@ -1145,13 +1304,8 @@ class AudioEngine: ObservableObject {
             let recordingFormat = captureSession.inputFormat()
 
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-                Logger.audioEngine.warning("Invalid audio format detected - falling back to test audio")
-                testGenerator.start()
-                DispatchQueue.main.async {
-                    self.engineStatus = .running
-                    self.isStartingCapture = false
-                }
-                isUsingDummyData = true
+                Logger.audioEngine.warning("Invalid audio format detected")
+                handleCaptureStartFailure("Ungültiges Audioformat des Mikrofons")
                 return
             }
 
@@ -1173,24 +1327,35 @@ class AudioEngine: ObservableObject {
 
             // Install audio tap + start the capture graph.
             try captureSession.installTapAndStart(format: recordingFormat)
-            DispatchQueue.main.async {
-                self.engineStatus = .running
-                self.isStartingCapture = false
-            }
+            engineStatus = .running
+            isStartingCapture = false
 
         } catch {
             Logger.audioEngine.error("Audio engine setup failed: \(error.localizedDescription)")
-            DispatchQueue.main.async {
-                self.engineStatus = .error(error.localizedDescription)
-                self.isStartingCapture = false
-            }
-            Logger.audioEngine.info("Falling back to test audio generator")
-            testGenerator.start()
-            DispatchQueue.main.async {
-                self.engineStatus = .running
-            }
-            isUsingDummyData = true
+            handleCaptureStartFailure(error.localizedDescription)
         }
+    }
+
+    /// AS-2: a failed mic start ends in `.error` (never overwritten by
+    /// `.running`); only debug builds with the explicit flag fall back to the
+    /// synthetic generator.
+    private func handleCaptureStartFailure(_ message: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        isStartingCapture = false
+        captureSession.stop()
+        if Self.allowsSyntheticFallback {
+            Logger.audioEngine.info("Falling back to test audio generator (debug flag)")
+            isUsingDummyData = true
+            testGenerator.start()
+            engineStatus = .running
+            return
+        }
+        closeAudioFileWriter()
+        closeMeasurementWriter()
+        recording.isRecordingToFile = false
+        activeMicrophoneSource = nil
+        lastError = .audioEngineFailure(reason: message)
+        engineStatus = .error(message)
     }
     
     private func resetMetrics() {

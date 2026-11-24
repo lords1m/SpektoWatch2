@@ -72,6 +72,10 @@ final class MaskingEngine: ObservableObject {
     // MARK: – AudioEngine hook (weak to avoid retain cycle)
 
     private weak var audioEngine: AudioEngine?
+    /// AS-6: session lease held while the masker preview plays.
+    private var previewLease: AudioSessionCoordinator.Lease?
+    /// AS-5: what live capture was doing before the preview suspended it.
+    private var previewCaptureToken: AudioEngine.CaptureToken?
 
     // MARK: – Init
 
@@ -160,17 +164,21 @@ final class MaskingEngine: ObservableObject {
 
     // MARK: – Preview
 
-    // Start masker playback. Suspends the main AudioEngine and switches the
-    // AVAudioSession to .playAndRecord so the masker can be heard.
+    // Start masker playback. Suspends live capture (remembering what was
+    // running) and takes a masking-preview session lease (AS-5 / AS-6).
     func startPreview(suggestion: MaskerSuggestion) {
-        audioEngine?.stopLiveMode()
+        if previewPlayer.isPlaying {
+            updateMasker(suggestion)
+            return
+        }
+        // Never tear down an active file recording for a preview (DL-1).
+        if audioEngine?.recording.isRecordingToFile == true { return }
 
+        previewCaptureToken = audioEngine?.suspendCapture()
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord,
-                                    mode: .measurement,
-                                    options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try session.setActive(true)
+            if previewLease == nil {
+                previewLease = try AudioSessionCoordinator.shared.acquire(.maskingPreview)
+            }
             try previewPlayer.play(maskerType: suggestion.maskerType,
                                    eqBands: suggestion.eqBands,
                                    volumeDB: suggestion.volumedBFS)
@@ -180,15 +188,32 @@ final class MaskingEngine: ObservableObject {
         }
     }
 
-    // Stop masker playback and hand the session back to the main AudioEngine.
-    func stopPreview() {
+    /// AS-6: swaps the masker generator while previewing without touching
+    /// live capture or the audio session (no async stop→start round trip).
+    func updateMasker(_ suggestion: MaskerSuggestion) {
+        guard previewPlayer.isPlaying else { return }
         previewPlayer.stop()
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement)
-            try session.setActive(true)
-        } catch {}
-        audioEngine?.startLiveMode()
+            try previewPlayer.play(maskerType: suggestion.maskerType,
+                                   eqBands: suggestion.eqBands,
+                                   volumeDB: suggestion.volumedBFS)
+        } catch {
+            stopPreview()
+        }
+    }
+
+    // Stop masker playback, end the lease and restore exactly the capture
+    // state that was active before the preview (AS-5: nothing is forced on).
+    func stopPreview() {
+        previewPlayer.stop()
+        if let lease = previewLease {
+            AudioSessionCoordinator.shared.release(lease)
+            previewLease = nil
+        }
+        if let token = previewCaptureToken {
+            previewCaptureToken = nil
+            audioEngine?.resumeCapture(token)
+        }
     }
 
     // Reset everything back to idle.

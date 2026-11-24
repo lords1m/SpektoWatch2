@@ -46,6 +46,8 @@ final class PlaybackAnalyzer: ObservableObject {
     private var savedTimeWeighting: TimeWeighting = .fast
     private var savedBlockSize: FFTBlockSize = .size4096
     private var didStart = false
+    /// AS-5: what live capture was doing before playback took over.
+    private var captureToken: AudioEngine.CaptureToken?
 
     // MARK: – Lifecycle
 
@@ -70,9 +72,10 @@ final class PlaybackAnalyzer: ObservableObject {
         savedTimeWeighting       = engine.timeWeighting
         savedBlockSize           = engine.currentBlockSize
 
-        // Suspend live mic capture so playback samples are the only data
-        // source entering the pipeline.
-        engine.stopLiveMode()
+        // Suspend live capture (iPhone mic or Watch stream) so playback
+        // samples are the only data source entering the pipeline. The token
+        // remembers what was running (AS-5).
+        captureToken = engine.suspendCapture()
 
         // Apply the recording's measurement parameters. Calibration goes
         // through the non-persisted override (DL-10) so the user's stored
@@ -107,8 +110,12 @@ final class PlaybackAnalyzer: ObservableObject {
         engine.setFrequencyWeighting(savedFrequencyWeighting)
         engine.setTimeWeighting(savedTimeWeighting)
 
-        // Resume live mic capture.
-        engine.startLiveMode()
+        // Restore exactly the pre-playback capture state — an idle engine
+        // stays idle, a Watch-sourced session resumes the Watch source (AS-5).
+        if let token = captureToken {
+            engine.resumeCapture(token)
+        }
+        captureToken = nil
 
         audioEngine = nil
     }

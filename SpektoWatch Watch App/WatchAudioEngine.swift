@@ -61,6 +61,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// WL-1: shown by the UI when the extended runtime session could not be
     /// started; recording continues via the `audio` background mode.
     @Published private(set) var backgroundRuntimeWarning: String?
+    /// AS-1/AS-4: mic capture holds a `.capture` lease on the coordinator.
+    private var captureLease: AudioSessionCoordinator.Lease?
+    private var sessionEventsCancellable: AnyCancellable?
+    private var engineConfigObserver: NSObjectProtocol?
     private let connectivityManager: WatchConnectivityManager
     private var gain: Float = 1.0
 
@@ -211,6 +215,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // subscribe to the phone. Launch never blocks on or assumes a present
         // phone in this mode.
         bindConnectivityForAutoMode()
+        observeAudioSessionDisruptions()
         reconcileLiveDataSource()
 
         NotificationCenter.default.addObserver(
@@ -243,6 +248,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     deinit {
+        if let engineConfigObserver { NotificationCenter.default.removeObserver(engineConfigObserver) }
         NotificationCenter.default.removeObserver(self)
         vDSP_DFT_DestroySetup(fftSetup)
     }
@@ -501,9 +507,9 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
 
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement)
-            try session.setActive(true)
+            if captureLease == nil {
+                captureLease = try AudioSessionCoordinator.shared.acquire(.capture)
+            }
 
             let inputNode = audioEngine.inputNode
             let tapFormat: AVAudioFormat
@@ -593,7 +599,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         micTapFormat = nil
         session?.invalidate()
         session = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if let lease = captureLease {
+            AudioSessionCoordinator.shared.release(lease)
+            captureLease = nil
+        }
         if clearLiveDisplay {
             currentSpectrogramData = nil
             liveData = nil
@@ -654,6 +663,83 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
         reconcileLiveDataSource()
         print("[WatchAudioEngine] Stopped")
+    }
+
+    // MARK: - Interruptions / configuration changes (AS-1)
+
+    private func observeAudioSessionDisruptions() {
+        sessionEventsCancellable = AudioSessionCoordinator.shared.events
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .interruptionEnded, .mediaServicesReset:
+                    self.restartMicCaptureAfterDisruption(rebuildEngine: event == .mediaServicesReset)
+                case .interruptionBegan, .routeChanged:
+                    break
+                }
+            }
+        engineConfigObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: audioEngine,
+            queue: .main
+        ) { [weak self] _ in
+            // e.g. the tone generator's lease switched the category.
+            self?.restartMicCaptureAfterDisruption(rebuildEngine: false)
+        }
+    }
+
+    /// Reinstalls the tap and restarts the mic graph after an interruption,
+    /// configuration change or media-services reset. If the hardware format
+    /// changed mid-recording the recording is finalized (the `.caf` cannot
+    /// change format) and capture continues as live monitoring.
+    private func restartMicCaptureAfterDisruption(rebuildEngine: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard isMicTapInstalled, isRecording || isLiveMonitoring else { return }
+        let wasRecording = isRecording
+        let previousFormat = micTapFormat
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        isMicTapInstalled = false
+        micTapFormat = nil
+        if rebuildEngine {
+            if let engineConfigObserver { NotificationCenter.default.removeObserver(engineConfigObserver) }
+            audioEngine = AVAudioEngine()
+            engineConfigObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: .main
+            ) { [weak self] _ in
+                self?.restartMicCaptureAfterDisruption(rebuildEngine: false)
+            }
+        }
+        do {
+            try AudioSessionCoordinator.shared.reapply()
+            let hardwareFormat = audioEngine.inputNode.outputFormat(forBus: 0)
+            if wasRecording, let previousFormat, hardwareFormat.sampleRate != previousFormat.sampleRate {
+                print("[WatchAudioEngine] Input format changed during recording — finalizing")
+                stopRecording()
+                guard isLiveMonitoring else { return }
+            }
+            let tapFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: hardwareFormat.sampleRate,
+                channels: 1,
+                interleaved: false
+            ) ?? hardwareFormat
+            audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: tapFormat) { [weak self] buffer, _ in
+                self?.processAudioBuffer(buffer)
+            }
+            isMicTapInstalled = true
+            micTapFormat = tapFormat
+            try audioEngine.start()
+        } catch {
+            print("[WatchAudioEngine] Mic restart failed: \(error)")
+            if isRecording {
+                stopRecording(releaseCapture: true)
+            } else {
+                teardownMicCaptureOnMain(clearLiveDisplay: true)
+                isLiveMonitoring = false
+            }
+        }
     }
 
     // MARK: - Operating Mode transitions

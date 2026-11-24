@@ -134,6 +134,22 @@ class DashboardViewModel: ObservableObject {
         return true
     }
 
+    /// AS-8: the delayed restart after a source switch. Cancelled by the next
+    /// switch so rapid toggles can't race two restarts against each other.
+    private var pendingSourceRestart: DispatchWorkItem?
+
+    private func scheduleSourceRestart(_ body: @escaping @MainActor () -> Void) {
+        pendingSourceRestart?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.pendingSourceRestart = nil
+                body()
+            }
+        }
+        pendingSourceRestart = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
     private func restartActiveMeasurementForSelectedSource(_ newSource: MicrophoneSource) {
         guard audioEngine.engineStatus == .running else { return }
         let wasRecordingToFile = audioEngine.recording.isRecordingToFile
@@ -144,7 +160,7 @@ class DashboardViewModel: ObservableObject {
             audioEngine.stopRecording()
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        scheduleSourceRestart { [weak self] in
             guard let self else { return }
             switch newSource {
             case .iPhone:
@@ -173,7 +189,7 @@ class DashboardViewModel: ObservableObject {
                 audioEngine.stopLiveMode()
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            scheduleSourceRestart { [weak self] in
                 self?.startWatchControlledLiveMode(source: requestedSource)
             }
         } else {

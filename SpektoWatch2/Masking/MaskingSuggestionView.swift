@@ -260,8 +260,8 @@ struct MaskingSuggestionView: View {
 
     private func restartPreview() {
         guard preview.isPlaying else { return }
-        engine.stopPreview()
-        engine.startPreview(suggestion: currentSuggestion)
+        // AS-6: swap the generator in place instead of stop→start.
+        engine.updateMasker(currentSuggestion)
     }
 
     private func saveProfile() {

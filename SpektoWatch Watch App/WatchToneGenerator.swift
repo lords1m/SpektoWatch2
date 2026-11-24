@@ -8,6 +8,10 @@ import os
 final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
     private var audioEngine: AVAudioEngine?
     private var srcNode: AVAudioSourceNode?
+    /// AS-4: output lease — the coordinator merges it with the mic capture
+    /// lease and restores `.record/.measurement` when the tone stops, instead
+    /// of leaving the session in `.playback` (which killed watch capture).
+    private var sessionLease: AudioSessionCoordinator.Lease?
 
     @Published private(set) var isPlaying = false
 
@@ -33,13 +37,9 @@ final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
         guard !isPlaying else { return }
 
         do {
-            let session = AVAudioSession.sharedInstance()
-            // Playback-only session routes to the watch speaker; avoid clobbering an
-            // active `.record` session unless we need to take over for audible output.
-            if session.category != .playback {
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            if sessionLease == nil {
+                sessionLease = try AudioSessionCoordinator.shared.acquire(.tone)
             }
-            try session.setActive(true)
 
             let engine = AVAudioEngine()
             audioEngine = engine
@@ -86,6 +86,10 @@ final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
             isPlaying = true
         } catch {
             print("[WatchToneGenerator] Error starting: \(error)")
+            srcNode = nil
+            audioEngine?.stop()
+            audioEngine = nil
+            releaseLease()
         }
     }
 
@@ -95,6 +99,14 @@ final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
         audioEngine = nil
         synthLock.withLock { $0.phase = 0 }
         isPlaying = false
+        releaseLease()
+    }
+
+    private func releaseLease() {
+        if let lease = sessionLease {
+            AudioSessionCoordinator.shared.release(lease)
+            sessionLease = nil
+        }
     }
 
     func toggle() {
@@ -109,5 +121,8 @@ final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
         srcNode = nil
         audioEngine?.stop()
         audioEngine = nil
+        if let lease = sessionLease {
+            AudioSessionCoordinator.shared.release(lease)
+        }
     }
 }

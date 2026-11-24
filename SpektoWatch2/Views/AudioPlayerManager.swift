@@ -175,7 +175,9 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         playerNode.pause()
         isPlaying = false
         stopTimer()
-        seekFrame = AVAudioFramePosition(currentTime * sampleRate)
+        // UI-2: keep `seekFrame` at the scheduled segment's start. Resuming the
+        // same segment continues `playerTime.sampleTime` from that start, so
+        // overwriting it here double-counted the elapsed time (10 s → 20 s).
         canResumeAfterPause = true
     }
 
@@ -191,6 +193,7 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         scrubTime = 0
         seekFrame = 0
         stopTimer()
+        releasePlaybackSession()
     }
 
     func beginScrubbing() {
@@ -198,7 +201,7 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         if isPlaying {
             playerNode.pause()
             stopTimer()
-            seekFrame = AVAudioFramePosition(currentTime * sampleRate)
+            // UI-2: same as `pause()` — the segment start stays the base.
             canResumeAfterPause = true
             isPlaying = false
         }
@@ -240,22 +243,23 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     /// After live measurement the session is often `.record` / `.measurement`.
     /// Use a category that can actually route to the speaker, matching the
     /// tone-generator and masking players.
+    /// AS-3/AS-5: playback holds a `.playback` lease on the shared session
+    /// coordinator instead of overwriting the category; released on `stop()`.
+    private var playbackLease: AudioSessionCoordinator.Lease?
+
     private func activatePlaybackSession() {
-        let session = AVAudioSession.sharedInstance()
+        guard playbackLease == nil else { return }
         do {
-            let needsConfig = (session.category != .playAndRecord && session.category != .playback)
-                || session.mode == .measurement
-                || (session.category == .playAndRecord && !session.categoryOptions.contains(.defaultToSpeaker))
-            if needsConfig {
-                try session.setCategory(
-                    .playAndRecord,
-                    mode: .default,
-                    options: [.defaultToSpeaker, .mixWithOthers]
-                )
-            }
-            try session.setActive(true)
+            playbackLease = try AudioSessionCoordinator.shared.acquire(.playback)
         } catch {
             print("[AudioPlayerManager] Session error: \(error)")
+        }
+    }
+
+    private func releasePlaybackSession() {
+        if let lease = playbackLease {
+            AudioSessionCoordinator.shared.release(lease)
+            playbackLease = nil
         }
     }
 

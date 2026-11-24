@@ -59,15 +59,15 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| AS-1 | H | (none exist) iOS `AudioEngine`/`AudioCaptureSession`, watch `WatchAudioEngine` | No interruption / route-change / media-services-reset / `AVAudioEngineConfigurationChange` handling → engine stops while UI says running; recordings silently truncated. |
-| AS-2 ✔ | H | `AudioEngine.swift:165, 1106, 1136, 1174` | `isUsingDummyData` never reset → later stops leave real mic running; synthetic audio shown as measurement; `.error` overwritten by `.running`. |
-| AS-3 ✔ | H | `ToneGeneratorWidget.swift:94-99` | Tone sets `.playAndRecord/.default` over capture's `.record/.measurement` (disables measurement mode); capture start re-sets `.record` and kills tone (`isPlaying` stays true). |
-| AS-4 | H | `SpektoWatch Watch App/WatchToneGenerator.swift:39-98` | Watch tone sets `.playback`, never restores → watch mic capture dies silently. |
-| AS-5 | M | `PlaybackAnalyzer.swift:95`, `Masking/MaskingEngine.swift:191` | Always `startLiveMode()` on exit → forces iPhone mic on even if user was stopped or on Watch source. |
-| AS-6 | H | `Masking/MaskingSuggestionView.swift` `restartPreview`, `MaskingEngine.swift:166-191` | stop→start round-trips async live mode; late `.record` lands after preview's `.playAndRecord` → silent masker, mic running. |
-| AS-7 | M | `MaskingEngine.swift` failure path, `AudioEngine.swift:824` | `engineStatus` becomes `.idle` asynchronously → immediate `startLiveMode()` early-returns → capture stays off. |
-| AS-8 | L | `DashboardViewModel.swift:147, 176` | Un-cancellable `asyncAfter(0.3)` restarts race on rapid source switches. |
-| AS-9 | M | `ToneGeneratorWidget.swift:946-948` | `onDisappear { stop() }` likely fires when fullscreen oscilloscope cover opens (verify on device). |
+| AS-1 | H | (none exist) iOS `AudioEngine`/`AudioCaptureSession`, watch `WatchAudioEngine` | No interruption / route-change / media-services-reset / `AVAudioEngineConfigurationChange` handling → engine stops while UI says running; recordings silently truncated. → fixed (M22 task-4, pending macOS verification) |
+| AS-2 ✔ | H | `AudioEngine.swift:165, 1106, 1136, 1174` | `isUsingDummyData` never reset → later stops leave real mic running; synthetic audio shown as measurement; `.error` overwritten by `.running`. → fixed (M22 task-4, pending macOS verification) |
+| AS-3 ✔ | H | `ToneGeneratorWidget.swift:94-99` | Tone sets `.playAndRecord/.default` over capture's `.record/.measurement` (disables measurement mode); capture start re-sets `.record` and kills tone (`isPlaying` stays true). → fixed (M22 task-4, pending macOS verification) |
+| AS-4 | H | `SpektoWatch Watch App/WatchToneGenerator.swift:39-98` | Watch tone sets `.playback`, never restores → watch mic capture dies silently. → fixed (M22 task-4, pending macOS verification) |
+| AS-5 | M | `PlaybackAnalyzer.swift:95`, `Masking/MaskingEngine.swift:191` | Always `startLiveMode()` on exit → forces iPhone mic on even if user was stopped or on Watch source. → fixed (M22 task-4, pending macOS verification) |
+| AS-6 | H | `Masking/MaskingSuggestionView.swift` `restartPreview`, `MaskingEngine.swift:166-191` | stop→start round-trips async live mode; late `.record` lands after preview's `.playAndRecord` → silent masker, mic running. → fixed (M22 task-4, pending macOS verification) |
+| AS-7 | M | `MaskingEngine.swift` failure path, `AudioEngine.swift:824` | `engineStatus` becomes `.idle` asynchronously → immediate `startLiveMode()` early-returns → capture stays off. → fixed (M22 task-4, pending macOS verification) |
+| AS-8 | L | `DashboardViewModel.swift:147, 176` | Un-cancellable `asyncAfter(0.3)` restarts race on rapid source switches. → fixed (M22 task-4, pending macOS verification) |
+| AS-9 | M | `ToneGeneratorWidget.swift:946-948` | `onDisappear { stop() }` likely fires when fullscreen oscilloscope cover opens (verify on device). → fixed (M22 task-4, pending macOS verification) |
 
 ## Real-time & threading safety → task-5
 
@@ -103,7 +103,7 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 | ID | Sev | Location | Defect |
 |---|---|---|---|
 | UI-1 | H | `RecordingSpectrogramModel.swift` `computeHistoryStreaming` | No column cap → recordings >~3 min exceed 16384 texture width (blank) and use ~200 MB+. |
-| UI-2 ✔ | M | `Views/AudioPlayerManager.swift:273` | `seekFrame + sampleTime` after pause/scrub without rescheduling → playhead doubles (10 s → 20 s). |
+| UI-2 ✔ | M | `Views/AudioPlayerManager.swift:273` | `seekFrame + sampleTime` after pause/scrub without rescheduling → playhead doubles (10 s → 20 s). → fixed (M22 task-4 commit, pending macOS verification) |
 | UI-3 | M | `NavigableSpectrogramView.swift:~317-373` | Tile request rounded to 1/500 but drawn over exact viewport → up to ~25% misalignment at max zoom; small pans never reload. |
 | UI-4 | L | `NavigableSpectrogramView.swift:~293` | Follow-playhead recentre doesn't call `requestDetailTile()`. |
 | UI-5 | M | `RecordingSpectrogramModel.swift:~361-514` | After resolution promotion, A/C weighting reverts to stored 31-band overview. |
@@ -116,5 +116,5 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 | UI-12 | L | `DashboardViewModel.swift:217-240` | Undo-delete restores widget into currently shown layout. |
 | UI-13 | L | `SingleValueWidget.swift:121-124` | Throttled publisher rebuilt in `body` → refresh-rate setting ineffective. |
 | UI-14 | M | `LiveActivity/MeasurementLiveActivityController.swift:46-63` | Activities orphaned by crash never ended; duplicates on next recording; user dismissal not observed. |
-| UI-15 | L | `ToneGeneratorWidget.swift:117-161` | No amplitude ramps (clicks); naive square/saw alias. |
+| UI-15 | L | `ToneGeneratorWidget.swift:117-161` | No amplitude ramps (clicks); naive square/saw alias. → fixed (M22 task-4 commit, pending macOS verification) |
 | UI-16 | L | `Masking/MaskingPreviewPlayer.swift` | Engine started before volume applied → full-scale burst; rain player connected with output format instead of file `processingFormat` (possible crash on mono asset — unconfirmed). |

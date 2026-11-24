@@ -25,6 +25,8 @@ final class RecordingWriterCoordinator {
 
     var lastRecordingURL: URL?
     var lastMeasurementDataURL: URL?
+    /// Format of the open audio writer (AS-1 restart compares against it).
+    private(set) var audioFormat: AVAudioFormat?
 
     private let audioFileWriterLock = OSAllocatedUnfairLock<RealtimeAudioFileWriter?>(initialState: nil)
     private let measurementWriterLock = OSAllocatedUnfairLock<MeasurementDataWriter?>(initialState: nil)
@@ -60,6 +62,7 @@ final class RecordingWriterCoordinator {
                 frameCapacity: frameCapacity
             )
             self.lastRecordingURL = tempURL
+            self.audioFormat = format
             Logger.audioEngine.info("Recording file setup at: \(tempURL.lastPathComponent)")
         } catch {
             self.audioFileWriter = nil
@@ -113,5 +116,6 @@ final class RecordingWriterCoordinator {
             let w = old; old = nil; return w
         }
         writer?.close()
+        audioFormat = nil
     }
 }

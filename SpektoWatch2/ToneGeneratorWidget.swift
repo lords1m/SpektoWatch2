@@ -45,6 +45,13 @@ private enum PhysicalScopeScale {
 class ToneGenerator: ObservableObject, @unchecked Sendable {
     private var audioEngine: AVAudioEngine?
     private var srcNode: AVAudioSourceNode?
+    /// AS-3: output lease on the shared session coordinator. Combined with a
+    /// running capture lease the session becomes `.playAndRecord/.measurement`
+    /// instead of the tone overwriting measurement mode (and capture no
+    /// longer resets the category under the tone).
+    private var sessionLease: AudioSessionCoordinator.Lease?
+    private var engineObservers: [NSObjectProtocol] = []
+    private var sessionEventsCancellable: AnyCancellable?
 
     @Published var isPlaying = false
 
@@ -69,6 +76,11 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
     }
 
     private let sampleRate: Double = 44100.0
+    /// UI-15: amplitude changes, start and stop are ramped over ~5 ms so they
+    /// don't click.
+    static let rampSeconds: Double = 0.005
+    /// Fade-out time before the engine is stopped.
+    static let fadeOutSeconds: Double = 0.02
 
     // All synthesis parameters accessed from the AVAudioSourceNode render
     // callback are held under OSAllocatedUnfairLock so the render thread
@@ -80,33 +92,84 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
         var amplitude: Float = 0.5
         var waveform: Waveform = .sine
         var phase: Double = 0.0
+        /// `false` while fading out: the render target amplitude becomes 0.
+        var gateOpen: Bool = true
     }
     private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
 
-    init() {}
+    init() {
+        sessionEventsCancellable = AudioSessionCoordinator.shared.events
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .interruptionBegan, .mediaServicesReset:
+                    // The system stopped our engine — reflect it in the UI.
+                    if self.isPlaying { self.stop() }
+                default:
+                    break
+                }
+            }
+    }
+
+    // MARK: - DSP (pure, testable)
+
+    /// PolyBLEP residual for a discontinuity at phase `t` (0…1) with phase
+    /// increment `dt` (UI-15 band-limited square/saw).
+    static func polyBLEP(_ t: Double, _ dt: Double) -> Double {
+        guard dt > 0 else { return 0 }
+        if t < dt {
+            let x = t / dt
+            return x + x - x * x - 1
+        }
+        if t > 1 - dt {
+            let x = (t - 1) / dt
+            return x * x + x + x + 1
+        }
+        return 0
+    }
+
+    /// One sample of `waveform` at normalized phase `t` (0…1) with
+    /// normalized increment `dt`.
+    static func sample(_ waveform: Waveform, t: Double, dt: Double) -> Double {
+        switch waveform {
+        case .sine:
+            return sin(2 * .pi * t)
+        case .square:
+            var value = t < 0.5 ? 1.0 : -1.0
+            value += polyBLEP(t, dt)
+            var t2 = t + 0.5
+            if t2 >= 1 { t2 -= 1 }
+            value -= polyBLEP(t2, dt)
+            return value
+        case .sawtooth:
+            return (2 * t - 1) - polyBLEP(t, dt)
+        case .triangle:
+            // Triangle has no step discontinuity; aliasing is ~12 dB/oct lower.
+            return 4 * abs(t - 0.5) - 1
+        }
+    }
 
     func start() {
         guard !isPlaying else { return }
 
         do {
-            // Configure audio session for playback only if it is not already set up
-            // for a compatible category to avoid disrupting active microphone capture.
-            let session = AVAudioSession.sharedInstance()
-            let currentCategory = session.category
-            if currentCategory != .playAndRecord && currentCategory != .playback {
-                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
-                try session.setActive(true)
+            if sessionLease == nil {
+                sessionLease = try AudioSessionCoordinator.shared.acquire(.tone)
             }
 
-            audioEngine = AVAudioEngine()
-            guard let engine = audioEngine else { return }
+            let engine = AVAudioEngine()
+            audioEngine = engine
+            synthLock.withLock { $0.gateOpen = true }
 
             let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-            var currentPhase = 0.0
-            let twoPi = 2.0 * Double.pi
+            let sr = sampleRate
+            var phase = 0.0          // normalized 0…1, render-thread local
+            var currentAmp = 0.0     // ramped amplitude, starts silent (fade-in)
+            let rampCoeff = 1.0 - exp(-1.0 / (Self.rampSeconds * sr))
 
             // Use AVAudioSourceNode for real-time synthesis (no buffer scheduling needed)
-            srcNode = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
+            let sourceNode = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
                 guard let self = self else { return noErr }
 
                 let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -114,63 +177,47 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
                     return noErr
                 }
 
-                // Single non-blocking snapshot per render block; phase stays
-                // local to this audio-thread closure (no second lock needed).
+                // Single non-blocking snapshot per render block.
                 let state = self.synthLock.withLockUnchecked { $0 }
                 let rawFreq = Double(state.frequency)
-                let freq = rawFreq.isFinite ? max(0.0, min(rawFreq, self.sampleRate * 0.49)) : 0.0
+                let freq = rawFreq.isFinite ? max(0.0, min(rawFreq, sr * 0.49)) : 0.0
                 let rawAmp = Double(state.amplitude)
-                let amp = rawAmp.isFinite ? max(0.0, min(rawAmp, 1.0)) : 0.0
+                let targetAmp = state.gateOpen ? (rawAmp.isFinite ? max(0.0, min(rawAmp, 1.0)) : 0.0) : 0.0
                 let waveformType = state.waveform
-
-                let phaseIncrement = twoPi * freq / self.sampleRate
+                let dt = freq / sr
 
                 for frame in 0..<Int(frameCount) {
-                    let sample: Double
-
-                    switch waveformType {
-                    case .sine:
-                        sample = sin(currentPhase)
-                    case .square:
-                        sample = currentPhase < .pi ? 1.0 : -1.0
-                    case .sawtooth:
-                        sample = 2.0 * (currentPhase / twoPi) - 1.0
-                    case .triangle:
-                        let normalized = currentPhase / twoPi
-                        sample = 4.0 * abs(normalized - 0.5) - 1.0
-                    }
-
-                    buffer[frame] = Float(sample * amp)
-
-                    currentPhase += phaseIncrement
-                    if currentPhase >= twoPi || currentPhase < 0 {
-                        currentPhase = currentPhase.truncatingRemainder(dividingBy: twoPi)
-                        if currentPhase < 0 { currentPhase += twoPi }
-                    }
+                    currentAmp += (targetAmp - currentAmp) * rampCoeff
+                    buffer[frame] = Float(Self.sample(waveformType, t: phase, dt: dt) * currentAmp)
+                    phase += dt
+                    if phase >= 1 { phase -= floor(phase) }
                 }
-
                 return noErr
             }
-
-            guard let sourceNode = srcNode else { return }
+            srcNode = sourceNode
 
             engine.attach(sourceNode)
             engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
+            observeEngine(engine)
 
             try engine.start()
             isPlaying = true
 
         } catch {
             print("[ToneGenerator] Error starting: \(error)")
+            teardownEngine(immediately: true)
+            releaseLease()
         }
     }
 
     func stop() {
-        srcNode = nil
-        audioEngine?.stop()
-        audioEngine = nil
-        synthLock.withLock { $0.phase = 0.0 }
+        guard audioEngine != nil || isPlaying else {
+            releaseLease()
+            return
+        }
         isPlaying = false
+        synthLock.withLock { $0.gateOpen = false; $0.phase = 0.0 }
+        teardownEngine(immediately: false)
     }
 
     func toggle() {
@@ -181,11 +228,68 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Stops the current engine after a short fade-out (UI-15). The engine
+    /// instance is captured so a quick restart is never stopped by a stale
+    /// timer.
+    private func teardownEngine(immediately: Bool) {
+        let engine = audioEngine
+        let node = srcNode
+        audioEngine = nil
+        srcNode = nil
+        engineObservers.forEach(NotificationCenter.default.removeObserver)
+        engineObservers.removeAll()
+        let finish: () -> Void = { [weak self] in
+            engine?.stop()
+            _ = node
+            self?.releaseLeaseIfIdle()
+        }
+        if immediately || engine == nil {
+            finish()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeOutSeconds, execute: finish)
+        }
+    }
+
+    /// AS-3: when capture starts/stops the session category changes and the
+    /// tone engine is stopped by the system — restart it while playing.
+    private func observeEngine(_ engine: AVAudioEngine) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self, weak engine] _ in
+            guard let self, let engine, self.isPlaying, engine === self.audioEngine else { return }
+            do {
+                try engine.start()
+            } catch {
+                print("[ToneGenerator] Restart after configuration change failed: \(error)")
+                self.stop()
+            }
+        }
+        engineObservers.append(observer)
+    }
+
+    private func releaseLeaseIfIdle() {
+        guard !isPlaying, audioEngine == nil else { return }
+        releaseLease()
+    }
+
+    private func releaseLease() {
+        if let lease = sessionLease {
+            AudioSessionCoordinator.shared.release(lease)
+            sessionLease = nil
+        }
+    }
+
     deinit {
         // Direkt stoppen ohne async dispatch (vermeidet Retain-Cycle im deinit)
+        engineObservers.forEach(NotificationCenter.default.removeObserver)
         srcNode = nil
         audioEngine?.stop()
         audioEngine = nil
+        if let lease = sessionLease {
+            AudioSessionCoordinator.shared.release(lease)
+        }
     }
 }
 
@@ -681,6 +785,7 @@ private struct PianoInputView: View {
 // MARK: - Tone Generator Widget View
 
 struct ToneGeneratorWidget: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var toneGenerator = ToneGenerator()
     @State private var showFullscreenOscilloscope = false
     private let outerPadding: CGFloat = 10
@@ -944,7 +1049,13 @@ struct ToneGeneratorWidget: View {
         .onChange(of: toneGenerator.amplitude) { _, v in storedAmplitude = Double(v) }
         .onChange(of: toneGenerator.waveform)  { _, v in storedWaveformRaw = v.rawValue }
         .onDisappear {
+            // AS-9: `onDisappear` also fires when the fullscreen oscilloscope
+            // cover hides this view — keep the tone running in that case.
+            guard !showFullscreenOscilloscope else { return }
             toneGenerator.stop()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { toneGenerator.stop() }
         }
         .fullScreenCover(isPresented: $showFullscreenOscilloscope) {
             WaveformFullscreenView(

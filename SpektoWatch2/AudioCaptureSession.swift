@@ -25,13 +25,62 @@ final class AudioCaptureSession {
     /// buffer. Set by the owner before the first `installTapAndStart`.
     var onBuffer: ((AVAudioPCMBuffer) -> Void)?
 
+    /// AS-1: called on the main queue when the capture graph's I/O
+    /// configuration changed (route change, sample-rate change, interruption
+    /// side effects). The engine has already stopped when this fires.
+    var onConfigurationChange: (() -> Void)?
+
     /// Created on first capture start so `AudioEngine` init stays off the hot
     /// AVAudioEngine graph-build path during deferred `AppServices.startAudio()`.
-    private lazy var engine = AVAudioEngine()
+    private lazy var engine: AVAudioEngine = makeEngine()
+    private var configurationObserver: NSObjectProtocol?
 
-    init(tapBlockSize: AVAudioFrameCount, nominalSampleRate: Double) {
+    /// AS-1/AS-3: the session category is owned by the coordinator; capture
+    /// holds a `.capture` lease between configure and stop.
+    private let coordinator: AudioSessionCoordinator
+    private let leaseLock = NSLock()
+    private var captureLease: AudioSessionCoordinator.Lease?
+
+    init(
+        tapBlockSize: AVAudioFrameCount,
+        nominalSampleRate: Double,
+        coordinator: AudioSessionCoordinator = .shared
+    ) {
         self.tapBlockSize = tapBlockSize
         self.nominalSampleRate = nominalSampleRate
+        self.coordinator = coordinator
+    }
+
+    deinit {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+    }
+
+    private func makeEngine() -> AVAudioEngine {
+        let newEngine = AVAudioEngine()
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: newEngine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onConfigurationChange?()
+        }
+        return newEngine
+    }
+
+    /// `true` while the capture graph is running.
+    var isRunning: Bool { engine.isRunning }
+
+    /// AS-1: media services were reset — every AVFoundation object is invalid.
+    /// Drops the old graph; the next `installTapAndStart` builds a new one.
+    func resetEngine() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        engine = makeEngine()
     }
 
     /// Warms the lazy `AVAudioEngine` so the first capture start does less
@@ -57,11 +106,11 @@ final class AudioCaptureSession {
         let audioSession = AVAudioSession.sharedInstance()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            // AS-3: prewarm must not change category/activation behind the
+            // coordinator's back (it used to kill a playing tone).
             do {
-                try audioSession.setCategory(.record, mode: .measurement, options: [])
                 let rate = max(1.0, self.nominalSampleRate)
                 try audioSession.setPreferredIOBufferDuration(Double(self.tapBlockSize) / rate)
-                try audioSession.setActive(true)
             } catch {
                 Logger.audioEngine.warning("Prewarm failed: \(error.localizedDescription)")
             }
@@ -84,15 +133,23 @@ final class AudioCaptureSession {
     ) throws -> [AVAudioSessionDataSourceDescription] {
         let audioSession = AVAudioSession.sharedInstance()
 
-        try audioSession.setCategory(.record, mode: .measurement, options: [])
+        // Category/mode/activation via the coordinator lease (merged with any
+        // tone / playback lease instead of overwriting it).
+        leaseLock.lock()
+        let hasLease = captureLease != nil
+        leaseLock.unlock()
+        if !hasLease {
+            let lease = try coordinator.acquire(.capture)
+            leaseLock.lock()
+            captureLease = lease
+            leaseLock.unlock()
+        }
         let rate = max(1.0, nominalSampleRate)
         try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / rate)
 
         if audioSession.isInputGainSettable {
             try audioSession.setInputGain(1.0)
         }
-
-        try audioSession.setActive(true)
 
         var dataSources: [AVAudioSessionDataSourceDescription] = []
         if let inputs = audioSession.availableInputs,
@@ -133,9 +190,34 @@ final class AudioCaptureSession {
         try engine.start()
     }
 
-    /// Stops the engine and removes the input tap.
+    /// Stops the engine, removes the input tap and ends the capture lease.
     func stop() {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
+        releaseLease()
+    }
+
+    /// AS-1: reinstalls the tap and restarts after an interruption or a
+    /// configuration change, keeping the capture lease. Returns the format
+    /// now delivered by the input node.
+    @discardableResult
+    func restart() throws -> AVAudioFormat {
+        try coordinator.reapply()
+        engine.stop()
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw NSError(domain: "AudioCaptureSession", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Kein gültiges Eingangsformat nach Neustart"])
+        }
+        try installTapAndStart(format: format)
+        return format
+    }
+
+    private func releaseLease() {
+        leaseLock.lock()
+        let lease = captureLease
+        captureLease = nil
+        leaseLock.unlock()
+        if let lease { coordinator.release(lease) }
     }
 }
