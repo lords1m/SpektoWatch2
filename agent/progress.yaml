@@ -436,7 +436,6 @@ milestones:
     status: pending
     priority: high
     progress: 0
-    estimated_weeks: "4-5"
     tasks_completed: 0
     tasks_total: 8
     notes: >
