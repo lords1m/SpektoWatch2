@@ -95,6 +95,7 @@ struct WatchMeterLayoutSettingsView: View {
                 }
                 .onChange(of: config.defaultSingleValueRefreshRate) { _, _ in
                     config.save()
+                    WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.meterLayoutConfig)
                 }
             } header: {
                 Text("Einzelwert-Aktualisierung")
@@ -104,6 +105,7 @@ struct WatchMeterLayoutSettingsView: View {
                 Button("Standard wiederherstellen") {
                     config = WatchMeterLayoutConfig()
                     config.save()
+                    WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.meterLayoutConfig)
                 }
                 .font(.caption)
             }
@@ -175,6 +177,7 @@ struct WatchMeterLayoutSettingsView: View {
         list.removeAll { $0.id == widget.id }
         config.replaceOrderedWidgets(list)
         config.save()
+        WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.meterLayoutConfig)
     }
 
     private func moveWidget(_ widget: WatchWidgetConfig, offset: Int) {
@@ -185,6 +188,7 @@ struct WatchMeterLayoutSettingsView: View {
         list.swapAt(index, destination)
         config.replaceOrderedWidgets(list)
         config.save()
+        WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.meterLayoutConfig)
     }
 
     private func applySelection(
@@ -217,6 +221,7 @@ struct WatchMeterLayoutSettingsView: View {
         }
         config.replaceOrderedWidgets(list)
         config.save()
+        WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.meterLayoutConfig)
     }
 }
 

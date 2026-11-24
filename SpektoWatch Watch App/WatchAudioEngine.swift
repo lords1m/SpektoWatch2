@@ -401,6 +401,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private func persistMeasurementSourcePreference(_ preference: WatchMeasurementSourcePreference) {
         UserDefaults.standard.set(preference.rawValue, forKey: PersistenceKeys.Watch.measurementSourcePreference)
         UserDefaults.standard.set(preference == .appleWatch, forKey: PersistenceKeys.Watch.standaloneEnabled)
+        // WC-5: a watch-side choice must not be reverted by a stale phone push.
+        WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.measurementSourcePreference)
     }
 
     /// Begin watch-mic live preview (levels + spectrogram) without starting a

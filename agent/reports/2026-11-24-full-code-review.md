@@ -36,12 +36,12 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| WC-1 ✔ | H | `Shared/WatchConnectivityManager.swift:129-134` | `didReceive file:` hops to a queue before copying; `file.fileURL` is only valid during the callback → ingest fails intermittently, watch stuck in `.syncing`. |
-| WC-2 | M | `WatchConnectivityManager.swift` `syncPendingRecordings` | Re-queues `transferFile` for every `.syncing` entry on each activation/reachability flip; no check of `outstandingFileTransfers` → duplicate multi-MB transfers; phone-side staged duplicates leak. |
-| WC-3 | M | `WatchConnectivityManager.swift` staged-pair purge | Audio-only fallback only runs when an unrelated later file arrives. |
-| WC-4 | M | `WatchRecordingStore.swift` delete, `WatchRecordingsView.swift` | Delete doesn't cancel in-flight transfer → phone gets `.caf` without `.swr`. |
-| WC-5 | M | `Shared/WatchAppSettingsSync.swift:68-86` | Full-context re-apply: an unrelated phone push reverts gain/source changed on the watch. |
-| WC-6 | L | `WatchConnectivityManager.swift` | `didFinish fileTransfer:error:` failures don't reset sync state. |
+| WC-1 ✔ | H | `Shared/WatchConnectivityManager.swift:129-134` | `didReceive file:` hops to a queue before copying; `file.fileURL` is only valid during the callback → ingest fails intermittently, watch stuck in `.syncing`. → fixed (M22 task-2, pending macOS verification) |
+| WC-2 | M | `WatchConnectivityManager.swift` `syncPendingRecordings` | Re-queues `transferFile` for every `.syncing` entry on each activation/reachability flip; no check of `outstandingFileTransfers` → duplicate multi-MB transfers; phone-side staged duplicates leak. → fixed (M22 task-2, pending macOS verification) |
+| WC-3 | M | `WatchConnectivityManager.swift` staged-pair purge | Audio-only fallback only runs when an unrelated later file arrives. → fixed (M22 task-2, pending macOS verification) |
+| WC-4 | M | `WatchRecordingStore.swift` delete, `WatchRecordingsView.swift` | Delete doesn't cancel in-flight transfer → phone gets `.caf` without `.swr`. → fixed (M22 task-2, pending macOS verification) |
+| WC-5 | M | `Shared/WatchAppSettingsSync.swift:68-86` | Full-context re-apply: an unrelated phone push reverts gain/source changed on the watch. → fixed (M22 task-2, pending macOS verification) |
+| WC-6 | L | `WatchConnectivityManager.swift` | `didFinish fileTransfer:error:` failures don't reset sync state. → fixed (M22 task-2, pending macOS verification) |
 
 ## Watch app lifecycle & configuration → task-3
 

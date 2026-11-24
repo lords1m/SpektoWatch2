@@ -59,6 +59,16 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     private var lastSpectrogramSendTime: TimeInterval = 0
     private var hasLoggedSpectrogramUnreachability = false
 
+    #if os(watchOS)
+    /// WC-2 debounce for `syncPendingRecordings`.
+    static let syncDebounceInterval: TimeInterval = 2
+    private var pendingSyncWorkItem: DispatchWorkItem?
+    /// File kinds whose `transferFile` completed without error in this
+    /// process, per recording id (main thread). Prevents resending while the
+    /// phone's ack is still in flight.
+    private var deliveredTransferKinds: [UUID: Set<WatchConnectivityProtocol.RecordingFileKind>] = [:]
+    #endif
+
     #if os(iOS)
     // MARK: - Standalone recording sync-back (M21 task-5)
     //
@@ -73,7 +83,21 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     private let transferIngestQueue = DispatchQueue(label: "com.spektowatch.watch-recording-ingest")
     private var stagedTransferMetadata: [UUID: WatchRecordingMetadata] = [:]
     private var stagedTransferFirstSeenAt: [UUID: Date] = [:]
-    private static let stagedTransferTimeout: TimeInterval = 120
+    /// WC-3: per-id audio-only fallback, armed when the first file of a pair
+    /// is staged and cancelled when its partner arrives.
+    private var stagedTransferFallbacks: [UUID: DispatchWorkItem] = [:]
+    static var stagedTransferTimeout: TimeInterval = 120
+    /// Staged files older than this (no in-memory pairing state after a
+    /// relaunch) are purged; the watch resends anything not acknowledged.
+    private static let stagedFileMaxAge: TimeInterval = 24 * 60 * 60
+
+    /// A file moved out of WatchConnectivity's temporary inbox.
+    struct StagedRecordingFile {
+        let id: UUID
+        let kind: WatchConnectivityProtocol.RecordingFileKind
+        let metadata: WatchRecordingMetadata
+        let url: URL
+    }
 
     private var transferStagingDirectory: URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("WatchSyncStaging", isDirectory: true)
@@ -128,8 +152,34 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     /// Incoming standalone recording file (iOS) / ingest acknowledgement (watch).
     public func session(_ session: WCSession, didReceive file: WCSessionFile) {
         #if os(iOS)
+        // WC-1: `file.fileURL` is only valid until this delegate returns, so
+        // the move into the staging directory must happen synchronously here.
+        // Only the bookkeeping hops to the ingest queue.
+        guard let staged = stageIncomingRecordingFile(at: file.fileURL, metadata: file.metadata ?? [:]) else { return }
         transferIngestQueue.async { [weak self] in
-            self?.handleIncomingRecordingFile(file)
+            self?.handleStagedRecordingFile(staged)
+        }
+        #endif
+    }
+
+    /// WC-6: transfer finished (watch side). A failed transfer returns the
+    /// catalog entry to `.local` so the next sync retries it instead of
+    /// leaving it stuck in `.syncing`.
+    public func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        #if os(watchOS)
+        let metadata = fileTransfer.file.metadata ?? [:]
+        guard let id = WatchConnectivityProtocol.recordingId(fromTransfer: metadata) else { return }
+        let kind = WatchConnectivityProtocol.recordingFileKind(fromTransfer: metadata)
+        DispatchQueue.main.async {
+            if let error {
+                Logger.connectivity.error("Recording transfer \(id.uuidString) failed: \(error.localizedDescription)")
+                self.deliveredTransferKinds[id] = nil
+                if WatchRecordingStore.shared.recordings.first(where: { $0.id == id })?.syncState == .syncing {
+                    WatchRecordingStore.shared.setSyncState(.local, for: id)
+                }
+            } else if let kind {
+                self.deliveredTransferKinds[id, default: []].insert(kind)
+            }
         }
         #endif
     }
@@ -422,7 +472,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         guard session.activationState == .activated else { return }
         do {
             var context = session.applicationContext
-            for (key, value) in updates {
+            // WC-5: stamp only keys whose value actually changed.
+            let stamped = WatchAppSettingsSync.stampingChangedKeys(updates, previous: context)
+            for (key, value) in stamped {
                 context[key] = value
             }
             try session.updateApplicationContext(WatchConnectivityProtocol.mergingProtocolVersion(into: context))
@@ -501,47 +553,75 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     /// transferred, and the phone dedupes by recording id so a retried transfer
     /// never creates a duplicate. Marks each entry `.syncing` until the phone's
     /// ack flips it to `.synced`.
+    /// WC-2: activation + reachability callbacks arrive in bursts; coalesce
+    /// them into one sync pass per `syncDebounceInterval`.
     func syncPendingRecordings() {
+        DispatchQueue.main.async {
+            self.pendingSyncWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.pendingSyncWorkItem = nil
+                self?.performSyncPendingRecordings()
+            }
+            self.pendingSyncWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.syncDebounceInterval, execute: work)
+        }
+    }
+
+    /// Recording ids with a `transferFile` still queued/in flight.
+    static func outstandingTransferIds(_ transfers: [WCSessionFileTransfer]) -> Set<UUID> {
+        Set(transfers.compactMap { WatchConnectivityProtocol.recordingId(fromTransfer: $0.file.metadata ?? [:]) })
+    }
+
+    private func performSyncPendingRecordings() {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         guard session.activationState == .activated else { return }
 
-        DispatchQueue.main.async {
-            let store = WatchRecordingStore.shared
-            let fm = FileManager.default
-            for rec in store.recordings where rec.syncState == .local || rec.syncState == .syncing {
-                let audioURL = store.audioURL(for: rec)
-                guard fm.fileExists(atPath: audioURL.path) else { continue }
-                guard let metaData = try? JSONEncoder().encode(rec) else { continue }
+        // WC-2: never re-queue a recording whose transfer is still
+        // outstanding (or already delivered in this process and awaiting the
+        // phone's ack) — each resend is a multi-MB duplicate.
+        let outstanding = Self.outstandingTransferIds(session.outstandingFileTransfers)
+        let store = WatchRecordingStore.shared
+        let fm = FileManager.default
+        for rec in store.recordings where rec.syncState == .local || rec.syncState == .syncing {
+            if outstanding.contains(rec.id) { continue }
+            let audioURL = store.audioURL(for: rec)
+            guard fm.fileExists(atPath: audioURL.path) else { continue }
+            let measurementURL = store.measurementURL(for: rec)
+            let hasMeasurement = fm.fileExists(atPath: measurementURL.path)
+            let delivered = deliveredTransferKinds[rec.id] ?? []
+            let needsAudio = !delivered.contains(.audio)
+            let needsMeasurement = hasMeasurement && !delivered.contains(.measurement)
+            guard needsAudio || needsMeasurement else { continue }
+            guard let metaData = try? JSONEncoder().encode(rec) else { continue }
 
-                store.setSyncState(.syncing, for: rec.id)
+            store.setSyncState(.syncing, for: rec.id)
+            if needsAudio {
                 session.transferFile(audioURL, metadata: WatchConnectivityProtocol.makeRecordingFileTransferMetadata(
                     id: rec.id, kind: .audio, metadata: metaData))
-
-                let measurementURL = store.measurementURL(for: rec)
-                if fm.fileExists(atPath: measurementURL.path) {
-                    session.transferFile(measurementURL, metadata: WatchConnectivityProtocol.makeRecordingFileTransferMetadata(
-                        id: rec.id, kind: .measurement, metadata: metaData))
-                }
+            }
+            if needsMeasurement {
+                session.transferFile(measurementURL, metadata: WatchConnectivityProtocol.makeRecordingFileTransferMetadata(
+                    id: rec.id, kind: .measurement, metadata: metaData))
             }
         }
     }
+
     #endif
 
     #if os(iOS)
-    /// Copies one incoming recording file out of WC's temporary location into a
-    /// staging dir keyed by recording id, then ingests once both audio + `.swr`
-    /// are present. Runs on `transferIngestQueue`. `file.fileURL` is only valid
-    /// until the delegate returns, so the copy is synchronous.
-    private func handleIncomingRecordingFile(_ file: WCSessionFile) {
-        purgeStaleStagedTransfersIfNeeded()
-
-        let metadata = file.metadata ?? [:]
+    /// WC-1: synchronously moves one incoming recording file out of
+    /// WatchConnectivity's inbox into `WatchSyncStaging/<id>.<ext>`. Must be
+    /// called inside `session(_:didReceive:)` (the inbox URL is invalid once
+    /// the delegate returns). Returns `nil` for malformed metadata or I/O
+    /// failure (the watch keeps the entry un-acked and retries).
+    func stageIncomingRecordingFile(at sourceURL: URL, metadata: [String: Any]) -> StagedRecordingFile? {
         guard let id = WatchConnectivityProtocol.recordingId(fromTransfer: metadata),
               let kind = WatchConnectivityProtocol.recordingFileKind(fromTransfer: metadata),
               let recordingMeta = WatchConnectivityProtocol.recordingMetadata(fromTransfer: metadata) else {
             Logger.connectivity.error("Dropping recording file with malformed metadata")
-            return
+            return nil
         }
 
         let fm = FileManager.default
@@ -551,47 +631,90 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             try? fm.removeItem(at: destination)
         }
         do {
-            try fm.copyItem(at: file.fileURL, to: destination)
+            try fm.moveItem(at: sourceURL, to: destination)
         } catch {
-            Logger.connectivity.error("Failed to stage incoming recording file: \(error.localizedDescription)")
-            return
+            do {
+                try fm.copyItem(at: sourceURL, to: destination)
+            } catch {
+                Logger.connectivity.error("Failed to stage incoming recording file: \(error.localizedDescription)")
+                return nil
+            }
         }
+        return StagedRecordingFile(id: id, kind: kind, metadata: recordingMeta, url: destination)
+    }
 
-        stagedTransferMetadata[id] = recordingMeta
+    /// Pairs staged audio + `.swr` by recording id and ingests once both are
+    /// present. Runs on `transferIngestQueue`.
+    func handleStagedRecordingFile(_ staged: StagedRecordingFile) {
+        purgeAgedStagingFilesIfNeeded()
+
+        let id = staged.id
+        let fm = FileManager.default
+        stagedTransferMetadata[id] = staged.metadata
         stagedTransferFirstSeenAt[id] = stagedTransferFirstSeenAt[id] ?? Date()
 
         let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
         let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
         guard fm.fileExists(atPath: audioURL.path), fm.fileExists(atPath: measurementURL.path) else {
-            return // wait for the other file
+            // WC-3: wait for the partner, but arm a per-id fallback so a lone
+            // audio file is ingested even if no further transfer ever arrives.
+            armStagedTransferFallback(for: id)
+            return
         }
 
-        stagedTransferMetadata[id] = nil
-        stagedTransferFirstSeenAt[id] = nil
-        ingestStagedRecording(recordingMeta, audioURL: audioURL, measurementURL: measurementURL)
+        clearStagedTransferState(for: id)
+        ingestStagedRecording(staged.metadata, audioURL: audioURL, measurementURL: measurementURL)
     }
 
-    private func purgeStaleStagedTransfersIfNeeded() {
-        let now = Date()
-        let fm = FileManager.default
-        let staleIds = stagedTransferFirstSeenAt.compactMap { id, firstSeen in
-            now.timeIntervalSince(firstSeen) > Self.stagedTransferTimeout ? id : nil
+    private func armStagedTransferFallback(for id: UUID) {
+        guard stagedTransferFallbacks[id] == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.runStagedTransferFallback(for: id)
         }
-        guard !staleIds.isEmpty else { return }
-        for id in staleIds {
-            let meta = stagedTransferMetadata[id]
-            stagedTransferMetadata[id] = nil
-            stagedTransferFirstSeenAt[id] = nil
-            let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
-            let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
-            if let meta, fm.fileExists(atPath: audioURL.path) {
-                let optionalMeasurement = fm.fileExists(atPath: measurementURL.path) ? measurementURL : nil
-                Logger.connectivity.warning("Staged watch transfer \(id.uuidString) timed out waiting for sidecar — ingesting audio-only")
-                ingestStagedRecording(meta, audioURL: audioURL, measurementURL: optionalMeasurement)
-            } else {
-                if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
-                if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
-                Logger.connectivity.error("Purged stale staged watch transfer for recording \(id.uuidString)")
+        stagedTransferFallbacks[id] = work
+        transferIngestQueue.asyncAfter(deadline: .now() + Self.stagedTransferTimeout, execute: work)
+    }
+
+    private func clearStagedTransferState(for id: UUID) {
+        stagedTransferMetadata[id] = nil
+        stagedTransferFirstSeenAt[id] = nil
+        stagedTransferFallbacks[id]?.cancel()
+        stagedTransferFallbacks[id] = nil
+    }
+
+    /// Audio-only ingest (or purge) for an id whose partner never arrived.
+    private func runStagedTransferFallback(for id: UUID) {
+        let fm = FileManager.default
+        let meta = stagedTransferMetadata[id]
+        clearStagedTransferState(for: id)
+        let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
+        let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
+        if let meta, fm.fileExists(atPath: audioURL.path) {
+            let optionalMeasurement = fm.fileExists(atPath: measurementURL.path) ? measurementURL : nil
+            Logger.connectivity.warning("Staged watch transfer \(id.uuidString) timed out waiting for sidecar — ingesting audio-only")
+            ingestStagedRecording(meta, audioURL: audioURL, measurementURL: optionalMeasurement)
+        } else {
+            if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
+            if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
+            Logger.connectivity.error("Purged stale staged watch transfer for recording \(id.uuidString)")
+        }
+    }
+
+    /// Removes staging files that have no in-memory pairing state and are
+    /// older than `stagedFileMaxAge` (leftovers from a previous process).
+    private func purgeAgedStagingFilesIfNeeded() {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: transferStagingDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        let now = Date()
+        for url in entries {
+            let name = url.deletingPathExtension().lastPathComponent
+            if let id = UUID(uuidString: name), stagedTransferMetadata[id] != nil { continue }
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? now
+            if now.timeIntervalSince(modified) > Self.stagedFileMaxAge {
+                try? fm.removeItem(at: url)
             }
         }
     }
@@ -629,7 +752,19 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
 
         DispatchQueue.main.async {
             let ingested = self.onWatchRecordingReceived?(recording) ?? false
-            guard ingested else { return }
+            guard ingested else {
+                // DL-3: not persisted → no ack; staged files stay so a resend
+                // (or the next fallback) can retry.
+                return
+            }
+            // WC-2: on success `addRecording` moved the files; when the id was
+            // already present (duplicate resend) they are still staged —
+            // remove them so duplicates don't leak.
+            let fm = FileManager.default
+            if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
+            if let measurementURL, fm.fileExists(atPath: measurementURL.path) {
+                try? fm.removeItem(at: measurementURL)
+            }
             // Confirm via transferUserInfo (queued + guaranteed) so the watch
             // flips the catalog entry to `.synced` even if not reachable now.
             WCSession.default.transferUserInfo(

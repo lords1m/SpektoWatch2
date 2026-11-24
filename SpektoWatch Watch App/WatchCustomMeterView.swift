@@ -174,5 +174,6 @@ struct WatchCustomMeterView: View {
         }
         config.replaceOrderedWidgets(list)
         config.save()
+        WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.meterLayoutConfig)
     }
 }

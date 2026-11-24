@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import os
+#if canImport(WatchConnectivity)
+import WatchConnectivity
+#endif
 
 /// Durable catalog of standalone watch recordings. The on-disk catalog (a JSON
 /// sidecar next to the audio + `.swr` files in the app container) is the source
@@ -72,12 +75,25 @@ final class WatchRecordingStore: ObservableObject {
         saveCatalog()
     }
 
-    /// Removes a recording and its files from disk.
+    /// Removes a recording and its files from disk. WC-4: queued/in-flight
+    /// `transferFile`s for it are cancelled first so the phone never receives
+    /// a `.caf` whose `.swr` was deleted mid-transfer.
     func delete(_ recording: WatchRecordingMetadata) {
+        cancelOutstandingTransfers(for: recording.id)
         try? fileManager.removeItem(at: audioURL(for: recording))
         try? fileManager.removeItem(at: measurementURL(for: recording))
         recordings.removeAll { $0.id == recording.id }
         saveCatalog()
+    }
+
+    private func cancelOutstandingTransfers(for id: UUID) {
+        #if canImport(WatchConnectivity)
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
+        for transfer in WCSession.default.outstandingFileTransfers
+        where WatchConnectivityProtocol.recordingId(fromTransfer: transfer.file.metadata ?? [:]) == id {
+            transfer.cancel()
+        }
+        #endif
     }
 
     // MARK: - Persistence

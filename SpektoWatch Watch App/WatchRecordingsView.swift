@@ -156,14 +156,23 @@ struct WatchRecordingDetailView: View {
         }
         .navigationTitle(recording.title)
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Aufnahme löschen?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("Löschen", role: .destructive) {
+        .confirmationDialog(
+            isSyncing ? "Übertragung läuft" : "Aufnahme löschen?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            // WC-4: deleting while syncing cancels the transfer first.
+            Button(isSyncing ? "Übertragung abbrechen und löschen" : "Löschen", role: .destructive) {
                 store.delete(recording)
                 WKInterfaceDevice.current().play(.success)
                 dismiss()
             }
             Button("Abbrechen", role: .cancel) {}
         }
+    }
+
+    private var isSyncing: Bool {
+        (store.recordings.first { $0.id == recording.id }?.syncState ?? recording.syncState) == .syncing
     }
 
     @ViewBuilder
