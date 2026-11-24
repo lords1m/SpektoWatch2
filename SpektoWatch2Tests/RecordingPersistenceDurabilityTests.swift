@@ -286,4 +286,42 @@ final class RecordingPersistenceDurabilityTests: XCTestCase {
         XCTAssertEqual(manager.recordings.count, 1,
                        "The row without `id` should be dropped, not minted a new UUID")
     }
+
+    func testCorruptTopLevelMetadataPreservesFilesAndBlocksOverwrite() throws {
+        let tempBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecordingCorruptGuard-\(UUID().uuidString)", isDirectory: true)
+        let recDir = tempBase.appendingPathComponent("Recordings", isDirectory: true)
+        try FileManager.default.createDirectory(at: recDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempBase) }
+
+        let corruptMetadata = Data("{not valid json".utf8)
+        let corruptMetadataURL = recDir.appendingPathComponent("recordings_metadata_v2.json")
+        try corruptMetadata.write(to: corruptMetadataURL, options: .atomic)
+
+        let existingAudioURL = recDir.appendingPathComponent("precious-existing.caf")
+        try Data([0x01, 0x02, 0x03]).write(to: existingAudioURL)
+
+        let manager = RecordingManager(baseDirectory: tempBase)
+        XCTAssertNotNil(manager.persistenceError,
+                        "Top-level metadata decode failure must surface persistenceError")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: existingAudioURL.path),
+                      "Orphan cleanup must not delete files when metadata failed to load")
+
+        // Attempting to add a recording must not overwrite the corrupt metadata
+        // file or wipe pre-existing audio files via orphan cleanup.
+        let newRecording = Recording(
+            id: UUID(),
+            name: "Should Not Wipe",
+            startDate: Date(),
+            duration: 1.0,
+            audioFileName: "new.caf"
+        )
+        manager.addRecording(newRecording)
+
+        let metadataAfter = try Data(contentsOf: corruptMetadataURL)
+        XCTAssertEqual(metadataAfter, corruptMetadata,
+                       "saveRecordings must refuse to overwrite metadata after load failure")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: existingAudioURL.path),
+                      "Pre-existing recording file must survive addRecording after load failure")
+    }
 }
