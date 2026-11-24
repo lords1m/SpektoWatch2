@@ -431,6 +431,23 @@ milestones:
       (task-6). Acceptance is hardware (task-6).
     file: agent/milestones/milestone-21-watch-standalone.md
 
+  M22:
+    name: Code Review Remediation
+    status: pending
+    priority: high
+    progress: 0
+    estimated_weeks: "4-5"
+    tasks_completed: 0
+    tasks_total: 8
+    notes: >
+      Resolve all 71 findings of the 2026-11-24 full code review
+      (agent/reports/2026-11-24-full-code-review.md). Order: data loss (1),
+      WC transfers (2), watch lifecycle (3), audio session coordinator (4),
+      RT/threading (5), measurement maths (6); UI polish (7) interleaved;
+      verification (8). Open decisions Q1 WKWatchOnly, Q2 metric versioning,
+      Q3 dummy-data fallback.
+    file: agent/milestones/milestone-22-code-review-remediation.md
+
 tasks:
   M1:
     - id: task-1-install-acp-structure
@@ -1047,7 +1064,49 @@ tasks:
       file: agent/tasks/milestone-21-watch-standalone/task-6-acceptance.md
       notes: "Hardware checklist: unpaired capture, metric correctness ±1.0 dB, persistence across relaunch, on-watch management, opportunistic sync exactly-once."
 
-updated_at: 2026-05-30
+  M22:
+    - id: task-1-data-loss-persistence
+      name: "Data-Loss & Persistence Fixes"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-1-data-loss-persistence.md
+      notes: "Owns DL-1..14."
+    - id: task-2-watch-connectivity-transfers
+      name: "WatchConnectivity Transfer Pipeline"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-2-watch-connectivity-transfers.md
+      notes: "Owns WC-1..6."
+    - id: task-3-watch-lifecycle
+      name: "Watch Lifecycle & Configuration"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-3-watch-lifecycle.md
+      notes: "Owns WL-1..7; WL-3 blocked on Q1."
+    - id: task-4-audio-session-coordinator
+      name: "Audio Session Coordinator"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-4-audio-session-coordinator.md
+      notes: "Owns AS-1..9; Q3."
+    - id: task-5-realtime-threading
+      name: "Real-Time & Threading Safety"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-5-realtime-threading.md
+      notes: "Owns RT-1..8."
+    - id: task-6-measurement-correctness
+      name: "Measurement Correctness"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-6-measurement-correctness.md
+      notes: "Owns MC-1..11; Q2."
+    - id: task-7-rendering-ui-polish
+      name: "Rendering, UI & Feature Polish"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-7-rendering-ui-polish.md
+      notes: "Owns UI-1..16."
+    - id: task-8-verification-acceptance
+      name: "Verification & Acceptance"
+      status: pending
+      file: agent/tasks/milestone-22-code-review-remediation/task-8-verification-acceptance.md
+      notes: "Owns macOS gates + hardware matrix."
+
+updated_at: 2026-11-24
 last_completed_task: M21/task-5-sync-back
 current_milestone: M20
 current_task: task-2-widget-extension
