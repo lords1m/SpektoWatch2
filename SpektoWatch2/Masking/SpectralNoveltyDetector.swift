@@ -42,10 +42,13 @@ final class SpectralNoveltyDetector {
     // MARK: – Init
 
     init(sampleRate: Double = 44100, hopSize: Int = 512, ambientTimeConstant: Double = 10.0) {
-        let fps = Float(sampleRate / Double(hopSize))
-        alpha = 1.0 / (fps * Float(ambientTimeConstant))
-        framesPerSecond = Int(fps)
-        minCalibrationFrames = Int(fps * 5.0)   // 5 s of data before trusting the model
+        let safeSampleRate = max(1.0, sampleRate)
+        let safeHopSize = max(1, hopSize)
+        let safeTimeConstant = max(0.001, ambientTimeConstant)
+        let fps = max(1.0, Float(safeSampleRate / Double(safeHopSize)))
+        alpha = min(1.0, 1.0 / (fps * Float(safeTimeConstant)))
+        framesPerSecond = max(1, Int(fps))
+        minCalibrationFrames = max(1, Int(fps * 5.0))   // 5 s of data before trusting the model
         ambientModel = [Float](repeating: 0, count: TriggerSpectrum.bandCount)
     }
 

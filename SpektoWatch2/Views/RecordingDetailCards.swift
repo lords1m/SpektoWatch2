@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 // Dedicated card views extracted from `RecordingDetailView`. Keeping these as
 // standalone `View` types (instead of computed properties on the detail view)
@@ -188,17 +189,51 @@ struct RecordingPhotosCard: View {
     }
 
     private func loadThumbnails() async {
-        var loaded: [String: UIImage] = [:]
+        var existing = thumbnails
+        var toLoad: [(fileName: String, url: URL)] = []
         for fileName in photoFileNames {
-            if let cached = thumbnails[fileName] {
-                loaded[fileName] = cached
-                continue
-            }
-            let url = photoURL(fileName)
-            if let image = UIImage(contentsOfFile: url.path) {
-                loaded[fileName] = image
+            if existing[fileName] == nil {
+                toLoad.append((fileName, photoURL(fileName)))
             }
         }
+        let decoded: [(String, UIImage)] = await Task.detached(priority: .userInitiated) {
+            var results: [(String, UIImage)] = []
+            results.reserveCapacity(toLoad.count)
+            for item in toLoad {
+                if Task.isCancelled { break }
+                if let thumb = Self.decodeThumbnail(at: item.url, maxPixelSize: 270) {
+                    results.append((item.fileName, thumb))
+                }
+            }
+            return results
+        }.value
+
+        guard !Task.isCancelled else { return }
+        var loaded: [String: UIImage] = [:]
+        for fileName in photoFileNames {
+            if let cached = existing[fileName] {
+                loaded[fileName] = cached
+            }
+        }
+        for (fileName, image) in decoded {
+            loaded[fileName] = image
+        }
         thumbnails = loaded
+    }
+
+    private nonisolated static func decodeThumbnail(at url: URL, maxPixelSize: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return UIImage(contentsOfFile: url.path)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return UIImage(contentsOfFile: url.path)
+        }
+        return UIImage(cgImage: cgImage)
     }
 }

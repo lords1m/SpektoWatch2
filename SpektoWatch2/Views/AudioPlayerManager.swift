@@ -243,7 +243,10 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     private func activatePlaybackSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            if session.category != .playAndRecord && session.category != .playback {
+            let needsConfig = (session.category != .playAndRecord && session.category != .playback)
+                || session.mode == .measurement
+                || (session.category == .playAndRecord && !session.categoryOptions.contains(.defaultToSpeaker))
+            if needsConfig {
                 try session.setCategory(
                     .playAndRecord,
                     mode: .default,
