@@ -102,23 +102,35 @@ enum SpectrumBandAggregator {
         return result
     }
 
-    /// Aggregate a per-bin dB-SPL spectrum into 24 Bark-band SPL values.
-    static func barkBands(frequencies: [Float], spectrum: [Float]) -> [Float] {
-        var result: [Float] = []
-        result.reserveCapacity(barkEdges.count - 1)
+    private static let thirdOctaveLowerFactor: Float = pow(2.0 as Float, -1.0 / 6.0)
+    private static let thirdOctaveUpperFactor: Float = pow(2.0 as Float, 1.0 / 6.0)
 
-        for i in 0..<(barkEdges.count - 1) {
+    /// Aggregate a per-bin dB-SPL spectrum into 24 Bark-band SPL values.
+    /// Uses a single O(N + 24) two-pointer sweep since `barkEdges` is strictly
+    /// increasing and contiguous.
+    static func barkBands(frequencies: [Float], spectrum: [Float]) -> [Float] {
+        let bandCount = barkEdges.count - 1
+        var result = [Float](repeating: -120.0, count: bandCount)
+        let limit = min(frequencies.count, spectrum.count)
+        guard limit > 0 else { return result }
+
+        var cursor = lowerBound(in: frequencies, range: 0..<limit, target: barkEdges[0])
+        for i in 0..<bandCount {
             let lower = barkEdges[i]
             let upper = barkEdges[i + 1]
+            while cursor < limit && frequencies[cursor] < lower {
+                cursor += 1
+            }
             var sumLinear: Float = 0
             var hasBin = false
-            for (idx, freq) in frequencies.enumerated() where idx < spectrum.count {
-                if freq >= lower && freq < upper {
-                    sumLinear += pow(10, spectrum[idx] / 10.0)
-                    hasBin = true
-                }
+            while cursor < limit && frequencies[cursor] < upper {
+                sumLinear += pow(10, spectrum[cursor] / 10.0)
+                hasBin = true
+                cursor += 1
             }
-            result.append(hasBin ? 10 * log10(max(sumLinear, 1e-10)) : -120.0)
+            if hasBin {
+                result[i] = 10 * log10(max(sumLinear, 1e-10))
+            }
         }
         return result
     }
@@ -133,32 +145,32 @@ enum SpectrumBandAggregator {
         spectrum: [Float]
     ) -> [Float] {
         var bands = [Float](repeating: -120.0, count: centerFrequencies.count)
-        guard !frequencies.isEmpty, !spectrum.isEmpty else { return bands }
-        let usableIndices = frequencies.indices.filter { idx in
-            idx < spectrum.count && frequencies[idx] >= 0.0 && frequencies[idx] <= 20000.0
-        }
-        guard !usableIndices.isEmpty else { return bands }
+        let limit = min(frequencies.count, spectrum.count)
+        guard limit > 0 else { return bands }
 
-        let lowerFactor = pow(2.0 as Float, -1.0 / 6.0)
-        let upperFactor = pow(2.0 as Float, 1.0 / 6.0)
+        let usableStart = lowerBound(in: frequencies, range: 0..<limit, target: 0.0)
+        let usableEnd = upperBound(in: frequencies, range: usableStart..<limit, target: 20000.0)
+        guard usableStart < usableEnd else { return bands }
+        let usableRange = usableStart..<usableEnd
+
+        let lowerFactor = thirdOctaveLowerFactor
+        let upperFactor = thirdOctaveUpperFactor
 
         for (i, center) in centerFrequencies.enumerated() {
             let lower = center * lowerFactor
             let upper = center * upperFactor
-            var hasBinInBand = false
+            let startIdx = lowerBound(in: frequencies, range: usableRange, target: lower)
             var bandLinearSum: Float = 0.0
             var bandBinCount = 0
 
-            for idx in usableIndices {
-                let freq = frequencies[idx]
-                if freq >= lower && freq < upper {
-                    hasBinInBand = true
-                    bandLinearSum += pow(10.0, spectrum[idx] / 10.0)
-                    bandBinCount += 1
-                }
+            var idx = startIdx
+            while idx < usableEnd && frequencies[idx] < upper {
+                bandLinearSum += pow(10.0, spectrum[idx] / 10.0)
+                bandBinCount += 1
+                idx += 1
             }
 
-            if hasBinInBand, bandBinCount > 0 {
+            if bandBinCount > 0 {
                 // Band SPL = sum of linear bin powers, then back to dB
                 // (conventional 1/3-octave SPL). Previously this site
                 // and AudioEngine.computeDisplayThirdOctaveBands both
@@ -177,7 +189,7 @@ enum SpectrumBandAggregator {
                     targetFrequency: center,
                     frequencies: frequencies,
                     spectrum: spectrum,
-                    usableIndices: usableIndices
+                    usableRange: usableRange
                 )
             } else {
                 bands[i] = -120.0
@@ -190,22 +202,20 @@ enum SpectrumBandAggregator {
         targetFrequency: Float,
         frequencies: [Float],
         spectrum: [Float],
-        usableIndices: [Int]
+        usableRange: Range<Int>
     ) -> Float {
-        guard let first = usableIndices.first, let last = usableIndices.last else { return -120.0 }
+        guard !usableRange.isEmpty else { return -120.0 }
+        let first = usableRange.lowerBound
+        let last = usableRange.upperBound - 1
         if targetFrequency <= frequencies[first] { return spectrum[first] }
         if targetFrequency >= frequencies[last] { return spectrum[last] }
 
-        var upperIdx = first
-        for idx in usableIndices where frequencies[idx] >= targetFrequency {
-            upperIdx = idx
-            break
-        }
-        guard let position = usableIndices.firstIndex(of: upperIdx), position > 0 else {
-            return spectrum[upperIdx]
+        let upperIdx = lowerBound(in: frequencies, range: usableRange, target: targetFrequency)
+        guard upperIdx > first, upperIdx <= last else {
+            return spectrum[min(upperIdx, last)]
         }
 
-        let lowerIdx = usableIndices[position - 1]
+        let lowerIdx = upperIdx - 1
         let f0 = frequencies[lowerIdx]
         let f1 = frequencies[upperIdx]
         if abs(f1 - f0) < 0.001 {
@@ -214,5 +224,35 @@ enum SpectrumBandAggregator {
 
         let t = (targetFrequency - f0) / (f1 - f0)
         return spectrum[lowerIdx] * (1.0 - t) + spectrum[upperIdx] * t
+    }
+
+    /// First index in `range` where `values[index] >= target`.
+    private static func lowerBound(in values: [Float], range: Range<Int>, target: Float) -> Int {
+        var lo = range.lowerBound
+        var hi = range.upperBound
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            if values[mid] < target {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        return lo
+    }
+
+    /// First index in `range` where `values[index] > target`.
+    private static func upperBound(in values: [Float], range: Range<Int>, target: Float) -> Int {
+        var lo = range.lowerBound
+        var hi = range.upperBound
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            if values[mid] <= target {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        return lo
     }
 }

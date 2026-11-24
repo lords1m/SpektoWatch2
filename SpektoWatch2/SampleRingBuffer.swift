@@ -34,7 +34,8 @@ final class SampleRingBuffer {
     /// (real-time backlog trim). No storage move; the dead head is reclaimed by
     /// `compactIfNeeded` / `nextFrame`.
     func dropOldest(_ count: Int) {
-        offset += count
+        guard count > 0 else { return }
+        offset = min(offset + count, buffer.count)
     }
 
     /// Reclaims the dead head when the offset has run past `threshold`, so the
@@ -42,7 +43,8 @@ final class SampleRingBuffer {
     /// offset without the frame loop executing.
     func compactIfNeeded(threshold: Int) {
         if offset > threshold {
-            buffer.removeFirst(offset)
+            let toRemove = min(offset, buffer.count)
+            buffer.removeFirst(toRemove)
             offset = 0
         }
     }
@@ -53,7 +55,7 @@ final class SampleRingBuffer {
     /// `frameSize` samples are buffered. The returned array is the shared
     /// scratch (copy-on-write): consume it before the next `nextFrame` call.
     func nextFrame(frameSize: Int, hop: Int) -> [Float]? {
-        guard buffer.count - offset >= frameSize else { return nil }
+        guard frameSize > 0, buffer.count - offset >= frameSize else { return nil }
         if frameScratch.count != frameSize {
             frameScratch = [Float](repeating: 0, count: frameSize)
         }
@@ -67,19 +69,20 @@ final class SampleRingBuffer {
                 )
             }
         }
-        offset += hop
+        offset = min(offset + max(1, hop), buffer.count)
         if offset > frameSize * 2 {
-            buffer.removeFirst(offset)
+            let toRemove = min(offset, buffer.count)
+            buffer.removeFirst(toRemove)
             offset = 0
         }
         return frameScratch
     }
 
-    /// Clears all accumulated samples and the frame scratch. Called on
-    /// reconfiguration and on capture stop.
+    /// Clears all accumulated samples while preserving backing capacity to
+    /// avoid repeated reallocations on the audio render thread.
     func reset() {
-        buffer.removeAll()
+        buffer.removeAll(keepingCapacity: true)
         offset = 0
-        frameScratch.removeAll()
+        frameScratch.removeAll(keepingCapacity: true)
     }
 }

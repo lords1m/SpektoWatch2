@@ -76,20 +76,43 @@ struct FrequencyWeightingProcessor: Sendable {
 
     /// Applies frequency weighting to dB magnitudes using vectorized addition
     func applyWeighting(to dbMagnitudes: [Float], frequencies: [Float], weighting: FrequencyWeighting) -> [Float] {
+        if weighting == .z { return dbMagnitudes }
+        var weighted: [Float] = []
+        applyWeighting(to: dbMagnitudes, weighting: weighting, into: &weighted)
+        return weighted
+    }
+
+    /// Applies frequency weighting in-place into a caller-owned scratch buffer.
+    func applyWeighting(to dbMagnitudes: [Float], weighting: FrequencyWeighting, into output: inout [Float]) {
+        let total = dbMagnitudes.count
+        if output.count != total {
+            output = [Float](repeating: -120.0, count: total)
+        }
         switch weighting {
         case .z:
-            // Z-weighting is 0 dB everywhere — return input unchanged
-            return dbMagnitudes
+            if total > 0 {
+                dbMagnitudes.withUnsafeBufferPointer { src in
+                    output.withUnsafeMutableBufferPointer { dst in
+                        _ = memcpy(dst.baseAddress!, src.baseAddress!, total * MemoryLayout<Float>.stride)
+                    }
+                }
+            }
         case .a:
-            let count = min(dbMagnitudes.count, aWeightingGainsDB.count)
-            var weighted = [Float](repeating: -120.0, count: dbMagnitudes.count)
-            vDSP_vadd(dbMagnitudes, 1, aWeightingGainsDB, 1, &weighted, 1, vDSP_Length(count))
-            return weighted
+            let count = min(total, aWeightingGainsDB.count)
+            if count > 0 {
+                vDSP_vadd(dbMagnitudes, 1, aWeightingGainsDB, 1, &output, 1, vDSP_Length(count))
+            }
+            if count < total {
+                for i in count..<total { output[i] = -120.0 }
+            }
         case .c:
-            let count = min(dbMagnitudes.count, cWeightingGainsDB.count)
-            var weighted = [Float](repeating: -120.0, count: dbMagnitudes.count)
-            vDSP_vadd(dbMagnitudes, 1, cWeightingGainsDB, 1, &weighted, 1, vDSP_Length(count))
-            return weighted
+            let count = min(total, cWeightingGainsDB.count)
+            if count > 0 {
+                vDSP_vadd(dbMagnitudes, 1, cWeightingGainsDB, 1, &output, 1, vDSP_Length(count))
+            }
+            if count < total {
+                for i in count..<total { output[i] = -120.0 }
+            }
         }
     }
 

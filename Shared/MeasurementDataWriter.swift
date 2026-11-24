@@ -21,15 +21,28 @@ final class MeasurementDataWriter {
     private let frameSize: Int
     private let headerByteCount: Int
     private let headerFlags: UInt16
-    private(set) var frameCount: UInt64 = 0
-    private(set) var droppedFrameCount: UInt64 = 0
+    private var _frameCount: UInt64 = 0
+    private var _droppedFrameCount: UInt64 = 0
     private var isClosed = false
+
+    var frameCount: UInt64 {
+        bufferPoolLock.lock()
+        defer { bufferPoolLock.unlock() }
+        return _frameCount
+    }
+
+    var droppedFrameCount: UInt64 {
+        bufferPoolLock.lock()
+        defer { bufferPoolLock.unlock() }
+        return _droppedFrameCount
+    }
 
     // Async I/O: all frame writes are dispatched onto this serial queue to keep
     // the audio hot path free of blocking disk operations. The queue depth is
     // bounded — if the disk stalls and we exceed `maxPendingFrames`, we drop the
     // incoming frame and log it instead of letting memory grow unbounded.
     private let writeQueue = DispatchQueue(label: "com.spektowatch.measurement.writer", qos: .utility)
+    private let writeQueueKey = DispatchSpecificKey<UInt8>()
     private let lifecycleLock = NSLock()
     private let bufferPoolLock = NSLock()
     private var frameFloatBuffers: [MeasurementFrameBuffer]
@@ -67,6 +80,7 @@ final class MeasurementDataWriter {
         self.headerFlags = flags
         self.frameFloatBuffers = (0..<pendingFrameCapacity).map { _ in MeasurementFrameBuffer(floatCount: frameFloatCount) }
         self.availableFrameBufferIndices = Array(0..<pendingFrameCapacity)
+        writeQueue.setSpecific(key: writeQueueKey, value: 1)
 
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         // Updating (not write-only) so v3 close can re-read the header for CRC32.
@@ -139,7 +153,7 @@ final class MeasurementDataWriter {
             let data = frameBuffer.values.withUnsafeBytes { Data($0) }
             do {
                 try handle.write(contentsOf: data)
-                self.frameCount += 1
+                self.incrementFrameCount()
             } catch {
                 NSLog("MeasurementDataWriter: frame write failed: %@", String(describing: error))
                 _ = self.recordDroppedFrame()
@@ -157,7 +171,10 @@ final class MeasurementDataWriter {
         isClosed = true
         lifecycleLock.unlock()
 
-        writeQueue.sync {}
+        // Avoid deadlocking if deinit invokes close() from within writeQueue.
+        if DispatchQueue.getSpecific(key: writeQueueKey) == nil {
+            writeQueue.sync {}
+        }
         try fileHandle.synchronize()
         try updateFrameCount()
         if fileFormatVersion >= MeasurementDataFormat.version3 {
@@ -168,10 +185,11 @@ final class MeasurementDataWriter {
     }
 
     private func finalizeV3Trailer() throws {
-        guard frameCount > 0 else { return }
+        let count = frameCount
+        guard count > 0 else { return }
 
-        let indexOffset = UInt64(headerByteCount) + frameCount * UInt64(frameSize)
-        let offsets = (0..<frameCount).map { index in
+        let indexOffset = UInt64(headerByteCount) + count * UInt64(frameSize)
+        let offsets = (0..<count).map { index in
             UInt64(headerByteCount) + UInt64(index) * UInt64(frameSize)
         }
         try fileHandle.seek(toOffset: indexOffset)
@@ -182,8 +200,8 @@ final class MeasurementDataWriter {
         seekPatch.appendUInt64LE(indexOffset)
         try fileHandle.write(contentsOf: seekPatch)
 
-        var finalizedFlags = headerFlags | MeasurementDataFormat.flagHasSeekIndex
-        try fileHandle.seek(toOffset: 34)
+        let finalizedFlags = headerFlags | MeasurementDataFormat.flagHasSeekIndex
+        try fileHandle.seek(toOffset: UInt64(MeasurementDataFormat.flagsOffset))
         var flagsPatch = Data()
         flagsPatch.appendUInt16LE(finalizedFlags)
         try fileHandle.write(contentsOf: flagsPatch)
@@ -265,10 +283,16 @@ final class MeasurementDataWriter {
         bufferPoolLock.unlock()
     }
 
+    private func incrementFrameCount() {
+        bufferPoolLock.lock()
+        _frameCount += 1
+        bufferPoolLock.unlock()
+    }
+
     private func recordDroppedFrame() -> UInt64 {
         bufferPoolLock.lock()
-        droppedFrameCount += 1
-        let count = droppedFrameCount
+        _droppedFrameCount += 1
+        let count = _droppedFrameCount
         bufferPoolLock.unlock()
         return count
     }

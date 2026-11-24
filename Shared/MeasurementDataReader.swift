@@ -75,7 +75,7 @@ final class MeasurementDataReader {
         var calibration: MeasurementCalibrationMetadata?
         if tlvSectionLength > 0 {
             guard tlvSectionLength <= 16 * 1024 * 1024 else {
-                throw MeasurementDataError.invalidFormat("TLV-Sektion überschreitet zulässige Größe.")
+                throw MeasurementDataError.invalidHeader
             }
             let tlvData = try MeasurementDataReader.readExactly(tlvSectionLength, from: fileHandle)
             calibration = MeasurementDataV3Support.decodeTLV(tlvData)

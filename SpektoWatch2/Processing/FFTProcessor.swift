@@ -300,7 +300,7 @@ class FFTProcessor: @unchecked Sendable {
 
     /// Gibt die aktuelle Fensterfunktion als Array zurück (für Visualisierung)
     func getWindowValues() -> [Float] {
-        return window
+        lock.withLock { window }
     }
     
     deinit {
@@ -453,30 +453,38 @@ class FFTProcessor: @unchecked Sendable {
         if output.count != count {
             output = [Float](repeating: 0, count: count)
         }
+        guard count > 0 else { return }
 
-        // exponents = dbMagnitudes * ln(10) / 20  →  result = exp(exponents) = 10^(dB/20)
-        var exponents = [Float](repeating: 0, count: count)
+        // output = dbMagnitudes * ln(10) / 20  →  output = exp(output) = 10^(dB/20)
         var scale = Float(log(10.0) / 20.0)
-        vDSP_vsmul(dbMagnitudes, 1, &scale, &exponents, 1, vDSP_Length(count))
+        vDSP_vsmul(dbMagnitudes, 1, &scale, &output, 1, vDSP_Length(count))
         var n = Int32(count)
-        vvexpf(&output, exponents, &n)
+        output.withUnsafeMutableBufferPointer { buf in
+            guard let base = buf.baseAddress else { return }
+            vvexpf(base, base, &n)
+        }
     }
     
     /// Returns the frequency of a specific FFT bin
     /// - Parameter bin: Bin index
     /// - Returns: Frequency in Hz
     func frequencyForBin(_ bin: Int) -> Float {
-        guard bin >= 0 && bin < frequencies.count else { return 0 }
-        return frequencies[bin]
+        lock.withLock {
+            guard bin >= 0 && bin < frequencies.count else { return 0 }
+            return frequencies[bin]
+        }
     }
     
     /// Returns the bin index for a specific frequency
     /// - Parameter frequency: Frequency in Hz
     /// - Returns: Closest bin index
     func binForFrequency(_ frequency: Float) -> Int {
-        let nyquist = Float(sampleRate / 2.0)
-        let normalizedFreq = min(max(frequency, 0), nyquist)
-        let bin = Int((normalizedFreq / nyquist) * Float(fftSize / 2))
-        return min(bin, fftSize / 2 - 1)
+        lock.withLock {
+            let nyquist = Float(sampleRate / 2.0)
+            guard nyquist > 0, fftSize >= 2 else { return 0 }
+            let normalizedFreq = min(max(frequency, 0), nyquist)
+            let bin = Int((normalizedFreq / nyquist) * Float(fftSize / 2))
+            return min(bin, fftSize / 2 - 1)
+        }
     }
 }
