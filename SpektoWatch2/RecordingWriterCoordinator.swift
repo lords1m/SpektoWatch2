@@ -107,6 +107,14 @@ final class RecordingWriterCoordinator {
         } catch {
             Logger.audioEngine.error("Measurement writer close failed: \(error.localizedDescription)")
         }
+        Self.retainBriefly(writer)
+    }
+
+    /// RT-5: the render thread may still hold a strong reference loaded just
+    /// before the swap; keep the closed writer alive on main for a moment so
+    /// its `deinit` never runs on the render thread.
+    private static func retainBriefly(_ object: AnyObject) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { _ = object }
     }
 
     func closeAudio() {
@@ -116,6 +124,7 @@ final class RecordingWriterCoordinator {
             let w = old; old = nil; return w
         }
         writer?.close()
+        if let writer { Self.retainBriefly(writer) }
         audioFormat = nil
     }
 }

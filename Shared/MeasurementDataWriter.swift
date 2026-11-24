@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 private final class MeasurementFrameBuffer {
     var values: [Float]
@@ -36,34 +37,28 @@ final class MeasurementDataWriter {
 
     /// `true` once a frame write failed; the writer stopped appending.
     var writeFailed: Bool {
-        bufferPoolLock.lock()
-        defer { bufferPoolLock.unlock() }
-        return _writeFailed
+        counterLock.withLockUnchecked { _ in _writeFailed }
     }
 
     var frameCount: UInt64 {
-        bufferPoolLock.lock()
-        defer { bufferPoolLock.unlock() }
-        return _frameCount
+        counterLock.withLockUnchecked { _ in _frameCount }
     }
 
     var droppedFrameCount: UInt64 {
-        bufferPoolLock.lock()
-        defer { bufferPoolLock.unlock() }
-        return _droppedFrameCount
+        counterLock.withLockUnchecked { _ in _droppedFrameCount + (slotQueue?.droppedCount ?? 0) }
     }
 
-    // Async I/O: all frame writes are dispatched onto this serial queue to keep
-    // the audio hot path free of blocking disk operations. The queue depth is
-    // bounded — if the disk stalls and we exceed `maxPendingFrames`, we drop the
-    // incoming frame and log it instead of letting memory grow unbounded.
-    private let writeQueue = DispatchQueue(label: "com.spektowatch.measurement.writer", qos: .utility)
-    private let writeQueueKey = DispatchSpecificKey<UInt8>()
-    private let lifecycleLock = NSLock()
-    private let bufferPoolLock = NSLock()
+    // Async I/O (M22 RT-5): frames are copied into preallocated slots on the
+    // caller's (audio render) thread and written by a dedicated worker thread
+    // via `RealtimeSlotQueue` — no `DispatchQueue.async`, `NSLock` or logging
+    // on the render thread. Depth is bounded by `maxPendingFrames`; when the
+    // disk stalls frames are dropped and counted.
+    private var slotQueue: RealtimeSlotQueue?
+    private let lifecycleLock = OSAllocatedUnfairLock()
+    private let counterLock = OSAllocatedUnfairLock()
     private var frameFloatBuffers: [MeasurementFrameBuffer]
-    private var availableFrameBufferIndices: [Int]
     private let frameFloatCount: Int
+    private var lastLoggedDrops: UInt64 = 0
 
     init(
         fileURL: URL,
@@ -94,9 +89,7 @@ final class MeasurementDataWriter {
             flags &= ~MeasurementDataFormat.flagHasSeekIndex
         }
         self.headerFlags = flags
-        self.frameFloatBuffers = (0..<pendingFrameCapacity).map { _ in MeasurementFrameBuffer(floatCount: frameFloatCount) }
-        self.availableFrameBufferIndices = Array(0..<pendingFrameCapacity)
-        writeQueue.setSpecific(key: writeQueueKey, value: 1)
+        self.frameFloatBuffers = (0..<max(1, pendingFrameCapacity)).map { _ in MeasurementFrameBuffer(floatCount: frameFloatCount) }
         // ~10 s of frames between header checkpoints (at least 16 frames).
         self.checkpointInterval = UInt64(max(16, Int((fps.isFinite ? fps : 10) * 10)))
 
@@ -116,6 +109,13 @@ final class MeasurementDataWriter {
             calibration: calibration
         )
         self.nextFrameOffset = UInt64(headerByteCount)
+        let pool = frameFloatBuffers
+        if pendingFrameCapacity > 0 {
+            slotQueue = RealtimeSlotQueue(capacity: pool.count, name: "com.spektowatch.measurement.writer") { [weak self] slot in
+                self?.performFrameWrite(pool[slot])
+                self?.logDropsIfNeeded()
+            }
+        }
     }
 
     deinit {
@@ -134,7 +134,7 @@ final class MeasurementDataWriter {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
 
-        guard !isClosed else { return }
+        guard !isClosed, let slotQueue else { return }
         if writeFailed {
             throw MeasurementDataError.ioFailure("Messdaten-Datei: vorheriger Schreibfehler, Aufzeichnung gestoppt.")
         }
@@ -150,11 +150,8 @@ final class MeasurementDataWriter {
             throw MeasurementDataError.metricCountMismatch(expected: fftBinCount, got: fullFFT.count)
         }
 
-        guard let bufferIndex = acquireFrameBufferIndex() else {
-            let dropped = recordDroppedFrame()
-            if dropped.isMultiple(of: 32) {
-                NSLog("[MeasurementDataWriter] dropped %llu frames (queue full)", dropped)
-            }
+        guard let bufferIndex = slotQueue.acquireFreeSlot() else {
+            // Counted by the slot queue; logged from the worker thread.
             return
         }
 
@@ -170,10 +167,7 @@ final class MeasurementDataWriter {
             for v in fullFFT { frameBuffer.values[idx] = v; idx += 1 }
         }
 
-        writeQueue.async {
-            self.performFrameWrite(frameBuffer)
-            self.releaseFrameBufferIndex(bufferIndex)
-        }
+        slotQueue.enqueue(bufferIndex)
     }
 
     func close() throws {
@@ -185,10 +179,9 @@ final class MeasurementDataWriter {
         isClosed = true
         lifecycleLock.unlock()
 
-        // Avoid deadlocking if deinit invokes close() from within writeQueue.
-        if DispatchQueue.getSpecific(key: writeQueueKey) == nil {
-            writeQueue.sync {}
-        }
+        // Flush queued frames. Safe if invoked from the worker thread itself
+        // (deinit after the last frame): drainAndStop doesn't wait then.
+        slotQueue?.drainAndStop()
         try fileHandle.synchronize()
         try updateFrameCount()
         if fileFormatVersion >= MeasurementDataFormat.version3 {
@@ -198,7 +191,7 @@ final class MeasurementDataWriter {
         try fileHandle.close()
     }
 
-    /// Runs on `writeQueue`. Writes one frame at the tracked offset; on
+    /// Runs on the writer worker thread. Writes one frame at the tracked offset; on
     /// failure truncates back to the last good frame and stops appending
     /// (DL-5). Checkpoints the header frame count periodically (DL-4).
     private func performFrameWrite(_ frameBuffer: MeasurementFrameBuffer) {
@@ -216,10 +209,10 @@ final class MeasurementDataWriter {
         } catch {
             NSLog("MeasurementDataWriter: frame write failed, truncating to last good frame: %@", String(describing: error))
             try? fileHandle.truncate(atOffset: goodOffset)
-            bufferPoolLock.lock()
-            _writeFailed = true
-            bufferPoolLock.unlock()
-            _ = recordDroppedFrame()
+            counterLock.withLockUnchecked { _ in
+                _writeFailed = true
+                _droppedFrameCount += 1
+            }
         }
     }
 
@@ -322,32 +315,20 @@ final class MeasurementDataWriter {
         return header.count
     }
 
-    private func acquireFrameBufferIndex() -> Int? {
-        bufferPoolLock.lock()
-        defer { bufferPoolLock.unlock() }
-        return availableFrameBufferIndices.popLast()
-    }
-
-    private func releaseFrameBufferIndex(_ index: Int) {
-        bufferPoolLock.lock()
-        availableFrameBufferIndices.append(index)
-        bufferPoolLock.unlock()
-    }
-
     @discardableResult
     private func incrementFrameCount() -> UInt64 {
-        bufferPoolLock.lock()
-        _frameCount += 1
-        let count = _frameCount
-        bufferPoolLock.unlock()
-        return count
+        counterLock.withLockUnchecked { _ in
+            _frameCount += 1
+            return _frameCount
+        }
     }
 
-    private func recordDroppedFrame() -> UInt64 {
-        bufferPoolLock.lock()
-        _droppedFrameCount += 1
-        let count = _droppedFrameCount
-        bufferPoolLock.unlock()
-        return count
+    /// Worker thread only.
+    private func logDropsIfNeeded() {
+        let dropped = droppedFrameCount
+        if dropped >= lastLoggedDrops + 32 {
+            lastLoggedDrops = dropped
+            NSLog("[MeasurementDataWriter] dropped %llu frames (queue full)", dropped)
+        }
     }
 }

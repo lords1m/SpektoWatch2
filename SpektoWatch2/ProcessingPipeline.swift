@@ -7,7 +7,7 @@ import Accelerate
 ///
 /// Owns the real-time scratch buffers so the audio render thread never
 /// allocates in the steady state (buffers only grow when the FFT size
-/// changes, via `resetScratch(energyCount:)`). Performs **no** UI work, holds
+/// changes, the owner builds a new pipeline — RT-1). Performs **no** UI work, holds
 /// no `@Published` state, and reads no `AudioEngine` properties — every input
 /// is passed in explicitly. The processors are passed per call (snapshotted by
 /// the caller under its `processingLock`), so this type needs no lock of its
@@ -46,7 +46,7 @@ final class ProcessingPipeline {
     )
 
     // Reusable scratch buffers (audio-render-thread only). Resized only when
-    // the FFT size changes — see `resetScratch(energyCount:)`.
+    // the FFT size changes — `AudioEngine` then swaps in a new instance (RT-1).
     private var fftLinearMagnitudesScratch: [Float] = []
     private var fftDBMagnitudesScratch: [Float] = []
     private var dbAScratch: [Float] = []
@@ -56,17 +56,19 @@ final class ProcessingPipeline {
     /// Resized alongside `fftEnergyScratch` when the FFT size changes.
     private var lcPeakScratch: [Float] = []
 
-    /// Clears the FFT magnitude scratch and pre-allocates the energy/LCpeak
-    /// scratch to `energyCount` (= fftSize/2) so the audio render thread never
-    /// hits the lazy-allocation branch in `computeFrame`. Called by the caller
-    /// under its `processingLock` when the FFT size changes (AE-7).
-    func resetScratch(energyCount: Int) {
-        fftLinearMagnitudesScratch.removeAll(keepingCapacity: true)
-        fftDBMagnitudesScratch.removeAll(keepingCapacity: true)
-        dbAScratch = [Float](repeating: -120.0, count: energyCount)
-        dbCScratch = [Float](repeating: -120.0, count: energyCount)
-        fftEnergyScratch = [Float](repeating: 0, count: energyCount)
-        lcPeakScratch = [Float](repeating: 0, count: energyCount)
+    /// Pre-allocates all scratch for `energyCount` (= fftSize/2) bins so the
+    /// render thread never hits a lazy-allocation branch. M22 RT-1: a pipeline
+    /// is immutable per FFT size; reconfiguration builds a new instance on
+    /// main and swaps the reference instead of resizing scratch that the
+    /// render thread may be using.
+    init(energyCount: Int = 2048) {
+        let n = max(1, energyCount)
+        fftLinearMagnitudesScratch.reserveCapacity(n)
+        fftDBMagnitudesScratch.reserveCapacity(n)
+        dbAScratch = [Float](repeating: -120.0, count: n)
+        dbCScratch = [Float](repeating: -120.0, count: n)
+        fftEnergyScratch = [Float](repeating: 0, count: n)
+        lcPeakScratch = [Float](repeating: 0, count: n)
     }
 
     /// Runs the full per-frame DSP. `samples` must already contain at least

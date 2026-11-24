@@ -66,7 +66,16 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var sessionEventsCancellable: AnyCancellable?
     private var engineConfigObserver: NSObjectProtocol?
     private let connectivityManager: WatchConnectivityManager
-    private var gain: Float = 1.0
+    /// RT-6: `gain` and `recordingStartDate` are written on main and read on
+    /// the tap thread — mirrored through an unfair lock.
+    private struct TapSettings {
+        var gain: Float = 1.0
+        var recordingStartDate: Date?
+    }
+    private let tapSettingsLock = OSAllocatedUnfairLock<TapSettings>(initialState: TapSettings())
+    private var gain: Float = 1.0 {
+        didSet { tapSettingsLock.withLock { $0.gain = gain } }
+    }
 
     // Lokale FFT Konfiguration (Abgespeckt für Watch)
     private let fftSize: Int = 2048
@@ -107,7 +116,9 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var lcPeakScratch: [Float]
     /// Set on the main thread at recording start; read on the audio thread to
     /// derive the running recording duration for the calculator's Taktmaximal.
-    private var recordingStartDate: Date?
+    private var recordingStartDate: Date? {
+        didSet { tapSettingsLock.withLock { $0.recordingStartDate = recordingStartDate } }
+    }
 
     /// Active durable recording (standalone only). Created before the engine
     /// starts so the first audio frames are captured; the audio thread feeds it
@@ -908,7 +919,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + watchMicCalibrationOffset
 
         let dt: Float = Float(fftSize) / Float(sampleRate)
-        let recordingDuration = recordingStartDate.map { Date().timeIntervalSince($0) } ?? 0
+        let recordingDuration = tapSettingsLock.withLockUnchecked { $0.recordingStartDate }
+            .map { Date().timeIntervalSince($0) } ?? 0
 
         let metricsResult = metricsCalculator.updateMetrics(
             energyZ: energyZ,
@@ -1076,7 +1088,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
 
         if let channelData = buffer.floatChannelData?[0] {
-            var localGain = gain
+            var localGain = tapSettingsLock.withLockUnchecked { $0.gain }
             monoSampleScratch.withUnsafeMutableBufferPointer { dst in
                 vDSP_vsmul(channelData, 1, &localGain, dst.baseAddress!, 1, vDSP_Length(frameCount))
             }
@@ -1084,7 +1096,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }
 
         if let channelData = buffer.int16ChannelData?[0] {
-            let scale = Float(1.0 / 32768.0) * gain
+            let scale = Float(1.0 / 32768.0) * tapSettingsLock.withLockUnchecked { $0.gain }
             for index in 0..<frameCount {
                 monoSampleScratch[index] = Float(channelData[index]) * scale
             }

@@ -1434,6 +1434,9 @@ struct WaterfallWidget: View {
     var settings: [String: String]
 
     private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
+    /// RT-4: `spectrogramSubject` emits on the audio render thread; hop to
+    /// main before the closure reads SwiftUI state.
+    private let spectrogramFrames: AnyPublisher<SpectrogramData, Never>
 
     @StateObject private var store = WaterfallHistoryStore()
     @State private var engineFrequencyWeighting: String
@@ -1442,6 +1445,9 @@ struct WaterfallWidget: View {
         self.audioEngine = audioEngine
         self.settings = settings
         self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
+        self.spectrogramFrames = audioEngine.spectrogramSubject
+            .receive(on: DispatchQueue.main)
+            .eraseToAnyPublisher()
         _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
     }
 
@@ -1500,13 +1506,8 @@ struct WaterfallWidget: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             WaterfallView(dataSet: store.dataSet, highlightedTime: nil, options: renderOptions)
-                .onReceive(audioEngine.spectrogramSubject) { data in
-                    let weighting = freqWeighting
-                    let mode = displaySettings.spectrumMode
-                    DispatchQueue.main.async { [weak store] in
-                        guard let store else { return }
-                        Self.appendSpectrogramFrame(data, to: store, weighting: weighting, mode: mode)
-                    }
+                .onReceive(spectrogramFrames) { data in
+                    Self.appendSpectrogramFrame(data, to: store, weighting: freqWeighting, mode: displaySettings.spectrumMode)
                 }
                 .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
                 .onChange(of: resolvedSettings) { _, new in

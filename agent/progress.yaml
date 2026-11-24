@@ -1086,9 +1086,9 @@ tasks:
       notes: "Code landed 2026-11-24 (Shared/AudioSessionCoordinator.swift; tests: M22AudioSessionRegressionTests). Q3 applied: synthetic fallback only in DEBUG with UITest/SPEKTO_SYNTHETIC_FALLBACK. AS-9 guarded in code; on-device confirmation in task-8. Owns AS-1..9; Q3."
     - id: task-5-realtime-threading
       name: "Real-Time & Threading Safety"
-      status: pending
+      status: code_complete
       file: agent/tasks/milestone-22-code-review-remediation/task-5-realtime-threading.md
-      notes: "Owns RT-1..8."
+      notes: "Code landed 2026-11-24 (Shared/RealtimeSlotQueue.swift; tests: M22RealtimeThreadingRegressionTests; TSan test-plan config added). Residual: DSP still returns fresh arrays per frame (SpectrogramProcessor/aggregators) — full zero-alloc needs DSP rewrite; verify with Instruments in task-8. Also fixed pre-existing undefined BinMapping type (from 118601f). Owns RT-1..8."
     - id: task-6-measurement-correctness
       name: "Measurement Correctness"
       status: pending

@@ -208,6 +208,17 @@ class HighEndSpectrogramAdapter: MTKView {
     /// instead of forcing linear-from-Nyquist remapping on top.
     private var cachedInputFrequenciesHash: UInt64 = 0
     private var cachedInputFrequencies: [Float]?
+    /// RT-2/RT-3: bumped (under `stateLock`, on main) whenever the texture
+    /// geometry changes. Background frames carry the generation they were
+    /// computed for; stale ones are dropped instead of writing out of bounds.
+    private var geometryGeneration: UInt64 = 0
+    /// RT-7: column uploads waiting for the next `draw(_:)`, where they are
+    /// blitted in the same command buffer as the render pass so the GPU orders
+    /// them after in-flight reads (no CPU `texture.replace` racing the GPU).
+    /// Main thread only.
+    private var pendingColumnUploads: [(column: Int, generation: UInt64, data: [Float])] = []
+    private var stagingBuffers: [MTLBuffer?] = [nil, nil, nil]
+    // Background-queue-only scratch (never touched from main — RT-2).
     private var reusableColumnData: [Float] = []
     private var reusableSmoothedColumnData: [Float] = []
     private var previousColumnData: [Float] = []
@@ -310,6 +321,8 @@ class HighEndSpectrogramAdapter: MTKView {
         desc.storageMode = .shared
 
         spectrogramTexture = device.makeTexture(descriptor: desc)
+        stateLock.withLockUnchecked { geometryGeneration &+= 1 }
+        pendingColumnUploads.removeAll()
         clearTexture()
     }
 
@@ -470,7 +483,11 @@ class HighEndSpectrogramAdapter: MTKView {
             }
             return
         }
-        updateSampleRateIfNeeded(sampleRate)
+        // RT-3: sample-rate changes rebuild the texture — never off main.
+        if sampleRateNeedsUpdate(sampleRate) {
+            DispatchQueue.main.async { [weak self] in self?.updateSampleRateIfNeeded(sampleRate) }
+            return
+        }
 
         let currentTimestamp = timestamp.timeIntervalSinceReferenceDate
 
@@ -498,30 +515,29 @@ class HighEndSpectrogramAdapter: MTKView {
             }
             return Self.hashFrequencies(freqs)
         }()
-        let cache = stateLock.withLockUnchecked { () -> [BinMapping]? in
+        // RT-2: snapshot geometry + mapping once; everything below uses the
+        // snapshot and background-only scratch.
+        let (cacheSnapshot, bins, frameGeneration) = stateLock.withLockUnchecked { () -> ([MappingCacheEntry]?, Int, UInt64) in
             if mappingCache == nil
                 || cachedInputSize != magnitudes.count
                 || cachedInputFrequenciesHash != incomingHash {
                 precomputeMapping(inputSize: magnitudes.count, inputFrequencies: inputFrequencies)
             }
-            return mappingCache
+            return (mappingCache, frequencyBins, geometryGeneration)
         }
 
         // Ensure reusable buffer
-        if reusableColumnData.count != frequencyBins {
-            reusableColumnData = [Float](repeating: 0, count: frequencyBins)
+        if reusableColumnData.count != bins {
+            reusableColumnData = [Float](repeating: 0, count: bins)
         }
-        if reusableSmoothedColumnData.count != frequencyBins {
-            reusableSmoothedColumnData = [Float](repeating: 0, count: frequencyBins)
+        if reusableSmoothedColumnData.count != bins {
+            reusableSmoothedColumnData = [Float](repeating: 0, count: bins)
         }
-        if previousColumnData.count != frequencyBins {
-            previousColumnData = [Float](repeating: 0, count: frequencyBins)
-        }
-        if reusableInterpolatedColumnData.count != frequencyBins {
-            reusableInterpolatedColumnData = [Float](repeating: 0, count: frequencyBins)
+        if reusableInterpolatedColumnData.count != bins {
+            reusableInterpolatedColumnData = [Float](repeating: 0, count: bins)
         }
 
-        guard let cache else { return }
+        guard let cache = cacheSnapshot, cache.count >= bins else { return }
 
         let minDBFS = displayMinDBFS
         let maxDBFS = displayMaxDBFS
@@ -532,7 +548,7 @@ class HighEndSpectrogramAdapter: MTKView {
         let gam = gamma
 
         // Per-bin: map frequencies, convert to dBFS, normalize to [0,1]
-        for i in 0..<frequencyBins {
+        for i in 0..<bins {
             let entry = cache[i]
             var dbValue: Float
 
@@ -594,7 +610,12 @@ class HighEndSpectrogramAdapter: MTKView {
         // keeping the lock critical section short and avoiding any cross-
         // thread texture access.
         var pendingWrites: [(column: Int, data: [Float])] = []
-        stateLock.withLockUnchecked {
+        let stillCurrent: Bool = stateLock.withLockUnchecked {
+            // Geometry changed while this frame was computed → drop it.
+            guard geometryGeneration == frameGeneration, frequencyBins == bins, timeColumns > 0 else { return false }
+            if previousColumnData.count != bins {
+                previousColumnData = [Float](repeating: 0, count: bins)
+            }
             let columnsToWrite: Int = {
                 guard let prev = previousTimestamp else { return 1 }
                 let dt = max(0, currentTimestamp - prev)
@@ -626,35 +647,73 @@ class HighEndSpectrogramAdapter: MTKView {
             }
             previousColumnData = reusableColumnData
             totalColumnsWritten += columnsToWrite
+            return true
         }
+        guard stillCurrent else { return }
 
         // Feed the shared history (writer only) so a newly mounted adapter can
         // prime its texture and continue the same measurement seamlessly.
         if isHistoryWriter, let history = columnHistory {
+            let columns = stateLock.withLockUnchecked { timeColumns }
             history.record(columns: pendingWrites.map { $0.data },
-                           frequencyBins: frequencyBins,
-                           timeColumns: timeColumns)
+                           frequencyBins: bins,
+                           timeColumns: columns)
         }
 
-        // Phase 2: write column pixels to the Metal texture on the main thread.
-        // Both this write and draw(_:)'s GPU-encoder submit happen on main,
-        // so they are serialised by the main queue — no CPU/GPU texture race.
-        let bins = frequencyBins
+        // Phase 2: hand the columns to main; `draw(_:)` uploads them with a
+        // blit in its own command buffer (RT-7).
         DispatchQueue.main.async { [weak self] in
-            guard let self, let texture = self.spectrogramTexture else { return }
+            guard let self else { return }
             for (col, data) in pendingWrites {
-                let region = MTLRegion(
-                    origin: MTLOrigin(x: col, y: 0, z: 0),
-                    size: MTLSize(width: 1, height: bins, depth: 1)
-                )
-                texture.replace(
-                    region: region,
-                    mipmapLevel: 0,
-                    withBytes: data,
-                    bytesPerRow: MemoryLayout<Float>.stride
-                )
+                self.pendingColumnUploads.append((col, frameGeneration, data))
+            }
+            // Bound the backlog while the display link is paused.
+            let limit = max(1, self.timeColumns)
+            if self.pendingColumnUploads.count > limit {
+                self.pendingColumnUploads.removeFirst(self.pendingColumnUploads.count - limit)
             }
         }
+    }
+
+    /// RT-7: encodes pending column uploads as a blit into `commandBuffer`
+    /// (ordered by Metal before this frame's render and after earlier frames'
+    /// reads). Staging buffers rotate with the in-flight index.
+    private func encodePendingColumnUploads(into commandBuffer: MTLCommandBuffer, texture: MTLTexture) {
+        guard !pendingColumnUploads.isEmpty, let device else { return }
+        let generation = stateLock.withLockUnchecked { geometryGeneration }
+        let bins = texture.height
+        let uploads = pendingColumnUploads.filter {
+            $0.generation == generation && $0.data.count == bins && $0.column < texture.width
+        }
+        pendingColumnUploads.removeAll(keepingCapacity: true)
+        guard !uploads.isEmpty else { return }
+
+        let columnBytes = bins * MemoryLayout<Float>.stride
+        let needed = columnBytes * uploads.count
+        let slot = currentBufferIndex % stagingBuffers.count
+        if (stagingBuffers[slot]?.length ?? 0) < needed {
+            stagingBuffers[slot] = device.makeBuffer(length: max(needed, columnBytes * 8), options: .storageModeShared)
+        }
+        guard let staging = stagingBuffers[slot],
+              let blit = commandBuffer.makeBlitCommandEncoder() else { return }
+        let base = staging.contents()
+        for (i, upload) in uploads.enumerated() {
+            upload.data.withUnsafeBytes { src in
+                _ = memcpy(base.advanced(by: i * columnBytes), src.baseAddress!, columnBytes)
+            }
+            blit.copy(
+                from: staging,
+                sourceOffset: i * columnBytes,
+                sourceBytesPerRow: MemoryLayout<Float>.stride,
+                sourceBytesPerImage: columnBytes,
+                sourceSize: MTLSize(width: 1, height: bins, depth: 1),
+                to: texture,
+                destinationSlice: 0,
+                destinationLevel: 0,
+                destinationOrigin: MTLOrigin(x: upload.column, y: 0, z: 0)
+            )
+        }
+        blit.endEncoding()
     }
 
     private func applyFrequencySmoothingIfNeeded(values: inout [Float]) {
@@ -707,9 +766,15 @@ class HighEndSpectrogramAdapter: MTKView {
 
         guard let renderPassDescriptor = currentRenderPassDescriptor,
               let drawable = currentDrawable,
-              let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+              let commandBuffer = commandQueue.makeCommandBuffer()
         else {
+            inFlightSemaphore.signal()
+            return
+        }
+        // RT-7: column uploads go through the GPU timeline first.
+        encodePendingColumnUploads(into: commandBuffer, texture: spectrogramTexture)
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+            commandBuffer.commit()
             inFlightSemaphore.signal()
             return
         }
@@ -989,12 +1054,11 @@ class HighEndSpectrogramAdapter: MTKView {
         guard clamped != frequencyBins else { return }
         stateLock.withLockUnchecked {
             frequencyBins = clamped
+            geometryGeneration &+= 1
             invalidateMappingCacheLocked()
         }
-        reusableColumnData = []
-        reusableSmoothedColumnData = []
-        previousColumnData = []
-        reusableInterpolatedColumnData = []
+        // RT-2: background scratch is resized by the update queue itself
+        // (it compares against its geometry snapshot) — not reset from main.
         guard isMetalReady else { return }
         isPaused = true
         setupTexture()
@@ -1012,17 +1076,23 @@ class HighEndSpectrogramAdapter: MTKView {
         if wasPaused && !paused { lastCADrawTime = 0 }  // prevent frameDt spike on resume
     }
 
-    private func updateSampleRateIfNeeded(_ sampleRate: Double) {
-        guard sampleRate > 1000 else { return }
+    private func sampleRateNeedsUpdate(_ sampleRate: Double) -> Bool {
+        guard sampleRate > 1000 else { return false }
         let normalized = Float((sampleRate * 10.0).rounded() / 10.0)
-        guard abs(normalized - currentSampleRate) > 0.5 else { return }
+        return stateLock.withLockUnchecked { abs(normalized - currentSampleRate) > 0.5 }
+    }
 
-        currentSampleRate = normalized
-        mappingCache = nil
-        cachedInputSize = 0
-        cachedInputFrequencies = nil
-        cachedInputFrequenciesHash = 0
-        columnAdvanceAccumulator = 0
+    /// Main thread only (RT-3): may rebuild the texture.
+    private func updateSampleRateIfNeeded(_ sampleRate: Double) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard sampleRateNeedsUpdate(sampleRate) else { return }
+        let normalized = Float((sampleRate * 10.0).rounded() / 10.0)
+        stateLock.withLockUnchecked {
+            currentSampleRate = normalized
+            geometryGeneration &+= 1
+            invalidateMappingCacheLocked()
+            columnAdvanceAccumulator = 0
+        }
         updateTimeColumns()
     }
 
@@ -1053,7 +1123,10 @@ class HighEndSpectrogramAdapter: MTKView {
             newColumns = min(max(1200, audioColumns), deviceMaxColumns)
         }
         if newColumns != timeColumns {
-            timeColumns = max(10, newColumns)
+            stateLock.withLockUnchecked {
+                timeColumns = max(10, newColumns)
+                geometryGeneration &+= 1
+            }
             // Pause the display link so no draw() fires while the texture is replaced.
             guard isMetalReady else { return }
             isPaused = true

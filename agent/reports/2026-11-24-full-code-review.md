@@ -73,14 +73,14 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| RT-1 ✔ | H | `ProcessingPipeline.swift:63-70` vs `AudioEngine.swift:~1448-1479` | `resetScratch` mutates scratch under lock on main; render thread uses it outside lock → memory corruption on FFT size change (triggered by playback start/stop). |
-| RT-2 | H | `HighEndSpectrogramAdapter.swift:~535, 642, 987-1000` | Background `updateWithFFTMagnitudes` reads bins/columns/reusable buffers unlocked while main changes geometry → OOB traps, stale writes after texture rebuild. |
-| RT-3 ✔ | H | `HighEndSpectrogramAdapter.swift:473 → updateTimeColumns` | Sample-rate change rebuilds Metal texture + `reset()` off main while `draw(_:)` encodes. |
-| RT-4 | M | `AudioEngine.swift` `spectrogramSubject` + `WaterfallView.swift:~1503` | Published on render thread; `.onReceive` without `receive(on:)` reads SwiftUI state there. |
-| RT-5 | M | `RealtimeAudioFileWriter.swift:45-74`, `AudioEngine.swift:~1300, 1532` | Render thread takes NSLocks, allocates `DispatchQueue.async` blocks, NSLogs, per-frame `map`/dict/array copies, histogram scans, builds `FFTProcessor` on SR change; writer `deinit` may close file on RT thread. |
-| RT-6 | L | `WatchAudioEngine.swift:688-800` | Watch tap allocates per buffer, does `AVAudioFile` I/O under lock, reads `gain`/`recordingStartDate` unsynchronised. |
-| RT-7 | L | `HighEndSpectrogramAdapter.swift:~643` | Main-thread `texture.replace` while up to 2 in-flight command buffers sample it → column tearing. |
-| RT-8 | L | `Views/RecordingDetailView.swift:185`, `AudioPlayerManager.swift:75` | `@MainActor PlaybackAnalyzer.processSamples` called from background queue (traps under Swift 6). |
+| RT-1 ✔ | H | `ProcessingPipeline.swift:63-70` vs `AudioEngine.swift:~1448-1479` | `resetScratch` mutates scratch under lock on main; render thread uses it outside lock → memory corruption on FFT size change (triggered by playback start/stop). → fixed (M22 task-5, pending macOS verification) |
+| RT-2 | H | `HighEndSpectrogramAdapter.swift:~535, 642, 987-1000` | Background `updateWithFFTMagnitudes` reads bins/columns/reusable buffers unlocked while main changes geometry → OOB traps, stale writes after texture rebuild. → fixed (M22 task-5, pending macOS verification) |
+| RT-3 ✔ | H | `HighEndSpectrogramAdapter.swift:473 → updateTimeColumns` | Sample-rate change rebuilds Metal texture + `reset()` off main while `draw(_:)` encodes. → fixed (M22 task-5, pending macOS verification) |
+| RT-4 | M | `AudioEngine.swift` `spectrogramSubject` + `WaterfallView.swift:~1503` | Published on render thread; `.onReceive` without `receive(on:)` reads SwiftUI state there. → fixed (M22 task-5, pending macOS verification) |
+| RT-5 | M | `RealtimeAudioFileWriter.swift:45-74`, `AudioEngine.swift:~1300, 1532` | Render thread takes NSLocks, allocates `DispatchQueue.async` blocks, NSLogs, per-frame `map`/dict/array copies, histogram scans, builds `FFTProcessor` on SR change; writer `deinit` may close file on RT thread. → fixed (M22 task-5, pending macOS verification) |
+| RT-6 | L | `WatchAudioEngine.swift:688-800` | Watch tap allocates per buffer, does `AVAudioFile` I/O under lock, reads `gain`/`recordingStartDate` unsynchronised. → fixed (M22 task-5, pending macOS verification) |
+| RT-7 | L | `HighEndSpectrogramAdapter.swift:~643` | Main-thread `texture.replace` while up to 2 in-flight command buffers sample it → column tearing. → fixed (M22 task-5, pending macOS verification) |
+| RT-8 | L | `Views/RecordingDetailView.swift:185`, `AudioPlayerManager.swift:75` | `@MainActor PlaybackAnalyzer.processSamples` called from background queue (traps under Swift 6). → fixed (M22 task-5, pending macOS verification) |
 
 ## Measurement correctness → task-6
 

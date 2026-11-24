@@ -3,8 +3,13 @@
     {
       "id" : "C1F2A3B4-5678-90AB-CDEF-123456789ABC",
       "name" : "SpektoWatch2",
+      "options" : {}
+    },
+    {
+      "id" : "D2E3F4A5-6789-4ABC-9DEF-23456789ABCD",
+      "name" : "Thread Sanitizer",
       "options" : {
-
+        "threadSanitizerEnabled" : true
       }
     }
   ],

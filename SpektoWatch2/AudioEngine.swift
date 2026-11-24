@@ -74,7 +74,17 @@ class AudioEngine: ObservableObject {
     /// Pure per-frame DSP (FFT → weighting → bands → energies → LCpeak) and the
     /// real-time scratch buffers (extracted in Phase 3, Task 3.3). Driven only
     /// from the audio render thread via `processFFTFrame`.
-    private let processingPipeline = ProcessingPipeline()
+    ///
+    /// RT-1: immutable per FFT size. Main builds a replacement (with its
+    /// scratch preallocated) and swaps the reference under `processingLock`;
+    /// the render thread snapshots it at the top of each frame together with
+    /// the processors, so it never sees scratch being resized underneath it.
+    private var processingPipeline = ProcessingPipeline(energyCount: FFTBlockSize.size4096.rawValue / 2)
+    /// RT-1/RT-5: replaced DSP objects are kept alive on main for a moment so
+    /// the render thread never drops the last reference (no dealloc on RT).
+    private var retiredDSPObjects: [AnyObject] = []
+    /// RT-5: preallocated per-frame metric value buffer (render thread only).
+    private var metricValuesScratch: [Float] = []
     private let testGenerator: TestAudioGenerator
     private let bandstopFilterManager: BandstopFilterManager
     private let connectivityManager: WatchConnectivityManager
@@ -154,7 +164,6 @@ class AudioEngine: ObservableObject {
         var fftProcessTimeAccumMs: Double = 0
         var fftProcessCount: Int = 0
         var maxBufferedSeconds: Double = 0
-        var pendingSampleRateLog: (source: String, sampleRate: Double)? = nil
     }
 
     private struct RTStereoState {
@@ -759,21 +768,37 @@ class AudioEngine: ObservableObject {
 
     private func reconfigureFFT(blockSize: FFTBlockSize, windowFunction: WindowFunction) {
         let newSize = blockSize.rawValue
-        processingLock.withLockUnchecked {
-            // Buffer leeren um Race-Conditions zu vermeiden
+        // RT-1: build every replacement object off-lock (allocations happen
+        // here on main), then swap references in one short critical section.
+        let sampleRate = processingLock.withLockUnchecked { processingSampleRate }
+        let newPipeline = ProcessingPipeline(energyCount: newSize / 2)
+        let newFFT = FFTProcessor(fftSize: newSize, sampleRate: sampleRate, windowFunction: windowFunction)
+        let newWeighting = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: sampleRate)
+        let retired: [AnyObject] = processingLock.withLockUnchecked {
             sampleRing.reset()
-
-            // AE-7: Pre-allocate energy scratch buffers to the new FFT bin count so
-            // the audio render thread never hits the lazy-allocation branch in
-            // processFFTFrame. energyCount == newSize/2 (half-spectrum bin count).
-            processingPipeline.resetScratch(energyCount: newSize / 2)
-
+            let old: [AnyObject] = [processingPipeline, fftProcessor, weightingProcessor]
+            processingPipeline = newPipeline
+            fftProcessor = newFFT
+            weightingProcessor = newWeighting
             fftSize = newSize
-            currentWindowFunction = windowFunction
-            currentBlockSize = blockSize
+            return old
+        }
+        currentWindowFunction = windowFunction
+        currentBlockSize = blockSize
+        retireDSPObjects(retired)
+    }
 
-            fftProcessor.reconfigure(fftSize: newSize, windowFunction: windowFunction)
-            weightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
+    /// Keeps replaced DSP objects alive briefly on main so an in-flight
+    /// render-thread frame never releases the last reference (RT-1/RT-5).
+    private func retireDSPObjects(_ objects: [AnyObject]) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.retireDSPObjects(objects) }
+            return
+        }
+        retiredDSPObjects.append(contentsOf: objects)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            self.retiredDSPObjects.removeFirst(min(objects.count, self.retiredDSPObjects.count))
         }
     }
 
@@ -1628,8 +1653,8 @@ class AudioEngine: ObservableObject {
 
         // Thread-sichere FFT-Verarbeitung — snapshot all lock-protected
         // fields in one critical section to keep them mutually consistent.
-        let (currentFFTSize, currentSampleRate, localFFTProcessor, localWeightingProcessor) = processingLock.withLockUnchecked {
-            (fftSize, processingSampleRate, fftProcessor, weightingProcessor)
+        let (currentFFTSize, currentSampleRate, localFFTProcessor, localWeightingProcessor, localPipeline) = processingLock.withLockUnchecked {
+            (fftSize, processingSampleRate, fftProcessor, weightingProcessor, processingPipeline)
         }
 
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
@@ -1648,7 +1673,7 @@ class AudioEngine: ObservableObject {
         // DCT/Mel pipeline removed from the real-time audio thread (M19 regression).
         // AE-5: Logger calls are not real-time safe — periodic FFT-range logging
         // stays off the audio render thread (use os_signpost / Instruments).
-        let dsp = processingPipeline.computeFrame(
+        let dsp = localPipeline.computeFrame(
             samples: samples,
             fftProcessor: localFFTProcessor,
             weightingProcessor: localWeightingProcessor,
@@ -1712,11 +1737,18 @@ class AudioEngine: ObservableObject {
         if atIsRecording && atIsMeasurement {
             if let writer = recordingWriter.rtLoadMeasurementWriter() {
                 let timestampSeconds = Float(audioThreadRecordingDuration)
-                let metricValues = recordingWriter.metricKeys.map { levels[$0] ?? -120.0 }
+                // RT-5: fill a preallocated buffer instead of `map` per frame.
+                let keys = recordingWriter.metricKeys
+                if metricValuesScratch.count != keys.count {
+                    metricValuesScratch = [Float](repeating: -120.0, count: keys.count)
+                }
+                for index in keys.indices {
+                    metricValuesScratch[index] = levels[keys[index]] ?? -120.0
+                }
                 do {
                     try writer.writeFrame(
                         timestamp: timestampSeconds,
-                        metricValues: metricValues,
+                        metricValues: metricValuesScratch,
                         broadbandLevel: broadbandLevel,
                         thirdOctaveZ: displayOctaveBandsZ,
                         thirdOctaveA: displayOctaveBandsA,
@@ -1790,6 +1822,32 @@ class AudioEngine: ObservableObject {
         return weightings
     }
     
+    /// RT-5: latest UI payload, written by the render thread and drained
+    /// by `uiPumpTimer` on main. Replaces one `DispatchQueue.main.async`
+    /// block allocation per frame from the render thread.
+    private struct PendingUIFrame {
+        let spectrogramData: SpectrogramData
+        let octaveBandsZ: [Float]
+        let octaveBandsA: [Float]
+        let octaveBandsC: [Float]
+        let bandLeqZ: [Float]
+        let bandLeqA: [Float]
+        let bandLeqC: [Float]
+        let barkBandsZ: [Float]
+        let barkBandsA: [Float]
+        let barkBandsC: [Float]
+        let broadbandLevel: Float
+        let peakLevel: Float
+        let processEndTime: TimeInterval
+        let bufferTs: TimeInterval
+        let processingLagMs: Double
+    }
+    private let pendingUIFrameLock = OSAllocatedUnfairLock<PendingUIFrame?>(initialState: nil)
+    /// `true` while the main-thread pump timer runs (or a start is pending).
+    private let uiPumpRequested = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private var uiPumpTimer: Timer?
+    private var uiPumpIdleTicks = 0
+
     private func updateUI(
         spectrogramData: SpectrogramData,
         octaveBandsZ: [Float],
@@ -1810,138 +1868,205 @@ class AudioEngine: ObservableObject {
         }
 
         let bufferTs = rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp }
-        let processingLagMs = (processEndTime - bufferTs) * 1000.0
-        DispatchQueue.main.async {
-            self.latencyLogCounter += 1
-            if self.latencyLogCounter % 120 == 0 {
-                let uiLagMs = (CFAbsoluteTimeGetCurrent() - bufferTs) * 1000.0
-                let mainThreadDelayMs = (CFAbsoluteTimeGetCurrent() - processEndTime) * 1000.0
-                let (accumMs, count, maxBuf) = self.rtPerfLock.withLock { stats -> (Double, Int, Double) in
-                    let snapshot = (stats.fftProcessTimeAccumMs, stats.fftProcessCount, stats.maxBufferedSeconds)
-                    stats.fftProcessTimeAccumMs = 0
-                    stats.fftProcessCount = 0
-                    stats.maxBufferedSeconds = 0
-                    return snapshot
+        let frame = PendingUIFrame(
+            spectrogramData: spectrogramData,
+            octaveBandsZ: octaveBandsZ,
+            octaveBandsA: octaveBandsA,
+            octaveBandsC: octaveBandsC,
+            bandLeqZ: bandLeqZ,
+            bandLeqA: bandLeqA,
+            bandLeqC: bandLeqC,
+            barkBandsZ: barkBandsZ,
+            barkBandsA: barkBandsA,
+            barkBandsC: barkBandsC,
+            broadbandLevel: broadbandLevel,
+            peakLevel: peakLevel,
+            processEndTime: processEndTime,
+            bufferTs: bufferTs,
+            processingLagMs: (processEndTime - bufferTs) * 1000.0
+        )
+        pendingUIFrameLock.withLockUnchecked { $0 = frame }
+
+        // Start the pump once per idle → active transition (not per frame).
+        let needsStart: Bool = uiPumpRequested.withLockUnchecked { requested in
+            if requested { return false }
+            requested = true
+            return true
+        }
+        if needsStart {
+            DispatchQueue.main.async { [weak self] in self?.startUIPumpIfNeeded() }
+        }
+    }
+
+    private func startUIPumpIfNeeded() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard uiPumpTimer == nil else { return }
+        uiPumpIdleTicks = 0
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.drainPendingUIFrame()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        uiPumpTimer = timer
+        drainPendingUIFrame()
+    }
+
+    private func drainPendingUIFrame() {
+        guard let frame = pendingUIFrameLock.withLock({ pending -> PendingUIFrame? in
+            let f = pending; pending = nil; return f
+        }) else {
+            // Stop after ~1 s without frames; the next frame restarts it.
+            uiPumpIdleTicks += 1
+            if uiPumpIdleTicks > 60 {
+                uiPumpTimer?.invalidate()
+                uiPumpTimer = nil
+                uiPumpRequested.withLock { $0 = false }
+                // A frame may have landed between the drain and the reset.
+                if pendingUIFrameLock.withLock({ $0 != nil }) {
+                    uiPumpRequested.withLock { $0 = true }
+                    startUIPumpIfNeeded()
                 }
-                let avgFftMs = count > 0 ? (accumMs / Double(count)) : 0
-                let line = String(
-                    format: "[Latency] processing %.0f ms, main-thread delay %.0f ms, UI %.0f ms, FFT avg %.1f ms, backlog %.2f s",
-                    processingLagMs,
-                    mainThreadDelayMs,
-                    uiLagMs,
-                    avgFftMs,
-                    maxBuf
-                )
-                print(line)
             }
+            return
+        }
+        uiPumpIdleTicks = 0
+        applyUIFrame(frame)
+    }
 
-            if let sampleRateLog = self.rtPerfLock.withLock({ stats -> (String, Double)? in
-                let pending = stats.pendingSampleRateLog
-                stats.pendingSampleRateLog = nil
-                return pending
-            }) {
-                Logger.audioEngine.info(
-                    "Reconfigured DSP sample rate (\(sampleRateLog.0)): \(sampleRateLog.1, format: .fixed(precision: 1)) Hz"
-                )
+    private func applyUIFrame(_ frame: PendingUIFrame) {
+        let spectrogramData = frame.spectrogramData
+        let octaveBandsZ = frame.octaveBandsZ
+        let octaveBandsA = frame.octaveBandsA
+        let octaveBandsC = frame.octaveBandsC
+        let bandLeqZ = frame.bandLeqZ
+        let bandLeqA = frame.bandLeqA
+        let bandLeqC = frame.bandLeqC
+        let barkBandsZ = frame.barkBandsZ
+        let barkBandsA = frame.barkBandsA
+        let barkBandsC = frame.barkBandsC
+        let broadbandLevel = frame.broadbandLevel
+        let peakLevel = frame.peakLevel
+        let processEndTime = frame.processEndTime
+        let bufferTs = frame.bufferTs
+        let processingLagMs = frame.processingLagMs
+        self.latencyLogCounter += 1
+        if self.latencyLogCounter % 120 == 0 {
+            let uiLagMs = (CFAbsoluteTimeGetCurrent() - bufferTs) * 1000.0
+            let mainThreadDelayMs = (CFAbsoluteTimeGetCurrent() - processEndTime) * 1000.0
+            let (accumMs, count, maxBuf) = self.rtPerfLock.withLock { stats -> (Double, Int, Double) in
+                let snapshot = (stats.fftProcessTimeAccumMs, stats.fftProcessCount, stats.maxBufferedSeconds)
+                stats.fftProcessTimeAccumMs = 0
+                stats.fftProcessCount = 0
+                stats.maxBufferedSeconds = 0
+                return snapshot
             }
+            let avgFftMs = count > 0 ? (accumMs / Double(count)) : 0
+            let line = String(
+                format: "[Latency] processing %.0f ms, main-thread delay %.0f ms, UI %.0f ms, FFT avg %.1f ms, backlog %.2f s",
+                processingLagMs,
+                mainThreadDelayMs,
+                uiLagMs,
+                avgFftMs,
+                maxBuf
+            )
+            print(line)
+        }
 
-            let stereo = self.rtStereoLock.withLock { $0 }
-            if self.live.isStereoActive != stereo.isStereo {
-                self.live.isStereoActive = stereo.isStereo
-            }
-            if stereo.isStereo || self.live.currentStereoPhase != stereo.phase {
-                self.live.currentStereoPhase = stereo.phase
-            }
+        let stereo = self.rtStereoLock.withLock { $0 }
+        if self.live.isStereoActive != stereo.isStereo {
+            self.live.isStereoActive = stereo.isStereo
+        }
+        if stereo.isStereo || self.live.currentStereoPhase != stereo.phase {
+            self.live.currentStereoPhase = stereo.phase
+        }
 
-            self.signalMonitor.reportPendingImpulse(peakDbfs: peakLevel - self.effectiveCalibrationOffset)
+        self.signalMonitor.reportPendingImpulse(peakDbfs: peakLevel - self.effectiveCalibrationOffset)
 
-            // AE-5: Drain any write error reported from the audio thread.
-            if let errDesc = self.lastWriteErrorLock.withLock({ old -> String? in
-                let v = old; old = nil; return v
-            }) {
-                Logger.audioEngine.error("Measurement frame write failed: \(errDesc)")
-            }
+        // AE-5: Drain any write error reported from the audio thread.
+        if let errDesc = self.lastWriteErrorLock.withLock({ old -> String? in
+            let v = old; old = nil; return v
+        }) {
+            Logger.audioEngine.error("Measurement frame write failed: \(errDesc)")
+        }
 
-            // Update recording duration
-            if let startTime = self.recordingStartTime {
-                self.recording.recordingDuration = Date().timeIntervalSince(startTime)
-            }
-            
-            // Update data — currentSpectrogramData throttled to 15 Hz to reduce
-            // objectWillChange pressure on the SwiftUI hierarchy (spectrogram
-            // renderers get data at full rate via spectrogramSubject).
-            if self.uiThrottle.shouldPublishSpectrogram(now: CFAbsoluteTimeGetCurrent()) {
-                self.live.currentSpectrogramData = spectrogramData
-            }
-            self.live.currentOctaveBandsZ = octaveBandsZ
-            self.live.currentOctaveBandsA = octaveBandsA
-            self.live.currentOctaveBandsC = octaveBandsC
-            if !bandLeqZ.isEmpty {
-                self.live.bandLeqZ = bandLeqZ
-                self.live.bandLeqOctaveZ = Self.octaveLeqBands(fromThirds: bandLeqZ)
-            }
-            if !bandLeqA.isEmpty {
-                self.live.bandLeqA = bandLeqA
-                self.live.bandLeqOctaveA = Self.octaveLeqBands(fromThirds: bandLeqA)
-            }
-            if !bandLeqC.isEmpty {
-                self.live.bandLeqC = bandLeqC
-                self.live.bandLeqOctaveC = Self.octaveLeqBands(fromThirds: bandLeqC)
-            }
-            if !barkBandsZ.isEmpty { self.live.currentBarkBandsZ = barkBandsZ }
-            if !barkBandsA.isEmpty { self.live.currentBarkBandsA = barkBandsA }
-            if !barkBandsC.isEmpty { self.live.currentBarkBandsC = barkBandsC }
-            // Use the IEC 61672 LCpeak from the metrics dict (C-weighted peak,
-            // computed in processFFTFrame). Fall back to the raw sample peak only
-            // if the metrics dict is somehow missing the key.
-            self.live.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? max(self.live.currentPeakLevel, peakLevel)
-            self.live.currentLevel = broadbandLevel
-            self.onBandsUpdated?(octaveBandsZ, broadbandLevel)
+        // Update recording duration
+        if let startTime = self.recordingStartTime {
+            self.recording.recordingDuration = Date().timeIntervalSince(startTime)
+        }
+        
+        // Update data — currentSpectrogramData throttled to 15 Hz to reduce
+        // objectWillChange pressure on the SwiftUI hierarchy (spectrogram
+        // renderers get data at full rate via spectrogramSubject).
+        if self.uiThrottle.shouldPublishSpectrogram(now: CFAbsoluteTimeGetCurrent()) {
+            self.live.currentSpectrogramData = spectrogramData
+        }
+        self.live.currentOctaveBandsZ = octaveBandsZ
+        self.live.currentOctaveBandsA = octaveBandsA
+        self.live.currentOctaveBandsC = octaveBandsC
+        if !bandLeqZ.isEmpty {
+            self.live.bandLeqZ = bandLeqZ
+            self.live.bandLeqOctaveZ = Self.octaveLeqBands(fromThirds: bandLeqZ)
+        }
+        if !bandLeqA.isEmpty {
+            self.live.bandLeqA = bandLeqA
+            self.live.bandLeqOctaveA = Self.octaveLeqBands(fromThirds: bandLeqA)
+        }
+        if !bandLeqC.isEmpty {
+            self.live.bandLeqC = bandLeqC
+            self.live.bandLeqOctaveC = Self.octaveLeqBands(fromThirds: bandLeqC)
+        }
+        if !barkBandsZ.isEmpty { self.live.currentBarkBandsZ = barkBandsZ }
+        if !barkBandsA.isEmpty { self.live.currentBarkBandsA = barkBandsA }
+        if !barkBandsC.isEmpty { self.live.currentBarkBandsC = barkBandsC }
+        // Use the IEC 61672 LCpeak from the metrics dict (C-weighted peak,
+        // computed in processFFTFrame). Fall back to the raw sample peak only
+        // if the metrics dict is somehow missing the key.
+        self.live.currentPeakLevel = spectrogramData.levels["LCpeak"] ?? max(self.live.currentPeakLevel, peakLevel)
+        self.live.currentLevel = broadbandLevel
+        self.onBandsUpdated?(octaveBandsZ, broadbandLevel)
 
-            // Update min/max
-            self.live.maxLevel = max(self.live.maxLevel, broadbandLevel)
-            if broadbandLevel > -110 {
-                self.live.minLevel = min(self.live.minLevel, broadbandLevel)
+        // Update min/max
+        self.live.maxLevel = max(self.live.maxLevel, broadbandLevel)
+        if broadbandLevel > -110 {
+            self.live.minLevel = min(self.live.minLevel, broadbandLevel)
+        }
+        
+        // Update history. The previous form (`append` + `removeFirst()`) ran
+        // ~60×/s with `levelHistory` at 1000 floats — that's ~60 K element
+        // shifts per second. Amortize by letting the array grow to a small
+        // overshoot and trimming a chunk in one O(n) pass, instead of a
+        // per-tick shift.
+        self.live.levelHistory.append(broadbandLevel)
+        let overshootBudget = 64
+        if self.live.levelHistory.count > self.maxHistorySize + overshootBudget {
+            self.live.levelHistory.removeFirst(self.live.levelHistory.count - self.maxHistorySize)
+        }
+        
+        // Send to watch (throttled)
+        // Watch display expects dBFS magnitudes (-180…-40), not dB SPL.
+        // Subtract calibrationOffset to convert back from dB SPL → dBFS.
+        if self.uiThrottle.shouldSendToWatch(now: Date().timeIntervalSince1970) {
+            let offset = self.effectiveCalibrationOffset
+            var negOffset = -offset
+            var dbfsMagnitudes = spectrogramData.magnitudes
+            vDSP_vsadd(dbfsMagnitudes, 1, &negOffset, &dbfsMagnitudes, 1, vDSP_Length(dbfsMagnitudes.count))
+            var visualDBFSMagnitudes = spectrogramData.visualMagnitudes
+            if var visual = visualDBFSMagnitudes {
+                vDSP_vsadd(visual, 1, &negOffset, &visual, 1, vDSP_Length(visual.count))
+                visualDBFSMagnitudes = visual
             }
-            
-            // Update history. The previous form (`append` + `removeFirst()`) ran
-            // ~60×/s with `levelHistory` at 1000 floats — that's ~60 K element
-            // shifts per second. Amortize by letting the array grow to a small
-            // overshoot and trimming a chunk in one O(n) pass, instead of a
-            // per-tick shift.
-            self.live.levelHistory.append(broadbandLevel)
-            let overshootBudget = 64
-            if self.live.levelHistory.count > self.maxHistorySize + overshootBudget {
-                self.live.levelHistory.removeFirst(self.live.levelHistory.count - self.maxHistorySize)
-            }
-            
-            // Send to watch (throttled)
-            // Watch display expects dBFS magnitudes (-180…-40), not dB SPL.
-            // Subtract calibrationOffset to convert back from dB SPL → dBFS.
-            if self.uiThrottle.shouldSendToWatch(now: Date().timeIntervalSince1970) {
-                let offset = self.effectiveCalibrationOffset
-                var negOffset = -offset
-                var dbfsMagnitudes = spectrogramData.magnitudes
-                vDSP_vsadd(dbfsMagnitudes, 1, &negOffset, &dbfsMagnitudes, 1, vDSP_Length(dbfsMagnitudes.count))
-                var visualDBFSMagnitudes = spectrogramData.visualMagnitudes
-                if var visual = visualDBFSMagnitudes {
-                    vDSP_vsadd(visual, 1, &negOffset, &visual, 1, vDSP_Length(visual.count))
-                    visualDBFSMagnitudes = visual
-                }
-                let watchData = SpectrogramData(
-                    frequencies: spectrogramData.frequencies,
-                    magnitudes: dbfsMagnitudes,
-                    magnitudesA: spectrogramData.magnitudesA,
-                    magnitudesC: spectrogramData.magnitudesC,
-                    visualFrequencies: spectrogramData.visualFrequencies,
-                    visualMagnitudes: visualDBFSMagnitudes,
-                    broadbandLevel: spectrogramData.broadbandLevel,
-                    levels: spectrogramData.levels,
-                    sampleRate: spectrogramData.sampleRate,
-                    timestamp: spectrogramData.timestamp
-                )
-                self.connectivityManager.sendSpectrogramData(watchData)
-            }
+            let watchData = SpectrogramData(
+                frequencies: spectrogramData.frequencies,
+                magnitudes: dbfsMagnitudes,
+                magnitudesA: spectrogramData.magnitudesA,
+                magnitudesC: spectrogramData.magnitudesC,
+                visualFrequencies: spectrogramData.visualFrequencies,
+                visualMagnitudes: visualDBFSMagnitudes,
+                broadbandLevel: spectrogramData.broadbandLevel,
+                levels: spectrogramData.levels,
+                sampleRate: spectrogramData.sampleRate,
+                timestamp: spectrogramData.timestamp
+            )
+            self.connectivityManager.sendSpectrogramData(watchData)
         }
     }
 
@@ -2013,27 +2138,53 @@ class AudioEngine: ObservableObject {
         )
     }
 
-    private func updateProcessingSampleRateIfNeeded(_ newSampleRate: Double, source: String) {
+    /// RT-5: the render thread (and the playback tap queue) only *request*
+    /// a sample-rate change; the FFT/weighting processors are rebuilt on main.
+    /// Frames keep using the previous processors until the swap lands.
+    private let pendingSampleRateLock = OSAllocatedUnfairLock<(rate: Double, source: StaticString)?>(initialState: nil)
+
+    private func updateProcessingSampleRateIfNeeded(_ newSampleRate: Double, source: StaticString) {
         guard newSampleRate > 1000 else { return }
         let normalized = (newSampleRate * 10).rounded() / 10
         let currentRate = processingLock.withLockUnchecked { processingSampleRate }
         guard abs(normalized - currentRate) > 1.0 else { return }
 
-        processingLock.withLockUnchecked {
-            processingSampleRate = normalized
-            sampleRing.reset()
-
-            fftProcessor = FFTProcessor(
-                fftSize: fftSize,
-                sampleRate: normalized,
-                windowFunction: currentWindowFunction
-            )
-            weightingProcessor = FrequencyWeightingProcessor(
-                fftSize: fftSize,
-                sampleRate: normalized
-            )
+        if Thread.isMainThread {
+            applyProcessingSampleRate(normalized, source: source)
+            return
         }
+        let firstRequest: Bool = pendingSampleRateLock.withLockUnchecked { pending in
+            let isNew = pending == nil
+            pending = (normalized, source)
+            return isNew
+        }
+        if firstRequest {
+            // One hop per sample-rate change (not per frame).
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let request = self.pendingSampleRateLock.withLock({ pending -> (rate: Double, source: StaticString)? in
+                          let r = pending; pending = nil; return r
+                      }) else { return }
+                self.applyProcessingSampleRate(request.rate, source: request.source)
+            }
+        }
+    }
 
-        rtPerfLock.withLockUnchecked { $0.pendingSampleRateLog = (source, normalized) }
+    /// Main thread: rebuilds the processors for `rate` and swaps them in.
+    private func applyProcessingSampleRate(_ rate: Double, source: StaticString) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let (size, window) = processingLock.withLockUnchecked { (fftSize, fftProcessor.windowFunction) }
+        let newFFT = FFTProcessor(fftSize: size, sampleRate: rate, windowFunction: window)
+        let newWeighting = FrequencyWeightingProcessor(fftSize: size, sampleRate: rate)
+        let retired: [AnyObject] = processingLock.withLockUnchecked {
+            let old: [AnyObject] = [fftProcessor, weightingProcessor]
+            processingSampleRate = rate
+            sampleRing.reset()
+            fftProcessor = newFFT
+            weightingProcessor = newWeighting
+            return old
+        }
+        retireDSPObjects(retired)
+        Logger.audioEngine.info("Reconfigured DSP sample rate (\(String(describing: source))): \(rate, format: .fixed(precision: 1)) Hz")
     }
 }

@@ -1,6 +1,6 @@
 # Task 5: Real-Time & Threading Safety
 
-Status: pending
+Status: code_complete (pending macOS build + simulator tests)
 Created: 2026-11-24
 Milestone: `milestone-22-code-review-remediation`
 Owns: RT-1 … RT-8

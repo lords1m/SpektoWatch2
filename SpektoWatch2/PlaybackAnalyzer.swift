@@ -46,6 +46,9 @@ final class PlaybackAnalyzer: ObservableObject {
     private var savedTimeWeighting: TimeWeighting = .fast
     private var savedBlockSize: FFTBlockSize = .size4096
     private var didStart = false
+    /// RT-8: engine reference readable from the player's tap queue.
+    /// `processSamples` is `nonisolated` and must not touch main-actor state.
+    private nonisolated let feedTarget = OSAllocatedUnfairLock<AudioEngine?>(uncheckedState: nil)
     /// AS-5: what live capture was doing before playback took over.
     private var captureToken: AudioEngine.CaptureToken?
 
@@ -66,6 +69,7 @@ final class PlaybackAnalyzer: ObservableObject {
         }
         didStart = true
         audioEngine = engine
+        feedTarget.withLockUnchecked { $0 = engine }
 
         // Save current live-measurement settings before overwriting.
         savedFrequencyWeighting  = engine.frequencyWeighting
@@ -103,6 +107,7 @@ final class PlaybackAnalyzer: ObservableObject {
     func stop() {
         guard didStart, let engine = audioEngine else { return }
         didStart = false
+        feedTarget.withLockUnchecked { $0 = nil }
 
         // Restore the user's live settings.
         engine.setBlockSize(savedBlockSize)
@@ -123,9 +128,12 @@ final class PlaybackAnalyzer: ObservableObject {
     // MARK: – DSP bridge
 
     /// Feed a block of playback samples into the main engine's pipeline.
-    /// Mirrors `AudioEngine.processExternalAudio`.
-    func processSamples(_ samples: [Float], sampleRate: Double) {
-        audioEngine?.processExternalAudio(samples, sampleRate: sampleRate)
+    /// Mirrors `AudioEngine.processExternalAudio`. RT-8: called from the
+    /// `AudioPlayerManager` tap queue, so it is `nonisolated` and only reads
+    /// the lock-protected engine reference.
+    nonisolated func processSamples(_ samples: [Float], sampleRate: Double) {
+        let engine = feedTarget.withLockUnchecked { $0 }
+        engine?.processExternalAudio(samples, sampleRate: sampleRate)
     }
 
     /// Update frequency weighting mid-playback (user toggles A/C/Z).

@@ -23,7 +23,10 @@ final class WatchRecordingSession {
     let fftBlockSize: Int
     private(set) var frameCount: AVAudioFramePosition = 0
 
-    private let audioFile: AVAudioFile
+    /// RT-6: audio is copied into a preallocated pool on the tap thread and
+    /// written to disk by a worker thread (no `AVAudioFile` I/O under the
+    /// engine's session lock on the audio thread).
+    private let audioWriter: RealtimeAudioFileWriter
     private let measurementWriter: MeasurementDataWriter
     private let log = Logger(subsystem: "com.spektowatch.watch", category: "RecordingSession")
     private var isFinalized = false
@@ -58,7 +61,13 @@ final class WatchRecordingSession {
         let measurementURL = directory.appendingPathComponent("\(id.uuidString).swr")
         self.audioURL = audioURL
         self.measurementURL = measurementURL
-        self.audioFile = try AVAudioFile(forWriting: audioURL, settings: format.settings)
+        self.audioWriter = try RealtimeAudioFileWriter(
+            fileURL: audioURL,
+            format: format,
+            settings: format.settings,
+            frameCapacity: 8192,
+            maxPendingBuffers: 16
+        )
         do {
             self.measurementWriter = try MeasurementDataWriter(
                 fileURL: measurementURL,
@@ -76,12 +85,8 @@ final class WatchRecordingSession {
     }
 
     func writeBuffer(_ buffer: AVAudioPCMBuffer) {
-        do {
-            try audioFile.write(from: buffer)
-            frameCount += AVAudioFramePosition(buffer.frameLength)
-        } catch {
-            log.error("audio write error: \(String(describing: error), privacy: .public)")
-        }
+        audioWriter.write(buffer)
+        frameCount += AVAudioFramePosition(buffer.frameLength)
     }
 
     /// Persists one measurement frame. `levels` is the calculator's dictionary;
@@ -144,7 +149,7 @@ final class WatchRecordingSession {
             } catch {
                 log.error("measurement writer close error: \(String(describing: error), privacy: .public)")
             }
-            // AVAudioFile flushes on dealloc; nothing else to close explicitly.
+            audioWriter.close()
         }
         let minLevel = minBroadbandLevel.isFinite ? minBroadbandLevel : -120.0
         return WatchRecordingMetadata(
