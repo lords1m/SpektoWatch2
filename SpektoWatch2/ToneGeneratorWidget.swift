@@ -102,6 +102,8 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
             guard let engine = audioEngine else { return }
 
             let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+            var currentPhase = 0.0
+            let twoPi = 2.0 * Double.pi
 
             // Use AVAudioSourceNode for real-time synthesis (no buffer scheduling needed)
             srcNode = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
@@ -112,16 +114,16 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
                     return noErr
                 }
 
-                // Snapshot synthesis state from the lock (non-blocking on the
-                // render thread — OSAllocatedUnfairLock / os_unfair_lock never
-                // sleeps, unlike NSLock which could block the real-time thread).
+                // Single non-blocking snapshot per render block; phase stays
+                // local to this audio-thread closure (no second lock needed).
                 let state = self.synthLock.withLockUnchecked { $0 }
-                let freq = Double(state.frequency)
-                let amp = Double(state.amplitude)
+                let rawFreq = Double(state.frequency)
+                let freq = rawFreq.isFinite ? max(0.0, min(rawFreq, self.sampleRate * 0.49)) : 0.0
+                let rawAmp = Double(state.amplitude)
+                let amp = rawAmp.isFinite ? max(0.0, min(rawAmp, 1.0)) : 0.0
                 let waveformType = state.waveform
-                var currentPhase = state.phase
 
-                let phaseIncrement = 2.0 * .pi * freq / self.sampleRate
+                let phaseIncrement = twoPi * freq / self.sampleRate
 
                 for frame in 0..<Int(frameCount) {
                     let sample: Double
@@ -132,22 +134,20 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
                     case .square:
                         sample = currentPhase < .pi ? 1.0 : -1.0
                     case .sawtooth:
-                        sample = 2.0 * (currentPhase / (2.0 * .pi)) - 1.0
+                        sample = 2.0 * (currentPhase / twoPi) - 1.0
                     case .triangle:
-                        let normalized = currentPhase / (2.0 * .pi)
+                        let normalized = currentPhase / twoPi
                         sample = 4.0 * abs(normalized - 0.5) - 1.0
                     }
 
                     buffer[frame] = Float(sample * amp)
 
                     currentPhase += phaseIncrement
-                    if currentPhase >= 2.0 * .pi {
-                        currentPhase -= 2.0 * .pi
+                    if currentPhase >= twoPi || currentPhase < 0 {
+                        currentPhase = currentPhase.truncatingRemainder(dividingBy: twoPi)
+                        if currentPhase < 0 { currentPhase += twoPi }
                     }
                 }
-
-                // Write back the updated phase (non-blocking).
-                self.synthLock.withLockUnchecked { $0.phase = currentPhase }
 
                 return noErr
             }
@@ -447,24 +447,28 @@ struct OscilloscopeView: View {
 
                 var path = Path()
 
+                let twoPi = 2.0 * Double.pi
                 for x in stride(from: 0, to: Double(size.width), by: 1) {
                     let sampleX = x + scrollPoints
                     let cyclePosition = sampleX / wavelengthPoints
-                    let currentPhase = (cyclePosition * 2.0 * .pi) + phase
+                    let currentPhase = (cyclePosition * twoPi) + phase
 
                     let sample: Double
                     switch waveform {
                     case .sine:
                         sample = sin(currentPhase)
                     case .square:
-                        let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
+                        var normalizedPhase = currentPhase.truncatingRemainder(dividingBy: twoPi)
+                        if normalizedPhase < 0 { normalizedPhase += twoPi }
                         sample = normalizedPhase < .pi ? 1.0 : -1.0
                     case .sawtooth:
-                        let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
-                        sample = 2.0 * (normalizedPhase / (2.0 * .pi)) - 1.0
+                        var normalizedPhase = currentPhase.truncatingRemainder(dividingBy: twoPi)
+                        if normalizedPhase < 0 { normalizedPhase += twoPi }
+                        sample = 2.0 * (normalizedPhase / twoPi) - 1.0
                     case .triangle:
-                        let normalizedPhase = currentPhase.truncatingRemainder(dividingBy: 2.0 * .pi)
-                        let normalized = normalizedPhase / (2.0 * .pi)
+                        var normalizedPhase = currentPhase.truncatingRemainder(dividingBy: twoPi)
+                        if normalizedPhase < 0 { normalizedPhase += twoPi }
+                        let normalized = normalizedPhase / twoPi
                         sample = 4.0 * abs(normalized - 0.5) - 1.0
                     }
 

@@ -349,10 +349,12 @@ struct RecordingsListView: View {
     private func dateGroups(for recordings: [Recording]) -> [(label: String, recordings: [Recording])] {
         let calendar = Calendar.current
         let now = Date()
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: now)
+        let monthAgo = calendar.date(byAdding: .month, value: -1, to: now)
         var groups: [(key: Int, label: String, recordings: [Recording])] = []
 
         for recording in recordings {
-            let bucket = dateBucket(for: recording.startDate, now: now, calendar: calendar)
+            let bucket = dateBucket(for: recording.startDate, calendar: calendar, weekAgo: weekAgo, monthAgo: monthAgo)
             if let idx = groups.firstIndex(where: { $0.key == bucket.key }) {
                 groups[idx].recordings.append(recording)
             } else {
@@ -369,13 +371,13 @@ struct RecordingsListView: View {
         return groups.map { (label: $0.label, recordings: $0.recordings) }
     }
 
-    private func dateBucket(for date: Date, now: Date, calendar: Calendar) -> (key: Int, label: String) {
+    private func dateBucket(for date: Date, calendar: Calendar, weekAgo: Date?, monthAgo: Date?) -> (key: Int, label: String) {
         if calendar.isDateInToday(date) { return (0, "Heute") }
         if calendar.isDateInYesterday(date) { return (1, "Gestern") }
-        if let weekAgo = calendar.date(byAdding: .day, value: -7, to: now), date > weekAgo {
+        if let weekAgo, date > weekAgo {
             return (2, "Letzte 7 Tage")
         }
-        if let monthAgo = calendar.date(byAdding: .month, value: -1, to: now), date > monthAgo {
+        if let monthAgo, date > monthAgo {
             return (3, "Letzter Monat")
         }
         return (4, "Älter")
