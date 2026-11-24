@@ -21,6 +21,7 @@ enum NoiseGenerator {
         var b0: Float = 0, b1: Float = 0, b2: Float = 0
         var b3: Float = 0, b4: Float = 0, b5: Float = 0  // Pink noise IIR state (Kellet)
         var brownLast: Float = 0                           // Brown noise integrator state
+        var rngState: UInt32 = 0x1234_5678                 // Lock-free xorshift32 PRNG state
 
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
 
@@ -31,7 +32,10 @@ enum NoiseGenerator {
             else { return kAudioUnitErr_InvalidParameter }
 
             for i in 0..<Int(frameCount) {
-                let white = Float.random(in: -1...1)
+                rngState ^= rngState << 13
+                rngState ^= rngState >> 17
+                rngState ^= rngState << 5
+                let white = (Float(rngState) / Float(UInt32.max)) * 2.0 - 1.0
                 let sample: Float
 
                 switch type {

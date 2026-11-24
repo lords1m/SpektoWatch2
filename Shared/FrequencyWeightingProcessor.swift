@@ -41,11 +41,13 @@ struct FrequencyWeightingProcessor: Sendable {
     // MARK: - Initialization
 
     init(fftSize: Int, sampleRate: Double) {
-        self.fftSize = fftSize
-        self.sampleRate = sampleRate
+        let safeFFTSize = max(2, fftSize)
+        let safeSampleRate = max(1.0, sampleRate)
+        self.fftSize = safeFFTSize
+        self.sampleRate = safeSampleRate
 
-        let nyquist = Float(sampleRate / 2.0)
-        let binCount = fftSize / 2
+        let nyquist = Float(safeSampleRate / 2.0)
+        let binCount = safeFFTSize / 2
         let freqs = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
         self.frequencies = freqs
 

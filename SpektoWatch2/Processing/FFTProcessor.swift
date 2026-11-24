@@ -202,32 +202,34 @@ class FFTProcessor: @unchecked Sendable {
     // MARK: - Initialization
 
     init(fftSize: Int, sampleRate: Double, windowFunction: WindowFunction = .hann) {
-        self.fftSize = fftSize
-        self.sampleRate = sampleRate
+        let safeFFTSize = max(2, fftSize)
+        let safeSampleRate = max(1.0, sampleRate)
+        self.fftSize = safeFFTSize
+        self.sampleRate = safeSampleRate
         self.windowFunction = windowFunction
 
         // Create FFT setup
         self.fftSetup = vDSP_DFT_zrop_CreateSetup(
             nil,
-            vDSP_Length(fftSize),
+            vDSP_Length(safeFFTSize),
             vDSP_DFT_Direction.FORWARD
         )
 
         // Pre-allocate buffers
-        self.window = [Float](repeating: 0, count: fftSize)
-        self.realIn = [Float](repeating: 0, count: fftSize / 2)
-        self.imagIn = [Float](repeating: 0, count: fftSize / 2)
-        self.realPart = [Float](repeating: 0, count: fftSize / 2)
-        self.imagPart = [Float](repeating: 0, count: fftSize / 2)
-        self.windowedSamples = [Float](repeating: 0, count: fftSize)
-        self.magnitudesBuffer = [Float](repeating: 0, count: fftSize / 2)
+        self.window = [Float](repeating: 0, count: safeFFTSize)
+        self.realIn = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.imagIn = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.realPart = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.imagPart = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.windowedSamples = [Float](repeating: 0, count: safeFFTSize)
+        self.magnitudesBuffer = [Float](repeating: 0, count: safeFFTSize / 2)
 
         // Create window
-        self.window = windowFunction.generate(size: fftSize)
+        self.window = windowFunction.generate(size: safeFFTSize)
 
         // Compute frequency bins
-        let nyquist = Float(sampleRate / 2.0)
-        let binCount = fftSize / 2
+        let nyquist = Float(safeSampleRate / 2.0)
+        let binCount = safeFFTSize / 2
         self.frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
     }
 

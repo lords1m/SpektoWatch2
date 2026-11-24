@@ -141,7 +141,9 @@ class SpectrogramProcessor {
         var linearMap = [Float](repeating: 1.0, count: count)
         for filter in enabledFilters {
             let bandwidth = filter.highFrequency - filter.lowFrequency
+            guard bandwidth > 0 else { continue }
             let transitionWidth = min(bandwidth * 0.1, 20.0)
+            guard transitionWidth > 0 else { continue }
             let minFreq = filter.lowFrequency - transitionWidth
             let maxFreq = filter.highFrequency + transitionWidth
 
@@ -359,8 +361,8 @@ struct MelSpectrogramProcessor {
         self.fftBinCount = max(1, fftBinCount)
         self.sampleRate = sampleRate
 
-        let nyquist = Float(max(1.0, sampleRate / 2.0))
-        let lower = max(0, frequencyRange?.lowerBound ?? 20)
+        let nyquist = Float(max(2.0, sampleRate / 2.0))
+        let lower = max(0, min(nyquist - 1, frequencyRange?.lowerBound ?? 20))
         let upper = min(nyquist, max(lower + 1, frequencyRange?.upperBound ?? min(20_000, nyquist)))
         self.frequencyRange = lower...upper
         self.filterBank = Self.makeFilterBank(
