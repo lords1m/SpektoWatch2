@@ -17,7 +17,7 @@
       "targets" : [
         {
           "containerPath" : "container:SpektoWatch2.xcodeproj",
-          "identifier" : "379523572F2234F90079C93F",
+          "identifier" : "3795235A2F2234F90079C93F",
           "name" : "SpektoWatch2"
         }
       ]

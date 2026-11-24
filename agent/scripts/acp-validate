@@ -6,6 +6,7 @@ missing=0
 
 required='
 AGENT.md
+agent/STATE.md
 agent/manifest.yaml
 agent/progress.yaml
 agent/design/requirements.md
@@ -123,6 +124,20 @@ task_path="$root/$task_dir/$current_task.md"
 if [ ! -f "$task_path" ]; then
   echo "current_task does not resolve: $current_task"
   exit 1
+fi
+
+# --- Static RT-audio & WatchConnectivity regression guards ---
+if grep -q "Float\.random" "$root/SpektoWatch2/Masking/NoiseGenerator.swift"; then
+  echo "RT-safety regression: Float.random found in NoiseGenerator.swift (use lock-free PRNG)"
+  missing=1
+fi
+if grep -q "visualSpectrogramProcessor" "$root/SpektoWatch2/AudioEngine.swift"; then
+  echo "Dead-code regression: visualSpectrogramProcessor reintroduced in AudioEngine.swift"
+  missing=1
+fi
+if grep -q "receivedApplicationContext" "$root/Shared/WatchConnectivityManager.swift"; then
+  echo "WatchConnectivity regression: receivedApplicationContext used in WatchConnectivityManager.swift (merge from session.applicationContext)"
+  missing=1
 fi
 
 if [ "$missing" -ne 0 ]; then

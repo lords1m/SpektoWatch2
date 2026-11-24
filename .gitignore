@@ -33,3 +33,9 @@ Screenshots/
 # swift-snapshot-testing writes diff PNGs next to baselines on failure — ignore those.
 **/__Snapshots__/**/*.failure.png
 **/__Snapshots__/**/*.diff.png
+
+# Local logs and analysis caches
+*.log
+.trace-analysis/
+.understand-anything/
+Spectowatch Widget Screenshots /
