@@ -37,7 +37,7 @@ struct CornerComplicationView: View {
             .foregroundStyle(phosphor)
             .widgetLabel {
                 Gauge(value: entry.gaugeValue) {
-                    Text("LAF · slow")
+                    Text("L\(entry.weighting)F · slow")
                         .font(.system(size: 9, weight: .regular, design: .monospaced))
                         .tracking(1.0)
                 } currentValueLabel: {
@@ -60,7 +60,7 @@ struct RectangularComplicationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("LAF · LIVE")
+            Text("L\(entry.weighting)F · LIVE")
                 .font(.system(size: 9, weight: .regular, design: .monospaced))
                 .tracking(1.6)
                 .foregroundStyle(.secondary)

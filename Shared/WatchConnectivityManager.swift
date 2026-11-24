@@ -188,7 +188,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     
     public func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         DispatchQueue.main.async {
-            self.peerProtocolVersion = WatchConnectivityProtocol.protocolVersion(from: message)
+            if message[WatchConnectivityProtocol.Key.protocolVersion] != nil {
+                self.peerProtocolVersion = WatchConnectivityProtocol.protocolVersion(from: message)
+            }
             guard let type = WatchConnectivityProtocol.messageType(from: message) else {
                 if let typeRaw = message[WatchConnectivityProtocol.Key.type] as? String {
                     Logger.connectivity.info("Ignored unknown message type: \(typeRaw)")
@@ -339,13 +341,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
 
     public func sendFrequencyWeightingSelection(_ weighting: String) {
         sendWithRetry(WatchConnectivityProtocol.makeFrequencyWeightingMessage(weighting))
-        do {
-            try WCSession.default.updateApplicationContext(
-                WatchConnectivityProtocol.mergingProtocolVersion(into: ["frequencyWeighting": weighting])
-            )
-        } catch {
-            // Ignore context errors
-        }
+        mergeAndUpdateApplicationContext(["frequencyWeighting": weighting])
     }
     
     public func requestRecordingStart(source: MicrophoneSource? = nil) {
@@ -374,28 +370,13 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         sendWithRetry(WatchConnectivityProtocol.makeWatchDashboardConfigMessage(configString))
 
         // Also send via application context for background delivery
-        do {
-            try WCSession.default.updateApplicationContext(
-                WatchConnectivityProtocol.mergingProtocolVersion(into: [PersistenceKeys.watchDashboardConfig: configString])
-            )
-        } catch {
-            // Ignore context errors
-        }
+        mergeAndUpdateApplicationContext([PersistenceKeys.watchDashboardConfig: configString])
     }
 
     /// Pushes the spectrogram quality preset to the watch via application context.
     public func sendSpectrogramResolution(_ resolution: SpectrogramResolution) {
         WatchAppSettingsSync.applySpectrogramResolution(resolution)
-        guard WCSession.isSupported() else { return }
-        let session = WCSession.default
-        guard session.activationState == .activated else { return }
-        do {
-            var context = session.receivedApplicationContext
-            context[PersistenceKeys.spectrogramResolution] = resolution.rawValue
-            try session.updateApplicationContext(WatchConnectivityProtocol.mergingProtocolVersion(into: context))
-        } catch {
-            // Ignore context errors
-        }
+        mergeAndUpdateApplicationContext([PersistenceKeys.spectrogramResolution: resolution.rawValue])
     }
 
     /// Pushes all watch-app settings the phone can edit (meter layout, live source, gain).
@@ -418,35 +399,35 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         sendWithRetry(WatchConnectivityProtocol.makeWatchMeasurementSourcePreferenceMessage(measurementSource))
         sendWithRetry(WatchConnectivityProtocol.makeGainMessage(gain))
 
-        do {
-            var context: [String: Any] = ["frequencyWeighting": frequencyWeighting]
-            if let configData = meterLayout.encode(),
-               let configString = String(data: configData, encoding: .utf8) {
-                context[PersistenceKeys.Watch.meterLayoutConfig] = configString
-            }
-            context[PersistenceKeys.Watch.measurementSourcePreference] = measurementSource.rawValue
-            context[PersistenceKeys.Watch.gain] = gain
-            context[PersistenceKeys.spectrogramResolution] = spectrogramResolution.rawValue
-            try WCSession.default.updateApplicationContext(
-                WatchConnectivityProtocol.mergingProtocolVersion(into: context)
-            )
-        } catch {
-            // Ignore context errors
+        var context: [String: Any] = ["frequencyWeighting": frequencyWeighting]
+        if let configData = meterLayout.encode(),
+           let configString = String(data: configData, encoding: .utf8) {
+            context[PersistenceKeys.Watch.meterLayoutConfig] = configString
         }
+        context[PersistenceKeys.Watch.measurementSourcePreference] = measurementSource.rawValue
+        context[PersistenceKeys.Watch.gain] = gain
+        context[PersistenceKeys.spectrogramResolution] = spectrogramResolution.rawValue
+        mergeAndUpdateApplicationContext(context)
     }
 
     /// Publishes our protocol version via application context so the peer can
     /// gate features without waiting for a live `sendMessage`.
     private func publishLocalProtocolVersion() {
+        mergeAndUpdateApplicationContext([:])
+    }
+
+    private func mergeAndUpdateApplicationContext(_ updates: [String: Any]) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         guard session.activationState == .activated else { return }
         do {
-            var context = session.receivedApplicationContext
-            context = WatchConnectivityProtocol.mergingProtocolVersion(into: context)
-            try session.updateApplicationContext(context)
+            var context = session.applicationContext
+            for (key, value) in updates {
+                context[key] = value
+            }
+            try session.updateApplicationContext(WatchConnectivityProtocol.mergingProtocolVersion(into: context))
         } catch {
-            // Ignore context errors — same policy as other publish sites.
+            // Ignore context errors
         }
     }
 
@@ -477,9 +458,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
 
         // Fire-and-forget control plane: receivers handle `didReceiveMessage`
         // without reply handlers, so queue progression cannot depend on reply.
-        WCSession.default.sendMessage(currentMessage.message, replyHandler: nil, errorHandler: { error in
+        WCSession.default.sendMessage(currentMessage.message, replyHandler: nil, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
-                self.handleMessageError(currentMessage, error: error)
+                self?.handleMessageError(currentMessage, error: error)
             }
         })
         isProcessingQueue = false
@@ -492,15 +473,17 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         updatedMessage.retries += 1
         
         if updatedMessage.retries <= maxRetries {
-            // Requeue the failed message at the front so ordering stays stable.
-            messageQueue.insert(updatedMessage, at: 0)
+            // Requeue and keep chronological order even if multiple in-flight messages fail.
+            messageQueue.append(updatedMessage)
+            messageQueue.sort { $0.timestamp < $1.timestamp }
+            isProcessingQueue = true
 
             // Exponential Backoff: 0.5s, 1.0s, 2.0s
             let delay = 0.5 * pow(2.0, Double(updatedMessage.retries - 1))
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                self.isProcessingQueue = false
-                self.processQueue()
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.isProcessingQueue = false
+                self?.processQueue()
             }
         } else {
             Logger.connectivity.error("Message dropped after \(self.maxRetries) retries: \(error.localizedDescription)")
@@ -526,7 +509,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         DispatchQueue.main.async {
             let store = WatchRecordingStore.shared
             let fm = FileManager.default
-            for rec in store.recordings where rec.syncState == .local {
+            for rec in store.recordings where rec.syncState == .local || rec.syncState == .syncing {
                 let audioURL = store.audioURL(for: rec)
                 guard fm.fileExists(atPath: audioURL.path) else { continue }
                 guard let metaData = try? JSONEncoder().encode(rec) else { continue }
@@ -596,17 +579,24 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         }
         guard !staleIds.isEmpty else { return }
         for id in staleIds {
+            let meta = stagedTransferMetadata[id]
             stagedTransferMetadata[id] = nil
             stagedTransferFirstSeenAt[id] = nil
             let audioURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).caf")
             let measurementURL = transferStagingDirectory.appendingPathComponent("\(id.uuidString).swr")
-            if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
-            if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
-            Logger.connectivity.error("Purged stale staged watch transfer for recording \(id.uuidString)")
+            if let meta, fm.fileExists(atPath: audioURL.path) {
+                let optionalMeasurement = fm.fileExists(atPath: measurementURL.path) ? measurementURL : nil
+                Logger.connectivity.warning("Staged watch transfer \(id.uuidString) timed out waiting for sidecar — ingesting audio-only")
+                ingestStagedRecording(meta, audioURL: audioURL, measurementURL: optionalMeasurement)
+            } else {
+                if fm.fileExists(atPath: audioURL.path) { try? fm.removeItem(at: audioURL) }
+                if fm.fileExists(atPath: measurementURL.path) { try? fm.removeItem(at: measurementURL) }
+                Logger.connectivity.error("Purged stale staged watch transfer for recording \(id.uuidString)")
+            }
         }
     }
 
-    private func ingestStagedRecording(_ meta: WatchRecordingMetadata, audioURL: URL, measurementURL: URL) {
+    private func ingestStagedRecording(_ meta: WatchRecordingMetadata, audioURL: URL, measurementURL: URL?) {
         // `addRecording` consumes absolute paths and moves the files into the
         // iOS recordings store, renaming the sidecar to `.spekto` (same binary
         // MeasurementDataFormat as `.swr`). Build the iOS Recording from the
@@ -616,13 +606,16 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             measurementURL: measurementURL,
             fallback: meta.duration
         )
+        let spectralAvailable = measurementURL.map {
+            MeasurementSpectralAvailability.hasUsableSpectralData(fileURL: $0)
+        } ?? false
         let recording = Recording(
             id: meta.id,
             name: meta.title,
             startDate: meta.createdAt,
             duration: duration,
             audioFileName: audioURL.path,
-            measurementDataFileName: measurementURL.path,
+            measurementDataFileName: measurementURL?.path,
             sampleRate: meta.sampleRate,
             laeqFast: meta.laeq ?? -120.0,
             peakLevel: meta.lcPeak ?? -120.0,
@@ -631,7 +624,7 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
             frequencyWeighting: meta.weighting,
             calibrationOffset: meta.calibrationOffset ?? 100.0,
             fftBlockSize: meta.fftBlockSize ?? 2048,
-            spectralDataAvailable: MeasurementSpectralAvailability.hasUsableSpectralData(fileURL: measurementURL)
+            spectralDataAvailable: spectralAvailable
         )
 
         DispatchQueue.main.async {
