@@ -21,6 +21,7 @@ final class RecordingManager: NSObject, ObservableObject {
     private weak var liveActivityAudioEngine: AudioEngine?
     private let fileManager = FileManager.default
     private let baseDirectory: URL?
+    private var metadataLoadFailed = false
 
     private var recordingsDirectory: URL {
         let root = baseDirectory
@@ -391,7 +392,7 @@ final class RecordingManager: NSObject, ObservableObject {
             markers: source.markers,
             calibrationOffset: source.calibrationOffset,
             fftBlockSize: source.fftBlockSize,
-            spectralDataAvailable: source.spectralDataAvailable
+            spectralDataAvailable: newMeasurementFileName != nil ? source.spectralDataAvailable : false
         )
         recordings.insert(duplicate, at: 0)
         saveRecordings()
@@ -504,12 +505,17 @@ final class RecordingManager: NSObject, ObservableObject {
                 try? fileManager.removeItem(at: sourceURL)
                 return targetURL
             } catch {
+                Logger.recording.error("Failed to copy recording file \(sourceURL.lastPathComponent, privacy: .public) to \(targetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 return nil
             }
         }
     }
 
     private func saveRecordings() {
+        guard !metadataLoadFailed else {
+            Logger.recording.error("Refusing to overwrite metadata after load failure")
+            return
+        }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted]
@@ -536,6 +542,7 @@ final class RecordingManager: NSObject, ObservableObject {
     }
 
     private func loadRecordings() {
+        metadataLoadFailed = false
         guard fileManager.fileExists(atPath: metadataURL.path) else { return }
         do {
             let data = try Data(contentsOf: metadataURL)
@@ -550,13 +557,16 @@ final class RecordingManager: NSObject, ObservableObject {
             let loaded = entries.compactMap { $0.value }
             let dropped = entries.count - loaded.count
             recordings = loaded
+            persistenceError = nil
             if dropped > 0 {
                 Logger.recording.warning("Skipped \(dropped) malformed recording metadata entr\(dropped == 1 ? "y" : "ies")")
             }
             backfillSpectralFlagsIfNeeded()
             removeOrphanedRecordingFiles()
         } catch {
-            print("[RecordingManager] Metadata load failed: \(error)")
+            metadataLoadFailed = true
+            persistenceError = error.localizedDescription
+            Logger.recording.error("Metadata load failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -614,7 +624,8 @@ final class RecordingManager: NSObject, ObservableObject {
 
     @discardableResult
     private func removeOrphanedRecordingFiles() -> Int {
-        RecordingOrphanCleanup.removeOrphans(
+        guard !metadataLoadFailed else { return 0 }
+        return RecordingOrphanCleanup.removeOrphans(
             in: recordingsDirectory,
             referencedFileNames: referencedRecordingFileNames(),
             fileManager: fileManager

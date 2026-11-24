@@ -216,10 +216,15 @@ class DashboardManager: ObservableObject {
         }
     }
 
+    private var persistGeneration: UInt64 = 0
+
     /// Encodes dashboard state off the main actor after async decode (avoids
-    /// blocking the UI thread during first paint).
+    /// blocking the UI thread during first paint), then writes on MainActor
+    /// only if no newer `saveConfiguration()` occurred in the meantime.
     private func persistConfigurationAfterLoad() {
         storeWidgetsToActiveContext()
+        persistGeneration &+= 1
+        let expectedGeneration = persistGeneration
         let snapshot = DashboardStateV2(
             presetSlots: presetSlots,
             customLayouts: customLayouts,
@@ -229,15 +234,18 @@ class DashboardManager: ObservableObject {
         let v2Key = layoutsV2Key
         let legacyKey = userDefaultsKey
 
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
             do {
                 let v2Data = try encoder.encode(snapshot)
                 let legacyData = try encoder.encode(legacyWidgets)
-                UserDefaults.standard.set(v2Data, forKey: v2Key)
-                UserDefaults.standard.set(legacyData, forKey: legacyKey)
-                Logger.ui.info("DashboardManager: configuration persisted after load")
+                await MainActor.run {
+                    guard let self, self.persistGeneration == expectedGeneration else { return }
+                    UserDefaults.standard.set(v2Data, forKey: v2Key)
+                    UserDefaults.standard.set(legacyData, forKey: legacyKey)
+                    Logger.ui.info("DashboardManager: configuration persisted after load")
+                }
             } catch {
                 Logger.ui.error("DashboardManager: post-load save failed: \(error.localizedDescription)")
             }
@@ -453,6 +461,11 @@ class DashboardManager: ObservableObject {
             Logger.ui.debug("saveConfiguration skipped — async load in progress")
             return
         }
+        guard !configurationLoadFailed else {
+            Logger.ui.warning("saveConfiguration skipped — refusing to overwrite persisted layouts after load failure")
+            return
+        }
+        persistGeneration &+= 1
         storeWidgetsToActiveContext()
         do {
             let state = DashboardStateV2(
@@ -474,6 +487,7 @@ class DashboardManager: ObservableObject {
     }
 
     func resetToDefault() {
+        configurationLoadFailed = false
         applyState(DashboardStateFactory.defaultState())
         saveConfiguration()
         UINotificationFeedbackGenerator().notificationOccurred(.success)

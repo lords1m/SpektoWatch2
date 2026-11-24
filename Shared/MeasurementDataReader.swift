@@ -74,6 +74,9 @@ final class MeasurementDataReader {
 
         var calibration: MeasurementCalibrationMetadata?
         if tlvSectionLength > 0 {
+            guard tlvSectionLength <= 16 * 1024 * 1024 else {
+                throw MeasurementDataError.invalidFormat("TLV-Sektion überschreitet zulässige Größe.")
+            }
             let tlvData = try MeasurementDataReader.readExactly(tlvSectionLength, from: fileHandle)
             calibration = MeasurementDataV3Support.decodeTLV(tlvData)
             bytesConsumed += tlvSectionLength
@@ -109,13 +112,23 @@ final class MeasurementDataReader {
         self.frameSize = MemoryLayout<Float>.size
             * (1 + metricKeys.count + 1 + (MeasurementDataFormat.thirdOctaveBandCount * 3) + fullFftCount)
 
-        if header.hasSeekIndex, seekIndexOffset > 0, frameCount > 0 {
-            try fileHandle.seek(toOffset: seekIndexOffset)
-            let indexByteCount = 12 + Int(frameCount) * MemoryLayout<UInt64>.size
-            let indexData = try MeasurementDataReader.readExactly(indexByteCount, from: fileHandle)
-            if let offsets = MeasurementDataV3Support.decodeSeekIndex(from: indexData),
-               offsets.count == Int(frameCount) {
-                self.frameOffsets = offsets
+        if header.hasSeekIndex, seekIndexOffset > 0, frameCount > 0,
+           let count = Int(exactly: frameCount) {
+            let (entriesBytes, mulOverflow) = count.multipliedReportingOverflow(by: MemoryLayout<UInt64>.size)
+            let (indexByteCount, addOverflow) = 12.addingReportingOverflow(entriesBytes)
+            if !mulOverflow, !addOverflow {
+                do {
+                    try fileHandle.seek(toOffset: seekIndexOffset)
+                    let indexData = try MeasurementDataReader.readExactly(indexByteCount, from: fileHandle)
+                    if let offsets = MeasurementDataV3Support.decodeSeekIndex(from: indexData),
+                       offsets.count == count {
+                        self.frameOffsets = offsets
+                    } else {
+                        self.frameOffsets = nil
+                    }
+                } catch {
+                    self.frameOffsets = nil
+                }
             } else {
                 self.frameOffsets = nil
             }
@@ -123,6 +136,8 @@ final class MeasurementDataReader {
             self.frameOffsets = nil
         }
     }
+
+    private let ioLock = NSLock()
 
     deinit {
         try? fileHandle.close()
@@ -153,9 +168,18 @@ final class MeasurementDataReader {
             offset = computed
         }
 
-        try fileHandle.seek(toOffset: offset)
         let bytesToRead = includingFullFFT ? frameSize : summaryFrameSize
-        guard let frameData = try fileHandle.read(upToCount: bytesToRead), frameData.count == bytesToRead else {
+        ioLock.lock()
+        let frameData: Data?
+        do {
+            try fileHandle.seek(toOffset: offset)
+            frameData = try fileHandle.read(upToCount: bytesToRead)
+            ioLock.unlock()
+        } catch {
+            ioLock.unlock()
+            throw error
+        }
+        guard let frameData, frameData.count == bytesToRead else {
             throw MeasurementDataError.ioFailure("Frame konnte nicht vollständig gelesen werden.")
         }
         return try decodeFrame(from: frameData, includingFullFFT: includingFullFFT)

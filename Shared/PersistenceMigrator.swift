@@ -56,6 +56,12 @@ public enum PersistenceMigrator {
             }
         }
 
+        if defaults !== UserDefaults.standard {
+            performMigrations(defaults: defaults)
+            notify()
+            return
+        }
+
         stateLock.lock()
         switch runState {
         case .completed:
@@ -75,7 +81,7 @@ public enum PersistenceMigrator {
             stateLock.unlock()
 
             DispatchQueue.global(qos: .userInitiated).async {
-                runMigrationsIfNeeded(defaults: defaults)
+                performMigrations(defaults: defaults)
                 stateLock.lock()
                 runState = .completed
                 stateLock.unlock()
@@ -89,29 +95,48 @@ public enum PersistenceMigrator {
     /// `startMigrationsIfNeeded` at launch; use this from tests or before
     /// reading keys that a pending migration step may rewrite.
     public static func ensureMigrationsComplete(defaults: UserDefaults = .standard) {
-        stateLock.lock()
-        let state = runState
-        stateLock.unlock()
-
-        switch state {
-        case .completed:
+        if defaults !== UserDefaults.standard {
+            performMigrations(defaults: defaults)
             return
-        case .notStarted:
-            runMigrationsIfNeeded(defaults: defaults)
+        }
+
+        stateLock.lock()
+        switch runState {
+        case .completed:
+            stateLock.unlock()
+            return
         case .inProgress(let group):
+            stateLock.unlock()
             group.wait()
+        case .notStarted:
+            let group = DispatchGroup()
+            group.enter()
+            runState = .inProgress(group)
+            stateLock.unlock()
+
+            performMigrations(defaults: defaults)
+            stateLock.lock()
+            runState = .completed
+            stateLock.unlock()
+            group.leave()
         }
     }
 
     /// Runs all pending migration steps once, in order, then stamps the version.
     /// Safe to call on every launch; a no-op once the stored version is current.
     public static func runMigrationsIfNeeded(defaults: UserDefaults = .standard) {
+        performMigrations(defaults: defaults)
+        if defaults === UserDefaults.standard {
+            markCompletedIfNeeded()
+        }
+    }
+
+    private static func performMigrations(defaults: UserDefaults) {
         let signpostID = PerformanceSignpost.begin("PersistenceMigration")
 
         let stored = defaults.integer(forKey: PersistenceKeys.persistenceSchemaVersion)
         guard stored < currentSchemaVersion else {
             PerformanceSignpost.end("PersistenceMigration", signpostID: signpostID)
-            markCompletedIfNeeded()
             return
         }
 
@@ -121,7 +146,6 @@ public enum PersistenceMigrator {
 
         defaults.set(currentSchemaVersion, forKey: PersistenceKeys.persistenceSchemaVersion)
         PerformanceSignpost.end("PersistenceMigration", signpostID: signpostID)
-        markCompletedIfNeeded()
     }
 
     private static func markCompletedIfNeeded() {
