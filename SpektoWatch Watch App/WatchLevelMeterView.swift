@@ -48,6 +48,8 @@ struct WatchLevelMeterView: View {
             VStack {
                 Spacer()
                 WatchLiveCaptureFooter()
+                    // Floats over the live level graph: no glass here.
+                    .environment(\.watchGlassOverLiveCanvas, true)
             }
         }
         .accessibilityIdentifier("watchLevelMeterView")

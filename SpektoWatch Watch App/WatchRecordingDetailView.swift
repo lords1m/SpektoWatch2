@@ -44,7 +44,7 @@ struct WatchRecordingDetailView: View {
                     .accessibilityIdentifier("watchRecordingDelete")
                 }
                 .padding(10)
-                .watchGlassCard(cornerRadius: 12)
+                .watchCard(cornerRadius: 12)
                 .padding(6)
             }
         }

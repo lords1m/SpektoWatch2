@@ -39,7 +39,7 @@ struct WatchPegelmeterWidget: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .watchGlassCard(cornerRadius: 8)
+        .watchCard(cornerRadius: 8)
         .task {
             await ObservationTrackingLoop.observeThrottled(
                 minimumInterval: SingleValueRefreshRate.default.minimumInterval

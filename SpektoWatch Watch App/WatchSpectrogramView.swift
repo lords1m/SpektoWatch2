@@ -66,6 +66,8 @@ struct WatchSpectrogramView: View {
                     bottomStftPill
                         .allowsHitTesting(false)
                     WatchLiveCaptureFooter()
+                        // Floats over the live spectrogram: no glass here.
+                        .environment(\.watchGlassOverLiveCanvas, true)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

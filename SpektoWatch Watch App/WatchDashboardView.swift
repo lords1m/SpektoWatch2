@@ -2,11 +2,9 @@ import SwiftUI
 
 struct WatchDashboardView: View {
     @Environment(WatchConnectivityManager.self) private var connectivityManager
-    @Environment(WatchAudioEngine.self) private var audioEngine
 
     @State private var config: WatchDashboardConfig = WatchDashboardConfig.load()
 
-    private var isRecording: Bool { audioEngine.isRecording }
     private let gridItems: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
     private var activeWidgets: [WatchWidgetConfig] {
@@ -27,17 +25,7 @@ struct WatchDashboardView: View {
                 }
                 .frame(maxHeight: .infinity)
 
-                HStack {
-                    Circle()
-                        .fill(isRecording ? Color.red : (connectivityManager.isReachable ? Color.green : Color.gray))
-                        .frame(width: 4, height: 4)
-                        .animation(.easeInOut(duration: 0.3), value: isRecording)
-                    WatchMeasurementSourceIndicator()
-                    Spacer()
-                    recordButton
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 2)
+                WatchLiveCaptureFooter()
             }
             .padding(.horizontal, 2)
             .padding(.top, 2)
@@ -92,36 +80,5 @@ struct WatchDashboardView: View {
         default:
             return 52
         }
-    }
-
-    private var recordButton: some View {
-        Button(action: {
-            if isRecording {
-                audioEngine.stopRecording()
-                if audioEngine.coordinatesRecordingWithPhone {
-                    connectivityManager.requestWearableRecordingStop()
-                }
-            } else {
-                if audioEngine.coordinatesRecordingWithPhone {
-                    connectivityManager.requestWearableRecordingStart()
-                }
-                audioEngine.startRecording()
-            }
-            WKInterfaceDevice.current().play(.success)
-        }) {
-            Image(systemName: isRecording ? "stop.fill" : "record.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(
-                        isRecording
-                            ? Color.red.opacity(0.80)
-                            : WatchStylePalette.accentBlue.opacity(0.80)
-                    )
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
     }
 }

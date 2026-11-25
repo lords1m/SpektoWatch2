@@ -217,6 +217,25 @@ Files: `SpektoWatch Watch App/WatchDashboardView.swift`, `WatchRecordButton.swif
 - No glass over live spectrogram/level canvases on the faces (battery, and legibility in
   Always-On). When `isLuminanceReduced`, glass becomes a solid dim fill.
 
+**As built (2026-11-25, Apple Watch SE 3 40 mm / watchOS 26.5 simulator):**
+- `WatchGlassStyle.swift`: `watchGlass(in:tint:interactive:)` draws system glass on watchOS 26
+  and a solid fallback (tint at 80 %, or a dark grey with a rim) on watchOS 11–25, with
+  Reduce Transparency, in Always-On (the tint dimmed to 35 %), and wherever the
+  `watchGlassOverLiveCanvas` environment flag is set. `WatchGlassCard` → solid `watchCard`
+  (meter hero, recording detail); unused `WatchGlassBar` removed.
+- One `WatchRecordToggle` replaces two copies of the record logic (tinted glass: blue idle,
+  red recording). `WatchLiveCaptureFooter` now uses it, which fixes the doubled status dot
+  on the meter, spectrogram and level screens.
+- Spectrogram and level-graph footers float over live canvases, so they set
+  `watchGlassOverLiveCanvas` and show the solid fallback (checked on screen).
+- Tone generator PLAY/PAUSE → tinted interactive glass (green/red, white text); checked on
+  screen in both states. Toolbars and back buttons get system glass automatically.
+- Pills over canvases (spectrogram status, STFT, source indicator) were already solid; unchanged.
+- Found, not changed: `WatchDashboardView`, `WatchPegelmesserFace` and `WatchModularFace`
+  aren't reachable from `WatchContentView` (dead code?); on 40 mm the meter screen's
+  content is taller than the screen, so its footer (record button) is cut off. The
+  record button is 22 pt across, small for a watch tap target.
+
 ### Phase 5 — Performance, accessibility, acceptance
 - **GPU budget**: with the dock and header over a live spectrogram + waterfall, record an
   Instruments (Hitches + Metal System Trace) run on iOS 26 against the M19 baseline. Budget:
@@ -278,6 +297,41 @@ Adoption**, one task per phase. Start it on a branch after the ~40 currently unc
 - Rendering kernels (Metal, Charts, LAF) and the Ferrite palette/tile language.
 - Raising deployment targets.
 - A tab bar: the home screen stays a paged preset wall + dock.
+
+## 8. References (Mobbin, saved 2026-11-25)
+
+Links open only for the account owner and their team (private saves).
+
+| Reference | What it shows | Bearing on this plan |
+|---|---|---|
+| [Opal – Time Keeper](https://mobbin.com/screens/a26d6de7-c2ce-4be6-be6a-69f71a0ebe32) | Short config form in a translucent dark sheet over the blurred rules list; rows as rounded capsules; round glass back/edit buttons; tinted "+"; wide "Hold to Commit" primary | Counter-example to "all sheets opaque" → candidate A |
+| [Cal AI – Progress](https://mobbin.com/screens/61178e40-0dea-465d-8537-64da93a26343) | Solid dark content cards; floating glass tab-bar capsule with selected pill; separate round "+" primary action beside it | Confirms the layer model (solid content, glass nav). The separate primary circle doesn't fit the M23 icon dock; revisit only if the dock is redesigned |
+| [Crumbl Cookies – naming dialog](https://mobbin.com/screens/4a901e96-7f48-4700-8853-c44a84d4935b) | Clear glass card over a busy photo: text field, outlined Cancel, dimmed Save capsule | Pattern for short in-place prompts (e.g. naming a recording) instead of full sheets |
+| [Apple Music – Subscribing flow](https://mobbin.com/flows/54f3f242-a9de-4b2e-be96-8d64010fc59d?tab=screens) | Standard iOS 26 chrome: floating glass tab bar + "Now Playing" accessory pill above it; content scrolls underneath | Confirms the Phase 2 bottom stack (status/page pill above the dock) → candidate B |
+
+**Takeaways already reflected in Phases 1–3:** content stays solid; only floating controls
+are glass; one tinted primary per bar; an accessory pill above the bottom bar.
+
+## 9. Follow-up candidates (proposed, not scheduled)
+
+**A — Glass for short sheets.** Phase 3 kept every sheet opaque (`polishedFormChrome`).
+Following Opal, sheets with only a few rows (widget settings, masking save sheet, Tweaks)
+could drop the opaque background at `.medium` so the system sheet glass shows, with rows
+grouped as rounded capsules. Dense forms (Settings, Apple Watch, audio export) stay opaque.
+- Needs: a `polishedShortSheetChrome()` variant (no background at `.medium`, Ferrite
+  `backgroundRaised` at `.large`); legibility check of Form rows over glass in both themes;
+  Reduce Transparency → opaque.
+- Risk: Ferrite's black/white tile language says solid surfaces for anything you read.
+  Decide per sheet, not globally.
+
+**B — Live recording pill.** Following Apple Music's Now Playing accessory, the status/page
+pill above the dock (`HomePageIndicator` + `HomeStatusLabel`) could expand while recording
+to show elapsed time and the current LAF level, and tap through to the recording.
+- Needs: the pill reads the same 1 Hz throttled metrics as the M20 Live Activity, *not*
+  the 60 Hz stream (the rule from §2: glass never reacts to live audio per frame).
+  Expansion uses `glassEffectID` morphing inside the existing bottom `FerriteGlassGroup`.
+- Scope: a new feature, not restyling, so it should get its own task, after Phase 5's
+  performance pass sets the GPU baseline.
 
 ## Appendix — unrelated modernization spotted (not part of this plan)
 

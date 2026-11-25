@@ -13,7 +13,7 @@ struct WatchLiveCaptureFooter: View {
                 .animation(.easeInOut(duration: 0.3), value: audioEngine.isRecording)
             WatchMeasurementSourceIndicator()
             Spacer()
-            WatchRecordButton()
+            WatchRecordToggle()
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 2)

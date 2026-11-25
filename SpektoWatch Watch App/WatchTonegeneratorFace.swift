@@ -190,18 +190,12 @@ struct WatchTonegeneratorFace: View {
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .tracking(1.6)
             }
-            .foregroundStyle(toneGenerator.isPlaying ? pauseRed : phosphor)
+            // White on tinted glass: coloured text on its own tint loses contrast.
+            .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
-            .background(
-                Capsule().fill((toneGenerator.isPlaying ? pauseRed : phosphor).opacity(0.18))
-            )
-            .overlay(
-                Capsule().strokeBorder(
-                    (toneGenerator.isPlaying ? pauseRed : phosphor).opacity(0.45),
-                    lineWidth: 0.5
-                )
-            )
+            .watchGlass(in: Capsule(), tint: toneGenerator.isPlaying ? pauseRed : phosphor, interactive: true)
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }
