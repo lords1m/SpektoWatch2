@@ -602,30 +602,3 @@ extension ButtonStyle where Self == FerriteGlassButtonStyle {
         .init(kind: kind, glassID: id, namespace: namespace)
     }
 }
-
-// MARK: - Glass sheet
-
-/// A short bottom panel in glass that rises over content, with 34pt top
-/// corners and a grabber. Title, a line of `callout`, at most one primary
-/// button. For long or dense content use a system sheet on `bg-raised`.
-struct FerriteGlassSheet<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: FerriteSpace.m) {
-            Capsule()
-                .fill(FerriteColor.labelSecondary)
-                .frame(width: 36, height: 5)
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
-            content
-                .foregroundStyle(FerriteColor.label)
-        }
-        .padding(.top, FerriteSpace.s)
-        .padding([.horizontal, .bottom], FerriteSpace.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .ferriteGlass(in: UnevenRoundedRectangle(topLeadingRadius: FerriteRadius.sheet,
-                                                 topTrailingRadius: FerriteRadius.sheet,
-                                                 style: .continuous))
-    }
-}

@@ -152,7 +152,7 @@ struct WidgetCardView: View {
             }
 
             // Kernel fills the remaining card area edge-to-edge so the
-            // card material (.thinMaterial) acts as the kernel background,
+            // card surface (solid Ferrite fill) acts as the kernel background,
             // with no visible inner frame. Outer rounded corners on the
             // card itself clip overflow.
             renderWidgetContent()

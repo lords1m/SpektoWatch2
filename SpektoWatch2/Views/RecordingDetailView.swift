@@ -100,7 +100,7 @@ struct RecordingDetailView: View {
             .navigationTitle(recording.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
                             audioPlayer.pause()

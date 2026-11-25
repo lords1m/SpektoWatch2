@@ -190,6 +190,23 @@ Files: `Views/RecordingsListView.swift`, `Views/RecordingDetailView.swift`,
 - Audio editor transport (floats over the waveform) → same treatment as the home dock.
 - Keep the existing zoom transition (`matchedTransitionSource` / `.navigationTransition(.zoom)`).
 
+**As built (2026-11-25, iPhone 17 / iOS 26.5 simulator):**
+- Toolbars already had at most one item per side, so nothing needed grouping. "Abbrechen"
+  buttons (audio editor, masking suggestion, trigger acquisition ×2) and the feature
+  full-screen close now use `.cancellationAction`. The close glyph changed from
+  `xmark.circle.fill` to `xmark`, because the iOS 26 toolbar already draws the glass circle.
+  `RecordingDetailView`'s deprecated `.navigationBarTrailing` → `.topBarTrailing`.
+- Sheets: all use `polishedFormChrome` (an opaque Ferrite background behind dense forms), so they
+  stay opaque by design. Toolbar items on them are system glass and the nav bar gets the
+  scroll-edge effect (checked: Settings, Layouts). `FerriteGlassSheet` retired (Gallery-only).
+- Watch settings sync bar → floating `ferriteGlass` panel attached via `ferriteBar`
+  (it stays on screen, so `safeAreaBar` is safe); the solid sync button stays inside it. Checked on screen.
+- Materials inside content removed: the spectrum legend capsule → solid `surfaceSunken`.
+  Deleted unused `canvasControlButton`, `transportGlassButton`, `CanvasReadoutPill`.
+  The iOS target has no `Material` left outside `DesignSystem/`.
+- Audio editor: no floating transport exists (panels are solid cards), so the item was dropped.
+- Not checked on screen: the feature full-screen close button, the spectrum legend, iOS 18.
+
 ### Phase 4 — watchOS
 Files: `SpektoWatch Watch App/WatchDashboardView.swift`, `WatchRecordButton.swift`, faces.
 

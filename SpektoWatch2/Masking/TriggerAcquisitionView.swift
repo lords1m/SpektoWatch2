@@ -330,7 +330,7 @@ struct PresetPickerView: View {
             .navigationTitle("Trigger-Presets")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
                 }
             }
@@ -370,7 +370,7 @@ struct ProfileListView: View {
             .navigationTitle("Gespeicherte Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {

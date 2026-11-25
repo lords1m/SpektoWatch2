@@ -112,7 +112,8 @@ struct WatchAppSettingsView: View {
         .navigationTitle("Apple Watch")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { EditButton() }
-        .safeAreaInset(edge: .bottom) { syncBar }
+        // Persistent bar: ferriteBar adds the scroll-edge effect on iOS 26.
+        .ferriteBar(edge: .bottom, spacing: nil) { syncBar }
         .sheet(isPresented: $showingWidgetPicker) {
             MeterWidgetPickerSheet(
                 currentConfig: widgetToEdit,
@@ -202,9 +203,12 @@ struct WatchAppSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        // Floats over the scrolling form: a glass panel in the navigation layer.
+        // The sync button inside stays a solid line fill (no glass on glass).
+        .padding(FerriteSpace.m)
+        .ferriteGlass(in: RoundedRectangle(cornerRadius: FerriteRadius.glass, style: .continuous))
         .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .padding(.bottom, FerriteSpace.xs)
     }
 
     private var meterPreview: some View {

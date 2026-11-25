@@ -112,7 +112,8 @@ struct FrequencySpectrumWidget: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Capsule().fill(.ultraThinMaterial))
+                // Sits on the chart (content layer): a solid fill, not material.
+                .background(Capsule().fill(FerriteColor.surfaceSunken))
                 .padding(6)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Legende: grün Spektrum, orange Leq")

@@ -228,7 +228,7 @@ struct MaskingSuggestionView: View {
             .navigationTitle("Profil speichern")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { showSaveSheet = false }
                 }
             }

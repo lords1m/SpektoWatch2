@@ -68,13 +68,6 @@ struct FerriteGallery: View {
                         }
 
                         glassGroupSample
-
-                        FerriteGlassSheet {
-                            FerriteEyebrow(text: "Calibration")
-                            Text("Hold the phone at arm's length, microphone facing the source.")
-                                .font(FerriteFont.callout)
-                            Button("Calibrate") {}.buttonStyle(.ferritePrimary)
-                        }
                     }
                     .padding(FerriteSpace.l)
                     .padding(.bottom, 96)

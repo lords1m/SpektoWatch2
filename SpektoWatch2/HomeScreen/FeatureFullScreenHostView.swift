@@ -47,11 +47,12 @@ struct FeatureFullScreenHostView: View {
                     .navigationTitle(widget.type.rawValue)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
+                        ToolbarItem(placement: .cancellationAction) {
                             Button {
                                 dismiss()
                             } label: {
-                                Label("Schließen", systemImage: "xmark.circle.fill")
+                                // Plain glyph: the iOS 26 toolbar already draws the glass circle.
+                                Label("Schließen", systemImage: "xmark")
                             }
                             .accessibilityIdentifier("featureLauncherCloseButton")
                         }

@@ -97,7 +97,7 @@ struct AudioEditorView: View {
             .navigationTitle(source.displayTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") {
                         if history.current.hasChanges {
                             showDiscardAlert = true
