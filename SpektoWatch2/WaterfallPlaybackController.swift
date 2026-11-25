@@ -45,9 +45,13 @@ final class WaterfallPlaybackController: ObservableObject {
         let durationSnapshot = max(duration, 0)
 
         let binCount = first.count
-        buildTask = Task {
-            let built = await Task.detached(priority: .userInitiated) {
-                let range = displaySnapshot.clampedDBRange()
+        // UI-9: the detached build is cancelled together with its parent
+        // (previously it kept running, so slider drags stacked full rebuilds),
+        // and rapid requests are coalesced by a short debounce.
+        let work = Task.detached(priority: .userInitiated) { () -> WaterfallDataSet? in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            if Task.isCancelled { return nil }
+            let range = displaySnapshot.clampedDBRange()
                 let sourceFrequencies = WaterfallDataBuilder.sourceFrequencies(
                     binCount: binCount,
                     sampleRate: sampleRate,
@@ -60,6 +64,7 @@ final class WaterfallPlaybackController: ObservableObject {
                     sourceFrequencies: sourceFrequencies,
                     mode: displaySnapshot.spectrumMode
                 )
+                if Task.isCancelled { return nil }
                 return WaterfallDataBuilder.build(
                     history: remapped.history,
                     sourceFrequencies: remapped.frequencies,
@@ -69,9 +74,14 @@ final class WaterfallPlaybackController: ObservableObject {
                     minDB: range.minDB,
                     maxDB: range.maxDB
                 )
-            }.value
-
-            guard !Task.isCancelled else { return }
+        }
+        buildTask = Task {
+            let built = await withTaskCancellationHandler {
+                await work.value
+            } onCancel: {
+                work.cancel()
+            }
+            guard !Task.isCancelled, let built else { return }
             dataSet = built
             isBuilding = false
         }

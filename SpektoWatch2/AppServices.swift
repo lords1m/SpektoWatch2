@@ -28,7 +28,16 @@ final class AppServices: ObservableObject {
     // `AudioEngineContainer` behavior.
 
     @Published private(set) var audioEngine: AudioEngine?
-    @Published private(set) var maskingEngine: MaskingEngine?
+    @Published private(set) var maskingEngine: MaskingEngine? {
+        didSet { bindMaskingEngine() }
+    }
+
+    /// UI-10: views read `services.recordingManager.…` etc. through this
+    /// container, so its `objectWillChange` must fire when those change.
+    /// Only low-rate state is forwarded — never per-frame streams
+    /// (spectrogram packets, novelty scores) that would re-render the tree.
+    private var forwardCancellables = Set<AnyCancellable>()
+    private var maskingForwardCancellables = Set<AnyCancellable>()
 
     /// True once `startAudio()` has produced both engines.
     var isAudioReady: Bool { audioEngine != nil && maskingEngine != nil }
@@ -55,6 +64,35 @@ final class AppServices: ObservableObject {
                 recordingManager?.ingestWatchRecording(recording) ?? false
             }
         }
+
+        let forward: () -> Void = { [weak self] in self?.objectWillChange.send() }
+        recordingManager.objectWillChange
+            .sink { _ in forward() }
+            .store(in: &forwardCancellables)
+        maskingProfileManager.objectWillChange
+            .sink { _ in forward() }
+            .store(in: &forwardCancellables)
+        connectivityManager.$isReachable.removeDuplicates().dropFirst()
+            .sink { _ in forward() }
+            .store(in: &forwardCancellables)
+        connectivityManager.$selectedMicrophoneSource.removeDuplicates().dropFirst()
+            .sink { _ in forward() }
+            .store(in: &forwardCancellables)
+        connectivityManager.$peerProtocolVersion.removeDuplicates().dropFirst()
+            .sink { _ in forward() }
+            .store(in: &forwardCancellables)
+    }
+
+    private func bindMaskingEngine() {
+        maskingForwardCancellables.removeAll()
+        guard let maskingEngine else { return }
+        let forward: () -> Void = { [weak self] in self?.objectWillChange.send() }
+        maskingEngine.$state.dropFirst()
+            .sink { _ in forward() }
+            .store(in: &maskingForwardCancellables)
+        maskingEngine.$captureCount.removeDuplicates().dropFirst()
+            .sink { _ in forward() }
+            .store(in: &maskingForwardCancellables)
     }
 
     /// Convenience no-arg initializer that constructs every sub-service

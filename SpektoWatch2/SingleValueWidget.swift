@@ -1,8 +1,48 @@
 import SwiftUI
 import Combine
 
+/// UI-13: owns the throttled metric subscription. Building the throttled
+/// publisher inside `body` re-created (and reset) the throttle on every
+/// render, so the refresh-rate setting had no effect. The subscription is
+/// rebuilt only when rate, metric or noise floor change.
+@MainActor
+final class SingleValueFeed: ObservableObject {
+    @Published private(set) var value: Float?
+
+    private struct Key: Equatable {
+        let rate: SingleValueRefreshRate
+        let metric: String
+        let floor: Float
+    }
+    private var key: Key?
+    private var cancellable: AnyCancellable?
+    private var clearCancellable: AnyCancellable?
+
+    func configure(live: LiveAcousticState, rate: SingleValueRefreshRate, metric: String, floor: Float) {
+        let newKey = Key(rate: rate, metric: metric, floor: floor)
+        guard newKey != key else { return }
+        key = newKey
+        cancellable = live.$currentSpectrogramData
+            .compactMap { $0 }
+            .throttledForSingleValueDisplay(rate: rate)
+            .sink { [weak self] data in
+                // PHON and SONE are populated by AcousticMetricsCalculator, so
+                // all metrics use the same levels dict path.
+                let raw = data.levels[metric] ?? 0.0
+                // Suppress display when the signal is at or below the noise floor.
+                self?.value = (floor > -119 && raw <= floor) ? nil : raw
+            }
+        clearCancellable = live.$currentSpectrogramData
+            .filter { $0 == nil }
+            .sink { [weak self] _ in self?.value = nil }
+    }
+
+    func clear() { value = nil }
+}
+
 struct SingleValueWidget: View {
     @ObservedObject private var live: LiveAcousticState
+    @StateObject private var feed = SingleValueFeed()
     @Environment(\.designNumerals) private var numerals
     private let engineStatusPublisher: Published<EngineStatus>.Publisher
     var settings: [String: String]
@@ -77,8 +117,17 @@ struct SingleValueWidget: View {
         }
     }
     
-    @State private var value: Float? = nil
+    private var value: Float? { feed.value }
     @State private var engineStatus: EngineStatus = .idle
+
+    private func configureFeed() {
+        feed.configure(
+            live: live,
+            rate: refreshRate,
+            metric: metricKey,
+            floor: WidgetSettings.noiseFloorDB(settings)
+        )
+    }
 
     private var displayValue: String {
         guard let v = value, engineStatus == .running else {
@@ -113,27 +162,12 @@ struct SingleValueWidget: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .innerCanvas(cornerRadius: 0)
-        .onReceive(live.$currentSpectrogramData) { data in
-            if data == nil {
-                self.value = nil
-            }
-        }
-        .onReceive(
-            live.$currentSpectrogramData
-                .compactMap { $0 }
-                .throttledForSingleValueDisplay(rate: refreshRate)
-        ) { data in
-            // PHON and SONE are now populated by AcousticMetricsCalculator,
-            // so all metrics including loudness use the same levels dict path.
-            let raw = data.levels[metricKey] ?? 0.0
-            let floor = WidgetSettings.noiseFloorDB(settings)
-            // Suppress display when the signal is at or below the noise floor.
-            self.value = (floor > -119 && raw <= floor) ? nil : raw
-        }
+        .onAppear(perform: configureFeed)
+        .onChange(of: settings) { _, _ in configureFeed() }
         .onReceive(engineStatusPublisher) { status in
             engineStatus = status
             if status != .running {
-                self.value = nil
+                feed.clear()
             }
         }
     }

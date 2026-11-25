@@ -218,6 +218,11 @@ struct NavigableSpectrogramView: View {
     @ViewBuilder
     private func detailOverlay(size: CGSize) -> some View {
         if let tile = detailTile, tile.matches(viewport: viewport, version: dataVersion) {
+            // UI-3: draw the tile over exactly the time span it covers,
+            // mapped into the current viewport (it used to be stretched over
+            // the whole viewport although its bounds differed by up to ~25 %).
+            let startX = CGFloat(viewport.localX(forNormalizedTime: tile.timeStart)) * size.width
+            let tileWidth = max(1, CGFloat(tile.timeWidth / max(viewport.timeWidth, 1e-6)) * size.width)
             PlaybackSpectrogramView(
                 magnitudeHistory: tile.bins,
                 dataVersion: tile.renderVersion,
@@ -228,11 +233,13 @@ struct NavigableSpectrogramView: View {
                 freqViewportWidth: viewport.freqWidth,
                 totalDuration: duration,
                 sampleRate: sampleRate,
-                viewWidth: size.width,
+                viewWidth: tileWidth,
                 viewHeight: size.height,
                 calibrationOffset: calibrationOffset,
                 axisKind: axisKind
             )
+            .frame(width: tileWidth, height: size.height)
+            .offset(x: startX)
             .allowsHitTesting(false)
         }
     }
@@ -298,6 +305,8 @@ struct NavigableSpectrogramView: View {
             var vp = viewport
             vp.centerTime(on: nt)
             viewport = vp
+            // UI-4: the recentred window needs its own detail tile.
+            requestDetailTile()
         }
     }
 
@@ -314,11 +323,15 @@ struct NavigableSpectrogramView: View {
             tileRequest = nil
             return
         }
-        tileRequest = TileRequest(
-            timeStart: (viewport.timeStart * 500).rounded() / 500,
-            timeWidth: (viewport.timeWidth * 500).rounded() / 500,
+        // UI-3: exact bounds (the 1/500 rounding misaligned tiles at high
+        // zoom and suppressed reloads for small pans).
+        let request = TileRequest(
+            timeStart: viewport.timeStart,
+            timeWidth: viewport.timeWidth,
             version: dataVersion
         )
+        if let tile = detailTile, tile.covers(request) { return }
+        tileRequest = request
     }
 
     private func loadDetailTile() async {
@@ -366,10 +379,23 @@ private struct DetailTile {
     let version: Int
     let renderVersion: Int
 
+    /// Width of one source column in normalized time.
+    var columnWidth: Float { timeWidth / Float(max(bins.count, 1)) }
+
+    /// Drawable when the zoom level is close and it overlaps the viewport;
+    /// it is positioned at its exact bounds, so small offsets are harmless.
     func matches(viewport: SpectrogramViewport, version currentVersion: Int) -> Bool {
-        version == currentVersion &&
-        abs(timeStart - viewport.timeStart) < 0.004 &&
-        abs(timeWidth - viewport.timeWidth) < 0.004
+        guard version == currentVersion, viewport.timeWidth > 0 else { return false }
+        let zoomRatio = timeWidth / viewport.timeWidth
+        let overlaps = timeStart < viewport.timeEnd && timeStart + timeWidth > viewport.timeStart
+        return overlaps && zoomRatio > 0.8 && zoomRatio < 1.25
+    }
+
+    /// `true` when this tile already covers `request` within one column.
+    func covers(_ request: TileRequest) -> Bool {
+        version == request.version &&
+        abs(timeStart - request.timeStart) <= columnWidth &&
+        abs(timeWidth - request.timeWidth) <= columnWidth
     }
 }
 

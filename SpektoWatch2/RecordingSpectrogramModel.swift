@@ -12,7 +12,10 @@ import Combine
 /// in the view and the heavy state is observed independently of the playhead.
 @MainActor
 final class RecordingSpectrogramModel: ObservableObject {
-    private static let maxOverviewFrames = 1_800
+    nonisolated static let maxOverviewFrames = 1_800
+    /// UI-5: `true` once the 31-band overview was replaced by the
+    /// audio-derived full-resolution history.
+    private var isPromoted = false
 
     /// Display-ready history in raw dB SPL (`[column][bin]`).
     @Published private(set) var history: [[Float]] = []
@@ -117,6 +120,7 @@ final class RecordingSpectrogramModel: ObservableObject {
                     self.onSpectralFlagResolved?(spectralOK)
                     self.usesAudioSpectralFallback = !spectralOK
                     if spectralOK {
+                        self.isPromoted = false
                         self.rawHistory = visualHistory
                         let binCount = visualHistory.first?.count ?? 0
                         self.axis = SpectrogramHistoryAxis.infer(
@@ -126,14 +130,15 @@ final class RecordingSpectrogramModel: ObservableObject {
                         )
                         self.weightedCache.removeAll()
                         self.applyWeighting(self.currentWeighting)
+                        // UI-6: only the stored path is done here.
+                        self.isLoading = false
                     } else {
+                        // UI-6: the fallback recompute clears `isLoading`.
                         self.loadFallback(weighting: self.currentWeighting)
                     }
                     self.onMeasurementDataReady?(provider)
-                    self.isLoading = false
                 case .failure(let error):
                     print("[RecordingSpectrogramModel] Failed to load stored measurement data: \(error)")
-                    self.isLoading = false
                     self.loadFallback(weighting: self.currentWeighting)
                 }
             }
@@ -142,7 +147,10 @@ final class RecordingSpectrogramModel: ObservableObject {
 
     private func loadFallback(weighting: FrequencyWeighting) {
         loadTask?.cancel()
-        guard let url = audioURL else { return }
+        guard let url = audioURL else {
+            isLoading = false
+            return
+        }
         let calibrationOffset = self.calibrationOffset
         let fftBlockSize = self.fftBlockSize
         isLoading = true
@@ -183,6 +191,18 @@ final class RecordingSpectrogramModel: ObservableObject {
 
         if weighting != .z, shouldPromoteResolution(), !isPromotingResolution {
             promoteResolutionThenApply(weighting)
+            return
+        }
+
+        // UI-5: once promoted to the audio-derived full-resolution history,
+        // weighting must stay on that history (it used to fall back to the
+        // stored 31-band overview).
+        if isPromoted {
+            if weighting == .z {
+                setHistory(rawHistory)
+            } else {
+                applyProcessorWeighting(weighting)
+            }
             return
         }
 
@@ -327,6 +347,7 @@ final class RecordingSpectrogramModel: ObservableObject {
                     self.axis = .logSpaced
                     self.weightedCache.removeAll()
                     self.isPromotingResolution = false
+                    self.isPromoted = true
                     self.applyWeighting(weighting)
                 case .failure:
                     self.isPromotingResolution = false
@@ -363,7 +384,8 @@ final class RecordingSpectrogramModel: ObservableObject {
     nonisolated static func computeHistoryStreaming(
         url: URL,
         calibrationOffset: Float,
-        fftBlockSize: Int
+        fftBlockSize: Int,
+        maxColumns: Int = RecordingSpectrogramModel.maxOverviewFrames
     ) throws -> [[Float]] {
         let fftSize = max(256, fftBlockSize > 0 ? fftBlockSize : 4096)
         let hopSize = SpectrogramHistoryAxis.hopSize(forFFTSize: fftSize)
@@ -383,7 +405,16 @@ final class RecordingSpectrogramModel: ObservableObject {
         var coefficients = [Float](repeating: 0, count: fftSize)
         var magnitudes = [Float](repeating: 0, count: fftSize)
 
+        // UI-1: max-pool hops into at most `maxColumns` columns while
+        // streaming, so long recordings neither exceed the Metal texture
+        // width (16384) nor hold hundreds of MB of columns.
+        let totalHops = max(1, Int((audioFile.length - Int64(fftSize)) / Int64(max(1, hopSize))) + 1)
+        let poolFactor = max(1, Int((Double(totalHops) / Double(max(1, maxColumns))).rounded(.up)))
+        var pooled = [Float](repeating: -.infinity, count: frequencyBins)
+        var pooledCount = 0
+
         var history: [[Float]] = []
+        history.reserveCapacity(min(totalHops, maxColumns) + 1)
         var overlap = [Float]()
 
         while audioFile.framePosition < audioFile.length {
@@ -421,11 +452,24 @@ final class RecordingSpectrogramModel: ObservableObject {
                     column[i] = 20.0 * log10(magnitudes[srcIndex] + 1e-10) + calibrationOffset
                 }
 
-                history.append(column)
+                if poolFactor == 1 {
+                    history.append(column)
+                } else {
+                    vDSP_vmax(pooled, 1, column, 1, &pooled, 1, vDSP_Length(frequencyBins))
+                    pooledCount += 1
+                    if pooledCount == poolFactor {
+                        history.append(pooled)
+                        vDSP_vfill([-Float.infinity], &pooled, 1, vDSP_Length(frequencyBins))
+                        pooledCount = 0
+                    }
+                }
                 offset += hopSize
             }
 
             overlap = offset < samples.count ? Array(samples[offset..<samples.count]) : []
+        }
+        if pooledCount > 0 {
+            history.append(pooled)
         }
 
         return history

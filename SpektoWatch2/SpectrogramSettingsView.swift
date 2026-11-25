@@ -188,17 +188,17 @@ struct SpectrogramSettingsView: View {
             // Sync engine to persisted settings on first open
             audioEngine.setWindowFunction(fftConfiguration.windowFunction)
             audioEngine.setBlockSize(fftConfiguration.blockSize)
-            audioEngine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            audioEngine.syncScrollSpeed(with: fftConfiguration)
         }
         .onChange(of: fftConfiguration.windowFunction) { _, newValue in
             audioEngine.setWindowFunction(newValue)
         }
         .onChange(of: fftConfiguration.blockSize) { _, newValue in
             audioEngine.setBlockSize(newValue)
-            audioEngine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            audioEngine.syncScrollSpeed(with: fftConfiguration)
         }
         .onChange(of: fftConfiguration.overlapPercent) { _, _ in
-            audioEngine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            audioEngine.syncScrollSpeed(with: fftConfiguration)
         }
         .onChange(of: isStereo) { _, newValue in
             if newValue {

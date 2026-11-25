@@ -5,6 +5,9 @@ struct WidgetUndoToast: Equatable, Identifiable {
     let id = UUID()
     let widget: WidgetConfiguration
     let index: Int
+    /// UI-12: layout the widget was deleted from (preset slot or custom
+    /// layout). Undo only restores into that layout.
+    var navigation: DashboardNavigation? = nil
 }
 
 @MainActor
@@ -234,7 +237,7 @@ class DashboardViewModel: ObservableObject {
         guard let index = dashboardManager.widgets.firstIndex(where: { $0.id == widget.id }) else { return }
         commitPendingWidgetDelete()
         dashboardManager.removeWidget(id: widget.id)
-        let toast = WidgetUndoToast(widget: widget, index: index)
+        let toast = WidgetUndoToast(widget: widget, index: index, navigation: dashboardManager.navigation)
         widgetUndoToast = toast
         widgetUndoTask?.cancel()
         widgetUndoTask = Task { [weak self] in
@@ -250,6 +253,12 @@ class DashboardViewModel: ObservableObject {
         guard let toast = widgetUndoToast else { return }
         widgetUndoTask?.cancel()
         widgetUndoTask = nil
+        // UI-12: the user switched layouts while the toast was visible —
+        // restoring would insert the widget into the wrong layout.
+        if let source = toast.navigation, source != dashboardManager.navigation {
+            widgetUndoToast = nil
+            return
+        }
         dashboardManager.restoreWidget(toast.widget, at: toast.index)
         widgetUndoToast = nil
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()

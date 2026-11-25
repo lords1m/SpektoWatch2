@@ -14,7 +14,6 @@ struct RecordingsListView: View {
     @AppStorage("recordingsList.sortOption") private var sortRawValue: String = SortOption.dateDesc.rawValue
     @State private var editMode: EditMode = .inactive
     @State private var selection: Set<UUID> = []
-    @State private var recordingsRefreshToken: Int = 0
 
     // Destructive flows
     @State private var deleteRequest: DeleteRequest?
@@ -30,7 +29,6 @@ struct RecordingsListView: View {
     // MARK: - Body
 
     var body: some View {
-        let _ = recordingsRefreshToken
         NavigationStack {
             content
                 .navigationTitle("Aufnahmen")
@@ -44,9 +42,6 @@ struct RecordingsListView: View {
                 )
                 .refreshable {
                     services.recordingManager.reloadRecordings()
-                }
-                .onReceive(services.recordingManager.$recordings) { _ in
-                    recordingsRefreshToken &+= 1
                 }
                 .alert(
                     deleteRequest?.title ?? "",

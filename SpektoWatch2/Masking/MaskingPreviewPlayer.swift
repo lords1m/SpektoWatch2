@@ -40,22 +40,23 @@ final class MaskingPreviewPlayer: ObservableObject {
 
         let outputFormat = newEngine.outputNode.inputFormat(forBus: 0)
 
+        // UI-16: start silent and fade in — the mixer used to run at unity
+        // gain until `volumeDB` was applied after `start()` (full-scale burst).
+        newMixer.outputVolume = 0
+
         if maskerType.isAssetBased {
             // Asset-based masker (Rain): schedule looping file on a player node.
-            let player = AVAudioPlayerNode()
-            newEngine.attach(player)
-            newEngine.connect(player,   to: newEQ,    format: outputFormat)
-            newEngine.connect(newEQ,    to: newMixer, format: outputFormat)
-            newEngine.connect(newMixer, to: newEngine.outputNode, format: outputFormat)
-
-            let loaded = NoiseGenerator.scheduleLoopingAsset(
-                named: "rain_loop", extension: "m4a",
-                on: player, engine: newEngine
-            )
-            if !loaded {
+            guard let loop = NoiseGenerator.loopingAssetBuffer(named: "rain_loop", extension: "m4a") else {
                 // Rain asset missing — fall back to pink noise
                 return try play(maskerType: .pinkNoise, eqBands: eqBands, volumeDB: volumeDB)
             }
+            let player = AVAudioPlayerNode()
+            newEngine.attach(player)
+            // UI-16: connect with the asset's own processing format.
+            newEngine.connect(player,   to: newEQ,    format: loop.format)
+            newEngine.connect(newEQ,    to: newMixer, format: loop.format)
+            newEngine.connect(newMixer, to: newEngine.outputNode, format: outputFormat)
+            player.scheduleBuffer(loop, at: nil, options: .loops)
 
             try newEngine.start()
             player.play()
@@ -78,13 +79,44 @@ final class MaskingPreviewPlayer: ObservableObject {
         engine    = newEngine
         eqNode    = newEQ
         mixerNode = newMixer
+        isFadingIn = true
         self.volumeDB = volumeDB
         isPlaying = true
+        fadeIn(mixer: newMixer)
+    }
+
+    private var isFadingIn = false
+    private var fadeTimer: Timer?
+
+    static func linearVolume(_ db: Float) -> Float {
+        min(1.0, max(0.0, pow(10.0, db / 20.0)))
+    }
+
+    /// ~100 ms linear fade-in to the current `volumeDB`.
+    private func fadeIn(mixer: AVAudioMixerNode) {
+        fadeTimer?.invalidate()
+        var step = 0
+        let steps = 10
+        fadeTimer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { [weak self, weak mixer] timer in
+            MainActor.assumeIsolated {
+                step += 1
+                guard let self, let mixer, self.mixerNode === mixer else { timer.invalidate(); return }
+                mixer.outputVolume = Self.linearVolume(self.volumeDB) * Float(step) / Float(steps)
+                if step >= steps {
+                    timer.invalidate()
+                    self.isFadingIn = false
+                    self.fadeTimer = nil
+                }
+            }
+        }
     }
 
     // MARK: – Stop
 
     func stop() {
+        fadeTimer?.invalidate()
+        fadeTimer = nil
+        isFadingIn = false
         playerNode?.stop()
         engine?.stop()
         if let source = sourceNode { engine?.detach(source) }
@@ -107,8 +139,8 @@ final class MaskingPreviewPlayer: ObservableObject {
     // MARK: – Helpers
 
     private func applyVolume() {
-        let linear = pow(10.0, volumeDB / 20.0)
-        mixerNode?.outputVolume = min(1.0, max(0.0, linear))
+        guard !isFadingIn else { return } // the fade reads `volumeDB` each step
+        mixerNode?.outputVolume = Self.linearVolume(volumeDB)
     }
 
     private func configureEQ(_ eq: AVAudioUnitEQ, bands: [EQBand]) {

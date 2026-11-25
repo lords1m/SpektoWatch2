@@ -73,6 +73,21 @@ enum NoiseGenerator {
     // Schedules a looping asset-based audio file on an existing player node.
     // Returns false if the file cannot be found in the main bundle.
     @discardableResult
+    /// UI-16: loads a bundled loop into a PCM buffer in the file's own
+    /// `processingFormat` (so the player can be connected with that format —
+    /// connecting it with the hardware output format could crash on a mono
+    /// asset).
+    static func loopingAssetBuffer(named name: String, extension ext: String = "m4a") -> AVAudioPCMBuffer? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: ext),
+              let file = try? AVAudioFile(forReading: url),
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                            frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: buffer)) != nil else {
+            return nil
+        }
+        return buffer
+    }
+
     static func scheduleLoopingAsset(named name: String,
                                      extension ext: String = "m4a",
                                      on playerNode: AVAudioPlayerNode,

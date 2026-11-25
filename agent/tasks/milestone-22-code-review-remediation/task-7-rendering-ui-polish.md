@@ -1,6 +1,6 @@
 # Task 7: Rendering, UI & Feature Polish
 
-Status: pending
+Status: code_complete (pending macOS build + simulator tests)
 Created: 2026-11-24
 Milestone: `milestone-22-code-review-remediation`
 Owns: UI-1 … UI-16

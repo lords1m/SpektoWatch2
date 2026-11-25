@@ -22,8 +22,41 @@ final class MeasurementLiveActivityController {
     /// update frequencies, so we cap at ~1 Hz regardless of caller cadence.
     private let minUpdateInterval: TimeInterval = 1.0
     private var lastUpdate: Date = .distantPast
+    /// UI-14: watches the current activity's state so a user dismissal (or
+    /// a system end) clears `activity` instead of leaving a dead handle.
+    private var stateObservation: Task<Void, Never>?
 
-    private init() {}
+    private init() {
+        // UI-14: activities orphaned by a crash/kill of a previous process
+        // are never ended by anyone else — end them at launch.
+        endOrphanedActivities()
+    }
+
+    /// Ends every activity of this type that is not the one we own.
+    func endOrphanedActivities() {
+        let ownID = activity?.id
+        for orphan in Activity<MeasurementActivityAttributes>.activities where orphan.id != ownID {
+            logger.info("Ending orphaned Live Activity \(orphan.id, privacy: .public).")
+            Task { await orphan.end(nil, dismissalPolicy: .immediate) }
+        }
+    }
+
+    private func observeState(of activity: Activity<MeasurementActivityAttributes>) {
+        stateObservation?.cancel()
+        let id = activity.id
+        stateObservation = Task { [weak self] in
+            for await state in activity.activityStateUpdates {
+                guard state == .dismissed || state == .ended else { continue }
+                await MainActor.run {
+                    guard let self, self.activity?.id == id else { return }
+                    self.logger.info("Live Activity \(id, privacy: .public) \(String(describing: state), privacy: .public) externally.")
+                    self.activity = nil
+                    self.stateObservation = nil
+                }
+                return
+            }
+        }
+    }
 
     /// Whether the user has Live Activities enabled for this app.
     var isAvailable: Bool {
@@ -47,6 +80,8 @@ final class MeasurementLiveActivityController {
             print("[LiveActivity] Already running (\(activity!.id)); skipping.")
             return nil
         }
+        // UI-14: never stack a second activity next to a stale one.
+        endOrphanedActivities()
 
         let attributes = MeasurementActivityAttributes(
             sessionTitle: sessionTitle,
@@ -65,6 +100,7 @@ final class MeasurementLiveActivityController {
                 content: ActivityContent(state: initialState, staleDate: nil)
             )
             lastUpdate = .distantPast
+            if let activity { observeState(of: activity) }
             logger.info("Started Live Activity \(self.activity?.id ?? "?", privacy: .public).")
             print("[LiveActivity] Started: id=\(self.activity?.id ?? "?")")
             return nil
@@ -98,6 +134,8 @@ final class MeasurementLiveActivityController {
     func end() {
         guard let activity else { return }
         self.activity = nil
+        stateObservation?.cancel()
+        stateObservation = nil
         Task {
             await activity.end(nil, dismissalPolicy: .immediate)
         }

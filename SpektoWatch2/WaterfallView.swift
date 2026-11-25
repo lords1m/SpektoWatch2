@@ -390,15 +390,18 @@ struct WaterfallView: View {
             .onTapGesture(count: 2, perform: resetCamera)
             .onTapGesture(count: 1, perform: togglePicker)
             .onAppear(perform: applyStartModeIfNeeded)
-            .overlay(
-                TwoFingerPanRecognizer(
+            // UI-8: recognizer attached to the hosting view. The old
+            // overlay's `hitTest` only claimed a touch once two fingers were
+            // already down, so the first finger never reached the pan
+            // recognizer and two-finger pans rarely began.
+            .gesture(
+                TwoFingerPanGesture(
                     onChange: { delta in twoFingerDelta = delta },
                     onEnd: { delta in
                         commitTwoFingerPan(delta)
                         twoFingerDelta = .zero
                     }
                 )
-                .allowsHitTesting(true)
             )
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("recordingWaterfallView")
@@ -1312,6 +1315,9 @@ final class WaterfallHistoryStore: ObservableObject {
     private var lastFrequencies: [Float] = []
     private var lastBinCount: Int = 0
     private var lastRebuild: TimeInterval = 0
+    /// UI-9: rebuilds run off main; a newer rebuild cancels the older one.
+    private var buildTask: Task<Void, Never>?
+    private var buildGeneration: UInt64 = 0
 
     init(settings: Settings = .default) {
         self.settings = settings
@@ -1328,6 +1334,7 @@ final class WaterfallHistoryStore: ObservableObject {
         let sliceCountChanged = new.sliceCount != settings.sliceCount
         settings = new
         if capacityChanged {
+            invalidatePendingBuild()
             history = RingBuffer(capacity: max(8, new.capacity))
             lastBinCount = 0
             lastFrequencies = []
@@ -1339,7 +1346,14 @@ final class WaterfallHistoryStore: ObservableObject {
         }
     }
 
+    private func invalidatePendingBuild() {
+        buildGeneration &+= 1
+        buildTask?.cancel()
+        buildTask = nil
+    }
+
     func reset() {
+        invalidatePendingBuild()
         history.removeAll()
         lastBinCount = 0
         lastFrequencies = []
@@ -1375,6 +1389,7 @@ final class WaterfallHistoryStore: ObservableObject {
     private func rebuild(force: Bool) {
         let frames = history.inOrder()
         guard !frames.isEmpty, !lastFrequencies.isEmpty else {
+            invalidatePendingBuild()
             if !dataSet.isEmpty {
                 dataSet = WaterfallDataSet.empty.with(minDB: settings.minDB, maxDB: settings.maxDB)
             }
@@ -1388,15 +1403,28 @@ final class WaterfallHistoryStore: ObservableObject {
             return max(0, last.timeIntervalSince(first))
         }()
         let magnitudes = frames.map { $0.magnitudes }
-        dataSet = WaterfallDataBuilder.build(
-            history: magnitudes,
-            sourceFrequencies: lastFrequencies,
-            duration: span,
-            targetSliceCount: settings.sliceCount,
-            targetFrequencyCount: settings.targetFrequencyCount,
-            minDB: settings.minDB,
-            maxDB: settings.maxDB
-        )
+        let frequencies = lastFrequencies
+        let settings = self.settings
+        buildGeneration &+= 1
+        let generation = buildGeneration
+        buildTask?.cancel()
+        // UI-9: the 720-frame build used to run on main every 120 ms.
+        buildTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let built = WaterfallDataBuilder.build(
+                history: magnitudes,
+                sourceFrequencies: frequencies,
+                duration: span,
+                targetSliceCount: settings.sliceCount,
+                targetFrequencyCount: settings.targetFrequencyCount,
+                minDB: settings.minDB,
+                maxDB: settings.maxDB
+            )
+            if Task.isCancelled { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.buildGeneration == generation else { return }
+                self.dataSet = built
+            }
+        }
     }
 }
 
@@ -1595,70 +1623,44 @@ private struct WaterfallFullscreenView: View {
 // MARK: - Two-finger pan recognizer (UIKit bridge)
 // ============================================================================
 //
-// SwiftUI's DragGesture is 1-finger only. To get a true 2-finger pan that
-// coexists with the SwiftUI MagnifyGesture (pinch) and the 1-finger drag,
-// we drop a transparent UIView into the view tree as an overlay and attach
-// a UIPanGestureRecognizer with minimumNumberOfTouches = 2.
-//
-// The wrapping UIView only "claims" touch events when 2+ fingers are down
-// — `hitTest` returns nil for 0–1 touches so events fall through to the
-// SwiftUI layer beneath.
+// SwiftUI's DragGesture is 1-finger only. A UIPanGestureRecognizer with
+// exactly two touches is attached to the hosting view via
+// `UIGestureRecognizerRepresentable` (iOS 18) and recognizes simultaneously
+// with the SwiftUI pinch and 1-finger drag (UI-8).
 
-private struct TwoFingerPanRecognizer: UIViewRepresentable {
+private struct TwoFingerPanGesture: UIGestureRecognizerRepresentable {
     let onChange: (CGSize) -> Void
     let onEnd: (CGSize) -> Void
 
-    func makeUIView(context: Context) -> UIView {
-        let view = TwoFingerPassThroughView()
-        view.backgroundColor = .clear
-        view.isUserInteractionEnabled = true
-        let recognizer = UIPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handlePan(_:))
-        )
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
         recognizer.minimumNumberOfTouches = 2
         recognizer.maximumNumberOfTouches = 2
         recognizer.delegate = context.coordinator
-        view.addGestureRecognizer(recognizer)
-        return view
+        return recognizer
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        let translation = recognizer.translation(in: recognizer.view)
+        let delta = CGSize(width: translation.x, height: translation.y)
+        switch recognizer.state {
+        case .began, .changed:
+            onChange(delta)
+        case .ended, .cancelled, .failed:
+            onEnd(delta)
+        default:
+            break
+        }
+    }
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        let parent: TwoFingerPanRecognizer
-        init(_ parent: TwoFingerPanRecognizer) { self.parent = parent }
-
-        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
-            let translation = recognizer.translation(in: recognizer.view)
-            let delta = CGSize(width: translation.x, height: translation.y)
-            switch recognizer.state {
-            case .began, .changed:
-                parent.onChange(delta)
-            case .ended, .cancelled, .failed:
-                parent.onEnd(delta)
-            default:
-                break
-            }
-        }
-
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
-            return true
+            true
         }
-    }
-}
-
-private final class TwoFingerPassThroughView: UIView {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let touchCount = event?.allTouches?.count ?? 0
-        if touchCount >= 2 {
-            return super.hitTest(point, with: event)
-        }
-        return nil
     }
 }

@@ -193,6 +193,7 @@ private struct ParametersTabView: View {
                 fftConfig.overlapPercent = 75.0
                 audioEngine.setWindowFunction(.blackmanHarris)
                 audioEngine.setBlockSize(.size2048)
+                audioEngine.syncScrollSpeed(with: fftConfig)
             } label: {
                 Label("Zurücksetzen", systemImage: "arrow.uturn.backward")
                     .font(.caption)
@@ -207,6 +208,11 @@ private struct ParametersTabView: View {
         }
         .onChange(of: fftConfig.blockSize) { _, newValue in
             audioEngine.setBlockSize(newValue)
+            // UI-11: hop = blockSize × (1 − overlap) changed as well.
+            audioEngine.syncScrollSpeed(with: fftConfig)
+        }
+        .onChange(of: fftConfig.overlapPercent) { _, _ in
+            audioEngine.syncScrollSpeed(with: fftConfig)
         }
     }
 }

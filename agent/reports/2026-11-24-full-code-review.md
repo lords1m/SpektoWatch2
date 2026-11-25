@@ -102,19 +102,19 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| UI-1 | H | `RecordingSpectrogramModel.swift` `computeHistoryStreaming` | No column cap → recordings >~3 min exceed 16384 texture width (blank) and use ~200 MB+. |
+| UI-1 | H | `RecordingSpectrogramModel.swift` `computeHistoryStreaming` | No column cap → recordings >~3 min exceed 16384 texture width (blank) and use ~200 MB+. → fixed (M22 task-7, pending macOS verification) |
 | UI-2 ✔ | M | `Views/AudioPlayerManager.swift:273` | `seekFrame + sampleTime` after pause/scrub without rescheduling → playhead doubles (10 s → 20 s). → fixed (M22 task-4 commit, pending macOS verification) |
-| UI-3 | M | `NavigableSpectrogramView.swift:~317-373` | Tile request rounded to 1/500 but drawn over exact viewport → up to ~25% misalignment at max zoom; small pans never reload. |
-| UI-4 | L | `NavigableSpectrogramView.swift:~293` | Follow-playhead recentre doesn't call `requestDetailTile()`. |
-| UI-5 | M | `RecordingSpectrogramModel.swift:~361-514` | After resolution promotion, A/C weighting reverts to stored 31-band overview. |
-| UI-6 | L | `RecordingSpectrogramModel.swift:~307` | `isLoading` cleared while fallback recompute still running. |
-| UI-7 | M | `HighEndSpectrogramAdapter.swift:~1252, 774` | Axis metrics pushed into parent `@State` at 30 Hz → full body + `updateUIView` 30×/s. |
-| UI-8 | M | `WaterfallView.swift:~1656` | `TwoFingerPassThroughView.hitTest` returns nil for first touch → two-finger pan rarely begins. |
-| UI-9 | L | `WaterfallView.swift:~1391`, `WaterfallPlaybackController.swift` | 720-frame dataset rebuilt on main every 120 ms; inner `Task.detached` not cancelled → stacked rebuilds. |
-| UI-10 | M | `AppServices.swift:13-58` | Doesn't forward `recordingManager`/`connectivityManager`/`maskingEngine` changes → stale labels, badges, alerts. |
-| UI-11 | M | `SpektralanalyseLaborWidget.swift:166, 208` | Overlap/block-size controls don't update `audioEngine.scrollSpeed`. |
-| UI-12 | L | `DashboardViewModel.swift:217-240` | Undo-delete restores widget into currently shown layout. |
-| UI-13 | L | `SingleValueWidget.swift:121-124` | Throttled publisher rebuilt in `body` → refresh-rate setting ineffective. |
-| UI-14 | M | `LiveActivity/MeasurementLiveActivityController.swift:46-63` | Activities orphaned by crash never ended; duplicates on next recording; user dismissal not observed. |
+| UI-3 | M | `NavigableSpectrogramView.swift:~317-373` | Tile request rounded to 1/500 but drawn over exact viewport → up to ~25% misalignment at max zoom; small pans never reload. → fixed (M22 task-7, pending macOS verification) |
+| UI-4 | L | `NavigableSpectrogramView.swift:~293` | Follow-playhead recentre doesn't call `requestDetailTile()`. → fixed (M22 task-7, pending macOS verification) |
+| UI-5 | M | `RecordingSpectrogramModel.swift:~361-514` | After resolution promotion, A/C weighting reverts to stored 31-band overview. → fixed (M22 task-7, pending macOS verification) |
+| UI-6 | L | `RecordingSpectrogramModel.swift:~307` | `isLoading` cleared while fallback recompute still running. → fixed (M22 task-7, pending macOS verification) |
+| UI-7 | M | `HighEndSpectrogramAdapter.swift:~1252, 774` | Axis metrics pushed into parent `@State` at 30 Hz → full body + `updateUIView` 30×/s. → fixed (M22 task-7, pending macOS verification) |
+| UI-8 | M | `WaterfallView.swift:~1656` | `TwoFingerPassThroughView.hitTest` returns nil for first touch → two-finger pan rarely begins. → fixed (M22 task-7, pending macOS verification) |
+| UI-9 | L | `WaterfallView.swift:~1391`, `WaterfallPlaybackController.swift` | 720-frame dataset rebuilt on main every 120 ms; inner `Task.detached` not cancelled → stacked rebuilds. → fixed (M22 task-7, pending macOS verification) |
+| UI-10 | M | `AppServices.swift:13-58` | Doesn't forward `recordingManager`/`connectivityManager`/`maskingEngine` changes → stale labels, badges, alerts. → fixed (M22 task-7, pending macOS verification) |
+| UI-11 | M | `SpektralanalyseLaborWidget.swift:166, 208` | Overlap/block-size controls don't update `audioEngine.scrollSpeed`. → fixed (M22 task-7, pending macOS verification) |
+| UI-12 | L | `DashboardViewModel.swift:217-240` | Undo-delete restores widget into currently shown layout. → fixed (M22 task-7, pending macOS verification) |
+| UI-13 | L | `SingleValueWidget.swift:121-124` | Throttled publisher rebuilt in `body` → refresh-rate setting ineffective. → fixed (M22 task-7, pending macOS verification) |
+| UI-14 | M | `LiveActivity/MeasurementLiveActivityController.swift:46-63` | Activities orphaned by crash never ended; duplicates on next recording; user dismissal not observed. → fixed (M22 task-7, pending macOS verification) |
 | UI-15 | L | `ToneGeneratorWidget.swift:117-161` | No amplitude ramps (clicks); naive square/saw alias. → fixed (M22 task-4 commit, pending macOS verification) |
-| UI-16 | L | `Masking/MaskingPreviewPlayer.swift` | Engine started before volume applied → full-scale burst; rain player connected with output format instead of file `processingFormat` (possible crash on mono asset — unconfirmed). |
+| UI-16 | L | `Masking/MaskingPreviewPlayer.swift` | Engine started before volume applied → full-scale burst; rain player connected with output format instead of file `processingFormat` (possible crash on mono asset — unconfirmed). → fixed (M22 task-7, pending macOS verification) |

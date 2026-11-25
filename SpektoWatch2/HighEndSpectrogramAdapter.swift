@@ -1270,6 +1270,12 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
 // MARK: - Container with Axis Labels
 // ============================================================================
 
+/// UI-7: non-observable holder for the latest axis metrics (main thread).
+final class AxisMetricsBox {
+    var metrics = SpectrogramAxisMetrics()
+    var receivedAt: Double = 0
+}
+
 struct HighEndSpectrogramAdapterWithAxes: View {
     @ObservedObject var audioEngine: AudioEngine
     var colormapType: Int = 0
@@ -1284,8 +1290,11 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     let axisWidth: CGFloat = 35
     let axisHeight: CGFloat = 28
     let axisSpacing: CGFloat = 4
-    @State private var axisMetrics = SpectrogramAxisMetrics()
-    @State private var axisMetricsReceivedAt: Double = 0
+    /// UI-7: axis metrics arrive at ~30 Hz. Storing them in `@State`
+    /// invalidated this whole body (and `updateUIView`) 30×/s; a plain
+    /// reference box is read only by the `TimelineView` canvas, which redraws
+    /// every display frame anyway.
+    @State private var axisBox = AxisMetricsBox()
 
     private var frequencyScale: SpectrogramFrequencyScale { audioEngine.spectrogramFrequencyScale }
     private var minFreq: Double { audioEngine.spectrogramMinFrequency }
@@ -1321,9 +1330,9 @@ struct HighEndSpectrogramAdapterWithAxes: View {
             frequencyScale: frequencyScale,
             minFrequency: Float(minFreq),
             maxFrequency: Float(maxFreq),
-            onAxisMetricsChanged: { metrics in
-                axisMetrics = metrics
-                axisMetricsReceivedAt = CACurrentMediaTime()
+            onAxisMetricsChanged: { [axisBox] metrics in
+                axisBox.metrics = metrics
+                axisBox.receivedAt = CACurrentMediaTime()
             },
             columnHistory: columnHistory
         )
@@ -1355,8 +1364,10 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                     // Extrapolate recording time at display refresh rate to stay in sync
                     // with the Metal spectrogram, which scrolls at 60 FPS via CACurrentMediaTime().
                     // Without this, labels update at 10 Hz and visibly lag the scrolling content.
-                    let elapsed = (!isPaused && axisMetricsReceivedAt > 0)
-                        ? min(CACurrentMediaTime() - axisMetricsReceivedAt, Double(timeSpan.rawValue))
+                    let axisMetrics = axisBox.metrics
+                    let receivedAt = axisBox.receivedAt
+                    let elapsed = (!isPaused && receivedAt > 0)
+                        ? min(CACurrentMediaTime() - receivedAt, Double(timeSpan.rawValue))
                         : 0
                     let duration = max(axisMetrics.recordingTimeSeconds + elapsed, 0)
                     let span = Double(timeSpan.rawValue)

@@ -1096,9 +1096,9 @@ tasks:
       notes: "Code landed 2026-11-25 (Shared/TimeDomainLevelMeter.swift; tests: MeasurementReferenceTests, updated AcousticMetricsCalculatorTests). Q2 applied as option (a): Recording.metricsVersion=2, legacy label in detail view + PDF. Scale kept at the Hann-FFT calibration reference so existing calibration offsets remain valid. Owns MC-1..11; Q2."
     - id: task-7-rendering-ui-polish
       name: "Rendering, UI & Feature Polish"
-      status: pending
+      status: code_complete
       file: agent/tasks/milestone-22-code-review-remediation/task-7-rendering-ui-polish.md
-      notes: "Owns UI-1..16."
+      notes: "Code landed 2026-11-25 (tests: M22UIPolishRegressionTests). UI-2/UI-15 shipped in the task-4 commit. UI-7/8/9 + UI-2 timing need device/Instruments checks (task-8). Owns UI-1..16."
     - id: task-8-verification-acceptance
       name: "Verification & Acceptance"
       status: pending

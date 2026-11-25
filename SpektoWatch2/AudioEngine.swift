@@ -757,6 +757,14 @@ class AudioEngine: ObservableObject {
         objectWillChange.send()
     }
 
+    /// UI-11: single place that maps an FFT configuration's hop size to the
+    /// engine's analysis hop (`scrollSpeed`). Used by the settings screen and
+    /// the Spektralanalyse-Labor widget.
+    func syncScrollSpeed(with config: FFTConfiguration) {
+        let speed = ScrollSpeed.closest(to: config.hopSize)
+        if scrollSpeed != speed { scrollSpeed = speed }
+    }
+
     /// Setzt nur die Fensterfunktion
     func setWindowFunction(_ function: WindowFunction) {
         guard function != currentWindowFunction else { return }
