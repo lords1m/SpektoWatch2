@@ -37,7 +37,7 @@
 
 ## 3. Active Backlog (Requires macOS / Xcode / Hardware)
 
-0. **M22 Code Review Remediation (next up, high priority):** 71 findings from the 2026-11-24 full review — see `agent/reports/2026-11-24-full-code-review.md` and `agent/milestones/milestone-22-code-review-remediation.md`. Start with task-1 (data loss), task-2 (WC transfers), task-3 (watch lifecycle). Open decisions: Q1 `WKWatchOnly`, Q2 metric versioning, Q3 dummy-data fallback.
+0. **M22 Code Review Remediation — task-8 verification (next up, high priority):** all 71 findings are code-fixed (tasks 1–7, see §1). Build + run all tests on macOS (incl. the new TSan configuration), then the hardware matrix in `agent/tasks/milestone-22-code-review-remediation/task-8-verification-acceptance.md` (also lists the likeliest compile issues). Open decision: Q1 `WKWatchOnly` (note: the wired watch Info.plist currently has no `WKWatchOnly`).
 
 1. **macOS/Xcode verification:** Build all 7 targets (`SpektoWatch2`, `SpektoWatch Watch App`, `SpektoWatch Complications`, `SpektoWatch2WidgetExtension`, and test targets) and run `SpektoWatch2Tests` + `SpektoWatchTests`.
 2. **Xcode project config cleanup:** Wire `Watch-Info.plist` properly for `SpektoWatch Watch App`, remove stale `PBXFileSystemSynchronizedBuildFileExceptionSet` entries (`Managers/RecordingManager.swift`, `Info.plist`), set Debug `SWIFT_OPTIMIZATION_LEVEL = -Onone`, and wire `.xctestplan` to schemes.

@@ -433,10 +433,11 @@ milestones:
 
   M22:
     name: Code Review Remediation
-    status: pending
+    status: in_progress
     priority: high
-    progress: 0
-    tasks_completed: 0
+    progress: 88
+    started: "2026-11-24"
+    tasks_completed: 7
     tasks_total: 8
     notes: >
       Resolve all 71 findings of the 2026-11-24 full code review
@@ -444,7 +445,9 @@ milestones:
       WC transfers (2), watch lifecycle (3), audio session coordinator (4),
       RT/threading (5), measurement maths (6); UI polish (7) interleaved;
       verification (8). Open decisions Q1 WKWatchOnly, Q2 metric versioning,
-      Q3 dummy-data fallback.
+      Q3 dummy-data fallback. 2026-11-25: tasks 1-7 code-complete (all 71
+      IDs), pending macOS build/tests and the task-8 hardware matrix.
+      Q2=(a), Q3=debug flag applied; Q1 open (WL-3 done independently).
     file: agent/milestones/milestone-22-code-review-remediation.md
 
 tasks:

@@ -1,6 +1,6 @@
 # Milestone 22: Code Review Remediation
 
-Status: pending
+Status: in_progress — tasks 1–7 code-complete 2026-11-25; task-8 (macOS + hardware) open
 Created: 2026-11-24
 Priority: high
 
