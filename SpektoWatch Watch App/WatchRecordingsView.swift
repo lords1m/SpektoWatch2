@@ -3,7 +3,7 @@ import SwiftUI
 /// Browse and manage standalone watch recordings. Backed by the durable catalog
 /// in `WatchRecordingStore` ([[task-3-local-store]]). List → detail → delete.
 struct WatchRecordingsView: View {
-    @ObservedObject private var store = WatchRecordingStore.shared
+    private var store = WatchRecordingStore.shared
 
     var body: some View {
         ZStack {
@@ -108,7 +108,7 @@ private struct WatchRecordingRow: View {
 
 struct WatchRecordingDetailView: View {
     let recording: WatchRecordingMetadata
-    @ObservedObject private var store = WatchRecordingStore.shared
+    private var store = WatchRecordingStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirm = false
 

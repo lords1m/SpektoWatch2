@@ -1,7 +1,6 @@
 import SwiftUI
 import AVFoundation
 import Accelerate
-import Combine
 import PhotosUI
 
 struct RecordingDetailView: View {
@@ -20,7 +19,7 @@ struct RecordingDetailView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var services: AppServices
+    @Environment(AppServices.self) private var services
     // Main shared AudioEngine — used for playback via PlaybackAnalyzer (M14/R1).
     // The second @StateObject vizAudioEngine was removed: constructing a new
     // AudioEngine per detail view allocated a full second DSP pipeline including
@@ -35,15 +34,15 @@ struct RecordingDetailView: View {
     /// previous hardcoded `0` (Turbo).
     @AppStorage("design.colormap") private var designColormap: String = Colormap.viridis.rawValue
     @AppStorage("recording.waterfallSpectrumMode") private var waterfallSpectrumModeRawValue: String = WaterfallSpectrumMode.continuous.rawValue
-    @StateObject private var audioPlayer = AudioPlayerManager()
-    @StateObject private var playbackAnalyzer = PlaybackAnalyzer()
-    @StateObject private var playbackFFTConfig = FFTConfiguration()
+    @State private var audioPlayer = AudioPlayerManager()
+    @State private var playbackAnalyzer = PlaybackAnalyzer()
+    @State private var playbackFFTConfig = FFTConfiguration()
 
     @State private var isDraggingSlider = false
     /// Owns the stored-measurement spectrogram pipeline (loading, weighting,
     /// resolution promotion, level-of-detail tiles). Extracted from this view so
     /// the heavy DSP/model work no longer re-renders with the playhead.
-    @StateObject private var spectrogramModel = RecordingSpectrogramModel()
+    @State private var spectrogramModel = RecordingSpectrogramModel()
     @State private var spectrogramExportTask: Task<Void, Never>?
     @State private var selectedMetrics: Set<String> = []
     @State private var analysisStartTime: TimeInterval = 0
@@ -57,7 +56,7 @@ struct RecordingDetailView: View {
     @State private var cachedMetricRows: [StoredMetricRow] = []
     @State private var playbackWidgets: [WidgetConfiguration] = []
     @State private var playbackWeighting: FrequencyWeighting = .z
-    @StateObject private var waterfallController = WaterfallPlaybackController()
+    @State private var waterfallController = WaterfallPlaybackController()
 
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
@@ -71,6 +70,7 @@ struct RecordingDetailView: View {
     @State private var showSpectrogramExportError = false
     @State private var autoFitToastText: String?
     @State private var autoFitToastTask: Task<Void, Never>?
+    @State private var showAudioEditor = false
 
     init(recording: Recording) {
         _recording = State(initialValue: recording)
@@ -102,6 +102,13 @@ struct RecordingDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
+                        Button {
+                            audioPlayer.pause()
+                            showAudioEditor = true
+                        } label: {
+                            Label("Audio bearbeiten & konvertieren", systemImage: "slider.horizontal.3")
+                        }
+
                         Button {
                             shareItems = [services.recordingManager.url(for: recording)]
                             showShareSheet = true
@@ -143,6 +150,22 @@ struct RecordingDetailView: View {
         .sheet(isPresented: $showShareSheet) {
             ActivityView(activityItems: shareItems)
         }
+        .fullScreenCover(isPresented: $showAudioEditor) {
+            AudioEditorView(source: .recording(recording)) { updated in
+                recording = updated
+                let updatedURL = services.recordingManager.url(for: updated)
+                _ = audioPlayer.loadAudio(url: updatedURL)
+                spectrogramModel.load(
+                    measurementURL: services.recordingManager.measurementURL(for: updated),
+                    audioURL: updatedURL,
+                    calibrationOffset: updated.calibrationOffset,
+                    fftBlockSize: updated.fftBlockSize,
+                    fallbackSampleRate: updated.sampleRate,
+                    weighting: playbackWeighting
+                )
+            }
+            .environment(services)
+        }
         .alert(exportAlertTitle, isPresented: $showSpectrogramExportError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -171,8 +194,9 @@ struct RecordingDetailView: View {
             if let audioEngine {
                 playbackAnalyzer.start(engine: audioEngine, recording: recording)
             }
-            audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples, sampleRate in
-                playbackAnalyzer?.processSamples(samples, sampleRate: sampleRate)
+            let analyzerRef = playbackAnalyzer
+            audioPlayer.onAudioSamples = { [weak analyzerRef] samples, sampleRate in
+                analyzerRef?.processSamples(samples, sampleRate: sampleRate)
             }
             if let weighting = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
                 playbackWeighting = weighting
@@ -297,6 +321,14 @@ struct RecordingDetailView: View {
                 }
 
                 ExportActionButton(
+                    title: "Bearbeiten",
+                    systemImage: "slider.horizontal.3"
+                ) {
+                    audioPlayer.pause()
+                    showAudioEditor = true
+                }
+
+                ExportActionButton(
                     title: "Spektrogramm",
                     systemImage: isExportingSpectrogram ? "hourglass" : "photo",
                     isLoading: isExportingSpectrogram
@@ -325,7 +357,7 @@ struct RecordingDetailView: View {
     private var spectralFallbackBanner: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "waveform.badge.exclamationmark")
-                .foregroundStyle(.orange)
+                .foregroundStyle(FerriteStatus.warning)
             Text("In der Messdatei sind keine Terzband-Spektren gespeichert (z. B. ältere Watch-Aufnahme). Wasserfall und Frequenzansicht nutzen eine Neuberechnung aus der Audiodatei.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -454,7 +486,7 @@ struct RecordingDetailView: View {
                 .disabled(!audioPlayer.isLoaded)
                 .accessibilityLabel("5 Sekunden vor")
             }
-            .foregroundColor(.blue)
+            .foregroundColor(FerriteColor.label)
 
             Button {
                 addMarkerAtCurrentTime()
@@ -586,13 +618,17 @@ struct RecordingDetailView: View {
                             selectedMetrics.insert(key)
                         }
                     } label: {
+                        let isOn = selectedMetrics.contains(key)
                         Text(key)
-                            .font(.caption)
+                            .font(.caption.weight(isOn ? .bold : .regular))
+                            .foregroundStyle(isOn ? FerriteColor.onAccent : FerriteColor.label)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .frame(maxWidth: .infinity)
-                            .background(selectedMetrics.contains(key) ? Color.blue.opacity(0.25) : Color.secondary.opacity(0.15))
-                            .cornerRadius(8)
+                            .background(isOn ? FerriteColor.accent : FerriteColor.surfaceSunken,
+                                        in: RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
+                                .strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
                     }
                     .buttonStyle(.plain)
                 }

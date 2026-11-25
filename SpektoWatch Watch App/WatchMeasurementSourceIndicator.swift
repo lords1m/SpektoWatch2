@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Compact pill showing which device currently supplies live measurements.
 struct WatchMeasurementSourceIndicator: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
+    @Environment(WatchAudioEngine.self) private var audioEngine
 
     private let watchAccent = Color(red: 0.45, green: 0.93, blue: 0.55)
 

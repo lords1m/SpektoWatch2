@@ -5,12 +5,11 @@
 //  Created by Simeon Brandt on 22.01.26.
 //
 
-import Combine
 import SwiftUI
 
 @main
 struct SpektoWatch2App: App {
-    @StateObject private var services = AppServices()
+    @State private var services = AppServices()
 
     init() {
 #if DEBUG
@@ -20,7 +19,7 @@ struct SpektoWatch2App: App {
 #endif
         // Kick migrations off the launch critical path. Consumers that read
         // keys touched by migration steps must wait via
-        // `ensureMigrationsComplete` or `startMigrationsIfNeeded(completion:)`.
+        // `ensureMigrationsComplete` or `migrationsCompleted()`.
         PersistenceMigrator.startMigrationsIfNeeded()
     }
 
@@ -29,27 +28,19 @@ struct SpektoWatch2App: App {
             Group {
                 if services.isAudioReady {
                     ContentView()
-                        .environmentObject(services)
+                        .environment(services)
                 } else {
                     GlassBackground()
                         .ignoresSafeArea()
                 }
             }
+            .ferriteTheme()
             // `.task` is the reliable hook for first-launch bootstrap; `onAppear`
             // alone can fail to run while the splash placeholder is showing, which
             // left `startAudio()` uncalled even though migrations had finished.
             .task {
-                await Self.waitForPersistenceMigrations()
+                await PersistenceMigrator.migrationsCompleted()
                 services.startAudio()
-            }
-        }
-    }
-
-    /// Suspends until the async migration runner started in `init()` completes.
-    private static func waitForPersistenceMigrations() async {
-        await withCheckedContinuation { continuation in
-            PersistenceMigrator.startMigrationsIfNeeded {
-                continuation.resume()
             }
         }
     }

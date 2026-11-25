@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 import Accelerate
-import Combine
+import Observation
 
 /// Owns the stored-measurement spectrogram pipeline for `RecordingDetailView`:
 /// loading the `.spekto` overview (or recomputing from audio), applying
@@ -10,40 +10,41 @@ import Combine
 ///
 /// Extracted from `RecordingDetailView` so the DSP/model work no longer lives
 /// in the view and the heavy state is observed independently of the playhead.
+@Observable
 @MainActor
-final class RecordingSpectrogramModel: ObservableObject {
+final class RecordingSpectrogramModel {
     private static let maxOverviewFrames = 1_800
 
     /// Display-ready history in raw dB SPL (`[column][bin]`).
-    @Published private(set) var history: [[Float]] = []
+    private(set) var history: [[Float]] = []
     /// Bumped whenever `history` content changes so the Metal renderer reloads
     /// even when the column count is unchanged (e.g. a weighting switch).
-    @Published private(set) var version = 0
-    @Published private(set) var axis: SpectrogramHistoryAxisKind = .logSpaced
-    @Published private(set) var isLoading = false
-    @Published private(set) var isPromotingResolution = false
-    @Published private(set) var hasMeasurementData = false
-    @Published private(set) var usesAudioSpectralFallback = false
+    private(set) var version = 0
+    private(set) var axis: SpectrogramHistoryAxisKind = .logSpaced
+    private(set) var isLoading = false
+    private(set) var isPromotingResolution = false
+    private(set) var hasMeasurementData = false
+    private(set) var usesAudioSpectralFallback = false
     /// Bumped when `provider` changes so views can react to its availability.
-    @Published private(set) var providerToken = 0
+    private(set) var providerToken = 0
 
     private(set) var provider: StoredDataProvider?
 
     /// Called on the main actor once the spectral-availability flag is known.
-    var onSpectralFlagResolved: ((Bool) -> Void)?
+    @ObservationIgnored var onSpectralFlagResolved: ((Bool) -> Void)?
     /// Called on the main actor when the stored provider finishes bootstrapping.
-    var onMeasurementDataReady: ((StoredDataProvider) -> Void)?
+    @ObservationIgnored var onMeasurementDataReady: ((StoredDataProvider) -> Void)?
 
-    private var rawHistory: [[Float]] = []
-    private var weightedCache: [FrequencyWeighting: [[Float]]] = [:]
-    private var currentWeighting: FrequencyWeighting = .z
-    private var loadTask: Task<Void, Never>?
-    private var weightingTask: Task<Void, Never>?
+    @ObservationIgnored private var rawHistory: [[Float]] = []
+    @ObservationIgnored private var weightedCache: [FrequencyWeighting: [[Float]]] = [:]
+    @ObservationIgnored private var currentWeighting: FrequencyWeighting = .z
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var weightingTask: Task<Void, Never>?
 
-    private var audioURL: URL?
-    private var calibrationOffset: Float = 94
-    private var fftBlockSize: Int = 4096
-    private var fallbackSampleRate: Double = 44_100
+    @ObservationIgnored private var audioURL: URL?
+    @ObservationIgnored private var calibrationOffset: Float = 94
+    @ObservationIgnored private var fftBlockSize: Int = 4096
+    @ObservationIgnored private var fallbackSampleRate: Double = 44_100
 
     var sampleRate: Double { provider?.sampleRate ?? fallbackSampleRate }
 

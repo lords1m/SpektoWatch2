@@ -47,7 +47,7 @@ struct WaterfallDisplaySettings: Equatable {
         return (min(lo, hi - 5), max(hi, lo + 5))
     }
 
-    func historyStoreSettings(capacity: Int, rebuildInterval: TimeInterval = 0.12) -> WaterfallHistoryStore.Settings {
+    func historyStoreSettings(capacity: Int, rebuildInterval: TimeInterval = 1.0 / 30.0) -> WaterfallHistoryStore.Settings {
         let range = clampedDBRange()
         return WaterfallHistoryStore.Settings(
             capacity: capacity,

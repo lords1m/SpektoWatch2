@@ -91,7 +91,7 @@ struct StatRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(.blue)
+                .foregroundColor(.accentColor)
                 .frame(width: 24)
             Text(title)
             Spacer()

@@ -1,11 +1,13 @@
+import AsyncAlgorithms
 import Foundation
+import os
 
-public enum MicrophoneSource: String, Codable, CaseIterable {
+public enum MicrophoneSource: String, Codable, CaseIterable, Sendable {
     case iPhone = "iPhone"
     case appleWatch = "Apple Watch"
 }
 
-public struct SpectrogramData: Codable {
+public struct SpectrogramData: Codable, Sendable {
     public let frequencies: [Float]
     public let magnitudes: [Float]       // Z-gewichtet (ungewichtet/linear)
     public let magnitudesA: [Float]?     // A-gewichtet
@@ -335,7 +337,7 @@ public struct SpectrogramData: Codable {
     }
 }
 
-public struct SpectrogramFrame: Identifiable {
+public struct SpectrogramFrame: Identifiable, Sendable {
     public let id = UUID()
     public let magnitudes: [Float]
     public let timestamp: Date
@@ -343,5 +345,105 @@ public struct SpectrogramFrame: Identifiable {
     public init(magnitudes: [Float], timestamp: Date) {
         self.magnitudes = magnitudes
         self.timestamp = timestamp
+    }
+}
+
+// MARK: - High-Rate Spectrogram Multicast Broadcaster
+
+/// Lightweight cancellation token for synchronous `SpectrogramBroadcaster` listeners.
+public final class SpectrogramSubscription: Sendable {
+    private let onCancel: @Sendable () -> Void
+    private let cancelled = OSAllocatedUnfairLock(initialState: false)
+
+    init(onCancel: @escaping @Sendable () -> Void) {
+        self.onCancel = onCancel
+    }
+
+    public func cancel() {
+        let shouldInvoke = cancelled.withLock { state -> Bool in
+            guard !state else { return false }
+            state = true
+            return true
+        }
+        if shouldInvoke {
+            onCancel()
+        }
+    }
+
+    deinit {
+        cancel()
+    }
+}
+
+/// Real-time-safe multicast broadcaster for `SpectrogramData` frames.
+/// Replaces Combine `PassthroughSubject<SpectrogramData, Never>` without triggering
+/// `@Observable` view invalidation.
+public final class SpectrogramBroadcaster: Sendable {
+    private struct State {
+        var continuations: [UUID: AsyncStream<SpectrogramData>.Continuation] = [:]
+        var listeners: [UUID: @Sendable (SpectrogramData) -> Void] = [:]
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    public init() {}
+
+    /// Creates an `AsyncStream` receiving future spectrogram frames with bounded backpressure.
+    public func stream(
+        bufferingPolicy: AsyncStream<SpectrogramData>.Continuation.BufferingPolicy = .bufferingNewest(2)
+    ) -> AsyncStream<SpectrogramData> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: bufferingPolicy) { [weak self] continuation in
+            self?.state.withLock { $0.continuations[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                _ = self?.state.withLock { $0.continuations.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    /// Creates an `AsyncStream` emitting at most the latest spectrogram frame per `interval`
+    /// using `AsyncAlgorithms` timer-driven chunking. Silent intervals emit nothing.
+    public func throttledStream(
+        every interval: Duration,
+        bufferingPolicy: AsyncStream<SpectrogramData>.Continuation.BufferingPolicy = .bufferingNewest(2)
+    ) -> AsyncStream<SpectrogramData> {
+        let base = stream(bufferingPolicy: bufferingPolicy)
+        guard interval > .zero else { return base }
+        return AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
+            let forwardTask = Task {
+                for await batch in base.chunked(by: .repeating(every: interval, clock: .continuous)) {
+                    if let latest = batch.last {
+                        continuation.yield(latest)
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                forwardTask.cancel()
+            }
+        }
+    }
+
+    /// Registers a direct callback listener (used by Metal renderers and tight-loop FPS tests).
+    public func addListener(_ handler: @escaping @Sendable (SpectrogramData) -> Void) -> SpectrogramSubscription {
+        let id = UUID()
+        state.withLock { $0.listeners[id] = handler }
+        return SpectrogramSubscription { [weak self] in
+            _ = self?.state.withLock { $0.listeners.removeValue(forKey: id) }
+        }
+    }
+
+    /// Emits `data` to all active `AsyncStream`s and direct listeners.
+    /// Safe to call from the real-time audio render thread (`withLockUnchecked`).
+    public func send(_ data: SpectrogramData) {
+        let snapshot = state.withLockUnchecked { current in
+            (Array(current.continuations.values), Array(current.listeners.values))
+        }
+        for continuation in snapshot.0 {
+            continuation.yield(data)
+        }
+        for listener in snapshot.1 {
+            listener(data)
+        }
     }
 }

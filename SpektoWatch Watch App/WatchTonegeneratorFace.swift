@@ -4,7 +4,7 @@ import WatchKit
 /// Tongenerator watch face: frequency readout, log-scaled frequency control,
 /// animated sine preview, play/stop, and λ wavelength readout.
 struct WatchTonegeneratorFace: View {
-    @StateObject private var toneGenerator = WatchToneGenerator()
+    @State private var toneGenerator = WatchToneGenerator()
     @AppStorage(PersistenceKeys.ToneGenerator.frequency) private var storedFrequency: Double = 1000
     @AppStorage(PersistenceKeys.ToneGenerator.amplitude) private var storedAmplitude: Double = 0.5
 

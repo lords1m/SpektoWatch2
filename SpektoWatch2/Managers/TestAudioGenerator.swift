@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import Foundation
 
 /// Generates dummy audio data for testing in the simulator
@@ -6,11 +7,11 @@ class TestAudioGenerator {
     // MARK: - Properties
     
     private let sampleRate: Double
-    private var timer: Timer?
+    private var generationTask: Task<Void, Never>?
     private var startTime: Date?
     
     var isGenerating: Bool {
-        return timer != nil
+        return generationTask != nil
     }
     
     // Callback for generated data
@@ -21,6 +22,10 @@ class TestAudioGenerator {
     init(sampleRate: Double = 44100.0) {
         self.sampleRate = sampleRate
     }
+
+    deinit {
+        generationTask?.cancel()
+    }
     
     // MARK: - Public Methods
     
@@ -30,16 +35,19 @@ class TestAudioGenerator {
         guard !isGenerating else { return }
         
         startTime = Date()
-        
-        timer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
-            self?.generateAndDeliverSamples()
+        let interval: Duration = .seconds(max(0.001, updateInterval))
+        generationTask = Task { @MainActor [weak self] in
+            for await _ in AsyncTimerSequence.repeating(every: interval, clock: .continuous) {
+                guard !Task.isCancelled, let self else { break }
+                self.generateAndDeliverSamples()
+            }
         }
     }
     
     /// Stops generating dummy audio data
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        generationTask?.cancel()
+        generationTask = nil
         startTime = nil
     }
     

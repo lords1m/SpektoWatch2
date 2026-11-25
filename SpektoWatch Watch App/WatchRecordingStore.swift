@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import os
 
 /// Durable catalog of standalone watch recordings. The on-disk catalog (a JSON
@@ -7,15 +7,16 @@ import os
 /// of truth for the recordings UI ([[task-4-recordings-ui]]) and sync-back
 /// ([[task-5-sync-back]]). Recordings live under Application Support — NOT
 /// `temporaryDirectory` — so they survive force-quit and relaunch.
-/// Mutations (`register`/`update`/`setSyncState`/`delete`) drive `@Published`
+/// Mutations (`register`/`update`/`setSyncState`/`delete`) drive `@Observable`
 /// state and must be called on the main thread (they are — from `stopRecording`
 /// and the recordings UI). `directory` is an immutable `let`, so reading it from
 /// the audio/permission thread to construct a `WatchRecordingSession` is safe.
-final class WatchRecordingStore: ObservableObject {
+@Observable
+final class WatchRecordingStore {
     static let shared = WatchRecordingStore()
 
     /// Catalog ordered newest-first. Loaded from disk on init.
-    @Published private(set) var recordings: [WatchRecordingMetadata] = []
+    private(set) var recordings: [WatchRecordingMetadata] = []
 
     private let fileManager = FileManager.default
     private let log = Logger(subsystem: "com.spektowatch.watch", category: "RecordingStore")

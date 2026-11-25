@@ -9,10 +9,10 @@ private let isDebugBuild: Bool = {
 }()
 
 struct ContentView: View {
-    @EnvironmentObject var services: AppServices
+    @Environment(AppServices.self) private var services
     // Owned here so ModularDashboardView re-inits don't allocate throwaway
-    // managers (its @StateObject would discard all but the first).
-    @StateObject private var dashboardManager = DashboardManager()
+    // managers (its @State would discard all but the first).
+    @State private var dashboardManager = DashboardManager()
 
     var body: some View {
         ZStack {

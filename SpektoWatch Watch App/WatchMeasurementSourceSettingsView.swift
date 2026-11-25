@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Watch-side policy for live measurement routing (auto / iPhone / watch mic).
 struct WatchMeasurementSourceSettingsView: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
 
     var body: some View {
         List {

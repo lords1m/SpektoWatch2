@@ -1,21 +1,22 @@
 import SwiftUI
-import Combine
+import Observation
 
 /// Shared rolling level-history buffer. Hoisted out of `LevelHistoryView` so the
 /// dashboard tile and its fullscreen cover render the SAME continuous history
 /// instead of each owning a private buffer that restarts empty when presented.
+@Observable
 @MainActor
-final class LevelHistoryStore: ObservableObject {
-    @Published private(set) var levelBuffer: [Float] = []
-    @Published private(set) var writeIndex: Int = 0
+final class LevelHistoryStore {
+    private(set) var levelBuffer: [Float] = []
+    private(set) var writeIndex: Int = 0
 
-    private var observedSampleRate: Double = 44100.0
-    private var scrollSpeedValue: Int = 1
-    private var timeSpanSeconds: Int = 5
+    @ObservationIgnored private var observedSampleRate: Double = 44100.0
+    @ObservationIgnored private var scrollSpeedValue: Int = 1
+    @ObservationIgnored private var timeSpanSeconds: Int = 5
 
     // Wall-clock advance state — see ingest() for the rationale.
-    private var lastUpdateTimestamp: TimeInterval = 0
-    private var lastBufferedLevel: Float = -120.0
+    @ObservationIgnored private var lastUpdateTimestamp: TimeInterval = 0
+    @ObservationIgnored private var lastBufferedLevel: Float = -120.0
 
     /// (Re)sizes the buffer for the given axis settings. Called on appear and
     /// whenever the time span / scroll speed changes.
@@ -94,7 +95,7 @@ final class LevelHistoryStore: ObservableObject {
 /// Pure renderer for the level-history chart. Reads its rolling buffer from a
 /// shared `LevelHistoryStore` so the tile and fullscreen views stay continuous.
 struct LevelHistoryView: View {
-    @ObservedObject var store: LevelHistoryStore
+    var store: LevelHistoryStore
     var settings: [String: String]
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }

@@ -4,8 +4,8 @@ import Charts
 /// Kombiniertes Spektralanalyse-Labor Widget
 /// Vereint FFT-Parameter, Fensterfunktion, Heisenberg-Visualisierung und A/B-Vergleich
 struct SpektralanalyseLaborWidget: View {
-    @ObservedObject var fftConfig: FFTConfiguration
-    @ObservedObject var audioEngine: AudioEngine
+    var fftConfig: FFTConfiguration
+    var audioEngine: AudioEngine
     @Environment(\.designAccent) private var accent
 
     @State private var selectedTab: LabTab = .parameters
@@ -69,8 +69,8 @@ struct SpektralanalyseLaborWidget: View {
 // MARK: - Parameters Tab
 
 private struct ParametersTabView: View {
-    @ObservedObject var fftConfig: FFTConfiguration
-    @ObservedObject var audioEngine: AudioEngine
+    @Bindable var fftConfig: FFTConfiguration
+    var audioEngine: AudioEngine
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -214,7 +214,7 @@ private struct ParametersTabView: View {
 // MARK: - Window Tab
 
 private struct WindowTabView: View {
-    @ObservedObject var fftConfig: FFTConfiguration
+    var fftConfig: FFTConfiguration
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -249,7 +249,7 @@ private struct WindowTabView: View {
 // MARK: - Resolution Tab
 
 private struct ResolutionTabView: View {
-    @ObservedObject var fftConfig: FFTConfiguration
+    var fftConfig: FFTConfiguration
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

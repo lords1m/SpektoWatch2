@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Sheet for preset pages and custom layouts (Model C).
 struct LayoutsManagementView: View {
-    @ObservedObject var dashboardManager: DashboardManager
+    var dashboardManager: DashboardManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var showRenameAlert = false

@@ -37,31 +37,6 @@ enum CanvasMode: String, CaseIterable, Identifiable {
     var label: String { self == .dark ? "Dunkel" : "Hell" }
 }
 
-enum AccentChoice: String, CaseIterable, Identifiable {
-    case phosphor, amber, cyan, magenta, paper
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .phosphor: return "Phosphor"
-        case .amber: return "Amber"
-        case .cyan: return "Cyan"
-        case .magenta: return "Magenta"
-        case .paper: return "Paper"
-        }
-    }
-
-    // OKLCH values from the handoff — approximated in sRGB.
-    var color: Color {
-        switch self {
-        case .phosphor: return Color(red: 0.45, green: 0.93, blue: 0.55) // 0.84 0.18 145
-        case .amber:    return Color(red: 0.99, green: 0.74, blue: 0.27) // 0.82 0.16 80
-        case .cyan:     return Color(red: 0.40, green: 0.81, blue: 0.95) // 0.82 0.14 220
-        case .magenta:  return Color(red: 0.94, green: 0.50, blue: 0.85) // 0.78 0.18 340
-        case .paper:    return Color(red: 0.92, green: 0.92, blue: 0.93) // 0.92 0.005 255
-        }
-    }
-}
-
 enum Density: String, CaseIterable, Identifiable {
     case compact, standard, airy
     var id: String { rawValue }
@@ -102,9 +77,9 @@ enum Colormap: String, CaseIterable, Identifiable {
 
 // MARK: - Environment plumbing
 
-private struct DesignAccentKey: EnvironmentKey { static let defaultValue: Color = AccentChoice.phosphor.color }
+private struct DesignAccentKey: EnvironmentKey { static let defaultValue: Color = FerriteLine.default.color }
 private struct DesignDensityKey: EnvironmentKey { static let defaultValue: Density = .standard }
-private struct DesignNumeralsKey: EnvironmentKey { static let defaultValue: NumeralStyle = .mono }
+private struct DesignNumeralsKey: EnvironmentKey { static let defaultValue: NumeralStyle = .sans }
 private struct DesignUseDarkCanvasKey: EnvironmentKey { static let defaultValue: Bool = true }
 
 extension EnvironmentValues {
@@ -139,18 +114,18 @@ enum DesignColormap {
 
 // MARK: - Radius scale
 //
-// Four-step scale covering the chrome layer. Canvas-internal micro-radii
-// (piano keys, markers, 2–4pt) intentionally stay as literals — they are
-// drawing details, not chrome.
+// Ferrite: cards and canvases are square, controls have a tile's slight
+// edge, and only floating glass is rounded. Canvas-internal micro-radii
+// (piano keys, markers) stay as literals — they are drawing details.
 enum Radius {
     /// Small controls: chips, preset buttons, inline badges.
-    static let control: CGFloat = 8
+    static let control: CGFloat = FerriteRadius.tile
     /// Chart kernels / inner canvases.
-    static let kernel: CGFloat = 14
+    static let kernel: CGFloat = FerriteRadius.canvas
     /// Widget cards.
-    static let card: CGFloat = 22
-    /// Floating header / transport pills.
-    static let pill: CGFloat = 28
+    static let card: CGFloat = FerriteRadius.card
+    /// Floating header / transport pills (liquid glass).
+    static let pill: CGFloat = FerriteRadius.glass
 }
 
 // MARK: - Semantic status colors
@@ -159,15 +134,15 @@ enum Radius {
 // `designAccent` stays the brand/interaction color; these cover state:
 enum StatusColor {
     /// Live monitoring is active (LED, live tint).
-    static let live = Color.green
+    static let live = FerriteStatus.live
     /// Recording to file (LED, record button, badges).
-    static let recording = Color.red
+    static let recording = FerriteStatus.recording
     /// Masking trigger-capture armed state.
-    static let trigger = Color(red: 0.0, green: 0.85, blue: 1.0)
+    static let trigger = FerriteStatus.info
     /// Count/notification badge (e.g. recordings count) — an attention marker,
     /// not a recording-state indicator, so it gets its own role even though it
     /// currently shares red.
-    static let badge = Color.red
+    static let badge = FerriteStatus.recording
 }
 
 // MARK: - Level-meter zone colors
@@ -179,11 +154,11 @@ enum MeterZone {
     // Muted, desaturated traffic-light tones — readable as zones without the
     // neon glare of fully-saturated green/amber/red.
     /// Below the low threshold — comfortable.
-    static let safe = Color(red: 0.40, green: 0.66, blue: 0.49)
+    static let safe = FerriteStatus.live
     /// Between low and high — getting loud.
-    static let caution = Color(red: 0.81, green: 0.64, blue: 0.34)
+    static let caution = FerriteStatus.warning
     /// At/above the high threshold — loud.
-    static let loud = Color(red: 0.78, green: 0.42, blue: 0.42)
+    static let loud = FerriteStatus.recording
 
     /// Zone color for a given dB value against the configured thresholds.
     static func color(for db: Float, low: Float, high: Float) -> Color {
@@ -192,114 +167,91 @@ enum MeterZone {
 }
 
 // MARK: - Font helpers
+//
+// Ferrite is one family (SF Pro), no mono. Tabular digits keep readouts
+// from reflowing while values change.
 
 extension Font {
-    /// Eyebrow / monospaced caption — JetBrains Mono → SF Mono on iOS.
+    /// Eyebrow caption — SF Pro bold. Uppercase it and track 1.2pt.
     static func eyebrow(size: CGFloat = 10) -> Font {
-        .system(size: size, weight: .regular, design: .monospaced)
+        .system(size: size, weight: .bold).monospacedDigit()
     }
-    /// Tabular numeric readout. Always mono — used for axis ticks and
-    /// any readout that must not reflow when digits change.
+    /// Tabular numeric readout, used for axis ticks and any readout that
+    /// must not reflow when digits change.
     static func readout(size: CGFloat = 11, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size, weight: weight).monospacedDigit()
     }
     /// Numeric readout that respects the user's `NumeralStyle` token.
-    /// Pass `.mono` for tabular monospace, `.sans` for proportional SF Pro.
+    /// `.mono` keeps the monospaced face for users who chose it.
     static func numerals(_ style: NumeralStyle, size: CGFloat, weight: Font.Weight = .regular) -> Font {
         switch style {
         case .mono: return .system(size: size, weight: weight, design: .monospaced)
-        case .sans: return .system(size: size, weight: weight, design: .default)
+        case .sans: return .system(size: size, weight: weight).monospacedDigit()
         }
     }
-    /// Header title — SF Pro semibold.
+    /// Header title — SF Pro bold, like station signage.
     static func headerTitle(size: CGFloat = 17) -> Font {
-        .system(size: size, weight: .semibold, design: .default)
+        .system(size: size, weight: .bold, design: .default)
     }
-    /// Hero number — SF Pro Display ultralight.
+    /// Hero number — SF Pro bold, tabular digits.
     static func hero(size: CGFloat = 56) -> Font {
-        .system(size: size, weight: .ultraLight, design: .default)
+        .system(size: size, weight: .bold).monospacedDigit()
     }
 }
 
 // MARK: - Surfaces & modifiers
 
-/// Inner canvas — same `.thinMaterial` as the surrounding `LiquidGlassCard`
-/// so the diagram background reads as a seamless continuation of the
-/// card surface (no perceived inner border). Kernels that paint their
-/// own opaque background will still cover this material; for those,
-/// seamlessness depends on the kernel itself using a matching color.
+/// Inner canvas — the Ferrite chart ground: square, theme-following fill
+/// (white / black). Chart kernels draw their own axis grid and the card
+/// around them carries the 1pt ink outline, so this adds neither (a second
+/// grid or frame doubles the lines). When `designUseDarkCanvas` is set in
+/// light mode (Tweaks › dark chart) the canvas is forced black so colormaps
+/// read the same everywhere. Use `.ferriteCanvas()` for a standalone
+/// canvas that needs its own tile grid and outline.
 struct InnerCanvas: ViewModifier {
     var cornerRadius: CGFloat = Radius.kernel
     @Environment(\.designUseDarkCanvas) private var useDarkCanvas
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let dark = useDarkCanvas || colorScheme == .dark
         content
-            .background {
-                if useDarkCanvas {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.08, green: 0.09, blue: 0.12),
-                                    Color(red: 0.04, green: 0.05, blue: 0.08)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
-                        )
-                } else {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(.thinMaterial)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(dark ? FerriteColor.canvasDark : FerriteColor.canvas, in: shape)
+            .clipShape(shape)
     }
 }
 
-/// New widget card chrome — `.thinMaterial` + hairline inner highlight + a
-/// single soft shadow. Material and shadow costs add up fast on the
-/// iPhone 12 mini (A14), so we picked the cheaper material tier and
-/// collapsed the two prior shadows into one conditional shadow.
+/// Widget card chrome — Ferrite card: `surface`, square, 1pt ink outline,
+/// no shadow. Edit mode adds the 2pt inner ink line (selected state); line
+/// colours never draw rules, so `accent` is accepted but ignored.
 struct LiquidGlassCard: ViewModifier {
     var cornerRadius: CGFloat = Radius.card
     var isEditing: Bool = false
     var accent: Color = .green
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            // Border only in edit mode — keeps live mode clean per redesign
-            // request. Non-edit cards rely on the material + shadow for
-            // separation from the background.
+            .background(FerriteColor.surface, in: shape)
+            .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
             .overlay {
                 if isEditing {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(accent.opacity(0.55), lineWidth: 1.2)
+                    shape.inset(by: 4)
+                        .stroke(FerriteColor.label, lineWidth: FerriteStroke.line)
+                        .allowsHitTesting(false)
                 }
             }
-            .shadow(
-                color: isEditing ? accent.opacity(0.25) : .black.opacity(0.35),
-                radius: isEditing ? 8 : 6,
-                y: 4
-            )
     }
 }
 
-/// Floating header / transport pill chrome.
+/// Floating header / transport pill — liquid glass (the floating
+/// navigation layer).
 struct FloatingPill: ViewModifier {
     var cornerRadius: CGFloat = Radius.pill
+
     func body(content: Content) -> some View {
-        content
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+        content.ferriteGlass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 
@@ -320,6 +272,8 @@ extension View {
 struct EditModeJiggle: ViewModifier {
     let isActive: Bool
     let phase: Double  // 0..1; alternate per card to desynchronize
+    /// Peak rotation in degrees (0.4° dashboard cards; ~1.6° Home icons, like iOS).
+    var amplitude: Double = 0.4
     @State private var angle: Double = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -327,30 +281,35 @@ struct EditModeJiggle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .rotationEffect(.degrees(isActive && !reduceMotion ? angle : 0))
+            .onAppear { if isActive { start() } }
             .onChange(of: isActive) { _, newValue in
-                guard !reduceMotion else {
-                    angle = 0
-                    return
-                }
                 if newValue {
-                    angle = 0.4 * (phase > 0.5 ? 1 : -1)
-                    withAnimation(
-                        .easeInOut(duration: 0.14)
-                        .repeatForever(autoreverses: true)
-                        .delay(0.04 * phase)
-                    ) {
-                        angle = -angle
-                    }
+                    start()
                 } else {
                     withAnimation(.easeOut(duration: 0.15)) { angle = 0 }
                 }
             }
     }
+
+    private func start() {
+        guard !reduceMotion else {
+            angle = 0
+            return
+        }
+        angle = amplitude * (phase > 0.5 ? 1 : -1)
+        withAnimation(
+            .easeInOut(duration: 0.14)
+            .repeatForever(autoreverses: true)
+            .delay(0.04 * phase)
+        ) {
+            angle = -angle
+        }
+    }
 }
 
 extension View {
-    func editJiggle(active: Bool, phase: Double = 0) -> some View {
-        modifier(EditModeJiggle(isActive: active, phase: phase))
+    func editJiggle(active: Bool, phase: Double = 0, amplitude: Double = 0.4) -> some View {
+        modifier(EditModeJiggle(isActive: active, phase: phase, amplitude: amplitude))
     }
 }
 
@@ -369,6 +328,9 @@ extension AudioWidgetType {
         case .singleValue:        return "123.rectangle"
         case .toneGenerator:      return "waveform"
         case .spektralanalyseLab: return "atom"
+        case .audioEditor:        return "slider.horizontal.3"
+        case .recordings:         return "waveform.badge.mic"
+        case .settings:           return "gearshape.fill"
         case .masking:            return "square.grid.2x2"
         }
     }
@@ -386,7 +348,7 @@ enum PresetCatalogue {
     private static let deactivatedPresetIDs: Set<String> = ["waterfall", "phase", "masking"]
 
     static let all: [DashboardPreset] = [
-        .init(id: "overview",    label: "Übersicht",            symbol: "square.grid.2x2"),
+        .init(id: "overview",    label: "Home",                 symbol: "house.fill"),
         .init(id: "spectrogram", label: "Spektrogramm",         symbol: "waveform.path.ecg"),
         .init(id: "level-time",  label: "Pegelverlauf",         symbol: "chart.xyaxis.line"),
         .init(id: "spectrum",    label: "Frequenz-Spektrum",    symbol: "chart.bar"),

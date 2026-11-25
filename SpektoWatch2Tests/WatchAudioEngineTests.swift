@@ -3,14 +3,13 @@ import XCTest
 @testable import SpektoWatch2
 import AVFoundation
 import Accelerate
-import Combine
+import Observation
 
 @MainActor
 final class WatchAudioEngineTests: XCTestCase {
     
     var watchAudioEngine: WatchAudioEngine!
     var mockConnectivityManager: WatchConnectivityManager!
-    var cancellables: Set<AnyCancellable>!
     
     override func setUp() async throws {
         try await super.setUp()
@@ -20,8 +19,6 @@ final class WatchAudioEngineTests: XCTestCase {
         
         // Create watch audio engine
         watchAudioEngine = WatchAudioEngine(connectivityManager: mockConnectivityManager)
-        
-        cancellables = Set<AnyCancellable>()
     }
     
     override func tearDown() async throws {
@@ -32,7 +29,6 @@ final class WatchAudioEngineTests: XCTestCase {
         
         watchAudioEngine = nil
         mockConnectivityManager = nil
-        cancellables = nil
         
         try await super.tearDown()
     }

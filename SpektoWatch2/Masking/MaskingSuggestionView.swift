@@ -2,8 +2,8 @@ import SwiftUI
 
 struct MaskingSuggestionView: View {
 
-    @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var services: AppServices
+    var engine: MaskingEngine
+    @Environment(AppServices.self) private var services
     let suggestion: MaskerSuggestion
 
     @State private var selectedMasker: MaskerType
@@ -12,7 +12,7 @@ struct MaskingSuggestionView: View {
     @State private var profileName: String = ""
     @State private var showSaveSheet = false
 
-    @ObservedObject private var preview: MaskingPreviewPlayer
+    private let preview: MaskingPreviewPlayer
 
     init(engine: MaskingEngine, suggestion: MaskerSuggestion) {
         self.engine     = engine

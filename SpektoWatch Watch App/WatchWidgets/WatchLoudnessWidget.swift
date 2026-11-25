@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct WatchLoudnessWidget: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
+    @Environment(WatchAudioEngine.self) private var audioEngine
     @State private var showingDetail = false
     @State private var phonValue: Double?
     @State private var soneValue: Double?
@@ -44,20 +44,24 @@ struct WatchLoudnessWidget: View {
         .sheet(isPresented: $showingDetail) {
             LoudnessCalculatorView()
         }
-        .onReceive(audioEngine.$liveData) { data in
-            guard let data else {
-                phonValue = nil
-                soneValue = nil
-                return
-            }
-            // PHON and SONE are populated by WatchAudioEngine.performFFT via
-            // the static LoudnessCalculator helpers — read directly from levels.
-            if let p = data.levels["PHON"], let s = data.levels["SONE"] {
-                phonValue = Double(p)
-                soneValue = Double(s)
-            } else {
-                phonValue = nil
-                soneValue = nil
+        .task {
+            await ObservationTrackingLoop.observeThrottled(minimumInterval: 0) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                guard let data else {
+                    phonValue = nil
+                    soneValue = nil
+                    return
+                }
+                // PHON and SONE are populated by WatchAudioEngine.performFFT via
+                // the static LoudnessCalculator helpers — read directly from levels.
+                if let p = data.levels["PHON"], let s = data.levels["SONE"] {
+                    phonValue = Double(p)
+                    soneValue = Double(s)
+                } else {
+                    phonValue = nil
+                    soneValue = nil
+                }
             }
         }
     }

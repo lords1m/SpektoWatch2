@@ -1,9 +1,8 @@
 import SwiftUI
-import Combine
 
 /// Dashboard-level options (e.g. Pegel tile orientation on the watch home grid).
 struct WatchDashboardLayoutSettingsView: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
     @State private var config = WatchDashboardConfig.load()
 
     private var levelMeterWidget: WatchWidgetConfig? {
@@ -40,8 +39,10 @@ struct WatchDashboardLayoutSettingsView: View {
                 config = received
             }
         }
-        .onReceive(connectivityManager.$watchDashboardConfig.compactMap { $0 }) { newConfig in
-            config = newConfig
+        .onChange(of: connectivityManager.watchDashboardConfig) { _, newConfig in
+            if let newConfig {
+                config = newConfig
+            }
         }
     }
 

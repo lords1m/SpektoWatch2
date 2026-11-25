@@ -1,5 +1,4 @@
 import XCTest
-import Combine
 @testable import SpektoWatch2
 
 /// Integrationstests für die Zusammenarbeit verschiedener Komponenten
@@ -198,7 +197,7 @@ final class IntegrationTests: XCTestCase {
         XCTAssertLessThan(avgMs, 8.0, "Spectrogram processing regression: \(avgMs) ms > 8 ms")
     }
 
-    /// Pipeline-Guard für den Live-Spektrogramm-Pfad (AudioEngine -> spectrogramSubject).
+    /// Pipeline-Guard für den Live-Spektrogramm-Pfad (AudioEngine -> spectrogramBroadcaster).
     /// Prüft deterministisch, dass nach dem FFT-Warmup aus jedem Hop ein Spektrogramm-Frame entsteht.
     func testSpectrogramPipelineFPSBudget() {
         let filterManager = BandstopFilterManager()
@@ -219,13 +218,12 @@ final class IntegrationTests: XCTestCase {
 
         var publishedFrames = 0
         let frameCountLock = NSLock()
-        let cancellable = audioEngine.spectrogramSubject
-            .sink { _ in
-                frameCountLock.lock()
-                publishedFrames += 1
-                frameCountLock.unlock()
-            }
-        defer { cancellable.cancel() }
+        let subscription = audioEngine.spectrogramBroadcaster.addListener { _ in
+            frameCountLock.lock()
+            publishedFrames += 1
+            frameCountLock.unlock()
+        }
+        defer { subscription.cancel() }
 
         for _ in 0..<warmupChunks {
             audioEngine.processExternalAudio(testChunk)

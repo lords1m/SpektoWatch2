@@ -1,9 +1,8 @@
 import SwiftUI
-import Combine
 
 struct WatchLevelMeterView: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
     @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
 
     private var isRecording: Bool { audioEngine.isRecording }
@@ -52,13 +51,15 @@ struct WatchLevelMeterView: View {
             }
         }
         .accessibilityIdentifier("watchLevelMeterView")
-        .onReceive(
-            audioEngine.$liveData
-                .compactMap { $0 }
-                .throttledForWatchLiveDisplay()
-        ) { data in
-            guard tabLiveUpdatesActive else { return }
-            appendLevel(from: data)
+        .task {
+            await ObservationTrackingLoop.observeThrottled(
+                minimumInterval: SingleValueRefreshRate.default.minimumInterval
+            ) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                guard tabLiveUpdatesActive, let data else { return }
+                appendLevel(from: data)
+            }
         }
     }
 

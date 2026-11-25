@@ -65,7 +65,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "3795236C2F22353C0079C93F"
             BuildableName = "SpektoWatch Watch App.app"
-            BlueprintName = "SpektoWatch Watch App"
             ReferencedContainer = "container:SpektoWatch2.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -82,7 +81,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "3795236C2F22353C0079C93F"
             BuildableName = "SpektoWatch Watch App.app"
-            BlueprintName = "SpektoWatch Watch App"
             ReferencedContainer = "container:SpektoWatch2.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

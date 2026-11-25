@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 
 struct StoredMetricRow: Identifiable {
     let id = UUID()
@@ -13,29 +13,30 @@ struct SpectrogramFrameWindow {
     let bins: [[Float]]
 }
 
+@Observable
 final class StoredDataProvider: AudioDataProvider {
     /// Upper bound on decimated level-history points loaded at open.
     private static let maxBootstrapRows = 4_000
     /// Cap rows returned per `rows(in:)` query (disk-backed).
     private static let maxRowsPerQuery = 500
 
-    @Published private(set) var currentSpectrogramData: SpectrogramData?
-    @Published private(set) var levelHistory: [Float] = []
-    @Published private(set) var currentOctaveBands: [Float] = Array(repeating: -120.0, count: MeasurementDataFormat.thirdOctaveBandCount)
-    @Published private(set) var currentTime: TimeInterval = 0
-    @Published private(set) var duration: TimeInterval = 0
+    private(set) var currentSpectrogramData: SpectrogramData?
+    private(set) var levelHistory: [Float] = []
+    private(set) var currentOctaveBands: [Float] = Array(repeating: -120.0, count: MeasurementDataFormat.thirdOctaveBandCount)
+    private(set) var currentTime: TimeInterval = 0
+    private(set) var duration: TimeInterval = 0
     /// Decimated overview only; metric tables use `rows(in:)` (disk-backed).
-    @Published private(set) var metricRows: [StoredMetricRow] = []
+    private(set) var metricRows: [StoredMetricRow] = []
 
-    private let fileURL: URL
-    private let reader: MeasurementDataReader
-    private var playTimer: Timer?
-    private var frameDuration: TimeInterval
+    @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored private let reader: MeasurementDataReader
+    @ObservationIgnored private var playTask: Task<Void, Never>?
+    @ObservationIgnored private var frameDuration: TimeInterval
     // Intended playback position, advanced by the timer independent of whether a
     // frame read succeeds. Keeping play() off this cursor (rather than the stored
     // frame timestamp in `currentTime`) avoids stalling on a bad frame and avoids
     // drift when stored per-frame timestamps are not on a uniform fps grid.
-    private var playCursor: TimeInterval = 0
+    @ObservationIgnored private var playCursor: TimeInterval = 0
 
     private static let thirdOctaveCenters = SpectrogramHistoryAxis.thirdOctaveCenterFrequencies
 
@@ -55,26 +56,31 @@ final class StoredDataProvider: AudioDataProvider {
     }
 
     deinit {
-        playTimer?.invalidate()
+        playTask?.cancel()
     }
 
     func play() {
         pause()
-        playTimer = Timer.scheduledTimer(withTimeInterval: frameDuration, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let next = self.playCursor + self.frameDuration
-            if next >= self.duration {
-                self.scrub(to: self.duration)
-                self.pause()
-            } else {
-                self.scrub(to: next)
+        let stepSeconds = max(frameDuration, 0.005)
+        playTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(stepSeconds))
+                guard !Task.isCancelled, let self else { break }
+                let next = self.playCursor + self.frameDuration
+                if next >= self.duration {
+                    self.scrub(to: self.duration)
+                    self.pause()
+                    break
+                } else {
+                    self.scrub(to: next)
+                }
             }
         }
     }
 
     func pause() {
-        playTimer?.invalidate()
-        playTimer = nil
+        playTask?.cancel()
+        playTask = nil
     }
 
     func scrub(to time: TimeInterval) {

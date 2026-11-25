@@ -13,15 +13,12 @@ struct DashboardHeaderView: View {
     var onShowSettings: () -> Void
 
     @Environment(\.designAccent) private var accent
+    @Environment(\.ferriteLine) private var ferriteLine
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(headerEyebrow)
-                    .font(.eyebrow(size: 9))
-                    .tracking(1.6)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                FerriteEyebrow(text: headerEyebrow, showsMarker: !isEditMode)
                 Text(currentLayoutName)
                     .font(.headerTitle())
                     .kerning(-0.34)
@@ -57,18 +54,17 @@ struct DashboardHeaderView: View {
                                 .accessibilityLabel("Bearbeiten beenden")
                                 .accessibilityAddTraits(.isButton)
                         }
-                        .foregroundStyle(Color.black)
+                        .foregroundStyle(ferriteLine.onColor)
                         .padding(.horizontal, 14)
                         .frame(height: 34)
                         .background(Capsule().fill(accent))
-                        .shadow(color: accent.opacity(0.5), radius: 10)
                     } else {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
                             .frame(width: 34, height: 34)
-                            .background(Circle().fill(.thinMaterial))
-                            .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+                            .background(Circle().fill(FerriteColor.surfaceSunken))
+                            .overlay(Circle().strokeBorder(FerriteColor.hairline, lineWidth: FerriteStroke.hairline))
                             .accessibilityIdentifier("editDashboardButton")
                             .accessibilityLabel("Layout bearbeiten")
                             .accessibilityAddTraits(.isButton)
@@ -89,6 +85,7 @@ struct DashboardHeaderView: View {
     private var headerEyebrow: String {
         if isEditMode { return "LAYOUT BEARBEITEN" }
         if isCustomLayout { return "BENUTZERDEFINIERT · LIVE" }
+        if currentLayoutName == "Home" { return "SPEKTOWATCH · LIVE" }
         return "DASHBOARD · LIVE"
     }
 

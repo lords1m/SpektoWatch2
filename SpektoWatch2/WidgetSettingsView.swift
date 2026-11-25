@@ -3,16 +3,24 @@ import SwiftUI
 struct WidgetSettingsView: View {
     let widget: WidgetConfiguration
     var onSave: ([String: String]) -> Void
+    var onSaveWithStyle: (([String: String], WidgetDisplayStyle) -> Void)? = nil
     @Environment(\.dismiss) var dismiss
     
     @State private var settings: [String: String]
     @State private var useWidgetOverrides: Bool
+    @State private var displayStyle: WidgetDisplayStyle
     
-    init(widget: WidgetConfiguration, onSave: @escaping ([String: String]) -> Void) {
+    init(
+        widget: WidgetConfiguration,
+        onSave: @escaping ([String: String]) -> Void,
+        onSaveWithStyle: (([String: String], WidgetDisplayStyle) -> Void)? = nil
+    ) {
         self.widget = widget
         self.onSave = onSave
+        self.onSaveWithStyle = onSaveWithStyle
         _settings = State(initialValue: widget.settings)
         _useWidgetOverrides = State(initialValue: WidgetSettings.usesWidgetOverrides(widget.settings))
+        _displayStyle = State(initialValue: widget.displayStyle)
     }
 
     /// Shared noise-floor editor. Appears in widgets that support per-widget
@@ -100,7 +108,23 @@ struct WidgetSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if supportsOverrideToggle {
+                Section {
+                    Picker("Darstellung", selection: $displayStyle) {
+                        ForEach(WidgetDisplayStyle.allCases) { style in
+                            Text(style.label).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("widgetSettingsDisplayStyle")
+                } header: {
+                    Text("Darstellung")
+                } footer: {
+                    Text(displayStyle == .icon
+                         ? "Wird als kompaktes 1×1-Icon auf dem Home-Bildschirm angezeigt. Tippen öffnet die Vollbildansicht."
+                         : "Wird direkt live auf dem Home-Bildschirm gerendert.")
+                }
+
+                if displayStyle == .liveWidget && supportsOverrideToggle {
                     Section {
                         Toggle("Widget-Einstellungen aktivieren", isOn: $useWidgetOverrides)
                     } footer: {
@@ -108,7 +132,9 @@ struct WidgetSettingsView: View {
                     }
                 }
 
-                if widget.type == .spectrogram {
+                if displayStyle == .icon {
+                    EmptyView()
+                } else if widget.type == .spectrogram {
                     Section(header: Text("Spektrogramm Einstellungen")) {
                         Picker("Farbschema", selection: Binding(
                             get: { settings["colormap"] ?? String(WidgetSettings.defaultSpectrogramColormap) },
@@ -485,7 +511,11 @@ struct WidgetSettingsView: View {
                         if supportsOverrideToggle {
                             validatedSettings[WidgetSettings.useWidgetOverridesKey] = useWidgetOverrides ? "1" : "0"
                         }
-                        onSave(validatedSettings)
+                        if let onSaveWithStyle {
+                            onSaveWithStyle(validatedSettings, displayStyle)
+                        } else {
+                            onSave(validatedSettings)
+                        }
                         dismiss()
                     }
                 }

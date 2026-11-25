@@ -1,10 +1,124 @@
 import Foundation
-import Combine
+import Observation
+import os
+
+// MARK: - Observation & Async Throttling Helpers
+
+/// Structured `@MainActor` helpers for tracking `@Observable` properties without Combine.
+@MainActor
+public enum ObservationTrackingLoop {
+    /// Suspends until any `@Observable` property read inside `track` mutates,
+    /// or returns immediately if the enclosing `Task` is cancelled.
+    public static func waitForChange(_ track: @MainActor () -> Void) async {
+        let state = OSAllocatedUnfairLock<(resumed: Bool, continuation: CheckedContinuation<Void, Never>?)>(
+            initialState: (false, nil)
+        )
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let resumeImmediately = state.withLock { entry -> Bool in
+                    if entry.resumed || Task.isCancelled {
+                        entry.resumed = true
+                        return true
+                    }
+                    entry.continuation = continuation
+                    return false
+                }
+                if resumeImmediately {
+                    continuation.resume()
+                    return
+                }
+                withObservationTracking {
+                    track()
+                } onChange: {
+                    let pending = state.withLock { entry -> CheckedContinuation<Void, Never>? in
+                        guard !entry.resumed else { return nil }
+                        entry.resumed = true
+                        let cont = entry.continuation
+                        entry.continuation = nil
+                        return cont
+                    }
+                    pending?.resume()
+                }
+            }
+        } onCancel: {
+            let pending = state.withLock { entry -> CheckedContinuation<Void, Never>? in
+                guard !entry.resumed else { return nil }
+                entry.resumed = true
+                let cont = entry.continuation
+                entry.continuation = nil
+                return cont
+            }
+            pending?.resume()
+        }
+    }
+
+    /// Continuously observes an `Equatable` projection of `@Observable` state on the main actor.
+    /// Delivers post-mutation (`didSet`) values until the enclosing `Task` cancels.
+    public static func observe<Value: Equatable>(
+        emitInitial: Bool = true,
+        _ read: @MainActor () -> Value,
+        onChange: @MainActor (Value) -> Void
+    ) async {
+        var previous = read()
+        if emitInitial {
+            onChange(previous)
+        }
+        while !Task.isCancelled {
+            await waitForChange {
+                _ = read()
+            }
+            // `withObservationTracking` triggers during `willSet`; yield once on `@MainActor`
+            // so `read()` sees the committed value.
+            await Task.yield()
+            guard !Task.isCancelled else { break }
+            let current = read()
+            if current != previous {
+                previous = current
+                onChange(current)
+            }
+        }
+    }
+
+    /// Continuously observes `@Observable` state and throttles deliveries to at most one update
+    /// per `minimumInterval` seconds (latest-value wins).
+    public static func observeThrottled<Value>(
+        minimumInterval: TimeInterval,
+        emitInitial: Bool = true,
+        _ read: @MainActor () -> Value,
+        onUpdate: @MainActor (Value) -> Void
+    ) async {
+        let clock = ContinuousClock()
+        var lastEmit: ContinuousClock.Instant?
+        if emitInitial {
+            onUpdate(read())
+            lastEmit = clock.now
+        }
+        while !Task.isCancelled {
+            await waitForChange {
+                _ = read()
+            }
+            await Task.yield()
+            guard !Task.isCancelled else { break }
+
+            if minimumInterval > 0, let last = lastEmit {
+                let target = last.advanced(by: .seconds(minimumInterval))
+                let now = clock.now
+                if now < target {
+                    try? await Task.sleep(for: target - now, clock: clock)
+                    guard !Task.isCancelled else { break }
+                }
+            }
+            let latest = read()
+            lastEmit = clock.now
+            onUpdate(latest)
+        }
+    }
+}
 
 // MARK: - Single-value display refresh rate
 
 /// UI update cadence for numeric single-value tiles (watch + iPhone).
-public enum SingleValueRefreshRate: String, Codable, CaseIterable, Identifiable, Equatable {
+public enum SingleValueRefreshRate: String, Codable, CaseIterable, Identifiable, Equatable, Sendable {
     /// Follow the live metrics stream (no extra throttling).
     case max = "max"
     case hz10 = "10"
@@ -58,27 +172,6 @@ public enum LevelMeterOrientation: String, Codable, CaseIterable, Identifiable, 
         case .horizontal: return "Horizontal"
         case .vertical: return "Vertikal"
         }
-    }
-}
-
-extension Publisher {
-    /// Throttles a live-metrics publisher for single-value UI updates.
-    public func throttledForSingleValueDisplay(
-        rate: SingleValueRefreshRate
-    ) -> AnyPublisher<Output, Failure> {
-        let interval = rate.minimumInterval
-        guard interval > 0 else { return eraseToAnyPublisher() }
-        return throttle(for: .seconds(interval), scheduler: RunLoop.main, latest: true)
-            .eraseToAnyPublisher()
-    }
-
-    /// Throttles high-frequency Canvas / graph updates on watchOS (~5 Hz).
-    public func throttledForWatchLiveDisplay(
-        interval: TimeInterval = SingleValueRefreshRate.default.minimumInterval
-    ) -> AnyPublisher<Output, Failure> {
-        guard interval > 0 else { return eraseToAnyPublisher() }
-        return throttle(for: .seconds(interval), scheduler: RunLoop.main, latest: true)
-            .eraseToAnyPublisher()
     }
 }
 

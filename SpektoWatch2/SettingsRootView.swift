@@ -4,7 +4,7 @@ import SwiftUI
 struct SettingsRootView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
     @Binding var watchGain: Float
-    @ObservedObject var audioEngine: AudioEngine
+    var audioEngine: AudioEngine
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

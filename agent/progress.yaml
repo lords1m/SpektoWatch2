@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: in_progress
   started: "2026-05-12"
-  current_milestone: M20
+  current_milestone: M22
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
@@ -430,6 +430,48 @@ milestones:
       code-complete (2026-05-30); all await only the hardware acceptance pass
       (task-6). Acceptance is hardware (task-6).
     file: agent/milestones/milestone-21-watch-standalone.md
+
+  M22:
+    name: Audio Editor & Format Converter
+    status: in_progress
+    started: "2026-11-25"
+    priority: medium
+    progress: 86
+    estimated_weeks: "3"
+    tasks_completed: 6
+    tasks_total: 7
+    notes: >
+      Code-side complete (2026-11-25): AudioEditModels, WaveformAnalyzer,
+      AudioEditorEngine, AudioEditRenderer, LameMP3Encoder (BB9z/LAME-xcframework
+      @ 3.100.3 linked exclusively to iOS SpektoWatch2), AudioFormatConverter
+      (WAV/MP3/M4A-AAC/ALAC/AIFF/CAF), Voice-Memos-inspired WaveformViews +
+      AudioEditorPanels + AudioExportSheet + AudioEditorView + AudioEditorLauncherView
+      + AudioEditorHomeWidget, RecordingManager save-copy/replace/import flows,
+      RecordingDetailView & RecordingsListView (.fileImporter) entry points, and
+      AudioEditorTests. All 9 Xcode targets build cleanly; simulator test execution
+      awaits host `sudo xcodebuild -license accept` + hardware acceptance (task-7).
+    file: agent/milestones/milestone-22-audio-editor-and-converter.md
+
+  M23:
+    name: Home-Screen Launcher & Dual-Mode Widgets
+    status: in_progress
+    started: "2026-11-25"
+    priority: medium
+    progress: 83
+    estimated_weeks: "2"
+    tasks_completed: 5
+    tasks_total: 6
+    notes: >
+      Code-side complete (2026-11-25): WidgetDisplayStyle (.liveWidget / .icon) +
+      preferredLiveSize Codable migration, AudioWidgetType additions (.audioEditor,
+      .recordings, .settings), FeatureIconTileView (zero idle Metal/audio overhead),
+      FeatureFullScreenHostView unified launcher, RecordingsHomeWidget &
+      SettingsQuickWidget, explicit mode pickers in WidgetPickerView &
+      WidgetSettingsView, Home-Screen default landing composition (overview -> Home)
+      preserving PresetRailView presets, and WidgetDisplayStyleMigrationTests.
+      All 9 targets build cleanly; simulator test execution awaits host
+      `sudo xcodebuild -license accept` + hardware acceptance (task-6).
+    file: agent/milestones/milestone-23-home-screen-dual-mode-widgets.md
 
 tasks:
   M1:
@@ -1047,10 +1089,66 @@ tasks:
       file: agent/tasks/milestone-21-watch-standalone/task-6-acceptance.md
       notes: "Hardware checklist: unpaired capture, metric correctness ±1.0 dB, persistence across relaunch, on-watch management, opportunistic sync exactly-once."
 
-updated_at: 2026-05-30
-last_completed_task: M21/task-5-sync-back
-current_milestone: M20
-current_task: task-2-widget-extension
+  M22:
+    - id: task-1-edit-model-and-waveform-analyzer
+      name: "Non-Destructive Edit Model & Streaming Waveform Analyzer"
+      status: completed
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-1-edit-model-and-waveform-analyzer.md
+    - id: task-2-realtime-preview-engine
+      name: "Real-Time Preview Audio Engine (EQ, Filters, Cuts, Loop & A/B Bypass)"
+      status: completed
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-2-realtime-preview-engine.md
+    - id: task-3-offline-renderer-and-native-converter
+      name: "Offline Edit Renderer & Native Audio Format Converter"
+      status: completed
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-3-offline-renderer-and-native-converter.md
+    - id: task-4-mp3-encoder-integration
+      name: "MP3 Encoder Integration (libmp3lame via SPM)"
+      status: completed
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-4-mp3-encoder-integration.md
+    - id: task-5-voice-memos-editor-ui
+      name: "Voice-Memos-Inspired AudioEditorView (Waveform, Time, EQ & Filter UI)"
+      status: completed
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-5-voice-memos-editor-ui.md
+    - id: task-6-export-sheet-and-app-integration
+      name: "Format Conversion Sheet, Save Flows & App Entry Points"
+      status: completed
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-6-export-sheet-and-app-integration.md
+    - id: task-7-acceptance-and-ui-tests
+      name: "Acceptance, Automated Tests & Hardware Verification"
+      status: in_progress
+      file: agent/tasks/milestone-22-audio-editor-and-converter/task-7-acceptance-and-ui-tests.md
+
+  M23:
+    - id: task-1-display-style-model-and-feature-catalog
+      name: "Display Style Model & Feature Catalog"
+      status: completed
+      file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-1-display-style-model-and-feature-catalog.md
+    - id: task-2-icon-tile-and-fullscreen-launcher
+      name: "Icon Tile View & Unified Fullscreen Launcher"
+      status: completed
+      file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-2-icon-tile-and-fullscreen-launcher.md
+    - id: task-3-live-widgets-for-all-app-functions
+      name: "Live Widgets for All App Functions"
+      status: completed
+      file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-3-live-widgets-for-all-app-functions.md
+    - id: task-4-explicit-mode-switching-picker-and-settings
+      name: "Explicit Mode Switching in Picker, Settings & Card Chrome"
+      status: completed
+      file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-4-explicit-mode-switching-picker-and-settings.md
+    - id: task-5-home-screen-default-landing-page
+      name: "Home-Screen Default Landing Page & Presets Integration"
+      status: completed
+      file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-5-home-screen-default-landing-page.md
+    - id: task-6-acceptance-and-ui-tests
+      name: "Acceptance, Automated Tests & Hardware Verification"
+      status: in_progress
+      file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-6-acceptance-and-ui-tests.md
+
+updated_at: 2026-11-25
+last_completed_task: M23/task-5-home-screen-default-landing-page
+current_milestone: M22
+current_task: task-7-acceptance-and-ui-tests
 last_proceed: 2026-05-30
 last_proceed_note: >
   M21 (Standalone Watch App) task-5 code-side complete (2026-05-30): opportunistic
@@ -1254,7 +1352,10 @@ active_context:
 
     M10 (iOS Standalone Widgets) deferred 2026-05-30 by user direction.
     Active focus: M20 (Live Activities) on-device acceptance (task-2) and
-    M21 (Standalone Watch) hardware acceptance (task-6). Consider regenerating
+    M21 (Standalone Watch) hardware acceptance (task-6). M22 (Audio Editor &
+    Format Converter) is planned with 7 tasks and ready to begin at
+    M22/task-1-edit-model-and-waveform-analyzer, followed by M23 (Home-Screen
+    Launcher & Dual-Mode Widgets, 6 tasks). Consider regenerating
     simulator screenshots now that local simulator is available
     (agent/scripts/capture-screenshots.py).
 

@@ -38,7 +38,7 @@ final class DashboardStateMigrationTests: XCTestCase {
     }
 
     func testReconcileAddsMissingActivePresetSlot() {
-        var state = DashboardStateV2(
+        let state = DashboardStateV2(
             presetSlots: PresetCatalogue.all.filter { $0.id != "lab" }.map {
                 PresetSlot(presetID: $0.id, widgets: PresetCompositions.widgets(forPresetID: $0.id))
             },

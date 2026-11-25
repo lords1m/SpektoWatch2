@@ -9,8 +9,7 @@ struct PresetRailView: View {
     var dimmed: Bool = false
     var onSelect: ((DashboardPreset) -> Void)? = nil
 
-    @Environment(\.designAccent) private var accent
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.ferriteLine) private var line
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -68,39 +67,25 @@ struct PresetRailView: View {
                 Image(systemName: preset.symbol)
                     .font(.system(size: 11, weight: .semibold))
                 Text(preset.label)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: isActive ? .bold : .medium))
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .frame(minHeight: 38)
-            .contentShape(Capsule())
-            .foregroundStyle(isActive ? Color.black : Color.primary.opacity(0.92))
+            .contentShape(Rectangle())
+            .foregroundStyle(isActive ? line.onColor : FerriteColor.label)
             .background(
-                Capsule(style: .continuous)
-                    .fill(isActive ? AnyShapeStyle(accent) : AnyShapeStyle(inactiveChipFill))
+                RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
+                    .fill(isActive ? line.color : FerriteColor.surfaceSunken)
             )
             .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(
-                        isActive ? Color.clear : inactiveChipStroke,
-                        lineWidth: 0.5
-                    )
-            )
-            .shadow(
-                color: isActive ? accent.opacity(0.45) : .clear,
-                radius: isActive ? 12 : 0
+                RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
+                    .strokeBorder(isActive ? FerriteColor.label : FerriteColor.hairline,
+                                  lineWidth: FerriteStroke.hairline)
             )
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.18), value: isActive)
-    }
-
-    private var inactiveChipFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.06)
-    }
-
-    private var inactiveChipStroke: Color {
-        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10)
     }
 }

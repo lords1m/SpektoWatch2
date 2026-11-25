@@ -1,12 +1,13 @@
 import Foundation
 import WatchConnectivity
-import Combine
+import Observation
 import OSLog
 #if os(watchOS)
 import WidgetKit
 #endif
 
-public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
+@Observable
+public class WatchConnectivityManager: NSObject, WCSessionDelegate {
     #if os(watchOS)
     // Keys live in `Shared/AppGroup.swift` to avoid drift with the widget
     // extension reader.
@@ -18,17 +19,24 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     ]
     #endif
     
-    @Published public var isReachable = false
-    @Published public var spectrogramData: SpectrogramData?
-    @Published public var selectedMicrophoneSource: MicrophoneSource = .iPhone
-    @Published public var watchDashboardConfig: WatchDashboardConfig?
-    @Published public var frequencyWeighting: String = "A"
+    public var isReachable = false
+    public var spectrogramData: SpectrogramData? {
+        didSet {
+            if let spectrogramData {
+                incomingSpectrogramBroadcaster.send(spectrogramData)
+            }
+        }
+    }
+    public var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    public var watchDashboardConfig: WatchDashboardConfig?
+    public var frequencyWeighting: String = "A"
     /// Protocol version reported by the paired device (0 = legacy build).
-    @Published public private(set) var peerProtocolVersion: UInt16 = WatchConnectivityProtocol.legacyProtocolVersion
+    public private(set) var peerProtocolVersion: UInt16 = WatchConnectivityProtocol.legacyProtocolVersion
+    @ObservationIgnored public let incomingSpectrogramBroadcaster = SpectrogramBroadcaster()
     #if os(watchOS)
-    @Published public private(set) var phoneAppState: WatchAppState?
-    @Published public private(set) var lastPhoneSpectrogramReceivedAt: Date?
-    private var lastComplicationReload = Date.distantPast
+    public private(set) var phoneAppState: WatchAppState?
+    public private(set) var lastPhoneSpectrogramReceivedAt: Date?
+    @ObservationIgnored private var lastComplicationReload = Date.distantPast
     #endif
     
     // MARK: - Queue Definitionen
@@ -39,9 +47,9 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
         let timestamp: Date
     }
     
-    private var messageQueue: [QueuedMessage] = []
-    private let maxRetries = 3
-    private var isProcessingQueue = false
+    @ObservationIgnored private var messageQueue: [QueuedMessage] = []
+    @ObservationIgnored private let maxRetries = 3
+    @ObservationIgnored private var isProcessingQueue = false
 
     // MARK: - Spectrogram Send Throttling
     //
@@ -53,11 +61,11 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     //
     // The watch-side `Shared/WatchConnectivityManager` has the symmetric
     // logic for sends originating from the watch.
-    private let spectrogramSendQueue = DispatchQueue(label: "com.spektowatch.ios-spectrogram-send", qos: .utility)
-    private var pendingSpectrogramData: SpectrogramData?
-    private var isSpectrogramSendScheduled = false
-    private var lastSpectrogramSendTime: TimeInterval = 0
-    private var hasLoggedSpectrogramUnreachability = false
+    @ObservationIgnored private let spectrogramSendQueue = DispatchQueue(label: "com.spektowatch.ios-spectrogram-send", qos: .utility)
+    @ObservationIgnored private var pendingSpectrogramData: SpectrogramData?
+    @ObservationIgnored private var isSpectrogramSendScheduled = false
+    @ObservationIgnored private var lastSpectrogramSendTime: TimeInterval = 0
+    @ObservationIgnored private var hasLoggedSpectrogramUnreachability = false
 
     #if os(iOS)
     // MARK: - Standalone recording sync-back (M21 task-5)
@@ -65,14 +73,14 @@ public class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDele
     /// Phone-side ingest hook. Returns true once the recording is in the iOS
     /// store (newly added OR already present — idempotent), which gates the
     /// "synced" acknowledgement back to the watch. Wired in `AppServices`.
-    var onWatchRecordingReceived: ((Recording) -> Bool)?
+    @ObservationIgnored var onWatchRecordingReceived: ((Recording) -> Bool)?
 
     /// Serializes staging-directory mutation for incoming `transferFile`s. WC
     /// delivers `didReceive file:` on a background queue; both files of a
     /// recording must be correlated by id before ingest.
-    private let transferIngestQueue = DispatchQueue(label: "com.spektowatch.watch-recording-ingest")
-    private var stagedTransferMetadata: [UUID: WatchRecordingMetadata] = [:]
-    private var stagedTransferFirstSeenAt: [UUID: Date] = [:]
+    @ObservationIgnored private let transferIngestQueue = DispatchQueue(label: "com.spektowatch.watch-recording-ingest")
+    @ObservationIgnored private var stagedTransferMetadata: [UUID: WatchRecordingMetadata] = [:]
+    @ObservationIgnored private var stagedTransferFirstSeenAt: [UUID: Date] = [:]
     private static let stagedTransferTimeout: TimeInterval = 120
 
     private var transferStagingDirectory: URL {

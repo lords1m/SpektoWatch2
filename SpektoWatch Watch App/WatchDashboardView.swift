@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 
 enum WatchStylePalette {
     static let accentBlue = Color(red: 0.23, green: 0.64, blue: 1.0)
@@ -72,8 +71,8 @@ extension View {
 }
 
 struct WatchDashboardView: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
-    @EnvironmentObject var audioEngine: WatchAudioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
 
     @State private var config: WatchDashboardConfig = WatchDashboardConfig.load()
 
@@ -119,7 +118,8 @@ struct WatchDashboardView: View {
                 config = received
             }
         }
-        .onReceive(connectivityManager.$watchDashboardConfig.compactMap { $0 }) { newConfig in
+        .onChange(of: connectivityManager.watchDashboardConfig) { _, newConfig in
+            guard let newConfig else { return }
             config = newConfig
             newConfig.save()
         }

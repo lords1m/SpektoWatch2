@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 import Accelerate
-import Combine
+import Observation
 import os
 import os.signpost
 #if canImport(UIKit)
@@ -54,7 +54,8 @@ enum StereoInputMode: String, CaseIterable {
 }
 
 /// Main audio engine coordinating FFT processing, frequency weighting, and acoustic metrics
-class AudioEngine: ObservableObject {
+@Observable
+class AudioEngine {
     private static let performanceLog = OSLog(subsystem: "com.spektowatch", category: "performance.audio")
     // Canonical third-octave centers live in
     // `Managers/SpectrumBandAggregator.swift` (M13 task-6); the empty-band
@@ -62,22 +63,22 @@ class AudioEngine: ObservableObject {
 
     // MARK: - Processing Components
 
-    private var fftProcessor: FFTProcessor
-    private var weightingProcessor: FrequencyWeightingProcessor
-    private let metricsCalculator: AcousticMetricsCalculator
+    @ObservationIgnored private var fftProcessor: FFTProcessor
+    @ObservationIgnored private var weightingProcessor: FrequencyWeightingProcessor
+    @ObservationIgnored private let metricsCalculator: AcousticMetricsCalculator
     /// Integrates per-band Leq when the Apple Watch is the live mic and the
     /// payload omits pre-smoothed `bandLeq*` arrays (older watch builds).
     /// Owns the wearable metrics calculator + inter-packet timer
     /// (extracted in Phase 3, Task 3.4).
-    private let wearableIngest: WearableIngestCoordinator
-    private let spectrogramProcessor: SpectrogramProcessor
+    @ObservationIgnored private let wearableIngest: WearableIngestCoordinator
+    @ObservationIgnored private let spectrogramProcessor: SpectrogramProcessor
     /// Pure per-frame DSP (FFT → weighting → bands → energies → LCpeak) and the
     /// real-time scratch buffers (extracted in Phase 3, Task 3.3). Driven only
     /// from the audio render thread via `processFFTFrame`.
-    private let processingPipeline = ProcessingPipeline()
-    private let testGenerator: TestAudioGenerator
-    private let bandstopFilterManager: BandstopFilterManager
-    private let connectivityManager: WatchConnectivityManager
+    @ObservationIgnored private let processingPipeline = ProcessingPipeline()
+    @ObservationIgnored private let testGenerator: TestAudioGenerator
+    @ObservationIgnored private let bandstopFilterManager: BandstopFilterManager
+    @ObservationIgnored private let connectivityManager: WatchConnectivityManager
 
     // MARK: - Audio Engine
 
@@ -86,31 +87,35 @@ class AudioEngine: ObservableObject {
     /// start so `AudioEngine` init stays off the hot AVAudioEngine graph-build
     /// path during deferred `AppServices.startAudio()`. `onBuffer` is wired to
     /// `processAudioBuffer` (called on the audio render thread).
-    private lazy var captureSession: AudioCaptureSession = {
+    @ObservationIgnored private lazy var captureSession: AudioCaptureSession = {
         let session = AudioCaptureSession(tapBlockSize: tapBlockSize, nominalSampleRate: sampleRate)
         session.onBuffer = { [weak self] buffer in
             self?.processAudioBuffer(buffer)
         }
         return session
     }()
-    private var fftSize: Int = FFTBlockSize.size4096.rawValue
-    private let tapBlockSize: AVAudioFrameCount = 512
-    private let sampleRate: Double = 44100.0
-    private var processingSampleRate: Double = 44100.0
+    @ObservationIgnored private var fftSize: Int = FFTBlockSize.size4096.rawValue
+    @ObservationIgnored private let tapBlockSize: AVAudioFrameCount = 512
+    @ObservationIgnored private let sampleRate: Double = 44100.0
+    @ObservationIgnored private var processingSampleRate: Double = 44100.0
 
     // MARK: - FFT Configuration
 
     /// Aktuelle Fensterfunktion
-    @Published var currentWindowFunction: WindowFunction = .hann
+    var currentWindowFunction: WindowFunction = .hann {
+        didSet {
+            rtSettingsLock.withLock { $0.windowFunction = currentWindowFunction }
+        }
+    }
     /// Aktuelle Blockgröße
-    @Published var currentBlockSize: FFTBlockSize = .size4096
+    var currentBlockSize: FFTBlockSize = .size4096
     
     // MARK: - Buffer Management
 
     /// Offset-based FFT-window accumulator (sampleBuffer/offset/frame scratch).
     /// Always touched under `processingLock`.
-    private let sampleRing = SampleRingBuffer()
-    private var gainBoost: Float = 10.0 {
+    @ObservationIgnored private let sampleRing = SampleRingBuffer()
+    @ObservationIgnored private var gainBoost: Float = 10.0 {
         didSet {
             rtSettingsLock.withLock { $0.gainBoost = gainBoost }
         }
@@ -119,7 +124,7 @@ class AudioEngine: ObservableObject {
     // Reusable scratch buffer for the mono channel of an incoming audio callback.
     // Avoids allocating a fresh `[Float]` per buffer (typical iOS audio buffer is
     // 256–4096 frames; at ~100 callbacks/sec that was ~1 MB/sec of churn).
-    private var monoSampleScratch: [Float] = []
+    @ObservationIgnored private var monoSampleScratch: [Float] = []
 
     // Lock for thread-safe FFT reconfiguration.
     //
@@ -131,20 +136,30 @@ class AudioEngine: ObservableObject {
     // `pthread_mutex_lock`, so an acquisition on the audio render thread
     // cannot trigger a kernel mutex wait or priority inversion under thermal
     // pressure. Matches the pattern already used by `FFTProcessor`.
-    private let processingLock = OSAllocatedUnfairLock()
+    @ObservationIgnored private let processingLock = OSAllocatedUnfairLock()
 
     // MARK: - Real-Time Thread Mirrors
 
     private struct RTSettings {
         var calibrationOffset: Float = CalibrationProvider.defaultOffset
         var frequencyWeighting: FrequencyWeighting = .a
-        var scrollSpeed: ScrollSpeed = .normal
+        var windowFunction: WindowFunction = .hann
+        /// Configured live hop (samples) and display-matched FPS (0 = off).
+        /// The effective hop is resolved per callback via `RealtimeHop.resolve`
+        /// so a sample-rate or FFT-size change takes effect without a main-thread hop.
+        var configuredHopSize: Int = ScrollSpeed.normal.rawValue
+        var displayMatchedFPS: Int = 0
         var gainBoost: Float = 10.0
         var recordingStartTime: Date? = nil
     }
 
     private struct RTPerfStats {
         var lastAudioBufferTimestamp: TimeInterval = 0
+        /// Per-frame audio-position clock (see `SpectrogramFrameClock`).
+        var frameClock = SpectrogramFrameClock()
+        /// Bumped on stop / metric reset so paced UI updates still in flight
+        /// (`updateUI` delays up to one buffer) can't overwrite the reset.
+        var uiGeneration = 0
         var fftProcessTimeAccumMs: Double = 0
         var fftProcessCount: Int = 0
         var maxBufferedSeconds: Double = 0
@@ -156,46 +171,46 @@ class AudioEngine: ObservableObject {
         var phase: Float = 1.0
     }
 
-    private let rtSettingsLock = OSAllocatedUnfairLock<RTSettings>(initialState: RTSettings())
-    private let rtPerfLock = OSAllocatedUnfairLock<RTPerfStats>(initialState: RTPerfStats())
-    private let rtStereoLock = OSAllocatedUnfairLock<RTStereoState>(initialState: RTStereoState())
+    @ObservationIgnored private let rtSettingsLock = OSAllocatedUnfairLock<RTSettings>(initialState: RTSettings())
+    @ObservationIgnored private let rtPerfLock = OSAllocatedUnfairLock<RTPerfStats>(initialState: RTPerfStats())
+    @ObservationIgnored private let rtStereoLock = OSAllocatedUnfairLock<RTStereoState>(initialState: RTStereoState())
 
     // MARK: - State Management
 
-    private var isUsingDummyData = false
-    private var isStartingCapture = false
-    private var debugPrintCounter = 0
-    private let maxHistorySize = 1000
-    private var latencyLogCounter = 0
-    private let enableVerboseLogs = false
-    private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
+    @ObservationIgnored private var isUsingDummyData = false
+    @ObservationIgnored private var isStartingCapture = false
+    @ObservationIgnored private var debugPrintCounter = 0
+    @ObservationIgnored private let maxHistorySize = 1000
+    @ObservationIgnored private var latencyLogCounter = 0
+    @ObservationIgnored private let enableVerboseLogs = false
+    @ObservationIgnored private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
     /// Pure timing gates for the publish path: 60 Hz UI / 15 Hz spectrogram /
     /// 0.1 s watch send (extracted in Phase 3, Task 3.5). Internal so the
     /// characterization tests can pin the cadences.
-    let uiThrottle = UIPublishThrottle()
+    @ObservationIgnored let uiThrottle = UIPublishThrottle()
 
-    /// Direct high-rate subject for spectrogram renderers — does NOT trigger objectWillChange.
-    let spectrogramSubject = PassthroughSubject<SpectrogramData, Never>()
-    private let maxRealtimeBacklogSeconds: Double = 0.12
+    /// Direct high-rate broadcaster for spectrogram renderers — does NOT trigger observation invalidation.
+    @ObservationIgnored let spectrogramBroadcaster = SpectrogramBroadcaster()
+    @ObservationIgnored private let maxRealtimeBacklogSeconds: Double = 0.12
     /// Live input-signal diagnostics (impulse latency + silence warning) that
     /// span the audio render thread and the UI publish path.
-    private let signalMonitor = InputSignalMonitor()
-    private var spectrumDiagnosticsCounter = 0
-    private var lastObservedInputSampleRate: Double = 44100.0
+    @ObservationIgnored private let signalMonitor = InputSignalMonitor()
+    @ObservationIgnored private var spectrumDiagnosticsCounter = 0
+    @ObservationIgnored private var lastObservedInputSampleRate: Double = 44100.0
     // State-isolated unfair lock matches the M6 task-6 pattern: the audio
     // render path reads via `withLockUnchecked`, callers from main mutate
     // via `withLock`. Replaces an `NSLock` that was reachable from
     // `processFFTFrame` via `requiredSpectralWeightingsForCurrentFrame`.
-    private let widgetSpectralWeightingsLock = OSAllocatedUnfairLock<Set<FrequencyWeighting>>(initialState: [])
+    @ObservationIgnored private let widgetSpectralWeightingsLock = OSAllocatedUnfairLock<Set<FrequencyWeighting>>(initialState: [])
 
     /// Guards whether any visible widget requires pre-aggregated Bark bands.
     /// Read on the audio render thread via `withLockUnchecked`; written on
     /// main via `setWidgetBarkBandsRequired(_:)`.
-    private let widgetBarkBandsRequiredLock = OSAllocatedUnfairLock<Bool>(initialState: false)
+    @ObservationIgnored private let widgetBarkBandsRequiredLock = OSAllocatedUnfairLock<Bool>(initialState: false)
 
     /// AE-5: Measurement frame write errors are stored here on the audio render thread
     /// (Logger is not RT-safe). The `updateUI` main-thread block drains and logs it.
-    private let lastWriteErrorLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+    @ObservationIgnored private let lastWriteErrorLock = OSAllocatedUnfairLock<String?>(initialState: nil)
 
     // MARK: - Microphone Calibration
     // Device map, recommended-offset lookup, and load/save logic live
@@ -203,17 +218,17 @@ class AudioEngine: ObservableObject {
     // active runtime value + its didSet persistence, so the settings
     // slider's `$audioEngine.calibrationOffset` binding still works.
     // dB SPL = dBFS + calibrationOffset.
-    @Published var calibrationOffset: Float = CalibrationProvider.defaultOffset {
+    var calibrationOffset: Float = CalibrationProvider.defaultOffset {
         didSet {
             rtSettingsLock.withLock { $0.calibrationOffset = calibrationOffset }
             CalibrationProvider.persist(offset: calibrationOffset)
         }
     }
-    private var currentInputGain: Float = 1.0
+    @ObservationIgnored private var currentInputGain: Float = 1.0
 
     // MARK: - Recording
 
-    private var recordingStartTime: Date? {
+    @ObservationIgnored private var recordingStartTime: Date? {
         didSet {
             rtSettingsLock.withLock { $0.recordingStartTime = recordingStartTime }
         }
@@ -235,7 +250,7 @@ class AudioEngine: ObservableObject {
     /// Owns the real-time audio + measurement file writers, their cross-thread
     /// locks, the last-file URLs, and the metric-key schema (extracted in
     /// Phase 3, post-3.5 shrink). Recording-mode gating stays here.
-    private let recordingWriter = RecordingWriterCoordinator()
+    @ObservationIgnored private let recordingWriter = RecordingWriterCoordinator()
 
     /// Forwarders so existing call sites (ControlBarView, RecordingManager, and
     /// the `… = nil` reset sites below) keep working unchanged.
@@ -248,74 +263,37 @@ class AudioEngine: ObservableObject {
         set { recordingWriter.lastMeasurementDataURL = newValue }
     }
     
-    // MARK: - Published Properties
+    // MARK: - Observable Properties
 
     // MARK: - Recording coordinator
-    //
-    // Flags + duration storage moved into RecordingCoordinator as part
-    // of M13 task-5. The properties below are computed forwarders so
-    // existing read/write call sites (ControlBarView, DashboardViewModel,
-    // WaterfallView, the audio frame writers below) keep working
-    // unchanged.
-    //
-    // The `recording.isMeasurementRecording` didSet side effects
-    // (setupMeasurementDataFileIfNeeded / closeMeasurementWriter) moved
-    // out of the property and into a Combine subscription bridged in
-    // init — same pattern as task-4's live-state extraction.
     let recording = RecordingCoordinator()
-    private var recordingBridge: AnyCancellable?
-    private var measurementRecordingSink: AnyCancellable?
 
     // --- AE-3: Audio-thread-safe mirrors of RecordingCoordinator flags ---
-    //
-    // `RecordingCoordinator.isRecordingToFile` and `.isMeasurementRecording` are
-    // @Published properties. @Published has no thread-safety guarantee — writing on
-    // main while reading on the audio render thread is a data race per the Swift
-    // memory model. These locks mirror the flags atomically so the audio thread
-    // can read them without touching @Published storage.
-    //
-    // The mirrors are always updated alongside the RecordingCoordinator property
-    // (see the computed setters below). All audio-thread reads go through these locks.
-    private let audioThreadIsRecordingToFile = OSAllocatedUnfairLock<Bool>(initialState: false)
-    private let audioThreadIsMeasurementRecording = OSAllocatedUnfairLock<Bool>(initialState: false)
+    @ObservationIgnored private let audioThreadIsRecordingToFile = OSAllocatedUnfairLock<Bool>(initialState: false)
+    @ObservationIgnored private let audioThreadIsMeasurementRecording = OSAllocatedUnfairLock<Bool>(initialState: false)
 
-    // RecordingCoordinator forwarders deleted 2026-05-27 as M13 task-5
-    // continued: all call sites use `audioEngine.recording.X` directly.
-    // The audio-thread-safe `audioThreadIs*` mirrors are kept in sync via
-    // Combine sinks on `recording.$isRecordingToFile` /
-    // `$isMeasurementRecording` (installed in init), replacing the old
-    // setter side effects.
-    private var recordingFileMirrorSink: AnyCancellable?
-    private var measurementMirrorSink: AnyCancellable?
-    @Published var engineStatus: EngineStatus = .idle
-    @Published private(set) var activeMicrophoneSource: MicrophoneSource?
-    @Published var lastError: SpektoWatchError?
+    var engineStatus: EngineStatus = .idle
+    private(set) var activeMicrophoneSource: MicrophoneSource?
+    var lastError: SpektoWatchError?
     // MARK: - Live acoustic state
-    //
-    // The 17 live-metric `@Published` properties (`currentSpectrogramData`,
-    // `currentLevel`, …, `currentBarkBandsC`) live on `LiveAcousticState`.
-    // All read and write sites — internal and external — use `live.X`
-    // directly. The compatibility forwarders that previously bridged
-    // `audioEngine.X` to `live.X` were deleted 2026-05-27 as M13 task-4
-    // closed out.
     let live = LiveAcousticState()
     // Called on the main thread after each band-update cycle.
     // MaskingEngine sets this to observe live spectrum data without a second audio tap.
     // bands = Z-weighted 1/3-octave bands (31 values, dB SPL); rmsDB = broadband level.
-    var onBandsUpdated: (([Float], Float) -> Void)?
+    @ObservationIgnored var onBandsUpdated: (([Float], Float) -> Void)?
 
-    @Published var timeWeighting: TimeWeighting = .fast {
+    var timeWeighting: TimeWeighting = .fast {
         didSet {
             spectrogramProcessor.spectrogramTimeWeighting = timeWeighting
         }
     }
-    @Published var frequencyWeighting: FrequencyWeighting = .a {
+    var frequencyWeighting: FrequencyWeighting = .a {
         didSet {
             rtSettingsLock.withLock { $0.frequencyWeighting = frequencyWeighting }
             connectivityManager.sendFrequencyWeightingSelection(frequencyWeighting.rawValue)
         }
     }
-    @Published var spectrogramResolution: SpectrogramResolution = .current {
+    var spectrogramResolution: SpectrogramResolution = .current {
         didSet {
             guard spectrogramResolution != oldValue else { return }
             SpectrogramResolution.save(spectrogramResolution)
@@ -323,7 +301,7 @@ class AudioEngine: ObservableObject {
         }
     }
 
-    @Published var spectrogramFrequencySmoothing: Float = 0.0 {
+    var spectrogramFrequencySmoothing: Float = 0.0 {
         didSet {
             let clamped = max(0.0, min(1.0, spectrogramFrequencySmoothing))
             if abs(clamped - spectrogramFrequencySmoothing) > 0.0001 {
@@ -333,7 +311,7 @@ class AudioEngine: ObservableObject {
             UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramFrequencySmoothing)
         }
     }
-    @Published var spectrogramTemporalSmoothing: Float = 0.6 {
+    var spectrogramTemporalSmoothing: Float = 0.6 {
         didSet {
             let clamped = max(0.0, min(1.0, spectrogramTemporalSmoothing))
             if abs(clamped - spectrogramTemporalSmoothing) > 0.0001 {
@@ -344,14 +322,14 @@ class AudioEngine: ObservableObject {
             UserDefaults.standard.set(Double(clamped), forKey: PersistenceKeys.spectrogramTemporalSmoothing)
         }
     }
-    @Published var spectrogramFrequencyScale: SpectrogramFrequencyScale = .current {
+    var spectrogramFrequencyScale: SpectrogramFrequencyScale = .current {
         didSet {
             guard spectrogramFrequencyScale != oldValue else { return }
             SpectrogramFrequencyScale.save(spectrogramFrequencyScale)
         }
     }
     /// Lower bound of the displayed spectrogram frequency range (Hz).
-    @Published var spectrogramMinFrequency: Double = 20 {
+    var spectrogramMinFrequency: Double = 20 {
         didSet {
             let clamped = min(
                 max(spectrogramMinFrequency, SpectrogramFrequencyRange.absoluteMin),
@@ -367,7 +345,7 @@ class AudioEngine: ObservableObject {
     }
     /// Upper bound of the displayed spectrogram frequency range (Hz), clamped to
     /// the active microphone's Nyquist frequency.
-    @Published var spectrogramMaxFrequency: Double = 20_000 {
+    var spectrogramMaxFrequency: Double = 20_000 {
         didSet {
             let nyquist = sampleRate / 2.0
             let upperLimit = min(SpectrogramFrequencyRange.absoluteMax, max(2_000, nyquist))
@@ -380,21 +358,132 @@ class AudioEngine: ObservableObject {
             NotificationCenter.default.post(name: .spectrogramFrequencyRangeChanged, object: nil)
         }
     }
-    @Published var scrollSpeed: ScrollSpeed = .normal {
+    // MARK: - Realtime Hop
+    //
+    // The live hop is a plain sample count. `scrollSpeed` remains as the
+    // preset view of it for existing callers/tests; the settings pipeline
+    // (`AppServices`) drives `configureRealtimeHop` with the exact overlap
+    // hop or the display-matched mode.
+
+    /// Configured (non-display-matched) hop in samples. Main-thread storage.
+    @ObservationIgnored private var configuredHopSize: Int = ScrollSpeed.normal.rawValue
+    /// Display refresh rate the hop is matched to; 0 = off. Main-thread storage.
+    @ObservationIgnored private var displayMatchedFPS: Int = 0
+
+    /// Effective live FFT hop in samples, i.e. what the audio thread actually
+    /// advances per frame for the current sample rate and FFT size. Everything
+    /// that derives a column/frame rate (spectrogram texture width, measurement
+    /// file FPS) must use this rather than a `ScrollSpeed` raw value.
+    private(set) var realtimeHopSize: Int = ScrollSpeed.normal.rawValue
+
+    /// Preset view of the configured hop. Setting a preset pins the configured hop
+    /// to its raw value; display matching (when on) still overrides it.
+    var scrollSpeed: ScrollSpeed = .normal {
         didSet {
-            rtSettingsLock.withLock { $0.scrollSpeed = scrollSpeed }
+            guard !isSyncingScrollSpeedPreset else { return }
+            configureRealtimeHop(configuredHop: scrollSpeed.rawValue, displayMatchedFPS: displayMatchedFPS)
         }
     }
+    @ObservationIgnored private var isSyncingScrollSpeedPreset = false
+
+    /// Sets the live hop. `displayMatchedFPS` > 0 overrides `configuredHop`
+    /// with `sampleRate / displayMatchedFPS`; 0 turns matching off. Main thread.
+    func configureRealtimeHop(configuredHop: Int, displayMatchedFPS fps: Int) {
+        let hop = max(1, configuredHop)
+        let matchedFPS = max(0, fps)
+        configuredHopSize = hop
+        displayMatchedFPS = matchedFPS
+        rtSettingsLock.withLock {
+            $0.configuredHopSize = hop
+            $0.displayMatchedFPS = matchedFPS
+        }
+        let preset = ScrollSpeed.closest(to: hop)
+        if scrollSpeed != preset {
+            isSyncingScrollSpeedPreset = true
+            scrollSpeed = preset
+            isSyncingScrollSpeedPreset = false
+        }
+        refreshRealtimeHopSize()
+    }
+
+    /// Effective hop for the current processing sample rate and FFT size.
+    private func currentEffectiveHopSize() -> Int {
+        let (currentFFTSize, currentSampleRate) = processingLock.withLockUnchecked {
+            (fftSize, processingSampleRate)
+        }
+        return RealtimeHop.resolve(
+            configuredHop: configuredHopSize,
+            displayMatchedFPS: displayMatchedFPS,
+            sampleRate: currentSampleRate,
+            fftSize: currentFFTSize
+        )
+    }
+
+    /// Re-publishes `realtimeHopSize` after a hop, sample-rate or FFT-size
+    /// change. Main thread; must not be called while holding `processingLock`.
+    private func refreshRealtimeHopSize() {
+        let hop = currentEffectiveHopSize()
+        if realtimeHopSize != hop {
+            realtimeHopSize = hop
+        }
+    }
+
+    /// Whether the live hop follows the display refresh rate. Main thread.
+    @ObservationIgnored private var matchesDisplayRefreshRate = false
+    @ObservationIgnored private var displayRateObservers: [NSObjectProtocol] = []
+
+    /// Applies the overlap hop and the display-matched option from the FFT
+    /// settings. The exact overlap hop is used (not the nearest preset).
+    @MainActor
+    func applyRealtimeHop(from config: FFTConfiguration) {
+        applyRealtimeHop(configuredHop: config.hopSize, matchDisplayRefreshRate: config.matchDisplayRefreshRate)
+    }
+
+    @MainActor
+    func applyRealtimeHop(configuredHop: Int, matchDisplayRefreshRate: Bool) {
+        matchesDisplayRefreshRate = matchDisplayRefreshRate
+        configureRealtimeHop(
+            configuredHop: configuredHop,
+            displayMatchedFPS: matchDisplayRefreshRate ? DisplayRefreshRate.maximumFramesPerSecond() : 0
+        )
+        guard displayRateObservers.isEmpty else { return }
+        // Low Power Mode caps ProMotion at 60 Hz, and at launch no window
+        // scene may be connected yet (fallback 60) → re-match on both.
+        var names: [Notification.Name] = [.NSProcessInfoPowerStateDidChange]
+        #if canImport(UIKit)
+        names.append(UIApplication.didBecomeActiveNotification)
+        #endif
+        struct UncheckedWeakRef: @unchecked Sendable {
+            weak var engine: AudioEngine?
+        }
+        let weakRef = UncheckedWeakRef(engine: self)
+        displayRateObservers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { weakRef.engine?.refreshDisplayMatchedHop() }
+            }
+        }
+    }
+
+    /// Re-reads the display refresh rate for the display-matched hop. Skipped
+    /// while a measurement file is written so its stored FPS stays valid.
+    @MainActor
+    func refreshDisplayMatchedHop() {
+        guard matchesDisplayRefreshRate, !recording.isRecordingToFile else { return }
+        configureRealtimeHop(
+            configuredHop: configuredHopSize,
+            displayMatchedFPS: DisplayRefreshRate.maximumFramesPerSecond()
+        )
+    }
     
-    @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
-    @Published var selectedDataSource: AVAudioSessionDataSourceDescription? {
+    var availableDataSources: [AVAudioSessionDataSourceDescription] = []
+    var selectedDataSource: AVAudioSessionDataSourceDescription? {
         didSet {
             if let dataSource = selectedDataSource, engineStatus == .running {
                 try? AVAudioSession.sharedInstance().setInputDataSource(dataSource)
             }
         }
     }
-    @Published var selectedStereoMode: StereoInputMode = .frontBottom {
+    var selectedStereoMode: StereoInputMode = .frontBottom {
         didSet {
             applyStereoMode()
         }
@@ -434,45 +523,22 @@ class AudioEngine: ObservableObject {
         // properties (engineStatus, timeWeighting, frequencyWeighting,
         // scrollSpeed) are engine-settings storage, not forwarders.
 
-        // Bridge for RecordingCoordinator (M13 task-5). Kept so existing
-        // `@ObservedObject var audioEngine` consumers re-render when
-        // recording state changes — they read `audioEngine.recording.X`
-        // through the parent engine's observation.
-        recordingBridge = recording.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+        // Keep the audio-thread-safe mirror locks and writer lifecycle in sync
+        // with RecordingCoordinator's observable state.
+        recording.onRecordingToFileChanged = { [weak self] newValue in
+            self?.audioThreadIsRecordingToFile.withLock { $0 = newValue }
         }
-
-        // Keep the audio-thread-safe mirror locks in sync with the
-        // RecordingCoordinator's published state. Previously the
-        // forwarder setters wrote both the @Published value and the lock
-        // mirror in one assignment; with the forwarders gone, sinks on
-        // the projected publishers do the same job.
-        recordingFileMirrorSink = recording.$isRecordingToFile
-            .sink { [weak self] newValue in
-                self?.audioThreadIsRecordingToFile.withLock { $0 = newValue }
+        recording.onMeasurementRecordingChanged = { [weak self] newValue, oldValue in
+            guard let self else { return }
+            self.audioThreadIsMeasurementRecording.withLock { $0 = newValue }
+            guard newValue != oldValue, self.recording.isRecordingToFile else { return }
+            if newValue {
+                self.setupMeasurementDataFileIfNeeded()
+            } else {
+                self.lastMeasurementDataURL = nil
+                self.closeMeasurementWriter()
             }
-        measurementMirrorSink = recording.$isMeasurementRecording
-            .sink { [weak self] newValue in
-                self?.audioThreadIsMeasurementRecording.withLock { $0 = newValue }
-            }
-
-        // Run the file-setup / writer-close side effects when
-        // recording.isMeasurementRecording flips. Previously a didSet on the
-        // @Published property — moved here so the storage can live on
-        // RecordingCoordinator.
-        // dropFirst() to skip the initial false value emission.
-        measurementRecordingSink = recording.$isMeasurementRecording
-            .dropFirst()
-            .sink { [weak self] newValue in
-                guard let self else { return }
-                guard self.recording.isRecordingToFile else { return }
-                if newValue {
-                    self.setupMeasurementDataFileIfNeeded()
-                } else {
-                    self.lastMeasurementDataURL = nil
-                    self.closeMeasurementWriter()
-                }
-            }
+        }
 
         // Load saved calibration offset or use device-specific default.
         // Logic + device map lives in CalibrationProvider (M13 task-3).
@@ -561,7 +627,6 @@ class AudioEngine: ObservableObject {
 
         Logger.audioEngine.info("Applying FFT config: \(newWindow.rawValue), \(newSize) samples")
         reconfigureFFT(blockSize: config.blockSize, windowFunction: newWindow)
-        objectWillChange.send()
     }
 
     /// Setzt nur die Fensterfunktion
@@ -569,9 +634,9 @@ class AudioEngine: ObservableObject {
         guard function != currentWindowFunction else { return }
 
         processingLock.withLockUnchecked {
-            currentWindowFunction = function
             fftProcessor.setWindowFunction(function)
         }
+        currentWindowFunction = function
         Logger.audioEngine.info("Window function changed to: \(function.rawValue)")
     }
 
@@ -595,12 +660,14 @@ class AudioEngine: ObservableObject {
             processingPipeline.resetScratch(energyCount: newSize / 2)
 
             fftSize = newSize
-            currentWindowFunction = windowFunction
-            currentBlockSize = blockSize
 
             fftProcessor.reconfigure(fftSize: newSize, windowFunction: windowFunction)
             weightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
         }
+        currentWindowFunction = windowFunction
+        currentBlockSize = blockSize
+        // The effective hop is clamped to the FFT size.
+        refreshRealtimeHopSize()
     }
 
     /// Gibt die aktuelle Frequenzauflösung zurück
@@ -838,6 +905,7 @@ class AudioEngine: ObservableObject {
             captureSession.stop()
         }
 
+        rtPerfLock.withLockUnchecked { $0.uiGeneration += 1 }
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
             self.live.levelHistory.reserveCapacity(self.maxHistorySize + 64)
@@ -848,6 +916,8 @@ class AudioEngine: ObservableObject {
         processingLock.withLockUnchecked {
             sampleRing.reset()
         }
+        // Next capture re-anchors the per-frame clock to its first buffer.
+        rtPerfLock.withLockUnchecked { $0.frameClock.resetAnchor() }
     }
 
     private func setupRecordingFile() {
@@ -864,7 +934,8 @@ class AudioEngine: ObservableObject {
             return
         }
 
-        let fps = Float(processingSampleRate / Double(max(1, scrollSpeed.rawValue)))
+        // FPS of the frames actually written: one per effective live hop.
+        let fps = Float(processingSampleRate / Double(max(1, currentEffectiveHopSize())))
         recordingWriter.setupMeasurementFileIfNeeded(
             sampleRate: processingSampleRate,
             fps: fps,
@@ -933,9 +1004,7 @@ class AudioEngine: ObservableObject {
                 )
             }
         }
-        let now = CFAbsoluteTimeGetCurrent()
-        rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp = now }
-        processSamples(samples)
+        processSamples(samples, arrivalTime: CFAbsoluteTimeGetCurrent())
     }
     
     func getRecordingStatistics() -> (laeqFast: Float, peak: Float, min: Float) {
@@ -1179,6 +1248,7 @@ class AudioEngine: ObservableObject {
         metricsCalculator.reset()
         wearableIngest.reset()
 
+        rtPerfLock.withLockUnchecked { $0.uiGeneration += 1 }
         DispatchQueue.main.async {
             self.live.levelHistory.removeAll()
             self.live.levelHistory.reserveCapacity(self.maxHistorySize + 64)
@@ -1190,10 +1260,8 @@ class AudioEngine: ObservableObject {
 
     private func emitSpectrogramData(_ data: SpectrogramData) {
         // Send directly from whatever thread we're on. The audio render callback
-        // is serial so there are no concurrent sends. Subscribers that need a
-        // different thread use .receive(on:) — the previous main-thread bounce
-        // added 86 DispatchQueue.main.async blocks/sec for no benefit.
-        spectrogramSubject.send(data)
+        // is serial so there are no concurrent sends.
+        spectrogramBroadcaster.send(data)
     }
 
     /// Applies processed Apple Watch spectrogram data to the phone dashboard.
@@ -1301,7 +1369,6 @@ class AudioEngine: ObservableObject {
         }
 
         let now = CFAbsoluteTimeGetCurrent()
-        rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp = now }
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         
@@ -1344,10 +1411,12 @@ class AudioEngine: ObservableObject {
             state.phase = phase
         }
 
-        processSamples(monoSampleScratch)
+        processSamples(monoSampleScratch, arrivalTime: now)
     }
     
-    private func processSamples(_ newSamples: [Float]) {
+    /// `arrivalTime` is the absolute time (CFAbsoluteTime) at which the newest
+    /// sample of `newSamples` arrived; it anchors the per-frame clock.
+    private func processSamples(_ newSamples: [Float], arrivalTime: TimeInterval = CFAbsoluteTimeGetCurrent()) {
         let rtSettings = rtSettingsLock.withLockUnchecked { $0 }
         let cal = rtSettings.calibrationOffset
 
@@ -1383,6 +1452,14 @@ class AudioEngine: ObservableObject {
         // Backlog (wie viel Audio noch in der Queue steckt)
         let bufferedSeconds = Double(bufferedSamples) / currentSampleRate
         rtPerfLock.withLockUnchecked { stats in
+            stats.lastAudioBufferTimestamp = arrivalTime
+            // Anchor the newest buffered sample to this buffer's arrival so
+            // each FFT frame below gets its own audio-position timestamp.
+            stats.frameClock.advance(
+                arrivalTime: arrivalTime,
+                appendedSamples: newSamples.count,
+                sampleRate: currentSampleRate
+            )
             if bufferedSeconds > stats.maxBufferedSeconds {
                 stats.maxBufferedSeconds = bufferedSeconds
             }
@@ -1390,7 +1467,12 @@ class AudioEngine: ObservableObject {
         // Keep the visualization near real-time: if processing falls behind,
         // drop oldest queued samples instead of rendering stale history.
         // Never trim below one full FFT window (+ one hop), otherwise no frames can be processed.
-        let hop = max(1, rtSettings.scrollSpeed.rawValue)
+        let hop = RealtimeHop.resolve(
+            configuredHop: rtSettings.configuredHopSize,
+            displayMatchedFPS: rtSettings.displayMatchedFPS,
+            sampleRate: currentSampleRate,
+            fftSize: currentFFTSize
+        )
         let minRequiredBufferedSeconds = Double(currentFFTSize + hop) / currentSampleRate
         let effectiveBacklogLimitSeconds = max(maxRealtimeBacklogSeconds, minRequiredBufferedSeconds)
         if bufferedSeconds > effectiveBacklogLimitSeconds {
@@ -1418,13 +1500,23 @@ class AudioEngine: ObservableObject {
         // Lock spans the read+copy+offset advance; processFFTFrame runs outside
         // the lock so we don't hold it across FFT/weighting work.
         while true {
-            let frame: [Float]? = processingLock.withLockUnchecked {
-                sampleRing.nextFrame(frameSize: currentFFTSize, hop: hop)
+            // `samplesAfterFrameEnd` = buffered samples newer than this
+            // window's last sample; it places the frame on the audio clock.
+            let next = processingLock.withLockUnchecked { () -> (frame: [Float], samplesAfterFrameEnd: Int)? in
+                let samplesAfterFrameEnd = sampleRing.bufferedCount - currentFFTSize
+                guard let frame = sampleRing.nextFrame(frameSize: currentFFTSize, hop: hop) else { return nil }
+                return (frame, samplesAfterFrameEnd)
             }
-            guard let frame else { break }
+            guard let next else { break }
+            let frameTimestamp = rtPerfLock.withLockUnchecked {
+                $0.frameClock.frameTimestamp(
+                    samplesAfterFrameEnd: next.samplesAfterFrameEnd,
+                    sampleRate: currentSampleRate
+                )
+            }
 
             let t0 = CFAbsoluteTimeGetCurrent()
-            processFFTFrame(samples: frame, peakLevel: peakDB)
+            processFFTFrame(samples: next.frame, peakLevel: peakDB, hop: hop, frameTimestamp: frameTimestamp)
             let t1 = CFAbsoluteTimeGetCurrent()
             let elapsedMs = (t1 - t0) * 1000.0
             rtPerfLock.withLockUnchecked { stats in
@@ -1434,7 +1526,10 @@ class AudioEngine: ObservableObject {
         }
     }
     
-    private func processFFTFrame(samples: [Float], peakLevel: Float) {
+    /// `hop` is the effective live hop this frame was advanced by;
+    /// `frameTimestamp` is the frame's audio-position time (CFAbsoluteTime of
+    /// its window end), spaced by `hop / sampleRate` within a burst.
+    private func processFFTFrame(samples: [Float], peakLevel: Float, hop: Int, frameTimestamp: TimeInterval) {
         let signpostID = OSSignpostID(log: Self.performanceLog)
         os_signpost(.begin, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID) }
@@ -1487,14 +1582,16 @@ class AudioEngine: ObservableObject {
         let displayBarkBandsC = dsp.barkBandsC
 
         // Update acoustic metrics
-        let dt = Float(rtSettings.scrollSpeed.rawValue) / Float(currentSampleRate)
+        let dt = Float(max(1, hop)) / Float(currentSampleRate)
         spectrogramProcessor.hopDuration = dt
         // Derive recording duration on the audio thread from the lock-mirrored
         // recordingStartTime rather than reading `@Published recording.recordingDuration`.
-        let nowRef = CFAbsoluteTimeGetCurrent()
+        // Uses the frame's own audio-position time so the frames of one tap
+        // burst are written hop/sampleRate apart (matching the file's fps)
+        // instead of all sharing the processing time.
         let audioThreadRecordingDuration: TimeInterval
         if let startTime = rtSettings.recordingStartTime {
-            audioThreadRecordingDuration = max(0, nowRef - startTime.timeIntervalSinceReferenceDate)
+            audioThreadRecordingDuration = max(0, frameTimestamp - startTime.timeIntervalSinceReferenceDate)
         } else {
             audioThreadRecordingDuration = 0
         }
@@ -1555,8 +1652,6 @@ class AudioEngine: ObservableObject {
             binnedMagnitudes: dsp.bandMagnitudesZ
         )
         
-        let bufferTimestamp = rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp }
-
         // Create spectrogram data with all weightings
         let spectrogramData = SpectrogramData(
             frequencies: dsp.bandFrequencies,
@@ -1568,7 +1663,7 @@ class AudioEngine: ObservableObject {
             broadbandLevel: broadbandLevel,
             levels: levels,
             sampleRate: currentSampleRate,
-            timestamp: Date(timeIntervalSinceReferenceDate: bufferTimestamp)
+            timestamp: Date(timeIntervalSinceReferenceDate: frameTimestamp)
         )
         
         // Feed spectrogram renderers directly — bypasses objectWillChange, no SwiftUI re-render.
@@ -1588,7 +1683,8 @@ class AudioEngine: ObservableObject {
             barkBandsC: displayBarkBandsC,
             broadbandLevel: broadbandLevel,
             peakLevel: peakLevel,
-            processEndTime: CFAbsoluteTimeGetCurrent()
+            processEndTime: CFAbsoluteTimeGetCurrent(),
+            frameTimestamp: frameTimestamp
         )
     }
 
@@ -1620,15 +1716,27 @@ class AudioEngine: ObservableObject {
         barkBandsC: [Float],
         broadbandLevel: Float,
         peakLevel: Float,
-        processEndTime: TimeInterval
+        processEndTime: TimeInterval,
+        frameTimestamp: TimeInterval
     ) {
-        guard uiThrottle.shouldEnqueueUI(now: processEndTime) else {
+        // Gate on audio time, not processing time: a tap burst is processed in
+        // a few ms, so a processing-time gate let only its first frame through
+        // and held every SwiftUI widget at the tap-callback rate.
+        guard uiThrottle.shouldEnqueueUI(now: frameTimestamp) else {
             return
         }
 
-        let bufferTs = rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp }
+        let (bufferTs, bufferDuration, generation) = rtPerfLock.withLockUnchecked {
+            ($0.lastAudioBufferTimestamp, $0.frameClock.lastBufferDuration, $0.uiGeneration)
+        }
         let processingLagMs = (processEndTime - bufferTs) * 1000.0
-        DispatchQueue.main.async {
+        // Pace the burst over real time: frame k is shown at its audio time
+        // plus one buffer duration, so the oldest frame of a burst goes out
+        // now and the newest one buffer later (adds ≤ 1 buffer of latency;
+        // ~10 ms with 512-sample buffers).
+        let releaseDelay = min(max(0, frameTimestamp + bufferDuration - processEndTime), 0.25)
+        DispatchQueue.main.asyncAfter(deadline: .now() + releaseDelay) {
+            guard self.rtPerfLock.withLockUnchecked({ $0.uiGeneration }) == generation else { return }
             self.latencyLogCounter += 1
             if self.latencyLogCounter % 120 == 0 {
                 let uiLagMs = (CFAbsoluteTimeGetCurrent() - bufferTs) * 1000.0
@@ -1660,6 +1768,8 @@ class AudioEngine: ObservableObject {
                 Logger.audioEngine.info(
                     "Reconfigured DSP sample rate (\(sampleRateLog.0)): \(sampleRateLog.1, format: .fixed(precision: 1)) Hz"
                 )
+                // The display-matched hop depends on the sample rate.
+                self.refreshRealtimeHopSize()
             }
 
             let stereo = self.rtStereoLock.withLock { $0 }
@@ -1835,6 +1945,7 @@ class AudioEngine: ObservableObject {
         let normalized = (newSampleRate * 10).rounded() / 10
         let currentRate = processingLock.withLockUnchecked { processingSampleRate }
         guard abs(normalized - currentRate) > 1.0 else { return }
+        let window = rtSettingsLock.withLockUnchecked { $0.windowFunction }
 
         processingLock.withLockUnchecked {
             processingSampleRate = normalized
@@ -1843,7 +1954,7 @@ class AudioEngine: ObservableObject {
             fftProcessor = FFTProcessor(
                 fftSize: fftSize,
                 sampleRate: normalized,
-                windowFunction: currentWindowFunction
+                windowFunction: window
             )
             weightingProcessor = FrequencyWeightingProcessor(
                 fftSize: fftSize,

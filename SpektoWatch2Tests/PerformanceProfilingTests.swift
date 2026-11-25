@@ -1,6 +1,5 @@
 import XCTest
 import MetalKit
-import Combine
 import SwiftUI
 import UIKit
 import os
@@ -13,7 +12,7 @@ import os
 //      → [2] FFTProcessor.convertToDB
 //      → [3] FrequencyWeightingProcessor.applyWeighting
 //      → [4] SpectrogramProcessor.process  (bandstop, octave, binning, smoothing)
-//      → [AudioEngine emits SpectrogramData via spectrogramSubject]
+//      → [AudioEngine emits SpectrogramData via spectrogramBroadcaster]
 //      → [5] HighEndSpectrogramAdapter.updateWithFFTMagnitudes (mapping + texture write)
 //      → [Metal draw (async GPU)]
 //
@@ -266,11 +265,10 @@ final class PerformanceProfilingTests: XCTestCase {
 
             var publishedFrames = 0
             let lock = NSLock()
-            let cancellable = engine.spectrogramSubject
-                .sink { _ in
-                    lock.lock(); publishedFrames += 1; lock.unlock()
-                }
-            defer { cancellable.cancel() }
+            let subscription = engine.spectrogramBroadcaster.addListener { _ in
+                lock.lock(); publishedFrames += 1; lock.unlock()
+            }
+            defer { subscription.cancel() }
 
             // Warmup: FFT-Buffer füllen
             let warmupChunks = Int(ceil(Double(fftSize) / Double(hopSize))) + 4

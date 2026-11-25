@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
-import Combine
 import CoreMotion
+import Observation
 import os.lock
 
 private enum PhysicalScopeScale {
@@ -42,22 +42,23 @@ private enum PhysicalScopeScale {
 
 // MARK: - Tone Generator Engine
 
-class ToneGenerator: ObservableObject, @unchecked Sendable {
-    private var audioEngine: AVAudioEngine?
-    private var srcNode: AVAudioSourceNode?
+@Observable
+final class ToneGenerator: @unchecked Sendable {
+    @ObservationIgnored private var audioEngine: AVAudioEngine?
+    @ObservationIgnored private var srcNode: AVAudioSourceNode?
 
-    @Published var isPlaying = false
+    var isPlaying = false
 
-    // @Published properties are written on the main thread and drive SwiftUI.
+    // Observed properties are written on the main thread and drive SwiftUI.
     // didSet propagates each change into synthLock so the render callback always
-    // reads a consistent, fresh snapshot without touching @Published storage.
-    @Published var frequency: Float = 1000.0 {
+    // reads a consistent, fresh snapshot without touching ObservationRegistrar.
+    var frequency: Float = 1000.0 {
         didSet { synthLock.withLock { $0.frequency = frequency } }
     }
-    @Published var amplitude: Float = 0.5 {
+    var amplitude: Float = 0.5 {
         didSet { synthLock.withLock { $0.amplitude = amplitude } }
     }
-    @Published var waveform: Waveform = .sine {
+    var waveform: Waveform = .sine {
         didSet { synthLock.withLock { $0.waveform = waveform } }
     }
 
@@ -68,7 +69,7 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
         case triangle = "Dreieck"
     }
 
-    private let sampleRate: Double = 44100.0
+    @ObservationIgnored private let sampleRate: Double = 44100.0
 
     // All synthesis parameters accessed from the AVAudioSourceNode render
     // callback are held under OSAllocatedUnfairLock so the render thread
@@ -81,7 +82,7 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
         var waveform: Waveform = .sine
         var phase: Double = 0.0
     }
-    private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
+    @ObservationIgnored private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
 
     init() {}
 
@@ -99,9 +100,8 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
             }
 
             audioEngine = AVAudioEngine()
-            guard let engine = audioEngine else { return }
-
-            let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+            guard let engine = audioEngine,
+                  let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else { return }
             var currentPhase = 0.0
             let twoPi = 2.0 * Double.pi
 
@@ -193,27 +193,28 @@ class ToneGenerator: ObservableObject, @unchecked Sendable {
 
 /// Maps translational device movement to a normalized horizontal scroll offset.
 /// Uses linear acceleration (`userAcceleration`) and an inertial integration model.
-private final class OscilloscopeMovementManager: ObservableObject {
+@Observable
+private final class OscilloscopeMovementManager {
     enum MotionAxis {
         case deviceX
         case deviceY
     }
 
-    @Published var scrollOffset: Float = 0.0  // -1.0 ... 1.0
-    @Published var isActive = false
+    var scrollOffset: Float = 0.0  // -1.0 ... 1.0
+    var isActive = false
 
-    private let motionManager = CMMotionManager()
-    private var lastTimestamp: TimeInterval?
-    private var velocity: Double = 0.0
-    private var position: Double = 0.0
-    private var axis: MotionAxis = .deviceX
+    @ObservationIgnored private let motionManager = CMMotionManager()
+    @ObservationIgnored private var lastTimestamp: TimeInterval?
+    @ObservationIgnored private var velocity: Double = 0.0
+    @ObservationIgnored private var position: Double = 0.0
+    @ObservationIgnored private var axis: MotionAxis = .deviceX
 
     // Tuned for hand-held movement through room.
-    private let accelerationGain: Double = 2.8
-    private let deadZone: Double = 0.010
-    private let maxVelocity: Double = 1.8
-    private let dragPerSecond: Double = 2.2
-    private let recenterPerSecond: Double = 0.55
+    @ObservationIgnored private let accelerationGain: Double = 2.8
+    @ObservationIgnored private let deadZone: Double = 0.010
+    @ObservationIgnored private let maxVelocity: Double = 1.8
+    @ObservationIgnored private let dragPerSecond: Double = 2.2
+    @ObservationIgnored private let recenterPerSecond: Double = 0.55
 
     var isAvailable: Bool {
         motionManager.isDeviceMotionAvailable
@@ -683,8 +684,9 @@ private struct PianoInputView: View {
 // MARK: - Tone Generator Widget View
 
 struct ToneGeneratorWidget: View {
-    @StateObject private var toneGenerator = ToneGenerator()
+    @State private var toneGenerator = ToneGenerator()
     @Environment(\.designAccent) private var accent
+    @Environment(\.ferriteLine) private var ferriteLine
     @State private var showFullscreenOscilloscope = false
     private let outerPadding: CGFloat = 10
     private let minOscilloscopeHeight: CGFloat = 50
@@ -833,9 +835,11 @@ struct ToneGeneratorWidget: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .frame(minWidth: 40, minHeight: 32)
-                                    .background(isSelected ? AnyShapeStyle(accent) : AnyShapeStyle(Color.gray.opacity(0.3)))
-                                    .foregroundColor(isSelected ? .black : .primary)
-                                    .cornerRadius(6)
+                                    .background(isSelected ? ferriteLine.color : FerriteColor.surfaceSunken,
+                                                in: RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
+                                        .strokeBorder(isSelected ? FerriteColor.label : .clear, lineWidth: FerriteStroke.hairline))
+                                    .foregroundColor(isSelected ? ferriteLine.onColor : FerriteColor.label)
                                     .contentShape(Rectangle())
                             }
                             .accessibilityLabel("\(preset.0) Hertz")
@@ -993,7 +997,7 @@ struct ToneGeneratorWidget: View {
 
 private struct WaveformFullscreenView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var movementManager = OscilloscopeMovementManager()
+    @State private var movementManager = OscilloscopeMovementManager()
 
     let frequency: Float
     let amplitude: Float

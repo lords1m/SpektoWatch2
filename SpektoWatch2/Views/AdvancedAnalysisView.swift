@@ -4,8 +4,8 @@ import Charts
 /// Erweiterte Frequenzanalyse-View für didaktische Zwecke
 /// Ermöglicht Studenten, FFT-Parameter zu ändern und deren Auswirkungen zu verstehen
 struct AdvancedAnalysisView: View {
-    @ObservedObject var fftConfig: FFTConfiguration
-    @ObservedObject var audioEngine: AudioEngine
+    @Bindable var fftConfig: FFTConfiguration
+    var audioEngine: AudioEngine
 
     @State private var selectedTab: AnalysisTab = .parameters
 
@@ -63,7 +63,7 @@ struct AdvancedAnalysisView: View {
 // MARK: - Parameters Section
 
 private struct ParametersSection: View {
-    @ObservedObject var fftConfig: FFTConfiguration
+    @Bindable var fftConfig: FFTConfiguration
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -176,6 +176,15 @@ private struct ParametersSection: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    Toggle("An Bildwiederholrate koppeln", isOn: $fftConfig.matchDisplayRefreshRate)
+                        .font(.subheadline)
+
+                    if fftConfig.matchDisplayRefreshRate {
+                        Text("Live-Hop = Samplerate / Display-Hz – eine neue Spalte pro Bild (z. B. 400 Samples bei 48 kHz / 120 Hz). Ersetzt den Overlap-Hop nur in der Live-Ansicht.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if fftConfig.showExplanations {
                         ExplanationBox(
                             title: "Was ist Overlap?",
@@ -196,7 +205,7 @@ private struct ParametersSection: View {
 // MARK: - Window Function Section
 
 private struct WindowFunctionSection: View {
-    @ObservedObject var fftConfig: FFTConfiguration
+    var fftConfig: FFTConfiguration
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -291,7 +300,7 @@ private struct WindowFunctionSection: View {
 // MARK: - Resolution Section
 
 private struct ResolutionSection: View {
-    @ObservedObject var fftConfig: FFTConfiguration
+    var fftConfig: FFTConfiguration
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -439,7 +448,7 @@ private struct StatBox: View {
 }
 
 private struct CurrentResolutionCard: View {
-    @ObservedObject var fftConfig: FFTConfiguration
+    var fftConfig: FFTConfiguration
 
     var body: some View {
         GroupBox {

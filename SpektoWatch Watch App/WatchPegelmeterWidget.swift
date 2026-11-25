@@ -1,9 +1,8 @@
 import SwiftUI
-import Combine
 
 /// Compact Pegelmesser block for the customizable meter grid.
 struct WatchPegelmeterWidget: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
+    @Environment(WatchAudioEngine.self) private var audioEngine
     @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
 
     @State private var laf: Float = -120
@@ -41,13 +40,15 @@ struct WatchPegelmeterWidget: View {
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .watchGlassCard(cornerRadius: 8)
-        .onReceive(
-            audioEngine.$liveData
-                .compactMap { $0 }
-                .throttledForWatchLiveDisplay()
-        ) { data in
-            guard tabLiveUpdatesActive else { return }
-            ingest(data)
+        .task {
+            await ObservationTrackingLoop.observeThrottled(
+                minimumInterval: SingleValueRefreshRate.default.minimumInterval
+            ) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                guard tabLiveUpdatesActive, let data else { return }
+                ingest(data)
+            }
         }
         .onChange(of: audioEngine.isRecording) { _, isRecording in
             if isRecording { resetExtremes() }

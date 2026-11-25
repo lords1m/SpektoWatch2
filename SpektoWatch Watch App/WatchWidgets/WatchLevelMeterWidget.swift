@@ -1,11 +1,10 @@
 import SwiftUI
-import Combine
 
 struct WatchLevelMeterWidget: View {
     var orientation: LevelMeterOrientation = .default
 
-    @EnvironmentObject var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
 
     @State private var currentLevel: Float = -60.0
     @State private var unitLabel: String = "dB(Z)"
@@ -24,9 +23,14 @@ struct WatchLevelMeterWidget: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
-            currentLevel = data.broadbandLevel
-            unitLabel = unitLabel(for: data)
+        .task {
+            await ObservationTrackingLoop.observeThrottled(minimumInterval: 0) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                guard let data else { return }
+                currentLevel = data.broadbandLevel
+                unitLabel = unitLabel(for: data)
+            }
         }
     }
 

@@ -1,6 +1,20 @@
 import Foundation
 import CoreGraphics
 
+enum WidgetDisplayStyle: String, Codable, CaseIterable, Equatable, Identifiable {
+    case liveWidget
+    case icon
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .liveWidget: return "Live-Widget"
+        case .icon:       return "Icon"
+        }
+    }
+}
+
 enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case spectrogram = "Spektrogramm"
     case waterfall = "Wasserfall"
@@ -12,6 +26,9 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
     case singleValue = "Einzelwert"
     case toneGenerator = "Tongenerator"
     case spektralanalyseLab = "Spektralanalyse-Labor"
+    case audioEditor = "Audio-Editor"
+    case recordings = "Aufnahmen"
+    case settings = "Einstellungen"
     case masking = "Sound Masking"
 
     var id: String { rawValue }
@@ -30,7 +47,10 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
             .levelMeter,
             .singleValue,
             .toneGenerator,
-            .spektralanalyseLab
+            .spektralanalyseLab,
+            .audioEditor,
+            .recordings,
+            .settings
         ]
     }
 }
@@ -126,14 +146,26 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     var gridPosition: GridPosition
     var size: WidgetSize
     var settings: [String: String]
+    var displayStyle: WidgetDisplayStyle
+    var preferredLiveSize: WidgetSize?
 
-    init(type: AudioWidgetType, size: WidgetSize, gridPosition: GridPosition = GridPosition(index: 0), settings: [String: String] = [:]) {
+    init(
+        type: AudioWidgetType,
+        size: WidgetSize,
+        gridPosition: GridPosition = GridPosition(index: 0),
+        settings: [String: String] = [:],
+        displayStyle: WidgetDisplayStyle = .liveWidget,
+        preferredLiveSize: WidgetSize? = nil
+    ) {
         self.id = UUID()
         self.type = type
+        self.displayStyle = displayStyle
+        self.preferredLiveSize = preferredLiveSize
         self.size = WidgetConfiguration.normalizedSize(
             for: type,
             size: size,
-            settings: settings
+            settings: settings,
+            displayStyle: displayStyle
         )
         self.gridPosition = gridPosition
         self.settings = settings
@@ -152,6 +184,8 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         case gridPosition
         case size
         case settings
+        case displayStyle
+        case preferredLiveSize
     }
 
     init(from decoder: Decoder) throws {
@@ -160,21 +194,29 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         self.type = try container.decode(AudioWidgetType.self, forKey: .type)
         self.gridPosition = try container.decode(GridPosition.self, forKey: .gridPosition)
         self.settings = try container.decode([String: String].self, forKey: .settings)
+        self.displayStyle = try container.decodeIfPresent(WidgetDisplayStyle.self, forKey: .displayStyle) ?? .liveWidget
+        self.preferredLiveSize = try container.decodeIfPresent(WidgetSize.self, forKey: .preferredLiveSize)
         let rawSize = try container.decode(WidgetSize.self, forKey: .size)
         self.size = WidgetConfiguration.normalizedSize(
             for: self.type,
             size: rawSize,
-            settings: self.settings
+            settings: self.settings,
+            displayStyle: self.displayStyle
         )
     }
 
     /// Clamps to per-type range, then enforces level-meter long-axis minimum (2 grid cells).
+    /// Compact `.icon` tiles always occupy 1×1.
     static func normalizedSize(
         for type: AudioWidgetType,
         size: WidgetSize,
-        settings: [String: String]
+        settings: [String: String],
+        displayStyle: WidgetDisplayStyle = .liveWidget
     ) -> WidgetSize {
-        let range = sizeRange(for: type)
+        if displayStyle == .icon {
+            return WidgetSize(columns: 1, rows: 1)
+        }
+        let range = sizeRange(for: type, displayStyle: displayStyle)
         var clamped = size.clamped(min: range.min, max: range.max)
         if type == .levelMeter {
             clamped = normalizedLevelMeterSize(
@@ -219,7 +261,10 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     //   - `WidgetCardView.handleResize(...)` (drag resize).
     //
     // If you adjust the matrix here, no other call site needs updating.
-    static func sizeRange(for type: AudioWidgetType) -> (min: WidgetSize, max: WidgetSize) {
+    static func sizeRange(for type: AudioWidgetType, displayStyle: WidgetDisplayStyle = .liveWidget) -> (min: WidgetSize, max: WidgetSize) {
+        if displayStyle == .icon {
+            return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 1, rows: 1))
+        }
         switch type {
         case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:
             return (min: WidgetSize(columns: 2, rows: 2), max: WidgetSize(columns: 3, rows: 4))
@@ -231,6 +276,8 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
             return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 2, rows: 2))
         case .singleValue:
             return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 3, rows: 3))
+        case .audioEditor, .recordings, .settings:
+            return (min: WidgetSize(columns: 2, rows: 1), max: WidgetSize(columns: 3, rows: 2))
         case .masking:
             return (min: WidgetSize(columns: 1, rows: 1), max: WidgetSize(columns: 3, rows: 3))
         }
@@ -239,12 +286,17 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     /// Base height (pt) for a single row of this widget type. Lowered from
     /// the old 200pt default to keep first-load dashboards denser and reduce
     /// excess vertical whitespace on phone screens.
-    static func baseRowHeight(for type: AudioWidgetType) -> CGFloat {
+    static func baseRowHeight(for type: AudioWidgetType, displayStyle: WidgetDisplayStyle = .liveWidget) -> CGFloat {
+        if displayStyle == .icon {
+            return 96
+        }
         switch type {
         case .levelMeter:
             return 52
         case .singleValue, .phaseMeter:
             return 96
+        case .audioEditor, .recordings, .settings:
+            return 116
         default:
             return 150
         }
@@ -254,7 +306,7 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     /// row height + spacing between rows. Replaces direct reads of
     /// `widget.size.height` so per-type row heights take effect.
     var frameHeight: CGFloat {
-        let baseHeight = WidgetConfiguration.baseRowHeight(for: type)
+        let baseHeight = WidgetConfiguration.baseRowHeight(for: type, displayStyle: displayStyle)
         let spacing: CGFloat = 12
         return CGFloat(size.rows) * baseHeight + CGFloat(max(0, size.rows - 1)) * spacing
     }
@@ -304,6 +356,10 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
             return WidgetSize(columns: 1, rows: 1)
         case .singleValue:
             return WidgetSize(columns: 1, rows: 1)
+        case .audioEditor, .recordings:
+            return WidgetSize(columns: 3, rows: 1)
+        case .settings:
+            return WidgetSize(columns: 2, rows: 1)
         case .masking:
             return WidgetSize(columns: 2, rows: 1)
         }

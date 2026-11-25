@@ -20,13 +20,13 @@ enum SpectrumBandMode: String, CaseIterable {
 
 // MARK: - Frequency Spectrum Widget
 struct FrequencySpectrumWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
-    @ObservedObject private var live: LiveAcousticState
+    var audioEngine: AudioEngine
+    private let live: LiveAcousticState
     var settings: [String: String]
 
     init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
         self.audioEngine = audioEngine
-        self._live = ObservedObject(wrappedValue: audioEngine.live)
+        self.live = audioEngine.live
         self.settings = settings
     }
 
@@ -405,14 +405,14 @@ private struct SpectrumBandChartView: View {
 /// are driven by live data ticks only. `audioEngine` is not retained after init —
 /// no re-renders from engine settings / status changes.
 struct LevelMeterWidget: View {
-    @ObservedObject private var live: LiveAcousticState
-    @ObservedObject private var audioEngine: AudioEngine
+    private let live: LiveAcousticState
+    private let audioEngine: AudioEngine
     @Environment(\.designNumerals) private var numerals
     var settings: [String: String] = [:]
 
     init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
-        self._live = ObservedObject(wrappedValue: audioEngine.live)
-        self._audioEngine = ObservedObject(wrappedValue: audioEngine)
+        self.live = audioEngine.live
+        self.audioEngine = audioEngine
         self.settings = settings
     }
 
@@ -644,7 +644,7 @@ private struct SegmentedLevelBar: View {
 
 // MARK: - Octave Band Analyzer Widget
 struct OctaveBandWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    var audioEngine: AudioEngine
 
     private var weightedOctaveBands: [Float] {
         switch audioEngine.frequencyWeighting {
@@ -685,10 +685,10 @@ struct OctaveBandWidget: View {
 
 // MARK: - Phase Meter Widget
 struct PhaseMeterWidget: View {
-    @ObservedObject private var live: LiveAcousticState
+    private let live: LiveAcousticState
 
     init(audioEngine: AudioEngine) {
-        _live = ObservedObject(wrappedValue: audioEngine.live)
+        self.live = audioEngine.live
     }
 
     var body: some View {
@@ -760,9 +760,9 @@ struct PhaseMeterWidget: View {
                 .foregroundColor(.gray)
 
                 // Numeric readout
-                Text(String(format: "%.2f", audioEngine.live.currentStereoPhase))
+                Text(String(format: "%.2f", live.currentStereoPhase))
                     .font(.system(.body, design: .monospaced))
-                    .foregroundColor(indicatorColor(phase: audioEngine.live.currentStereoPhase))
+                    .foregroundColor(indicatorColor(phase: live.currentStereoPhase))
             }
             .padding()
 
@@ -794,7 +794,7 @@ struct PhaseMeterWidget: View {
                 // +1 (mono/in-phase)  → tall vertical line
                 //  0 (uncorrelated)   → circle
                 // –1 (out-of-phase)   → wide horizontal line
-                let phase = CGFloat(audioEngine.live.currentStereoPhase)
+                let phase = CGFloat(live.currentStereoPhase)
                 let scaleX = sqrt(max(0, (1.0 - phase) / 2.0))
                 let scaleY = sqrt(max(0, (1.0 + phase) / 2.0))
                 let ew = radius * scaleX

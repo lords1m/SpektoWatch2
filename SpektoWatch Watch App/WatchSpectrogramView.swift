@@ -1,9 +1,8 @@
 import SwiftUI
-import Combine
 
 struct WatchSpectrogramView: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
-    @EnvironmentObject var audioEngine: WatchAudioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
     @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
     @State private var frames: RingBuffer<[Float]> = RingBuffer(capacity: SpectrogramResolution.current.watchHistoryFrameCount)
     @State private var zoomLevel: Double = 1.0
@@ -84,19 +83,21 @@ struct WatchSpectrogramView: View {
             .onTapGesture(count: 2) {
                 crownZoomEnabled.toggle()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .spectrogramResolutionChanged)) { _ in
+            .onChange(of: audioEngine.spectrogramHistoryFrameCount) { _, _ in
                 resizeFrameBufferIfNeeded()
             }
         }
         // Single source: WatchAudioEngine.liveData reflects whichever mode is
         // active (companion vs. wearableMic). No branching.
-        .onReceive(
-            audioEngine.$liveData
-                .compactMap { $0 }
-                .throttledForWatchLiveDisplay()
-        ) { data in
-            guard tabLiveUpdatesActive else { return }
-            processSpectrogramData(data)
+        .task {
+            await ObservationTrackingLoop.observeThrottled(
+                minimumInterval: SingleValueRefreshRate.default.minimumInterval
+            ) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                guard tabLiveUpdatesActive, let data else { return }
+                processSpectrogramData(data)
+            }
         }
     }
 

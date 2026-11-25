@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Shared status row: link dot, measurement-source pill, record button.
 struct WatchLiveCaptureFooter: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
 
     var body: some View {
         HStack {

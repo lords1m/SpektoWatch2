@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 
 /// Pegelmesser watch face from `design_handoff_spektowatch_redesign/README.md § 6a`:
 /// big LAF number in phosphor green, dB(A) unit, peak bar with
@@ -8,8 +7,8 @@ import Combine
 /// Reads from the existing `WatchAudioEngine.liveData` stream — no
 /// new data plumbing.
 struct WatchPegelmesserFace: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
 
     @State private var laf: Float = -120
     @State private var peakDB: Float = -120
@@ -74,8 +73,14 @@ struct WatchPegelmesserFace: View {
             resetExtremes()
             WKInterfaceDevice.current().play(.click)
         }
-        .onReceive(audioEngine.$liveData.compactMap { $0 }) { data in
-            ingest(data)
+        .task {
+            await ObservationTrackingLoop.observeThrottled(minimumInterval: 0) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                if let data {
+                    ingest(data)
+                }
+            }
         }
         .onChange(of: audioEngine.isRecording) { _, newValue in
             // New recording session = fresh min/max window.

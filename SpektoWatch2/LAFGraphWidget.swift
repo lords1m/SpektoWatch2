@@ -1,41 +1,29 @@
 import SwiftUI
-import Combine
 
 struct LevelHistoryWidget: View {
     private let audioEngine: AudioEngine
-    @ObservedObject private var live: LiveAcousticState
-    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
-    private let timeWeightingPublisher: Published<TimeWeighting>.Publisher
-    private let spectrogramDataPublisher: Published<SpectrogramData?>.Publisher
+    private var live: LiveAcousticState { audioEngine.live }
     var settings: [String: String]
     @State private var phonValue: Double?
     @State private var soneValue: Double?
-    @State private var engineFrequencyWeighting: String
-    @State private var engineTimeWeighting: String
 
     init(audioEngine: AudioEngine, settings: [String: String]) {
         self.audioEngine = audioEngine
-        _live = ObservedObject(initialValue: audioEngine.live)
-        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
-        self.timeWeightingPublisher = audioEngine.$timeWeighting
-        self.spectrogramDataPublisher = audioEngine.live.$currentSpectrogramData
         self.settings = settings
-        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
-        _engineTimeWeighting = State(initialValue: audioEngine.timeWeighting.rawValue)
     }
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
     private var resolvedFrequencyWeighting: String {
         if useWidgetOverrides {
-            return settings["freqWeighting"] ?? engineFrequencyWeighting
+            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
         }
-        return engineFrequencyWeighting
+        return audioEngine.frequencyWeighting.rawValue
     }
     private var resolvedTimeWeighting: String {
         if useWidgetOverrides {
-            return settings["timeWeighting"] ?? engineTimeWeighting
+            return settings["timeWeighting"] ?? audioEngine.timeWeighting.rawValue
         }
-        return engineTimeWeighting
+        return audioEngine.timeWeighting.rawValue
     }
     private var selectedHistoryMetric: String {
         if useWidgetOverrides {
@@ -65,7 +53,7 @@ struct LevelHistoryWidget: View {
 
     /// Shared rolling buffer so the tile and the fullscreen cover render the
     /// same continuous history rather than each restarting from empty.
-    @StateObject private var store = LevelHistoryStore()
+    @State private var store = LevelHistoryStore()
     @State private var showFullscreen = false
 
     var body: some View {
@@ -121,18 +109,18 @@ struct LevelHistoryWidget: View {
             }
             .padding(4)
         }
-        .onReceive(spectrogramDataPublisher) { data in
-            guard let data = data else {
-                phonValue = nil
-                soneValue = nil
-                return
+        .task(id: resolvedMetricKey) {
+            await ObservationTrackingLoop.observe({ live.currentSpectrogramData }) { data in
+                guard let data = data else {
+                    phonValue = nil
+                    soneValue = nil
+                    return
+                }
+                updateLoudness(from: data)
+                let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel
+                store.ingest(level: level, sampleRate: data.sampleRate)
             }
-            updateLoudness(from: data)
-            let level = data.levels[resolvedMetricKey] ?? data.broadbandLevel
-            store.ingest(level: level, sampleRate: data.sampleRate)
         }
-        .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
-        .onReceive(timeWeightingPublisher) { engineTimeWeighting = $0.rawValue }
         .fullScreenCover(isPresented: $showFullscreen) {
             // Share the SAME store so the level history continues seamlessly —
             // the presenting tile stays mounted and keeps feeding it.
@@ -153,7 +141,7 @@ struct LevelHistoryWidget: View {
 
 private struct LevelHistoryFullscreenView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var store: LevelHistoryStore
+    var store: LevelHistoryStore
     let settings: [String: String]
 
     var body: some View {

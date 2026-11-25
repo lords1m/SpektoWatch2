@@ -1,32 +1,13 @@
 import SwiftUI
-import Combine
 
 struct SpectrogramWidget: View {
     private let audioEngine: AudioEngine
     var settings: [String: String]
     @AppStorage("design.colormap") private var designColormap: String = Colormap.viridis.rawValue
 
-    private let scrollSpeedPublisher: Published<ScrollSpeed>.Publisher
-    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
-    private let spectrogramFrequencySmoothingPublisher: Published<Float>.Publisher
-    private let engineStatusPublisher: Published<EngineStatus>.Publisher
-
-    @State private var engineScrollSpeed: ScrollSpeed
-    @State private var engineFrequencyWeighting: String
-    @State private var engineSpectrogramFrequencySmoothing: Float
-    @State private var engineStatus: EngineStatus
-
     init(audioEngine: AudioEngine, settings: [String: String]) {
         self.audioEngine = audioEngine
         self.settings = settings
-        self.scrollSpeedPublisher = audioEngine.$scrollSpeed
-        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
-        self.spectrogramFrequencySmoothingPublisher = audioEngine.$spectrogramFrequencySmoothing
-        self.engineStatusPublisher = audioEngine.$engineStatus
-        _engineScrollSpeed = State(initialValue: audioEngine.scrollSpeed)
-        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
-        _engineSpectrogramFrequencySmoothing = State(initialValue: audioEngine.spectrogramFrequencySmoothing)
-        _engineStatus = State(initialValue: audioEngine.engineStatus)
     }
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
@@ -45,12 +26,12 @@ struct SpectrogramWidget: View {
         let raw = Int(settings["timeSpan"] ?? String(fallback)) ?? fallback
         return SpectrogramTimeSpan(rawValue: raw) ?? SpectrogramTimeSpan(rawValue: fallback) ?? .seconds5
     }
-    var scrollSpeed: ScrollSpeed { engineScrollSpeed }
+    var scrollSpeed: ScrollSpeed { audioEngine.scrollSpeed }
     var freqWeighting: String {
         if useWidgetOverrides {
-            return settings["freqWeighting"] ?? engineFrequencyWeighting
+            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
         }
-        return engineFrequencyWeighting
+        return audioEngine.frequencyWeighting.rawValue
     }
     var sensitivity: Float {
         guard useWidgetOverrides else {
@@ -65,7 +46,7 @@ struct SpectrogramWidget: View {
     /// existing global slider keeps working as before.
     var frequencySmoothing: Float {
         guard useWidgetOverrides else {
-            return engineSpectrogramFrequencySmoothing
+            return audioEngine.spectrogramFrequencySmoothing
         }
         let raw = settings["frequencySmoothing"] ?? "0.0"
         return Float(raw) ?? 0.0
@@ -79,6 +60,7 @@ struct SpectrogramWidget: View {
     @State private var columnHistory = SpectrogramColumnHistory()
 
     var body: some View {
+        let engineStatus = audioEngine.engineStatus
         ZStack(alignment: .topTrailing) {
             HighEndSpectrogramAdapterWithAxes(
                 audioEngine: audioEngine,
@@ -104,10 +86,6 @@ struct SpectrogramWidget: View {
             .padding(8)
         }
         .innerCanvas(cornerRadius: 0)
-        .onReceive(scrollSpeedPublisher) { engineScrollSpeed = $0 }
-        .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
-        .onReceive(spectrogramFrequencySmoothingPublisher) { engineSpectrogramFrequencySmoothing = $0 }
-        .onReceive(engineStatusPublisher) { engineStatus = $0 }
         .fullScreenCover(isPresented: $showFullscreen) {
             SpectrogramFullscreenView(
                 audioEngine: audioEngine,

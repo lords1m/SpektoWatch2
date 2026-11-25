@@ -1,15 +1,13 @@
 import SwiftUI
-import Combine
 
 struct SingleValueWidget: View {
-    @ObservedObject private var live: LiveAcousticState
+    private let audioEngine: AudioEngine
+    private var live: LiveAcousticState { audioEngine.live }
     @Environment(\.designNumerals) private var numerals
-    private let engineStatusPublisher: Published<EngineStatus>.Publisher
     var settings: [String: String]
 
     init(audioEngine: AudioEngine, settings: [String: String]) {
-        _live = ObservedObject(initialValue: audioEngine.live)
-        self.engineStatusPublisher = audioEngine.$engineStatus
+        self.audioEngine = audioEngine
         self.settings = settings
     }
     var metricKey: String {
@@ -78,10 +76,9 @@ struct SingleValueWidget: View {
     }
     
     @State private var value: Float? = nil
-    @State private var engineStatus: EngineStatus = .idle
 
     private var displayValue: String {
-        guard let v = value, engineStatus == .running else {
+        guard let v = value, audioEngine.engineStatus == .running else {
             return "—"
         }
         if metricKey == "SONE" {
@@ -91,6 +88,7 @@ struct SingleValueWidget: View {
     }
 
     var body: some View {
+        let isRunning = (audioEngine.engineStatus == .running)
         // The card header is hidden for value widgets when idle, so the kernel
         // itself carries the value's designation (metric name + unit) — that is
         // what tells the otherwise-identical single-value cards apart.
@@ -98,7 +96,7 @@ struct SingleValueWidget: View {
             Text(displayValue)
                 .font(.numerals(numerals, size: 34, weight: .semibold))
                 .monospacedDigit()
-                .foregroundColor(engineStatus == .running ? .primary : .gray)
+                .foregroundColor(isRunning ? .primary : .gray)
                 .minimumScaleFactor(0.4)
                 .lineLimit(1)
                 .contentTransition(.numericText(value: Double(value ?? 0)))
@@ -113,25 +111,23 @@ struct SingleValueWidget: View {
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .innerCanvas(cornerRadius: 0)
-        .onReceive(live.$currentSpectrogramData) { data in
-            if data == nil {
-                self.value = nil
+        .task(id: "\(metricKey)-\(refreshRate.rawValue)") {
+            await ObservationTrackingLoop.observeThrottled(minimumInterval: refreshRate.minimumInterval) {
+                live.currentSpectrogramData
+            } onUpdate: { data in
+                guard let data, audioEngine.engineStatus == .running else {
+                    self.value = nil
+                    return
+                }
+                // PHON and SONE are now populated by AcousticMetricsCalculator,
+                // so all metrics including loudness use the same levels dict path.
+                let raw = data.levels[metricKey] ?? 0.0
+                let floor = WidgetSettings.noiseFloorDB(settings)
+                // Suppress display when the signal is at or below the noise floor.
+                self.value = (floor > -119 && raw <= floor) ? nil : raw
             }
         }
-        .onReceive(
-            live.$currentSpectrogramData
-                .compactMap { $0 }
-                .throttledForSingleValueDisplay(rate: refreshRate)
-        ) { data in
-            // PHON and SONE are now populated by AcousticMetricsCalculator,
-            // so all metrics including loudness use the same levels dict path.
-            let raw = data.levels[metricKey] ?? 0.0
-            let floor = WidgetSettings.noiseFloorDB(settings)
-            // Suppress display when the signal is at or below the noise floor.
-            self.value = (floor > -119 && raw <= floor) ? nil : raw
-        }
-        .onReceive(engineStatusPublisher) { status in
-            engineStatus = status
+        .onChange(of: audioEngine.engineStatus) { _, status in
             if status != .running {
                 self.value = nil
             }

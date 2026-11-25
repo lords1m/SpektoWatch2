@@ -4,11 +4,10 @@ import SwiftUI
 struct WidgetCardView: View {
     let widget: WidgetConfiguration
     /// Non-observed: kernels (`SpectrogramWidget`, etc.) observe audioEngine
-    /// themselves. Holding @ObservedObject here would re-render the card
-    /// chrome (material, shadows, header) on every 15 Hz audio publish.
+    /// themselves.
     let audioEngine: AudioEngine
-    @ObservedObject var fftConfig: FFTConfiguration
-    @EnvironmentObject private var services: AppServices
+    var fftConfig: FFTConfiguration
+    @Environment(AppServices.self) private var services
 
     private var maskingEngine: MaskingEngine { services.maskingEngine! }
     var isEditMode: Bool
@@ -19,12 +18,28 @@ struct WidgetCardView: View {
     var onDelete: () -> Void
     var onResize: (WidgetSize) -> Void
     var onUpdateSettings: ([String: String]) -> Void
+    var onUpdateStyle: ((WidgetDisplayStyle) -> Void)? = nil
+    var onLaunchFeature: ((WidgetConfiguration) -> Void)? = nil
     /// Invoked when the user long-presses the card outside edit mode.
     var onRequestEditMode: () -> Void = {}
+
+    enum Chrome: Equatable {
+        /// Classic dashboard card: square Ferrite card with resize handles,
+        /// drag handle, gear and delete buttons in edit mode.
+        case dashboard
+        /// iOS Home Screen widget: rounded, fixed size from the Home grid.
+        /// The Home Screen owns edit affordances (jiggle, "−", context
+        /// menu, settings sheet), so the card draws none of its own.
+        case homeWidget
+    }
+    var chrome: Chrome = .dashboard
+    /// Exact card height from the Home grid (`.homeWidget` only).
+    var heightOverride: CGFloat? = nil
 
     @State private var showSettings = false
     @State private var deleteRequested = false
     @Environment(\.designAccent) private var accent
+    @Environment(\.ferriteLine) private var ferriteLine
     @Environment(\.designNumerals) private var numerals
     private let cornerRadius: CGFloat = Radius.card
     private let overlayTopInset: CGFloat = 46
@@ -52,10 +67,11 @@ struct WidgetCardView: View {
     /// edit mode, and the kernel fills the whole card otherwise. Chart widgets
     /// keep their header (title + live meta readout) visible as before.
     private var hidesHeaderWhenIdle: Bool {
-        widget.type == .singleValue || widget.type == .levelMeter
+        widget.displayStyle == .icon || widget.type == .singleValue || widget.type == .levelMeter
     }
     private var showsHeaderStrip: Bool {
-        hidesHeaderWhenIdle ? isEditMode : true
+        if widget.displayStyle == .icon { return false }
+        return hidesHeaderWhenIdle ? isEditMode : true
     }
     private var headerOpacity: Double {
         hidesHeaderWhenIdle ? (isEditMode ? 1 : 0) : (isEditMode ? 0 : 1)
@@ -63,7 +79,9 @@ struct WidgetCardView: View {
     /// Value widgets reclaim the header strip when idle → larger content.
     /// Reflow on the edit toggle is harmless for these (Text / Canvas kernels).
     private var resolvedKernelHeight: CGFloat {
-        (hidesHeaderWhenIdle && !isEditMode) ? widget.frameHeight : kernelHeight
+        (hidesHeaderWhenIdle && !isEditMode) || widget.displayStyle == .icon
+            ? widget.frameHeight
+            : kernelHeight
     }
 
     // Stable per-widget jiggle phase so cards rotate out of sync. Uses
@@ -79,6 +97,47 @@ struct WidgetCardView: View {
     }
 
     var body: some View {
+        switch chrome {
+        case .dashboard: dashboardBody
+        case .homeWidget: homeWidgetBody
+        }
+    }
+
+    // MARK: Home Screen widget
+
+    private var homeHeight: CGFloat { heightOverride ?? widget.frameHeight }
+    private let homeContentInset: CGFloat = 8
+
+    private var homeWidgetBody: some View {
+        let shape = RoundedRectangle(cornerRadius: FerriteRadius.homeWidget, style: .continuous)
+        return VStack(spacing: 0) {
+            if !hidesHeaderWhenIdle {
+                cardHeader
+                    .frame(height: headerHeight)
+                    .padding(.horizontal, 14)
+                    .padding(.top, cardTopInset + 4)
+                    .padding(.bottom, headerGap)
+            }
+            // Content margins like iOS widgets, so the rounded corners
+            // never clip a kernel's edge (meter bars, axis labels).
+            renderWidgetContent()
+                .frame(maxWidth: .infinity)
+                .frame(maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: FerriteRadius.homeWidget - homeContentInset, style: .continuous))
+                .padding(.horizontal, homeContentInset)
+                .padding(.bottom, homeContentInset)
+                .padding(.top, hidesHeaderWhenIdle ? homeContentInset : 0)
+        }
+        .frame(height: homeHeight)
+        .background(FerriteColor.surface, in: shape)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
+        .contentShape(shape)
+    }
+
+    // MARK: Dashboard card
+
+    private var dashboardBody: some View {
         VStack(spacing: 0) {
             // Header strip. Chart widgets: reserved always, hidden via opacity
             // in edit mode (no reflow). Value widgets: omitted from layout when
@@ -124,6 +183,12 @@ struct WidgetCardView: View {
             }
         }
         .editJiggle(active: isEditMode, phase: jigglePhase)
+        .onTapGesture {
+            if widget.displayStyle == .icon && !isEditMode {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onLaunchFeature?(widget)
+            }
+        }
         // Long-press enters edit mode (iOS home-screen convention: hold →
         // jiggle → move/resize). Widget settings are reached via the gear
         // button each card shows in edit mode.
@@ -135,7 +200,16 @@ struct WidgetCardView: View {
             }
         )
         .sheet(isPresented: $showSettings) {
-            WidgetSettingsView(widget: widget, onSave: onUpdateSettings)
+            WidgetSettingsView(
+                widget: widget,
+                onSave: onUpdateSettings,
+                onSaveWithStyle: { newSettings, newStyle in
+                    onUpdateSettings(newSettings)
+                    if newStyle != widget.displayStyle {
+                        onUpdateStyle?(newStyle)
+                    }
+                }
+            )
         }
     }
 
@@ -176,10 +250,10 @@ struct WidgetCardView: View {
     private var dragHandle: some View {
         Image(systemName: "line.3.horizontal")
             .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(Color.black)
+            .foregroundStyle(ferriteLine.onColor)
             .frame(width: 28, height: 28)
             .background(Circle().fill(accent))
-            .shadow(color: accent.opacity(0.4), radius: 6)
+            .overlay(Circle().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
     }
 
     private var settingsButton: some View {
@@ -208,10 +282,10 @@ struct WidgetCardView: View {
             // ignored when PlainButtonStyle makes the Button accessibility-transparent.
             Image(systemName: "xmark")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(FerriteLine.u2.onColor)
                 .frame(width: 32, height: 32)
-                .background(Circle().fill(Color.red))
-                .shadow(color: Color.red.opacity(0.4), radius: 6)
+                .background(Circle().fill(FerriteStatus.recording))
+                .overlay(Circle().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
                 .contentShape(Circle())
                 .accessibilityIdentifier("widgetDeleteButton")
                 .accessibilityLabel("Widget entfernen")
@@ -231,35 +305,45 @@ struct WidgetCardView: View {
 
     @ViewBuilder
     private func renderWidgetContent() -> some View {
-        switch widget.type {
-        case .spectrogram:
-            SpectrogramWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .waterfall:
-            WaterfallWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .levelHistory:
-            LevelHistoryWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .frequencyDisplay:
-            FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .levelMeter:
-            LevelMeterWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .octaveBands:
-            FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .phaseMeter:
-            PhaseMeterWidget(audioEngine: audioEngine)
-        case .singleValue:
-            SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
-        case .toneGenerator:
-            ToneGeneratorWidget()
-        case .spektralanalyseLab:
-            SpektralanalyseLaborWidget(fftConfig: fftConfig, audioEngine: audioEngine)
-        case .masking:
-            MaskingEntryWidget(engine: maskingEngine)
+        if widget.displayStyle == .icon {
+            FeatureIconTileView(widget: widget)
+        } else {
+            switch widget.type {
+            case .spectrogram:
+                SpectrogramWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .waterfall:
+                WaterfallWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .levelHistory:
+                LevelHistoryWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .frequencyDisplay:
+                FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .levelMeter:
+                LevelMeterWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .octaveBands:
+                FrequencySpectrumWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .phaseMeter:
+                PhaseMeterWidget(audioEngine: audioEngine)
+            case .singleValue:
+                SingleValueWidget(audioEngine: audioEngine, settings: widget.settings)
+            case .toneGenerator:
+                ToneGeneratorWidget()
+            case .spektralanalyseLab:
+                SpektralanalyseLaborWidget(fftConfig: fftConfig, audioEngine: audioEngine)
+            case .audioEditor:
+                AudioEditorHomeWidget()
+            case .recordings:
+                RecordingsHomeWidget()
+            case .settings:
+                SettingsQuickWidget(audioEngine: audioEngine)
+            case .masking:
+                MaskingEntryWidget(engine: maskingEngine)
+            }
         }
     }
     
     @ViewBuilder
     private var resizeHandles: some View {
-        if isEditMode {
+        if isEditMode && widget.displayStyle == .liveWidget {
             ZStack {
                 HStack {
                     Spacer()
@@ -423,7 +507,9 @@ extension WidgetCardView: Equatable {
         lhs.widget == rhs.widget &&
         lhs.isEditMode == rhs.isEditMode &&
         lhs.columnWidth == rhs.columnWidth &&
-        lhs.gridSpacing == rhs.gridSpacing
+        lhs.gridSpacing == rhs.gridSpacing &&
+        lhs.chrome == rhs.chrome &&
+        lhs.heightOverride == rhs.heightOverride
     }
 }
 
@@ -433,7 +519,7 @@ extension WidgetCardView: Equatable {
 /// (`.regularMaterial` + shadows + edit overlays) at 15 Hz is not.
 private struct CardMetaReader: View {
     let widgetType: AudioWidgetType
-    @ObservedObject var live: LiveAcousticState
+    var live: LiveAcousticState
     let numerals: NumeralStyle
     var dimmed: Bool = false
 
@@ -452,7 +538,7 @@ private struct CardMetaReader: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(Color.black.opacity(0.35)))
+            .background(Capsule().fill(FerriteColor.canvas.opacity(0.7)))
             .opacity(dimmed ? 0.35 : 1)
         }
     }
@@ -472,7 +558,7 @@ private struct CardMetaReader: View {
                 return (String(format: "%.1f", v), "dB Leq")
             }
             return nil
-        case .phaseMeter, .toneGenerator, .masking:
+        case .phaseMeter, .toneGenerator, .masking, .audioEditor, .recordings, .settings:
             return nil
         }
     }

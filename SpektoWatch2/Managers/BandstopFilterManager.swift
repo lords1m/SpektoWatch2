@@ -1,11 +1,12 @@
 import Foundation
 import Accelerate
-import Combine
+import Observation
 import OSLog
 
+@Observable
 @MainActor
-class BandstopFilterManager: ObservableObject {
-    @Published var filters: [BandstopFilter] = [] {
+class BandstopFilterManager {
+    var filters: [BandstopFilter] = [] {
         didSet {
             updateSnapshot()
             self.invalidateCache()
@@ -13,12 +14,12 @@ class BandstopFilterManager: ObservableObject {
         }
     }
 
-    private let snapshotLock = NSLock()
-    nonisolated(unsafe) private var enabledFiltersSnapshot: [BandstopFilter] = []
+    @ObservationIgnored private let snapshotLock = NSLock()
+    @ObservationIgnored nonisolated(unsafe) private var enabledFiltersSnapshot: [BandstopFilter] = []
     
-    private let userDefaultsKey = PersistenceKeys.bandstopFilters
-    private var attenuationCache: [Float]?
-    private var cachedFrequencies: [Float]?
+    @ObservationIgnored private let userDefaultsKey = PersistenceKeys.bandstopFilters
+    @ObservationIgnored private var attenuationCache: [Float]?
+    @ObservationIgnored private var cachedFrequencies: [Float]?
     
     // MARK: - Initialization
     

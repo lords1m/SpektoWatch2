@@ -12,7 +12,7 @@ import SwiftUI
 /// - The play/pause button freezes the stream so you can inspect a still frame;
 ///   time navigation is most useful while frozen.
 struct InteractiveLiveSpectrogramView: View {
-    @ObservedObject var audioEngine: AudioEngine
+    var audioEngine: AudioEngine
     var colormapType: Int
     var timeSpan: SpectrogramTimeSpan
     var scrollSpeed: ScrollSpeed

@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import Combine
+import Observation
 
 // Central coordinator for the adaptive masking feature.
 //
@@ -12,8 +12,9 @@ import Combine
 // mode does it pause AudioEngine and take over the session for playback.
 //
 // All methods must be called on the main thread (@MainActor).
+@Observable
 @MainActor
-final class MaskingEngine: ObservableObject {
+final class MaskingEngine {
 
     // MARK: – State machine
 
@@ -40,11 +41,11 @@ final class MaskingEngine: ObservableObject {
         }
     }
 
-    @Published private(set) var state: State = .idle
-    @Published private(set) var captureCount: Int = 0
-    @Published private(set) var convergenceScore: Float = 0.0
-    @Published private(set) var noveltyScore: Float = 0.0
-    @Published private(set) var currentTriggerSpectrum: TriggerSpectrum?
+    private(set) var state: State = .idle
+    private(set) var captureCount: Int = 0
+    private(set) var convergenceScore: Float = 0.0
+    private(set) var noveltyScore: Float = 0.0
+    private(set) var currentTriggerSpectrum: TriggerSpectrum?
 
     // True while the central record button should route to beginMark/endMark
     // instead of starting a normal file recording.
@@ -60,18 +61,18 @@ final class MaskingEngine: ObservableObject {
 
     // MARK: – Sub-components
 
-    private let accumulator     = TriggerSpectrumAccumulator()
-    private let noveltyDetector = SpectralNoveltyDetector()
+    @ObservationIgnored private let accumulator     = TriggerSpectrumAccumulator()
+    @ObservationIgnored private let noveltyDetector = SpectralNoveltyDetector()
     let previewPlayer           = MaskingPreviewPlayer()
 
     // MARK: – Calibration timer
 
-    private var calibrationTask: Task<Void, Never>?
-    private let calibrationDuration: Int = 10   // seconds
+    @ObservationIgnored private var calibrationTask: Task<Void, Never>?
+    @ObservationIgnored private let calibrationDuration: Int = 10   // seconds
 
     // MARK: – AudioEngine hook (weak to avoid retain cycle)
 
-    private weak var audioEngine: AudioEngine?
+    @ObservationIgnored private weak var audioEngine: AudioEngine?
 
     // MARK: – Init
 

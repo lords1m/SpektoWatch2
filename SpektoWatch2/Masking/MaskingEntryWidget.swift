@@ -5,8 +5,8 @@ import SwiftUI
 // monospaced state label, no prose.
 struct MaskingEntryWidget: View {
 
-    @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var services: AppServices
+    var engine: MaskingEngine
+    @Environment(AppServices.self) private var services
     @State private var showSheet = false
     @State private var showProfiles = false
     @State private var showResetConfirmation = false
@@ -154,7 +154,7 @@ struct MaskingEntryWidget: View {
             }
             .sheet(isPresented: $showProfiles) {
                 ProfileListView(engine: engine)
-                    .environmentObject(services)
+                    .environment(services)
             }
         } else {
             TriggerAcquisitionView(engine: engine)

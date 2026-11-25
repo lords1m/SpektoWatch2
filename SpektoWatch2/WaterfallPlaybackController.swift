@@ -1,21 +1,22 @@
 import Foundation
-import Combine
+import Observation
 
 /// Builds `WaterfallDataSet` for recording playback off the main thread.
+@Observable
 @MainActor
-final class WaterfallPlaybackController: ObservableObject {
-    @Published private(set) var dataSet: WaterfallDataSet = WaterfallDataSet(
+final class WaterfallPlaybackController {
+    private(set) var dataSet: WaterfallDataSet = WaterfallDataSet(
         slices: [],
         frequencies: [],
         duration: 0,
         minDB: WidgetSettings.defaultWaterfallMinDB,
         maxDB: WidgetSettings.defaultWaterfallMaxDB
     )
-    @Published private(set) var isBuilding = false
+    private(set) var isBuilding = false
 
     var display = WaterfallDisplaySettings.playbackDefault
 
-    private var buildTask: Task<Void, Never>?
+    @ObservationIgnored private var buildTask: Task<Void, Never>?
 
     func rebuild(
         history: [[Float]],

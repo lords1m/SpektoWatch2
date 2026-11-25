@@ -26,7 +26,7 @@ enum PresetCompositions {
 
     // MARK: - Compositions
 
-    /// Hero LAF · LAF Verlauf · Spektrogramm Mini · Pegel-Meter
+    /// Home Screen: live measurement hero widgets + 1×1 function launcher icons
     private static func overview() -> [WidgetConfiguration] {
         [
             .init(
@@ -39,8 +39,13 @@ enum PresetCompositions {
                 size: WidgetSize(columns: 1, rows: 2),
                 settings: [WidgetSettings.levelMeterOrientationKey: LevelMeterOrientation.vertical.rawValue]
             ),
-            .init(type: .levelHistory, size: WidgetSize(columns: 3, rows: 2)),
-            .init(type: .spectrogram,  size: WidgetSize(columns: 3, rows: 2))
+            .init(type: .spectrogram, size: WidgetSize(columns: 3, rows: 2)),
+            .init(type: .audioEditor, size: WidgetSize(columns: 1, rows: 1), displayStyle: .icon),
+            .init(type: .recordings, size: WidgetSize(columns: 1, rows: 1), displayStyle: .icon),
+            .init(type: .toneGenerator, size: WidgetSize(columns: 1, rows: 1), displayStyle: .icon),
+            .init(type: .spektralanalyseLab, size: WidgetSize(columns: 1, rows: 1), displayStyle: .icon),
+            .init(type: .frequencyDisplay, size: WidgetSize(columns: 1, rows: 1), displayStyle: .icon),
+            .init(type: .settings, size: WidgetSize(columns: 1, rows: 1), displayStyle: .icon)
         ]
     }
 

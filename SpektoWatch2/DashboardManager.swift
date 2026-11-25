@@ -1,5 +1,5 @@
 import SwiftUI
-import Combine
+import Observation
 import UIKit
 import OSLog
 import os
@@ -23,20 +23,21 @@ private struct DashboardLayoutsStateV1: Codable {
     var activeLayoutIndex: Int
 }
 
+@Observable
 @MainActor
-class DashboardManager: ObservableObject {
-    @Published var presetSlots: [PresetSlot] = []
-    @Published var customLayouts: [DashboardLayout] = []
-    @Published var navigation: DashboardNavigation = .preset(activePresetID: "overview")
-    @Published var widgets: [WidgetConfiguration] = []
-    @Published var isEditMode: Bool = false
-    @Published private(set) var didFinishLoading: Bool = false
+class DashboardManager {
+    var presetSlots: [PresetSlot] = []
+    var customLayouts: [DashboardLayout] = []
+    var navigation: DashboardNavigation = .preset(activePresetID: "overview")
+    var widgets: [WidgetConfiguration] = []
+    var isEditMode: Bool = false
+    private(set) var didFinishLoading: Bool = false
 
-    private let userDefaultsKey = PersistenceKeys.dashboardLegacySnapshot
-    private let layoutsV1Key = PersistenceKeys.dashboardLayouts
-    private let layoutsV2Key = PersistenceKeys.dashboardLayoutsV2
-    private var configurationLoadFailed = false
-    private var isLoading = false
+    @ObservationIgnored private let userDefaultsKey = PersistenceKeys.dashboardLegacySnapshot
+    @ObservationIgnored private let layoutsV1Key = PersistenceKeys.dashboardLayouts
+    @ObservationIgnored private let layoutsV2Key = PersistenceKeys.dashboardLayoutsV2
+    @ObservationIgnored private var configurationLoadFailed = false
+    @ObservationIgnored private var isLoading = false
 
     init() {
         Logger.ui.debug("DashboardManager Initializing...")
@@ -216,7 +217,7 @@ class DashboardManager: ObservableObject {
         }
     }
 
-    private var persistGeneration: UInt64 = 0
+    @ObservationIgnored private var persistGeneration: UInt64 = 0
 
     /// Encodes dashboard state off the main actor after async decode (avoids
     /// blocking the UI thread during first paint), then writes on MainActor
@@ -240,7 +241,7 @@ class DashboardManager: ObservableObject {
             do {
                 let v2Data = try encoder.encode(snapshot)
                 let legacyData = try encoder.encode(legacyWidgets)
-                await MainActor.run {
+                await MainActor.run { [weak self] in
                     guard let self, self.persistGeneration == expectedGeneration else { return }
                     UserDefaults.standard.set(v2Data, forKey: v2Key)
                     UserDefaults.standard.set(legacyData, forKey: legacyKey)
@@ -406,11 +407,42 @@ class DashboardManager: ObservableObject {
 
     // MARK: - Widget mutations
 
-    func addWidget(type: AudioWidgetType, at position: GridPosition? = nil) {
+    func addWidget(type: AudioWidgetType, displayStyle: WidgetDisplayStyle = .liveWidget, at position: GridPosition? = nil) {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let size = WidgetConfiguration.defaultSize(for: type)
+        let liveSize = WidgetConfiguration.defaultSize(for: type)
         let pos = position ?? GridPosition(index: widgets.count)
-        widgets.append(WidgetConfiguration(type: type, size: size, gridPosition: pos))
+        let widget = WidgetConfiguration(
+            type: type,
+            size: displayStyle == .icon ? WidgetSize(columns: 1, rows: 1) : liveSize,
+            gridPosition: pos,
+            displayStyle: displayStyle,
+            preferredLiveSize: displayStyle == .icon ? liveSize : nil
+        )
+        widgets.append(widget)
+        saveConfiguration()
+    }
+
+    func setDisplayStyle(_ style: WidgetDisplayStyle, for id: UUID) {
+        guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
+        var widget = widgets[index]
+        guard widget.displayStyle != style else { return }
+
+        switch style {
+        case .icon:
+            widget.preferredLiveSize = widget.size
+            widget.displayStyle = .icon
+            widget.size = WidgetSize(columns: 1, rows: 1)
+        case .liveWidget:
+            let targetSize = widget.preferredLiveSize ?? WidgetConfiguration.defaultSize(for: widget.type)
+            widget.displayStyle = .liveWidget
+            widget.size = WidgetConfiguration.normalizedSize(
+                for: widget.type,
+                size: targetSize,
+                settings: widget.settings,
+                displayStyle: .liveWidget
+            )
+        }
+        widgets[index] = widget
         saveConfiguration()
     }
 
@@ -434,23 +466,30 @@ class DashboardManager: ObservableObject {
     func resizeWidget(id: UUID, to newSize: WidgetSize) {
         guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
         let widget = widgets[index]
-        let range = WidgetConfiguration.sizeRange(for: widget.type)
+        guard widget.displayStyle == .liveWidget else { return }
+        let range = WidgetConfiguration.sizeRange(for: widget.type, displayStyle: .liveWidget)
         widgets[index].size = WidgetConfiguration.normalizedSize(
             for: widget.type,
             size: newSize.clamped(min: range.min, max: range.max),
-            settings: widget.settings
+            settings: widget.settings,
+            displayStyle: .liveWidget
         )
         saveConfiguration()
     }
 
-    func updateWidgetSettings(id: UUID, settings: [String: String]) {
+    func updateWidgetSettings(id: UUID, settings: [String: String], displayStyle: WidgetDisplayStyle? = nil) {
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].settings = settings
+            if let displayStyle, widgets[index].displayStyle != displayStyle {
+                setDisplayStyle(displayStyle, for: id)
+                return
+            }
             let widget = widgets[index]
             widgets[index].size = WidgetConfiguration.normalizedSize(
                 for: widget.type,
                 size: widget.size,
-                settings: settings
+                settings: settings,
+                displayStyle: widget.displayStyle
             )
             saveConfiguration()
         }
@@ -547,11 +586,12 @@ class DashboardManager: ObservableObject {
                     normalized.settings["frequencyBands"] = "terz"
                 }
             }
-            if normalized.type == .levelMeter {
+            if normalized.type == .levelMeter && normalized.displayStyle == .liveWidget {
                 normalized.size = WidgetConfiguration.normalizedSize(
                     for: .levelMeter,
                     size: normalized.size,
-                    settings: normalized.settings
+                    settings: normalized.settings,
+                    displayStyle: .liveWidget
                 )
             }
             return normalized

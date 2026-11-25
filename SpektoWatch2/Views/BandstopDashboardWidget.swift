@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Kompaktes Dashboard-Widget zum Aktivieren/Deaktivieren von Bandsperren
 struct BandstopDashboardWidget: View {
-    @EnvironmentObject var services: AppServices
+    @Environment(AppServices.self) private var services
     @State private var showFullSettings = false
     
     var body: some View {
@@ -106,7 +106,7 @@ struct BandstopDashboardWidget: View {
 /// Einzelne Zeile mit Toggle für schnelles Ein/Ausschalten
 struct BandstopQuickToggleRow: View {
     let filter: BandstopFilter
-    @EnvironmentObject private var services: AppServices
+    @Environment(AppServices.self) private var services
     
     var body: some View {
         HStack(spacing: 12) {
@@ -154,7 +154,7 @@ struct BandstopQuickToggleRow: View {
 // MARK: - Compact Mini Widget (für noch kleinere Bereiche)
 
 struct BandstopMiniWidget: View {
-    @EnvironmentObject var services: AppServices
+    @Environment(AppServices.self) private var services
     @State private var showFullSettings = false
     
     var body: some View {
@@ -218,7 +218,7 @@ struct BandstopMiniWidget: View {
 // MARK: - Filter Status Indicator (nur Icon + Badge)
 
 struct BandstopStatusIndicator: View {
-    @EnvironmentObject var services: AppServices
+    @Environment(AppServices.self) private var services
     
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -258,6 +258,6 @@ struct BandstopDashboardWidget_Previews: PreviewProvider {
         .padding()
         .background(Color(UIColor.systemGroupedBackground))
         .previewLayout(.sizeThatFits)
-        .environmentObject(AppServices.testFixture())
+        .environment(AppServices.testFixture())
     }
 }

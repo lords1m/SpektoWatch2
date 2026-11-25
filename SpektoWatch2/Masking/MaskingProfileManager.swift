@@ -1,14 +1,15 @@
-import Combine
 import Foundation
+import Observation
 import SwiftUI
 
 // Persistent store for saved masking profiles.
 // Profiles are written as JSON to Documents/Masking/profiles.json.
+@Observable
 @MainActor
-final class MaskingProfileManager: ObservableObject {
-    @Published private(set) var profiles: [MaskingProfile] = []
+final class MaskingProfileManager {
+    private(set) var profiles: [MaskingProfile] = []
 
-    private let fileURL: URL
+    @ObservationIgnored private let fileURL: URL
 
     init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

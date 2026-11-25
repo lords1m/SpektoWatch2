@@ -111,6 +111,9 @@
             isEnabled = "YES">
          </AdditionalOption>
       </AdditionalOptions>
+      <MetalShaderValidationSettings
+         isEnabled = "Yes">
+      </MetalShaderValidationSettings>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

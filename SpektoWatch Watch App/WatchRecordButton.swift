@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Shared record/stop control for watch faces that show live levels.
 struct WatchRecordButton: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
 
     var body: some View {
         HStack {

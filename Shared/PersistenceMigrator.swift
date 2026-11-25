@@ -91,9 +91,19 @@ public enum PersistenceMigrator {
         }
     }
 
+    /// Suspends until all pending migration steps have finished.
+    public static func migrationsCompleted(defaults: UserDefaults = .standard) async {
+        await withCheckedContinuation { continuation in
+            startMigrationsIfNeeded(defaults: defaults) {
+                continuation.resume()
+            }
+        }
+    }
+
     /// Blocks the calling thread until migrations have finished. Prefer
-    /// `startMigrationsIfNeeded` at launch; use this from tests or before
-    /// reading keys that a pending migration step may rewrite.
+    /// `migrationsCompleted` or `startMigrationsIfNeeded` at launch; use this
+    /// from synchronous tests or before reading keys that a pending migration
+    /// step may rewrite.
     public static func ensureMigrationsComplete(defaults: UserDefaults = .standard) {
         if defaults !== UserDefaults.standard {
             performMigrations(defaults: defaults)

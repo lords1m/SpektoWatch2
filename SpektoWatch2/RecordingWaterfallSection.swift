@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Waterfall tab content for `RecordingDetailView`.
 struct RecordingWaterfallSection: View {
-    @ObservedObject var controller: WaterfallPlaybackController
+    var controller: WaterfallPlaybackController
     @Binding var playbackWeighting: FrequencyWeighting
     var isLoadingSpectrogram: Bool
     var isPromotingResolution: Bool

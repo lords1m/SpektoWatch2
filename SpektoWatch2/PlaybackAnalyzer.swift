@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 
 // PlaybackAnalyzer — recording playback DSP coordinator (M14 task-8, R1).
 //
@@ -31,21 +31,22 @@ import Combine
 //
 // Thread safety: all methods must be called on the main thread (@MainActor).
 
+@Observable
 @MainActor
-final class PlaybackAnalyzer: ObservableObject {
+final class PlaybackAnalyzer {
 
     // MARK: – Private state
 
-    private weak var audioEngine: AudioEngine?
+    @ObservationIgnored private weak var audioEngine: AudioEngine?
 
     // Saved main-engine settings — restored when `stop()` is called so the
     // user's live measurement configuration is not permanently affected by
     // playback.
-    private var savedCalibrationOffset: Float = 0
-    private var savedFrequencyWeighting: FrequencyWeighting = .a
-    private var savedTimeWeighting: TimeWeighting = .fast
-    private var savedBlockSize: FFTBlockSize = .size4096
-    private var didStart = false
+    @ObservationIgnored private var savedCalibrationOffset: Float = 0
+    @ObservationIgnored private var savedFrequencyWeighting: FrequencyWeighting = .a
+    @ObservationIgnored private var savedTimeWeighting: TimeWeighting = .fast
+    @ObservationIgnored private var savedBlockSize: FFTBlockSize = .size4096
+    @ObservationIgnored private var didStart = false
 
     // MARK: – Lifecycle
 

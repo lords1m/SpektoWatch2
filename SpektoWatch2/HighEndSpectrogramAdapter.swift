@@ -1,7 +1,6 @@
 import MetalKit
 import Accelerate
 import SwiftUI
-import Combine
 import OSLog
 import os
 
@@ -487,15 +486,10 @@ class HighEndSpectrogramAdapter: MTKView {
 
         let currentTimestamp = timestamp.timeIntervalSinceReferenceDate
 
-        // Throttle to ~62 Hz: the Metal draw loop runs at 60 FPS, so writing
-        // columns faster just overwrites data before the GPU reads it. This
-        // saves the 1024-bin remap + Gaussian smooth + texture write on frames
-        // that arrive above display rate (~26 of 86 frames/sec at ScrollSpeed.fast).
-        let shouldSkip = stateLock.withLockUnchecked {
-            lastDataTimestamp > 0 && (currentTimestamp - lastDataTimestamp) < (1.0 / 62.0)
-        }
-        guard !shouldSkip else { return }
-
+        // No rate cap: every FFT frame lands in its own texture column, so a
+        // frame arriving faster than the display refresh is not overwritten —
+        // dropping it would lose real time resolution. Timestamps are per-frame
+        // audio positions (`SpectrogramFrameClock`), spaced hop/sampleRate.
         let previousTimestamp = stateLock.withLockUnchecked { () -> TimeInterval? in
             let prev = (lastDataTimestamp > 0) ? lastDataTimestamp : nil
             lastDataTimestamp = currentTimestamp
@@ -511,7 +505,7 @@ class HighEndSpectrogramAdapter: MTKView {
             }
             return Self.hashFrequencies(freqs)
         }()
-        let cache = stateLock.withLockUnchecked { () -> [BinMapping]? in
+        let cache = stateLock.withLockUnchecked { () -> [MappingCacheEntry]? in
             if mappingCache == nil
                 || cachedInputSize != magnitudes.count
                 || cachedInputFrequenciesHash != incomingHash {
@@ -1120,7 +1114,8 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         )
         view.setColormap(colormapType)
         view.setTimeSpan(timeSpan.rawValue)
-        view.setHopSize(scrollSpeed.rawValue)
+        // Effective live hop (may be display-matched), not the preset raw value.
+        view.setHopSize(audioEngine.realtimeHopSize)
         view.setPaused(isPaused)
         view.setSensitivity(sensitivity)
         view.setFrequencySmoothing(frequencySmoothing)
@@ -1143,7 +1138,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
 
     func updateUIView(_ uiView: HighEndSpectrogramAdapter, context: Context) {
         uiView.setColormap(colormapType)
-        uiView.setHopSize(scrollSpeed.rawValue)
+        uiView.setHopSize(audioEngine.realtimeHopSize)
         uiView.setTimeSpan(timeSpan.rawValue)
         uiView.setPaused(isPaused)
         uiView.setSensitivity(sensitivity)
@@ -1167,10 +1162,11 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
         Coordinator(audioEngine: audioEngine, freqWeighting: freqWeighting)
     }
 
-    class Coordinator: NSObject {
+    class Coordinator: NSObject, @unchecked Sendable {
         var audioEngine: AudioEngine
         weak var view: HighEndSpectrogramAdapter?
-        var cancellable: AnyCancellable?
+        var spectrogramSubscription: SpectrogramSubscription?
+        var hopTask: Task<Void, Never>?
         var freqWeighting: String
         var onAxisMetricsChanged: ((SpectrogramAxisMetrics) -> Void)?
 
@@ -1183,11 +1179,10 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
             // updates but not at the cost of competing with the main thread
             // for the same CPU priority tier (which caused 400% CPU + hangs).
             let updateQueue = DispatchQueue(label: "com.spektowatch.spectrogram.update", qos: .userInitiated)
-            // Subscribe to spectrogramSubject (full audio rate, no objectWillChange trigger)
-            // instead of $currentSpectrogramData (would cause SwiftUI to re-render at 60 Hz).
-            cancellable = audioEngine.spectrogramSubject
-                .receive(on: updateQueue)
-                .sink { [weak self] data in
+            // Subscribe to spectrogramBroadcaster (full audio rate, no @Observable trigger)
+            // instead of currentSpectrogramData (would cause SwiftUI to re-render at 60 Hz).
+            spectrogramSubscription = audioEngine.spectrogramBroadcaster.addListener { [weak self] data in
+                updateQueue.async { [weak self] in
                     guard let self = self else { return }
                     let magnitudes = data.visualMagnitudes ?? data.magnitudes(for: self.freqWeighting)
                     // When the producer ran the Apple-style DCT→mel pipeline
@@ -1202,6 +1197,20 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
                         inputFrequencies: inputFrequencies
                     )
                 }
+            }
+            // The effective hop changes with sample rate / display-matched mode
+            // without the parent view necessarily re-rendering.
+            hopTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await ObservationTrackingLoop.observe({ self.audioEngine.realtimeHopSize }) { [weak self] hop in
+                    self?.view?.setHopSize(hop)
+                }
+            }
+        }
+
+        deinit {
+            spectrogramSubscription?.cancel()
+            hopTask?.cancel()
         }
     }
 }
@@ -1211,7 +1220,7 @@ struct HighEndSpectrogramAdapterView: UIViewRepresentable {
 // ============================================================================
 
 struct HighEndSpectrogramAdapterWithAxes: View {
-    @ObservedObject var audioEngine: AudioEngine
+    var audioEngine: AudioEngine
     var colormapType: Int = 0
     var timeSpan: SpectrogramTimeSpan = .seconds5
     var scrollSpeed: ScrollSpeed = .fast

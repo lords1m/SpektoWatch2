@@ -1,27 +1,28 @@
 import Foundation
 import SwiftUI
 import AVFoundation
-import Combine
+import Observation
 import OSLog
 
+@Observable
 @MainActor
-final class RecordingManager: NSObject, ObservableObject {
-    @Published var isRecording = false
-    @Published var currentRecordingDuration: TimeInterval = 0
-    @Published var recordings: [Recording] = []
-    @Published var liveActivityError: String? = nil
-    @Published var persistenceError: String? = nil
+final class RecordingManager: NSObject {
+    var isRecording = false
+    var currentRecordingDuration: TimeInterval = 0
+    var recordings: [Recording] = []
+    var liveActivityError: String? = nil
+    var persistenceError: String? = nil
 
     /// Wall-clock start of the active phone recording session.
     var recordingStartDate: Date? { recordingStartTime }
 
-    private var timer: Timer?
+    @ObservationIgnored private var recordingTimerTask: Task<Void, Never>?
     private var recordingStartTime: Date?
-    private var pendingAudioURL: URL?
-    private weak var liveActivityAudioEngine: AudioEngine?
-    private let fileManager = FileManager.default
-    private let baseDirectory: URL?
-    private var metadataLoadFailed = false
+    @ObservationIgnored private var pendingAudioURL: URL?
+    @ObservationIgnored private weak var liveActivityAudioEngine: AudioEngine?
+    @ObservationIgnored private let fileManager = FileManager.default
+    @ObservationIgnored private let baseDirectory: URL?
+    @ObservationIgnored private var metadataLoadFailed = false
 
     private var recordingsDirectory: URL {
         let root = baseDirectory
@@ -72,9 +73,11 @@ final class RecordingManager: NSObject, ObservableObject {
         #endif
 
         let startTime = recordingStartTime
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, let start = startTime else { return }
-            Task { @MainActor in
+        recordingTimerTask?.cancel()
+        recordingTimerTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled, let self, let start = startTime else { break }
                 self.currentRecordingDuration = Date().timeIntervalSince(start)
                 #if canImport(ActivityKit)
                 if let audioEngine = self.liveActivityAudioEngine {
@@ -102,8 +105,8 @@ final class RecordingManager: NSObject, ObservableObject {
         }
         isRecording = false
         recordingStartTime = nil
-        timer?.invalidate()
-        timer = nil
+        recordingTimerTask?.cancel()
+        recordingTimerTask = nil
 
         #if canImport(ActivityKit)
         MeasurementLiveActivityController.shared.end()
@@ -396,6 +399,153 @@ final class RecordingManager: NSObject, ObservableObject {
         )
         recordings.insert(duplicate, at: 0)
         saveRecordings()
+    }
+
+    /// Saves an edited audio file as a brand-new `Recording` copy while
+    /// keeping the original recording and its calibrated `.spekto` sidecar intact.
+    @discardableResult
+    func saveEditedCopy(
+        from source: Recording,
+        editedAudioURL: URL,
+        duration: TimeInterval,
+        sampleRate: Double,
+        channelCount: Int
+    ) -> Recording? {
+        let newID = UUID()
+        let ext = editedAudioURL.pathExtension.isEmpty ? "wav" : editedAudioURL.pathExtension
+        let targetName = "\(newID.uuidString).\(ext)"
+        let targetURL = recordingsDirectory.appendingPathComponent(targetName)
+
+        guard copyAudioFile(from: editedAudioURL, to: targetURL) else { return nil }
+
+        let copy = Recording(
+            id: newID,
+            name: "\(source.name) (Bearbeitet)",
+            description: source.description,
+            startDate: Date(),
+            duration: duration,
+            audioFileName: targetName,
+            measurementDataFileName: nil,
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            laeqFast: source.laeqFast,
+            peakLevel: source.peakLevel,
+            minLevel: source.minLevel,
+            location: source.location,
+            photoFileNames: [],
+            tags: source.tags,
+            timeWeighting: source.timeWeighting,
+            frequencyWeighting: source.frequencyWeighting,
+            widgetConfigurations: nil,
+            markers: nil,
+            calibrationOffset: source.calibrationOffset,
+            fftBlockSize: source.fftBlockSize,
+            spectralDataAvailable: false
+        )
+        recordings.insert(copy, at: 0)
+        saveRecordings()
+        return copy
+    }
+
+    /// Replaces the audio backing of `source` and detaches any stale `.spekto`
+    /// measurement sidecar because time/EQ/filter edits invalidate calibration.
+    @discardableResult
+    func replaceAudio(
+        for source: Recording,
+        with editedAudioURL: URL,
+        duration: TimeInterval,
+        sampleRate: Double,
+        channelCount: Int
+    ) -> Recording? {
+        guard let index = recordings.firstIndex(where: { $0.id == source.id }) else { return nil }
+
+        let ext = editedAudioURL.pathExtension.isEmpty ? "wav" : editedAudioURL.pathExtension
+        let newAudioName = "\(source.id.uuidString).\(ext)"
+        let targetURL = recordingsDirectory.appendingPathComponent(newAudioName)
+        let oldAudioURL = url(for: source)
+
+        guard copyAudioFile(from: editedAudioURL, to: targetURL) else { return nil }
+        if oldAudioURL.standardizedFileURL != targetURL.standardizedFileURL {
+            try? fileManager.removeItem(at: oldAudioURL)
+        }
+        if let oldMeasurement = measurementURL(for: source),
+           fileManager.fileExists(atPath: oldMeasurement.path) {
+            try? fileManager.removeItem(at: oldMeasurement)
+        }
+
+        let updated = Recording(
+            id: source.id,
+            name: source.name,
+            description: source.description,
+            startDate: source.startDate,
+            duration: duration,
+            audioFileName: newAudioName,
+            measurementDataFileName: nil,
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            laeqFast: source.laeqFast,
+            peakLevel: source.peakLevel,
+            minLevel: source.minLevel,
+            location: source.location,
+            photoFileNames: source.photoFileNames,
+            tags: source.tags,
+            timeWeighting: source.timeWeighting,
+            frequencyWeighting: source.frequencyWeighting,
+            widgetConfigurations: source.widgetConfigurations,
+            markers: nil,
+            calibrationOffset: source.calibrationOffset,
+            fftBlockSize: source.fftBlockSize,
+            spectralDataAvailable: false
+        )
+        recordings[index] = updated
+        saveRecordings()
+        removeOrphanedRecordingFiles()
+        return updated
+    }
+
+    @discardableResult
+    func importExternalAudio(
+        url sourceURL: URL,
+        title: String,
+        duration: TimeInterval,
+        sampleRate: Double,
+        channelCount: Int
+    ) -> Recording? {
+        let newID = UUID()
+        let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension
+        let fileName = "\(newID.uuidString).\(ext)"
+        let targetURL = recordingsDirectory.appendingPathComponent(fileName)
+        guard copyAudioFile(from: sourceURL, to: targetURL) else { return nil }
+
+        let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry = Recording(
+            id: newID,
+            name: cleanedTitle.isEmpty ? "Import \(recordings.count + 1)" : cleanedTitle,
+            description: "Importierte Audiodatei",
+            startDate: Date(),
+            duration: duration,
+            audioFileName: fileName,
+            measurementDataFileName: nil,
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            spectralDataAvailable: false
+        )
+        recordings.insert(entry, at: 0)
+        saveRecordings()
+        return entry
+    }
+
+    private func copyAudioFile(from sourceURL: URL, to targetURL: URL) -> Bool {
+        do {
+            if fileManager.fileExists(atPath: targetURL.path) {
+                try fileManager.removeItem(at: targetURL)
+            }
+            try fileManager.copyItem(at: sourceURL, to: targetURL)
+            return true
+        } catch {
+            Logger.recording.error("Failed to copy edited audio \(sourceURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 
     /// Exposes a forced reload from disk — used by pull-to-refresh in

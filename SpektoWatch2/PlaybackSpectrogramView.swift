@@ -1,7 +1,6 @@
 import SwiftUI
 import MetalKit
 import Accelerate
-import Combine
 
 // MARK: - Playback Spectrogram Renderer (uses new minimal shaders)
 

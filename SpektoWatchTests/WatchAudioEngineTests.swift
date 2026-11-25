@@ -1,5 +1,5 @@
 import XCTest
-import Combine
+import Observation
 @testable import SpektoWatch_Watch_App
 
 // MARK: - WatchAudioEngine Unit Tests
@@ -14,13 +14,11 @@ final class WatchAudioEngineTests: XCTestCase {
 
     var engine: WatchAudioEngine!
     var connectivity: WatchConnectivityManager!
-    var cancellables: Set<AnyCancellable>!
 
     override func setUp() async throws {
         try await super.setUp()
         connectivity = WatchConnectivityManager()
         engine = WatchAudioEngine(connectivityManager: connectivity)
-        cancellables = []
     }
 
     override func tearDown() async throws {
@@ -36,7 +34,6 @@ final class WatchAudioEngineTests: XCTestCase {
         }
         engine = nil
         connectivity = nil
-        cancellables = nil
         try await super.tearDown()
     }
 
@@ -184,32 +181,21 @@ final class WatchAudioEngineTests: XCTestCase {
         XCTAssertTrue(true, "Gain notification with wrong type must not crash")
     }
 
-    // MARK: - Published state via Combine
+    // MARK: - Observation state
 
-    func testIsRecordingPublishedOnMainThread() async {
-        // Synchronous @MainActor test methods in classes with async setUp may
-        // run off the main thread in some Xcode versions.  Making this method
-        // async guarantees proper main-actor execution for both the mutation and
-        // the Thread.isMainThread check inside the Combine sink.
-        let expectation = XCTestExpectation(description: "isRecording published")
+    func testIsRecordingObservedOnMainThread() async {
+        let expectation = XCTestExpectation(description: "isRecording observed")
 
-        engine.$isRecording
-            .dropFirst() // skip initial false
-            .prefix(1)   // auto-cancel after first emission so tearDown's
-                         // stopRecording() doesn't fire the sink a second time
-            .sink { value in
-                XCTAssertTrue(Thread.isMainThread,
-                    "isRecording changes must be published on the main thread")
-                XCTAssertTrue(value)
-                expectation.fulfill()
-            }
-            .store(in: &cancellables)
+        withObservationTracking {
+            _ = engine.isRecording
+        } onChange: {
+            expectation.fulfill()
+        }
 
-        // Run on main actor explicitly — @Published fires synchronously on the
-        // calling thread, so Thread.isMainThread will be true in the sink.
         await MainActor.run { self.engine.isRecording = true }
 
         await fulfillment(of: [expectation], timeout: 1.0)
+        XCTAssertTrue(engine.isRecording)
     }
 
     // MARK: - Deinit safety

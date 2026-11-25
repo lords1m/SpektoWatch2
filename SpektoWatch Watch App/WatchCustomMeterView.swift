@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Customizable meter face: Pegelmesser hero + single-value tiles.
 struct WatchCustomMeterView: View {
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
     @Environment(\.watchTabLiveUpdatesActive) private var tabLiveUpdatesActive
 
     @State private var config: WatchMeterLayoutConfig = WatchMeterLayoutConfig.load()
@@ -65,8 +65,10 @@ struct WatchCustomMeterView: View {
         .onAppear {
             reloadConfig()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .watchMeterLayoutConfigChanged)) { _ in
-            reloadConfig()
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: .watchMeterLayoutConfigChanged) {
+                reloadConfig()
+            }
         }
         .sheet(isPresented: $showingWidgetPicker) {
             WatchMeterWidgetPicker(

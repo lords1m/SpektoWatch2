@@ -2,8 +2,8 @@ import SwiftUI
 
 struct TriggerAcquisitionView: View {
 
-    @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var services: AppServices
+    var engine: MaskingEngine
+    @Environment(AppServices.self) private var services
     @State private var showPresets = false
     @State private var showProfiles = false
 
@@ -60,7 +60,7 @@ struct TriggerAcquisitionView: View {
             }
             .sheet(isPresented: $showProfiles) {
                 ProfileListView(engine: engine)
-                    .environmentObject(services)
+                    .environment(services)
             }
             // Bug #2: Reset mid-acquisition state if the sheet is dismissed unexpectedly
             .onDisappear {
@@ -306,7 +306,7 @@ private struct NoveltyBar: View {
 // MARK: – Preset picker
 
 struct PresetPickerView: View {
-    @ObservedObject var engine: MaskingEngine
+    var engine: MaskingEngine
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -341,8 +341,8 @@ struct PresetPickerView: View {
 // MARK: – Profile list
 
 struct ProfileListView: View {
-    @ObservedObject var engine: MaskingEngine
-    @EnvironmentObject private var services: AppServices
+    var engine: MaskingEngine
+    @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

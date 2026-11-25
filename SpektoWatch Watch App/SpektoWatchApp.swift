@@ -9,21 +9,21 @@ import SwiftUI
 
 @main
 struct SpektoWatchWatchApp: App {
-    @StateObject private var audioEngine: WatchAudioEngine
-    @StateObject private var connectivityManager: WatchConnectivityManager
+    @State private var audioEngine: WatchAudioEngine
+    @State private var connectivityManager: WatchConnectivityManager
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let cm = WatchConnectivityManager()
-        _connectivityManager = StateObject(wrappedValue: cm)
-        _audioEngine = StateObject(wrappedValue: WatchAudioEngine(connectivityManager: cm))
+        _connectivityManager = State(initialValue: cm)
+        _audioEngine = State(initialValue: WatchAudioEngine(connectivityManager: cm))
     }
 
     var body: some Scene {
         WindowGroup {
             WatchContentView()
-                .environmentObject(audioEngine)
-                .environmentObject(connectivityManager)
+                .environment(audioEngine)
+                .environment(connectivityManager)
         }
         // When the watch app backgrounds (wrist drop, system overlay, etc.),
         // ask the audio engine to stop recording UNLESS a `WKExtendedRuntimeSession`

@@ -16,7 +16,7 @@ struct RecordingHeaderCard: View {
         VStack(spacing: 12) {
             Image(systemName: "waveform.circle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.blue)
+                .foregroundStyle(.tint)
             Text(name)
                 .font(.title3.bold())
             Text(formattedDate)
@@ -189,7 +189,7 @@ struct RecordingPhotosCard: View {
     }
 
     private func loadThumbnails() async {
-        var existing = thumbnails
+        let existing = thumbnails
         var toLoad: [(fileName: String, url: URL)] = []
         for fileName in photoFileNames {
             if existing[fileName] == nil {

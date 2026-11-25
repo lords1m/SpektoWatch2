@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 import CoreGraphics
 
 // ============================================================================
@@ -1277,10 +1276,11 @@ struct WaterfallView: View {
 /// Holds the rolling waterfall history and rebuilds the displayed
 /// `WaterfallDataSet` at a fixed cadence. Splitting this out of
 /// `WaterfallWidget` lets the SwiftUI body re-render only when the throttled
-/// dataset actually changes (≈8 Hz) instead of on every audio frame
-/// (~86 Hz). Storage is a `RingBuffer` so eviction is O(1) per frame.
+/// dataset actually changes (30 Hz, ≥ 24 fps target) instead of on every
+/// audio frame (up to 120 Hz). Storage is a `RingBuffer` so eviction is O(1) per frame.
+@Observable
 @MainActor
-final class WaterfallHistoryStore: ObservableObject {
+final class WaterfallHistoryStore {
 
     struct Settings: Equatable {
         var capacity: Int
@@ -1295,7 +1295,7 @@ final class WaterfallHistoryStore: ObservableObject {
             sliceCount: WidgetSettings.defaultWaterfallSliceCount,
             minDB: WidgetSettings.defaultWaterfallMinDB,
             maxDB: WidgetSettings.defaultWaterfallMaxDB,
-            rebuildInterval: 0.12,
+            rebuildInterval: 1.0 / 30.0,
             targetFrequencyCount: WidgetSettings.defaultWaterfallTargetFrequencyCount
         )
     }
@@ -1305,13 +1305,13 @@ final class WaterfallHistoryStore: ObservableObject {
         let timestamp: Date
     }
 
-    @Published private(set) var dataSet: WaterfallDataSet = WaterfallDataSet.empty
+    private(set) var dataSet: WaterfallDataSet = WaterfallDataSet.empty
 
-    private(set) var settings: Settings
-    private var history: RingBuffer<Frame>
-    private var lastFrequencies: [Float] = []
-    private var lastBinCount: Int = 0
-    private var lastRebuild: TimeInterval = 0
+    @ObservationIgnored private(set) var settings: Settings
+    @ObservationIgnored private var history: RingBuffer<Frame>
+    @ObservationIgnored private var lastFrequencies: [Float] = []
+    @ObservationIgnored private var lastBinCount: Int = 0
+    @ObservationIgnored private var lastRebuild: TimeInterval = 0
 
     init(settings: Settings = .default) {
         self.settings = settings
@@ -1433,29 +1433,24 @@ struct WaterfallWidget: View {
     private let audioEngine: AudioEngine
     var settings: [String: String]
 
-    private let frequencyWeightingPublisher: Published<FrequencyWeighting>.Publisher
-
-    @StateObject private var store = WaterfallHistoryStore()
-    @State private var engineFrequencyWeighting: String
+    @State private var store = WaterfallHistoryStore()
 
     init(audioEngine: AudioEngine, settings: [String: String]) {
         self.audioEngine = audioEngine
         self.settings = settings
-        self.frequencyWeightingPublisher = audioEngine.$frequencyWeighting
-        _engineFrequencyWeighting = State(initialValue: audioEngine.frequencyWeighting.rawValue)
     }
 
     private var useWidgetOverrides: Bool { WidgetSettings.usesWidgetOverrides(settings) }
 
     private var freqWeighting: String {
         if useWidgetOverrides {
-            return settings["freqWeighting"] ?? engineFrequencyWeighting
+            return settings["freqWeighting"] ?? audioEngine.frequencyWeighting.rawValue
         }
-        return engineFrequencyWeighting
+        return audioEngine.frequencyWeighting.rawValue
     }
 
     private var displaySettings: WaterfallDisplaySettings {
-        WaterfallDisplaySettings.fromWidgetSettings(settings, engineWeighting: engineFrequencyWeighting)
+        WaterfallDisplaySettings.fromWidgetSettings(settings, engineWeighting: audioEngine.frequencyWeighting.rawValue)
     }
 
     /// History capacity sized for ~6 seconds at 86 Hz — long enough to
@@ -1500,15 +1495,16 @@ struct WaterfallWidget: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             WaterfallView(dataSet: store.dataSet, highlightedTime: nil, options: renderOptions)
-                .onReceive(audioEngine.spectrogramSubject) { data in
-                    let weighting = freqWeighting
-                    let mode = displaySettings.spectrumMode
-                    DispatchQueue.main.async { [weak store] in
-                        guard let store else { return }
-                        Self.appendSpectrogramFrame(data, to: store, weighting: weighting, mode: mode)
+                .task {
+                    for await data in audioEngine.spectrogramBroadcaster.stream() {
+                        Self.appendSpectrogramFrame(
+                            data,
+                            to: store,
+                            weighting: freqWeighting,
+                            mode: displaySettings.spectrumMode
+                        )
                     }
                 }
-                .onReceive(frequencyWeightingPublisher) { engineFrequencyWeighting = $0.rawValue }
                 .onChange(of: resolvedSettings) { _, new in
                     store.update(settings: new)
                 }
@@ -1567,7 +1563,7 @@ private struct WaterfallFullscreenView: View {
     /// Shared with the presenting tile — keeps the rolling history (and thus
     /// the same live measurement) continuous across the fullscreen transition
     /// instead of spinning up an empty store that refills from scratch.
-    @ObservedObject var store: WaterfallHistoryStore
+    var store: WaterfallHistoryStore
     let options: WaterfallRenderOptions
 
     var body: some View {

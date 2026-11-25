@@ -321,10 +321,34 @@ final class MeasurementDataIOTests: XCTestCase {
         XCTAssertEqual(frame.metrics, [55.0, 52.0])
     }
 
+    private func resolveGoldenFixtureURL(fileName: String) -> URL {
+        let baseName = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        let bundle = Bundle(for: Self.self)
+        if let bundled = bundle.url(forResource: baseName, withExtension: ext, subdirectory: "Fixtures")
+            ?? bundle.url(forResource: baseName, withExtension: ext) {
+            return bundled
+        }
+
+        let sourceDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+        let sourceURL = sourceDirectory.appendingPathComponent(fileName)
+        if FileManager.default.isReadableFile(atPath: sourceURL.path) {
+            return sourceURL
+        }
+        if (try? FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)) != nil,
+           FileManager.default.isWritableFile(atPath: sourceDirectory.path) {
+            return sourceURL
+        }
+
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("SpektoGoldenFixtures")
+        try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        return tempDirectory.appendingPathComponent(fileName)
+    }
+
     private func writeV3GoldenFixture() throws -> URL {
-        let fixturesDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
-        try FileManager.default.createDirectory(at: fixturesDirectory, withIntermediateDirectories: true)
-        let fixtureURL = fixturesDirectory.appendingPathComponent("measurement_v3_golden.spekto")
+        let fixtureURL = resolveGoldenFixtureURL(fileName: "measurement_v3_golden.spekto")
 
         if FileManager.default.fileExists(atPath: fixtureURL.path) {
             return fixtureURL
@@ -371,9 +395,7 @@ final class MeasurementDataIOTests: XCTestCase {
     }
 
     private func writeV2GoldenFixture() throws -> URL {
-        let fixturesDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
-        try FileManager.default.createDirectory(at: fixturesDirectory, withIntermediateDirectories: true)
-        let fixtureURL = fixturesDirectory.appendingPathComponent("measurement_v2_golden.spekto")
+        let fixtureURL = resolveGoldenFixtureURL(fileName: "measurement_v2_golden.spekto")
 
         if FileManager.default.fileExists(atPath: fixtureURL.path) {
             return fixtureURL

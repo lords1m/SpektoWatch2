@@ -36,10 +36,11 @@ struct GlassIconButton: View {
                     Text("\(badgeCount)")
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(.white)
+                        .monospacedDigit()
+                        .foregroundColor(FerriteLine.u2.onColor)
                         .padding(4)
-                        .background(StatusColor.badge)
-                        .clipShape(Circle())
+                        .background(Circle().fill(StatusColor.badge))
+                        .overlay(Circle().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
                         .offset(x: badgeOffset.x, y: badgeOffset.y)
                 }
             }
@@ -51,10 +52,12 @@ struct GlassIconButton: View {
     private var icon: some View {
         Image(systemName: symbol)
             .font(.system(size: iconSize, weight: .semibold))
-            .foregroundStyle(.primary)
+            .foregroundStyle(FerriteColor.label)
             .frame(width: diameter, height: diameter)
-            .background(Circle().fill(.thinMaterial))
-            .overlay(Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+            // Inner lens: these sit on the glass header pill or on cards, so
+            // they are never glass themselves (no glass on glass).
+            .background(Circle().fill(FerriteGlass.fillStrong))
+            .overlay(Circle().strokeBorder(FerriteGlass.stroke, lineWidth: FerriteStroke.hairline))
             .contentShape(Circle())
             .accessibilityIdentifier(identifier)
             .accessibilityLabel(label)

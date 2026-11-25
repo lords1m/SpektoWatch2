@@ -1,111 +1,61 @@
 import SwiftUI
 
-/// Themed app shell background (OKLCH-inspired dark / light gradients).
+/// App shell background — Ferrite `bg-base` (pure white / pure black).
 struct GlassBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        ZStack {
-            if colorScheme == .dark {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.10, green: 0.11, blue: 0.14),
-                        Color(red: 0.06, green: 0.07, blue: 0.10),
-                        Color(red: 0.04, green: 0.05, blue: 0.08)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.18, green: 0.22, blue: 0.32).opacity(0.35),
-                        Color.clear
-                    ],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 480
-                )
-            } else {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.97, green: 0.97, blue: 0.98),
-                        Color(red: 0.93, green: 0.94, blue: 0.96),
-                        Color(red: 0.90, green: 0.91, blue: 0.94)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.88, green: 0.92, blue: 0.98).opacity(0.55),
-                        Color.clear
-                    ],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 420
-                )
-            }
-        }
-        .ignoresSafeArea()
+        FerriteColor.background
+            .ignoresSafeArea()
     }
 }
 
+/// Content card — despite the legacy name this is NOT glass: Ferrite cards
+/// are `surface`, square, with a 1pt `label` outline and no shadow. The
+/// `cornerRadius` argument is kept for source compatibility and ignored.
 struct GlassCard: ViewModifier {
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = FerriteRadius.card
 
     func body(content: Content) -> some View {
         content
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.22), radius: 12, y: 6)
+            .background(FerriteColor.surface)
+            .overlay(Rectangle().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
     }
 }
 
+/// Quieter nested card: `surface-sunken` fill with a hairline, for cards
+/// inside cards or dense lists.
 struct GlassCardLite: ViewModifier {
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = FerriteRadius.card
 
     func body(content: Content) -> some View {
         content
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.12), radius: 8, y: 4)
+            .background(FerriteColor.surfaceSunken)
+            .overlay(Rectangle().strokeBorder(FerriteColor.hairline, lineWidth: FerriteStroke.hairline))
     }
 }
 
+/// Floating bar — real liquid glass (navigation layer only).
 struct GlassBar: ViewModifier {
-    var cornerRadius: CGFloat = 20
+    var cornerRadius: CGFloat = FerriteRadius.glass
 
     func body(content: Content) -> some View {
-        content
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.18), radius: 14, y: 7)
+        content.ferriteGlass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 
 extension View {
-    func glassCard(cornerRadius: CGFloat = 16) -> some View {
+    func glassCard(cornerRadius: CGFloat = FerriteRadius.card) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
 
-    func glassCardLite(cornerRadius: CGFloat = 16) -> some View {
+    func glassCardLite(cornerRadius: CGFloat = FerriteRadius.card) -> some View {
         modifier(GlassCardLite(cornerRadius: cornerRadius))
     }
 
-    func glassBar(cornerRadius: CGFloat = 20) -> some View {
+    func glassBar(cornerRadius: CGFloat = FerriteRadius.glass) -> some View {
         modifier(GlassBar(cornerRadius: cornerRadius))
     }
 
-    func backgroundExtensionEffect(cornerRadius: CGFloat = 24) -> some View {
+    func backgroundExtensionEffect(cornerRadius: CGFloat = FerriteRadius.glass) -> some View {
         glassBar(cornerRadius: cornerRadius)
     }
 }

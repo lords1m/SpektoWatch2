@@ -7,10 +7,11 @@
 //
 
 import Foundation
-import Combine
+import Observation
 
-class LoudnessCalculator: ObservableObject {
-    @Published var result: LoudnessResult?
+@Observable
+final class LoudnessCalculator {
+    var result: LoudnessResult?
 
     // MARK: - Static ISO 226 helpers (audio-thread-safe, no lazy-init allocation)
 
@@ -117,10 +118,12 @@ class LoudnessCalculator: ObservableObject {
     private var isoTf: [Double] { Self.staticTf }
 
     // Normgerechte Phon-Stufen, für die Isophonen abgelegt werden
+    @ObservationIgnored
     private let isoPhonLevels: [Double] = Array(stride(from: 0.0, through: 90.0, by: 10.0))
 
     // Interne Isophonen-Datenbank
     // Format: [Frequenz][Phon-Level] = SPL-Wert
+    @ObservationIgnored
     private lazy var iso226Data: [Double: [Double: Double]] = buildISO226Database()
     
     // MARK: - Public Methods

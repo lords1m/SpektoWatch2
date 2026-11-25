@@ -38,7 +38,7 @@ final class WatchDashboardConfigTests: XCTestCase {
     }
 
     func testLevelMeterOrientationRoundTrip() throws {
-        var config = WatchDashboardConfig(widgets: [
+        let config = WatchDashboardConfig(widgets: [
             WatchWidgetConfig(
                 type: .levelMeter,
                 position: 0,

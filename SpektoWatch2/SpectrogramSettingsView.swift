@@ -3,8 +3,8 @@ import AVFoundation
 
 struct SpectrogramSettingsView: View {
     @Binding var selectedMicrophoneSource: MicrophoneSource
-    @ObservedObject var audioEngine: AudioEngine
-    @EnvironmentObject private var services: AppServices
+    @Bindable var audioEngine: AudioEngine
+    @Environment(AppServices.self) private var services
 
     private var fftConfiguration: FFTConfiguration { services.fftConfiguration }
 
@@ -188,17 +188,17 @@ struct SpectrogramSettingsView: View {
             // Sync engine to persisted settings on first open
             audioEngine.setWindowFunction(fftConfiguration.windowFunction)
             audioEngine.setBlockSize(fftConfiguration.blockSize)
-            audioEngine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            audioEngine.applyRealtimeHop(from: fftConfiguration)
         }
         .onChange(of: fftConfiguration.windowFunction) { _, newValue in
             audioEngine.setWindowFunction(newValue)
         }
         .onChange(of: fftConfiguration.blockSize) { _, newValue in
             audioEngine.setBlockSize(newValue)
-            audioEngine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            audioEngine.applyRealtimeHop(from: fftConfiguration)
         }
         .onChange(of: fftConfiguration.overlapPercent) { _, _ in
-            audioEngine.scrollSpeed = .closest(to: fftConfiguration.hopSize)
+            audioEngine.applyRealtimeHop(from: fftConfiguration)
         }
         .onChange(of: isStereo) { _, newValue in
             if newValue {

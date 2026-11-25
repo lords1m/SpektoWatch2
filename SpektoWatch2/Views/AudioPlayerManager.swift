@@ -1,6 +1,7 @@
+import AsyncAlgorithms
 import AVFoundation
-import Combine
 import Foundation
+import Observation
 import os
 
 /// Lightweight audio-file player used by `RecordingDetailView`'s
@@ -11,22 +12,25 @@ import os
 /// Extracted from `RecordingDetailView.swift` as part of M13 task-2.
 /// Owns no shared state with the detail view — the extraction is
 /// purely mechanical.
-final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
-    @Published var isPlaying = false {
+@Observable
+final class AudioPlayerManager: @unchecked Sendable {
+    var isPlaying = false {
         didSet {
-            tapStateLock.withLock { $0.isPlaying = isPlaying }
+            let playing = isPlaying
+            tapStateLock.withLock { $0.isPlaying = playing }
         }
     }
-    @Published var isLoaded = false
-    @Published var currentTime: TimeInterval = 0
-    @Published var duration: TimeInterval = 0
-    @Published var scrubTime: TimeInterval = 0
+    var isLoaded = false
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var scrubTime: TimeInterval = 0
 
     /// Forwards decoded playback samples together with the sample rate of the
     /// tap buffer. The rate is taken from the buffer's own format (the engine
     /// mixer rate), which can differ from the recording's file sample rate, so
     /// downstream frequency analysis must use this value rather than assuming
     /// the recording rate.
+    @ObservationIgnored
     var onAudioSamples: (([Float], Double) -> Void)? {
         get { tapStateLock.withLock { $0.onAudioSamples } }
         set { tapStateLock.withLock { $0.onAudioSamples = newValue } }
@@ -37,23 +41,22 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         var onAudioSamples: (([Float], Double) -> Void)?
     }
 
-    private let tapStateLock = OSAllocatedUnfairLock<TapState>(initialState: TapState())
-    private var engine = AVAudioEngine()
-    private var playerNode = AVAudioPlayerNode()
-    private var audioFile: AVAudioFile?
-    private var updateTimer: Timer?
-    private var seekFrame: AVAudioFramePosition = 0
-    private var sampleRate: Double = 44100.0
-    private var wasPlayingBeforeScrub = false
+    @ObservationIgnored private let tapStateLock = OSAllocatedUnfairLock<TapState>(initialState: TapState())
+    @ObservationIgnored private var engine = AVAudioEngine()
+    @ObservationIgnored private var playerNode = AVAudioPlayerNode()
+    @ObservationIgnored private var audioFile: AVAudioFile?
+    @ObservationIgnored private var updateTask: Task<Void, Never>?
+    @ObservationIgnored private var seekFrame: AVAudioFramePosition = 0
+    @ObservationIgnored private var sampleRate: Double = 44100.0
+    @ObservationIgnored private var wasPlayingBeforeScrub = false
     /// True after `pause()` / scrub-hold while scheduled buffers are still valid.
-    private var canResumeAfterPause = false
+    @ObservationIgnored private var canResumeAfterPause = false
     /// Monotonic counter invalidated on every stop/seek/play so a stale
     /// `scheduleSegment` completion from a prior segment cannot stop playback.
-    private var playbackGeneration: UInt64 = 0
-    private let processingQueue = DispatchQueue(label: "com.spektowatch.audioprocessing", qos: .userInteractive)
+    @ObservationIgnored private var playbackGeneration: UInt64 = 0
+    @ObservationIgnored private let processingQueue = DispatchQueue(label: "com.spektowatch.audioprocessing", qos: .userInteractive)
 
-    override init() {
-        super.init()
+    init() {
         setupEngine()
     }
 
@@ -159,7 +162,7 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         reconnectPlayer(to: file.processingFormat)
 
         playerNode.scheduleSegment(file, startingFrame: startFrame, frameCount: remainingFrames, at: nil) { [weak self] in
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, self.isPlaying, self.playbackGeneration == expectedGeneration else { return }
                 self.stop()
             }
@@ -266,25 +269,22 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     private func startTimer() {
         stopTimer()
-        let timer = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
-            guard let self, self.isPlaying else { return }
-            if let nodeTime = self.playerNode.lastRenderTime,
-               let playerTime = self.playerNode.playerTime(forNodeTime: nodeTime) {
-                let currentFrame = self.seekFrame + playerTime.sampleTime
-                self.currentTime = Double(currentFrame) / self.sampleRate
-            } else if self.currentTime < self.duration {
-                self.currentTime += 0.03
+        updateTask = Task { @MainActor [weak self] in
+            for await _ in AsyncTimerSequence.repeating(every: .milliseconds(30), clock: .continuous) {
+                guard !Task.isCancelled, let self, self.isPlaying else { break }
+                if let nodeTime = self.playerNode.lastRenderTime,
+                   let playerTime = self.playerNode.playerTime(forNodeTime: nodeTime) {
+                    let currentFrame = self.seekFrame + playerTime.sampleTime
+                    self.currentTime = Double(currentFrame) / self.sampleRate
+                } else if self.currentTime < self.duration {
+                    self.currentTime += 0.03
+                }
             }
         }
-        // Add to .common modes so the playhead keeps advancing while the user
-        // scrolls the detail view (UITracking run-loop mode). With the default
-        // scheduledTimer the timer pauses during scrolling and playback time freezes.
-        RunLoop.main.add(timer, forMode: .common)
-        updateTimer = timer
     }
 
     private func stopTimer() {
-        updateTimer?.invalidate()
-        updateTimer = nil
+        updateTask?.cancel()
+        updateTask = nil
     }
 }

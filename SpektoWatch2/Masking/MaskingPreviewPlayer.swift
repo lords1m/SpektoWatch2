@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import Combine
+import Observation
 
 // Manages the playback AVAudioEngine that plays the masker during preview.
 //
@@ -10,19 +10,20 @@ import Combine
 // switching the AVAudioSession to .playAndRecord. It calls stop() when the user
 // leaves preview, after which MaskingEngine restores the session and restarts
 // the main AudioEngine.
+@Observable
 @MainActor
-final class MaskingPreviewPlayer: ObservableObject {
+final class MaskingPreviewPlayer {
 
-    @Published private(set) var isPlaying: Bool = false
-    @Published var volumeDB: Float = -20.0 {
+    private(set) var isPlaying: Bool = false
+    var volumeDB: Float = -20.0 {
         didSet { applyVolume() }
     }
 
-    private var engine: AVAudioEngine?
-    private var sourceNode: AVAudioSourceNode?    // synthetic noise
-    private var playerNode: AVAudioPlayerNode?    // asset-based (rain)
-    private var eqNode: AVAudioUnitEQ?
-    private var mixerNode: AVAudioMixerNode?
+    @ObservationIgnored private var engine: AVAudioEngine?
+    @ObservationIgnored private var sourceNode: AVAudioSourceNode?    // synthetic noise
+    @ObservationIgnored private var playerNode: AVAudioPlayerNode?    // asset-based (rain)
+    @ObservationIgnored private var eqNode: AVAudioUnitEQ?
+    @ObservationIgnored private var mixerNode: AVAudioMixerNode?
 
     // MARK: – Play
 

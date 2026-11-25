@@ -79,13 +79,13 @@ final class AudioEngineCharacterizationTests: XCTestCase {
     // MARK: - 2. UI throttling intervals
 
     /// The live-metric, spectrogram, and watch publish cadences are the contract
-    /// for `UIPublishThrottle`. Pin the exact 60 Hz / 15 Hz / 0.1 s values.
+    /// for `UIPublishThrottle`. Pin the exact 60 Hz / 120 Hz / 0.1 s values.
     func testUIThrottleIntervalsMatchTargetRates() {
         let engine = makeEngine()
         XCTAssertEqual(engine.uiThrottle.uiInterval, 1.0 / 60.0, accuracy: 1e-9,
                        "Live-metric publish cadence must stay 60 Hz")
-        XCTAssertEqual(engine.uiThrottle.spectrogramInterval, 1.0 / 15.0, accuracy: 1e-9,
-                       "Spectrogram publish cadence must stay 15 Hz")
+        XCTAssertEqual(engine.uiThrottle.spectrogramInterval, 1.0 / 120.0, accuracy: 1e-9,
+                       "Spectrogram publish gate only filters duplicates (≥ 24 fps widgets)")
         XCTAssertEqual(engine.uiThrottle.watchInterval, 0.1, accuracy: 1e-9,
                        "Watch send cadence must stay 0.1 s")
     }

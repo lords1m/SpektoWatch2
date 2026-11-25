@@ -6,17 +6,14 @@ final class ReviewHardeningRegressionTests: XCTestCase {
 
     func testFrequencyWeightingProcessorClampsInvalidInitInputs() {
         let processor = FrequencyWeightingProcessor(fftSize: 0, sampleRate: 0)
-        XCTAssertGreaterThanOrEqual(processor.fftSize, 2)
-        XCTAssertGreaterThan(processor.sampleRate, 0)
-        XCTAssertFalse(processor.frequencies.isEmpty)
-        XCTAssertTrue(processor.aWeightingGains.allSatisfy { $0.isFinite })
-        XCTAssertTrue(processor.cWeightingGains.allSatisfy { $0.isFinite })
+        XCTAssertFalse(processor.aWeightingGainsSq.isEmpty)
+        XCTAssertTrue(processor.aWeightingGainsSq.allSatisfy { $0.isFinite })
+        XCTAssertTrue(processor.cWeightingGainsSq.allSatisfy { $0.isFinite })
     }
 
     func testFFTProcessorClampsInvalidInitInputs() {
         let processor = FFTProcessor(fftSize: 0, sampleRate: 0)
         XCTAssertGreaterThanOrEqual(processor.fftSize, 2)
-        XCTAssertGreaterThan(processor.sampleRate, 0)
         let bin = processor.binForFrequency(1000)
         XCTAssertGreaterThanOrEqual(bin, 0)
     }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3711082F30B735F50017C103 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 3711082E30B735F50017C103 /* Atomics */; };
 		3741BDB72FCA4A4400E9335E /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3741BDB62FCA4A4400E9335E /* WidgetKit.framework */; };
 		3741BDB92FCA4A4400E9335E /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3741BDB82FCA4A4400E9335E /* SwiftUI.framework */; };
 		3741BDCA2FCA4A4700E9335E /* SpektoWatch2WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3741BDB52FCA4A4400E9335E /* SpektoWatch2WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -20,6 +21,9 @@
 		37B51E2E2FBDFAEF0006E8C1 /* XCUIAutomation.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E2A2FBDFAE40006E8C1 /* XCUIAutomation.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		37B51E362FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; };
 		37B51E372FBDFB0D0006E8C1 /* _Testing_UIKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 37B51E262FBDFAD80006E8C1 /* _Testing_UIKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AA22BB33CC44DD55EE660001 /* LAME in Frameworks */ = {isa = PBXBuildFile; productRef = AA22BB33CC44DD55EE660002 /* LAME */; };
+		AA33BB44CC55DD66EE770001 /* AsyncAlgorithms in Frameworks */ = {isa = PBXBuildFile; productRef = AA33BB44CC55DD66EE770002 /* AsyncAlgorithms */; };
+		AA33BB44CC55DD66EE770003 /* AsyncAlgorithms in Frameworks */ = {isa = PBXBuildFile; productRef = AA33BB44CC55DD66EE770004 /* AsyncAlgorithms */; };
 		CC11CC11CC11CC11CC11000C /* SpektoWatch Complications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CC22CC22CC22CC22CC220002 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22CC22CC22CC22CC220001 /* AppGroup.swift */; };
 /* End PBXBuildFile section */
@@ -259,6 +263,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA22BB33CC44DD55EE660001 /* LAME in Frameworks */,
+				AA33BB44CC55DD66EE770001 /* AsyncAlgorithms in Frameworks */,
+				3711082F30B735F50017C103 /* Atomics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -266,6 +273,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA33BB44CC55DD66EE770003 /* AsyncAlgorithms in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -413,6 +421,9 @@
 			);
 			name = SpektoWatch2;
 			packageProductDependencies = (
+				AA22BB33CC44DD55EE660002 /* LAME */,
+				AA33BB44CC55DD66EE770002 /* AsyncAlgorithms */,
+				3711082E30B735F50017C103 /* Atomics */,
 			);
 			productName = SpektoWatch2;
 			productReference = 3795235B2F2234F90079C93F /* SpektoWatch2.app */;
@@ -438,6 +449,7 @@
 			);
 			name = "SpektoWatch Watch App";
 			packageProductDependencies = (
+				AA33BB44CC55DD66EE770004 /* AsyncAlgorithms */,
 			);
 			productName = "SpektoWatch Watch App";
 			productReference = 3795236D2F22353C0079C93F /* SpektoWatch Watch App.app */;
@@ -588,6 +600,10 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */,
+				AA22BB33CC44DD55EE660003 /* XCRemoteSwiftPackageReference "LAME-xcframework" */,
+				3711082B30B732CF0017C103 /* XCRemoteSwiftPackageReference "SwiftUIX" */,
+				3711082C30B733720017C103 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */,
+				3711082D30B735F50017C103 /* XCRemoteSwiftPackageReference "swift-atomics" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3795235C2F2234F90079C93F /* Products */;
@@ -1430,6 +1446,30 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3711082B30B732CF0017C103 /* XCRemoteSwiftPackageReference "SwiftUIX" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SwiftUIX/SwiftUIX";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.2;
+			};
+		};
+		3711082C30B733720017C103 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-async-algorithms.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.7;
+			};
+		};
+		3711082D30B735F50017C103 /* XCRemoteSwiftPackageReference "swift-atomics" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-atomics.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.1;
+			};
+		};
 		37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/pointfreeco/swift-snapshot-testing";
@@ -1438,13 +1478,41 @@
 				minimumVersion = 1.17.4;
 			};
 		};
+		AA22BB33CC44DD55EE660003 /* XCRemoteSwiftPackageReference "LAME-xcframework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/BB9z/LAME-xcframework";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.100.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		3711082E30B735F50017C103 /* Atomics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3711082D30B735F50017C103 /* XCRemoteSwiftPackageReference "swift-atomics" */;
+			productName = Atomics;
+		};
 		37B51E212FBDF9E60006E8C1 /* SnapshotTesting */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 37B51E1E2FBDF9E60006E8C1 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
 			productName = SnapshotTesting;
+		};
+		AA22BB33CC44DD55EE660002 /* LAME */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA22BB33CC44DD55EE660003 /* XCRemoteSwiftPackageReference "LAME-xcframework" */;
+			productName = LAME;
+		};
+		AA33BB44CC55DD66EE770002 /* AsyncAlgorithms */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3711082C30B733720017C103 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */;
+			productName = AsyncAlgorithms;
+		};
+		AA33BB44CC55DD66EE770004 /* AsyncAlgorithms */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3711082C30B733720017C103 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */;
+			productName = AsyncAlgorithms;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

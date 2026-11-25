@@ -1,11 +1,12 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // ============================================================================
 // MARK: - RecordingsListView
 // ============================================================================
 
 struct RecordingsListView: View {
-    @EnvironmentObject private var services: AppServices
+    @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
 
     // Browsing state
@@ -13,7 +14,6 @@ struct RecordingsListView: View {
     @AppStorage("recordingsList.sortOption") private var sortRawValue: String = SortOption.dateDesc.rawValue
     @State private var editMode: EditMode = .inactive
     @State private var selection: Set<UUID> = []
-    @State private var recordingsRefreshToken: Int = 0
 
     // Destructive flows
     @State private var deleteRequest: DeleteRequest?
@@ -24,12 +24,16 @@ struct RecordingsListView: View {
     @State private var renameTarget: Recording?
     @State private var renameDraft: String = ""
 
+    // Audio editor & external import flow
+    @State private var editorSource: AudioEditorSource?
+    @State private var showFileImporter = false
+    @State private var importError: String?
+
     private static let undoWindow: Duration = .seconds(5)
 
     // MARK: - Body
 
     var body: some View {
-        let _ = recordingsRefreshToken
         NavigationStack {
             content
                 .navigationTitle("Aufnahmen")
@@ -43,9 +47,6 @@ struct RecordingsListView: View {
                 )
                 .refreshable {
                     services.recordingManager.reloadRecordings()
-                }
-                .onReceive(services.recordingManager.$recordings) { _ in
-                    recordingsRefreshToken &+= 1
                 }
                 .alert(
                     deleteRequest?.title ?? "",
@@ -100,6 +101,21 @@ struct RecordingsListView: View {
                     undoTask?.cancel()
                     undoTask = nil
                     services.recordingManager.commitPendingSoftDeletes()
+                }
+                .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.audio]) { result in
+                    handleExternalAudioImport(result)
+                }
+                .fullScreenCover(item: $editorSource) { source in
+                    AudioEditorView(source: source)
+                        .environment(services)
+                }
+                .alert("Import fehlgeschlagen", isPresented: Binding(
+                    get: { importError != nil },
+                    set: { if !$0 { importError = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(importError ?? "")
                 }
                 .accessibilityIdentifier("recordingsListView")
         }
@@ -191,7 +207,7 @@ struct RecordingsListView: View {
                         if recording.spectralDataAvailable == false {
                             Image(systemName: "waveform.badge.exclamationmark")
                                 .font(.caption2)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(FerriteStatus.warning)
                                 .accessibilityLabel("Keine Spektraldaten in Messdatei")
                         }
                     }
@@ -211,7 +227,7 @@ struct RecordingsListView: View {
             ShareLink(item: services.recordingManager.url(for: recording)) {
                 Label("Teilen", systemImage: "square.and.arrow.up")
             }
-            .tint(.blue)
+            .tint(FerriteColor.accent)
         }
         .swipeActions(edge: .leading) {
             Button {
@@ -222,6 +238,11 @@ struct RecordingsListView: View {
             .tint(.gray)
         }
         .contextMenu {
+            Button {
+                editorSource = .recording(recording)
+            } label: {
+                Label("Bearbeiten / Konvertieren", systemImage: "slider.horizontal.3")
+            }
             Button {
                 beginRename(recording)
             } label: {
@@ -265,6 +286,12 @@ struct RecordingsListView: View {
 
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
+                Button {
+                    showFileImporter = true
+                } label: {
+                    Label("Audiodatei importieren…", systemImage: "folder.badge.plus")
+                }
+                Divider()
                 Section("Sortieren") {
                     Picker("Sortieren", selection: sortBinding) {
                         ForEach(SortOption.allCases) { option in
@@ -302,7 +329,7 @@ struct RecordingsListView: View {
                     requestDelete(of: toDelete)
                 } label: {
                     Label("Löschen (\(selection.count))", systemImage: "trash")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(FerriteStatus.recording)
                 }
                 .accessibilityIdentifier("bulkDeleteButton")
             }
@@ -460,11 +487,11 @@ struct RecordingsListView: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.regularMaterial)
+                .fill(FerriteColor.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                .stroke(FerriteColor.hairline, lineWidth: FerriteStroke.hairline)
         )
         .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
         .accessibilityIdentifier("undoDeleteToast")
@@ -555,6 +582,25 @@ private extension RecordingsListView {
             lhs.id == rhs.id
         }
     }
+
+    func handleExternalAudioImport(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            let ext = url.pathExtension.isEmpty ? "wav" : url.pathExtension
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sw2_import_\(UUID().uuidString).\(ext)")
+            do {
+                try FileManager.default.copyItem(at: url, to: tempURL)
+                editorSource = .externalFile(tempURL)
+            } catch {
+                importError = error.localizedDescription
+            }
+        case .failure(let error):
+            importError = error.localizedDescription
+        }
+    }
 }
 
 // ============================================================================
@@ -565,16 +611,16 @@ private extension RecordingsListView {
 /// Color follows a coarse traffic-light mapping (quiet / moderate / loud /
 /// very loud) so the user can scan a list of measurements and spot the
 /// hot ones without parsing numbers.
-private struct LevelChip: View {
+struct LevelChip: View {
     let level: Float
 
     private var color: Color {
         switch level {
-        case ..<35: return .blue
-        case 35..<55: return .green
-        case 55..<75: return .yellow
-        case 75..<90: return .orange
-        default: return .red
+        case ..<35: return FerriteStatus.info
+        case 35..<55: return FerriteStatus.live
+        case 55..<75: return FerriteStatus.warning.opacity(0.75)
+        case 75..<90: return FerriteStatus.warning
+        default: return FerriteStatus.recording
         }
     }
 

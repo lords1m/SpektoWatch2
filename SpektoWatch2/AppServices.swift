@@ -1,16 +1,14 @@
-import Combine
+import Observation
 import SwiftUI
 
 /// Single container for the long-lived service graph.
 ///
-/// Replaces the previous pattern of seven hand-wired `@StateObject`s in
-/// `SpektoWatch2App` + seven `.environmentObject(...)` calls under
-/// `ContentView`. Consumer views read sub-services via
-/// `@EnvironmentObject var services: AppServices`; deferred audio engines
-/// are exposed as `services.audioEngine` / `services.maskingEngine` after
-/// `startAudio()`. Source: M13 task-1 (architecture review A7).
+/// Consumer views read sub-services via `@Environment(AppServices.self)`;
+/// deferred audio engines are exposed as `services.audioEngine` /
+/// `services.maskingEngine` after `startAudio()`.
+@Observable
 @MainActor
-final class AppServices: ObservableObject {
+final class AppServices {
 
     // MARK: - Sub-services (eager)
 
@@ -27,8 +25,8 @@ final class AppServices: ObservableObject {
     // asynchronously via `startAudio()`. This mirrors the previous
     // `AudioEngineContainer` behavior.
 
-    @Published private(set) var audioEngine: AudioEngine?
-    @Published private(set) var maskingEngine: MaskingEngine?
+    private(set) var audioEngine: AudioEngine?
+    private(set) var maskingEngine: MaskingEngine?
 
     /// True once `startAudio()` has produced both engines.
     var isAudioReady: Bool { audioEngine != nil && maskingEngine != nil }
@@ -79,7 +77,7 @@ final class AppServices: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             MetalWidgetManager.shared.prewarmSharedDevice()
 
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self, self.audioEngine == nil else { return }
 
                 let engine = AudioEngine(
@@ -87,7 +85,8 @@ final class AppServices: ObservableObject {
                     connectivityManager: self.connectivityManager
                 )
                 engine.applyFFTConfiguration(self.fftConfiguration)
-                engine.scrollSpeed = .closest(to: self.fftConfiguration.hopSize)
+                engine.applyRealtimeHop(from: self.fftConfiguration)
+                self.observeRealtimeHopSettings(of: engine)
 
                 self.audioEngine = engine
                 self.maskingEngine = MaskingEngine(audioEngine: engine)
@@ -100,6 +99,23 @@ final class AppServices: ObservableObject {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Realtime hop
+
+extension AppServices {
+    /// Keeps the engine's live hop in sync with the FFT settings wherever they
+    /// are edited (settings, lab widget, advanced analysis).
+    fileprivate func observeRealtimeHopSettings(of engine: AudioEngine) {
+        let cfg = fftConfiguration
+        cfg.onConfigurationChanged = { [weak engine, weak cfg] in
+            guard let engine, let cfg else { return }
+            engine.applyRealtimeHop(
+                configuredHop: cfg.hopSize,
+                matchDisplayRefreshRate: cfg.matchDisplayRefreshRate
+            )
         }
     }
 }

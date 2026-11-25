@@ -1,7 +1,7 @@
 import Foundation
-import Combine
+import Observation
 
-protocol AudioDataProvider: ObservableObject {
+protocol AudioDataProvider: AnyObject, Observable {
     var currentSpectrogramData: SpectrogramData? { get }
     var levelHistory: [Float] { get }
     var currentOctaveBands: [Float] { get }

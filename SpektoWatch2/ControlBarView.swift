@@ -1,11 +1,11 @@
 import SwiftUI
-import Combine
 
 // MARK: - Play/Pause Button Component
 private struct PlayPauseButton: View {
-    @ObservedObject var audioEngine: AudioEngine
+    var audioEngine: AudioEngine
     let diameter: CGFloat
     let iconSize: CGFloat
+    var dock: Bool = false
     let action: () -> Void
 
     private var state: ControlBarState {
@@ -13,6 +13,30 @@ private struct PlayPauseButton: View {
     }
 
     var body: some View {
+        if dock { dockBody } else { barBody }
+    }
+
+    /// Home Screen dock tile: ink squircle, white glyph; LIVE adds the
+    /// green accent bar.
+    private var dockBody: some View {
+        Button(action: action) {
+            DockTileBackground(size: diameter, accent: state.isLiveMode ? StatusColor.live : nil)
+                .overlay {
+                    Image(systemName: state.isLiveMode ? "pause.fill" : "play.fill")
+                        .font(.system(size: iconSize, weight: .semibold))
+                        .foregroundStyle(FerriteColor.onAccent)
+                        .offset(y: state.isLiveMode ? -diameter * 0.04 : 0)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
+                        .accessibilityLabel(state.playPauseAccessibilityLabel)
+                        .accessibilityAddTraits(.isButton)
+                }
+        }
+        .buttonStyle(HomeIconPressStyle())
+        .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
+    }
+
+    private var barBody: some View {
         Button(action: action) {
             ZStack {
                 Circle()
@@ -54,12 +78,13 @@ private struct PlayPauseButton: View {
 
 // MARK: - Record/Stop Button Component
 private struct RecordStopButton: View {
-    @ObservedObject var audioEngine: AudioEngine
+    var audioEngine: AudioEngine
     let diameter: CGFloat
     let iconSize: CGFloat
     let isEnabled: Bool
     // When non-nil, overrides the derived isRecording state (used for masking trigger capture).
     var activeOverride: Bool? = nil
+    var dock: Bool = false
     let action: () -> Void
 
     private var baseState: ControlBarState {
@@ -69,6 +94,32 @@ private struct RecordStopButton: View {
     private var isActive: Bool { activeOverride ?? baseState.isRecording }
 
     var body: some View {
+        if dock { dockBody } else { barBody }
+    }
+
+    /// Dock tile: the red dot is the REC accent; recording swaps it for a
+    /// stop square and adds the red accent bar.
+    private var dockBody: some View {
+        Button(action: action) {
+            DockTileBackground(size: diameter, accent: isActive ? StatusColor.recording : nil)
+                .overlay {
+                    Image(systemName: isActive ? "stop.fill" : "circle.fill")
+                        .font(.system(size: isActive ? iconSize * 0.85 : iconSize, weight: .semibold))
+                        .foregroundStyle(StatusColor.recording)
+                        .offset(y: isActive ? -diameter * 0.04 : 0)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
+                        .accessibilityLabel(baseState.recordStopAccessibilityLabel)
+                        .accessibilityAddTraits(.isButton)
+                }
+        }
+        .buttonStyle(HomeIconPressStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1.0 : 0.5)
+        .animation(.easeInOut(duration: 0.2), value: isActive)
+    }
+
+    private var barBody: some View {
         Button(action: action) {
             ZStack {
                 Circle()
@@ -107,8 +158,15 @@ private struct RecordStopButton: View {
 }
 
 struct ControlBarView: View {
-    @ObservedObject var audioEngine: AudioEngine
-    @EnvironmentObject private var services: AppServices
+    enum Style { case bar, dock }
+
+    var audioEngine: AudioEngine
+    /// `.dock` renders the iOS Home Screen dock (transport, recordings and
+    /// settings as squircle tiles on glass); `.bar` the classic pill.
+    var style: Style = .bar
+    /// Settings tile in the dock.
+    var onShowSettings: (() -> Void)? = nil
+    @Environment(AppServices.self) private var services
 
     private var maskingEngine: MaskingEngine { services.maskingEngine! }
     @Environment(\.designNumerals) private var numerals
@@ -130,6 +188,76 @@ struct ControlBarView: View {
     }
 
     var body: some View {
+        switch style {
+        case .bar: lifecycle(barBody)
+        case .dock: lifecycle(dockBody)
+        }
+    }
+
+    // MARK: Dock
+
+    private let dockTileSize: CGFloat = 60
+
+    private var dockBody: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            controlsGroup(diameter: dockTileSize, iconSize: 24, spacing: 0, dock: true)
+            Spacer(minLength: 0)
+            recordingsDockTile
+            Spacer(minLength: 0)
+            settingsDockTile
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .ferriteGlass(in: RoundedRectangle(cornerRadius: FerriteRadius.dock, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 2)
+    }
+
+    private var recordingsDockTile: some View {
+        let count = services.recordingManager.recordings.count
+        return Button {
+            showRecordingsList = true
+        } label: {
+            HomeIconGlyph(symbol: "folder.fill", line: AudioWidgetType.recordings.homeIconLine, size: dockTileSize)
+                .overlay(alignment: .topTrailing) {
+                    if count > 0 {
+                        Text(count > 99 ? "99+" : "\(count)")
+                            .font(.system(size: 13, weight: .bold).monospacedDigit())
+                            .foregroundStyle(FerriteLine.u2.onColor)
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 22, minHeight: 22)
+                            .background(Capsule().fill(StatusColor.badge))
+                            .overlay(Capsule().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
+                            .offset(x: 8, y: -8)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("recordingsListButton")
+                .accessibilityLabel("Aufnahmen")
+                .accessibilityValue("\(count) gespeichert")
+                .accessibilityAddTraits(.isButton)
+        }
+        .buttonStyle(HomeIconPressStyle())
+    }
+
+    private var settingsDockTile: some View {
+        Button {
+            onShowSettings?()
+        } label: {
+            HomeIconGlyph(symbol: "gearshape.fill", size: dockTileSize)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("settingsButton")
+                .accessibilityLabel("Einstellungen")
+                .accessibilityAddTraits(.isButton)
+        }
+        .buttonStyle(HomeIconPressStyle())
+    }
+
+    // MARK: Bar
+
+    private var barBody: some View {
         VStack(spacing: 0) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
@@ -172,9 +300,14 @@ struct ControlBarView: View {
         .floatingPill(cornerRadius: 24)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    /// Sheets, alerts and engine hooks shared by both styles.
+    private func lifecycle<V: View>(_ content: V) -> some View {
+        content
         .sheet(isPresented: $showRecordingsList) {
             RecordingsListView()
-                .environmentObject(services)
+                .environment(services)
                 .polishedSheetChrome()
         }
         .onAppear {
@@ -228,14 +361,17 @@ struct ControlBarView: View {
         }
     }
 
-    private func controlsGroup(diameter: CGFloat, iconSize: CGFloat, spacing: CGFloat) -> some View {
-        HStack(spacing: spacing) {
+    @ViewBuilder
+    private func controlsGroup(diameter: CGFloat, iconSize: CGFloat, spacing: CGFloat, dock: Bool = false) -> some View {
+        let group = Group {
             PlayPauseButton(
                 audioEngine: audioEngine,
                 diameter: diameter,
                 iconSize: iconSize,
+                dock: dock,
                 action: toggleLiveMode
             )
+            if dock { Spacer(minLength: 0) }
 
             if maskingEngine.isCapturingTrigger {
                 // During trigger capture the record button becomes the tap-to-mark button.
@@ -245,6 +381,7 @@ struct ControlBarView: View {
                     iconSize: iconSize,
                     isEnabled: true,
                     activeOverride: maskingEngine.state == .marking,
+                    dock: dock,
                     action: toggleMaskingCapture
                 )
             } else {
@@ -254,9 +391,15 @@ struct ControlBarView: View {
                     diameter: diameter,
                     iconSize: iconSize,
                     isEnabled: canStopRecording,
+                    dock: dock,
                     action: toggleRecording
                 )
             }
+        }
+        if dock {
+            group
+        } else {
+            HStack(spacing: spacing) { group }
         }
     }
 
@@ -276,29 +419,11 @@ struct ControlBarView: View {
     }
 
     private var statusText: String {
-        switch maskingEngine.state {
-        case .marking:
-            return "Trigger · Aufzeichnung"
-        case .waitingForTrigger:
-            let n = maskingEngine.captureCount
-            let m = maskingEngine.minimumCaptures
-            return n > 0 ? "\(n)/\(m) Captures · Aufnahme drücken" : "Trigger · Aufnahme drücken"
-        default:
-            if state.isRecording { return "Aufnahme läuft" }
-            if state.isLiveMode  { return "Live-Modus" }
-            return "Bereit"
-        }
+        ControlBarStatus.text(masking: maskingEngine, state: state)
     }
 
     private var statusColor: Color {
-        switch maskingEngine.state {
-        case .marking:        return StatusColor.recording
-        case .waitingForTrigger: return StatusColor.trigger
-        default:
-            if state.isRecording { return StatusColor.recording }
-            if state.isLiveMode  { return StatusColor.live }
-            return .gray
-        }
+        ControlBarStatus.color(masking: maskingEngine, state: state)
     }
 
     private func toggleMaskingCapture() {
@@ -463,5 +588,95 @@ private struct StatusLED: View {
                 .opacity(pulsing ? (0.45 + 0.55 * phase) : 1.0)
                 .shadow(color: color.opacity(0.7), radius: pulsing ? (2 + 4 * phase) : 0)
         }
+    }
+}
+
+/// Status wording and LED colour, shared by the bar and the Home Screen
+/// status label.
+enum ControlBarStatus {
+    @MainActor
+    static func text(masking maskingEngine: MaskingEngine, state: ControlBarState) -> String {
+        switch maskingEngine.state {
+        case .marking:
+            return "Trigger · Aufzeichnung"
+        case .waitingForTrigger:
+            let n = maskingEngine.captureCount
+            let m = maskingEngine.minimumCaptures
+            return n > 0 ? "\(n)/\(m) Captures · Aufnahme drücken" : "Trigger · Aufnahme drücken"
+        default:
+            if state.isRecording { return "Aufnahme läuft" }
+            if state.isLiveMode  { return "Live-Modus" }
+            return "Bereit"
+        }
+    }
+
+    @MainActor
+    static func color(masking maskingEngine: MaskingEngine, state: ControlBarState) -> Color {
+        switch maskingEngine.state {
+        case .marking:        return StatusColor.recording
+        case .waitingForTrigger: return StatusColor.trigger
+        default:
+            if state.isRecording { return StatusColor.recording }
+            if state.isLiveMode  { return StatusColor.live }
+            return .gray
+        }
+    }
+}
+
+/// Ink squircle behind a dock transport glyph; an optional status accent
+/// runs along the bottom edge (green LIVE, red REC).
+private struct DockTileBackground: View {
+    let size: CGFloat
+    var accent: Color?
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: FerriteRadius.homeIcon(size), style: .continuous)
+        shape
+            .fill(FerriteColor.label)
+            .overlay(alignment: .bottom) {
+                if let accent {
+                    Rectangle().fill(accent).frame(height: max(5, (size * 0.11).rounded()))
+                }
+            }
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(FerriteColor.hairline, lineWidth: FerriteStroke.hairline))
+            .frame(width: size, height: size)
+    }
+}
+
+/// Compact instrument status for the Home Screen page pill: LED in the
+/// status accent, word in ink, recording time while recording.
+struct HomeStatusLabel: View {
+    var audioEngine: AudioEngine
+    @Environment(AppServices.self) private var services
+
+    private var state: ControlBarState {
+        ControlBarState(engineStatus: audioEngine.engineStatus, isRecordingToFile: audioEngine.recording.isRecordingToFile)
+    }
+
+    var body: some View {
+        let masking = services.maskingEngine!
+        HStack(spacing: 6) {
+            StatusLED(color: ControlBarStatus.color(masking: masking, state: state),
+                      pulsing: state.isLiveMode || state.isRecording)
+            Text(ControlBarStatus.text(masking: masking, state: state))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(FerriteColor.label)
+                .lineLimit(1)
+                .accessibilityIdentifier("controlBarStatusLabel")
+            if state.isRecording {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(Self.format(services.recordingManager.currentRecordingDuration))
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .foregroundStyle(FerriteColor.labelSecondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private static func format(_ t: TimeInterval) -> String {
+        let s = Int(t)
+        return String(format: "%02d:%02d", s / 60, s % 60)
     }
 }

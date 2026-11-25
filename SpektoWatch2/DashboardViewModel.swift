@@ -1,5 +1,6 @@
+import AsyncAlgorithms
 import SwiftUI
-import Combine
+import Observation
 
 struct WidgetUndoToast: Equatable, Identifiable {
     let id = UUID()
@@ -7,92 +8,141 @@ struct WidgetUndoToast: Equatable, Identifiable {
     let index: Int
 }
 
+@Observable
 @MainActor
-class DashboardViewModel: ObservableObject {
+class DashboardViewModel {
     // UI State
     let dashboardManager: DashboardManager
-    @Published var showWidgetPicker = false
-    @Published var draggedWidget: WidgetConfiguration?
-    @Published var showSettings = false
-    @Published var widgetUndoToast: WidgetUndoToast?
-    private var widgetUndoTask: Task<Void, Never>?
+    var showWidgetPicker = false
+    var draggedWidget: WidgetConfiguration?
+    var showSettings = false
+    var widgetUndoToast: WidgetUndoToast?
+    @ObservationIgnored private var widgetUndoTask: Task<Void, Never>?
     private static let widgetUndoWindow: Duration = .seconds(4)
 
     // Settings State
-    @Published var selectedMicrophoneSource: MicrophoneSource = .iPhone
-    @Published var watchGain: Float = {
+    var selectedMicrophoneSource: MicrophoneSource = .iPhone
+    var watchGain: Float = {
         let stored = UserDefaults.standard.object(forKey: PersistenceKeys.Watch.gain) as? Float
         return stored ?? 1.0
     }()
-    @Published var showWatchNotReachableAlert = false
+    var showWatchNotReachableAlert = false
 
     // Dependencies
     let audioEngine: AudioEngine
     let connectivityManager: WatchConnectivityManager
 
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private let watchGainContinuation: AsyncStream<Float>.Continuation
+    private static let watchGainSyncDebounce: Duration = .milliseconds(150)
+
+    private enum WatchRecordingCommand: Sendable {
+        case start(MicrophoneSource?)
+        case stop(MicrophoneSource?)
+    }
 
     init(dashboardManager: DashboardManager, audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager) {
         self.dashboardManager = dashboardManager
         self.audioEngine = audioEngine
         self.connectivityManager = connectivityManager
 
-        dashboardManager.$widgets
-            .sink { [weak self] widgets in
-                self?.updateWidgetSpectralWeightingRequirements(for: widgets)
-            }
-            .store(in: &cancellables)
+        let (watchGainStream, watchGainContinuation) = AsyncStream<Float>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.watchGainContinuation = watchGainContinuation
+
         updateWidgetSpectralWeightingRequirements(for: dashboardManager.widgets)
 
+        // Debounce Watch gain slider updates so dragging does not flood WCSession / UserDefaults.
+        observationTasks.append(Task { @MainActor [weak self] in
+            for await gain in watchGainStream
+                .debounce(for: Self.watchGainSyncDebounce, clock: .continuous)
+                .removeDuplicates() {
+                guard let self, !Task.isCancelled else { break }
+                UserDefaults.standard.set(gain, forKey: PersistenceKeys.Watch.gain)
+                self.connectivityManager.sendGainValue(gain)
+            }
+        })
+
+        observationTasks.append(Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ObservationTrackingLoop.observe(emitInitial: false, { self.dashboardManager.widgets }) { [weak self] widgets in
+                self?.updateWidgetSpectralWeightingRequirements(for: widgets)
+            }
+        })
+
         // Auto-Fallback: Watch bricht Verbindung während Aufnahme ab
-        connectivityManager.$isReachable
-            .dropFirst()
-            .filter { !$0 }
-            .sink { [weak self] _ in
-                guard let self else { return }
+        observationTasks.append(Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ObservationTrackingLoop.observe(emitInitial: false, { self.connectivityManager.isReachable }) { [weak self] isReachable in
+                guard let self, !isReachable else { return }
                 if self.selectedMicrophoneSource == .appleWatch && self.audioEngine.engineStatus == .running {
                     _ = self.applyMicrophoneSourceSelection(.iPhone, notifyWatch: true)
                     self.restartActiveMeasurementForSelectedSource(.iPhone)
                 }
             }
-            .store(in: &cancellables)
+        })
 
-        connectivityManager.$selectedMicrophoneSource
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] source in
+        observationTasks.append(Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ObservationTrackingLoop.observe({ self.connectivityManager.selectedMicrophoneSource }) { [weak self] source in
                 guard let self, self.selectedMicrophoneSource != source else { return }
                 _ = self.applyMicrophoneSourceSelection(source, notifyWatch: false)
             }
-            .store(in: &cancellables)
+        })
 
-        connectivityManager.$spectrogramData
-            .compactMap { $0 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] data in
-                guard let self, self.selectedMicrophoneSource == .appleWatch else { return }
+        let incomingStream = connectivityManager.incomingSpectrogramBroadcaster.stream()
+        observationTasks.append(Task { @MainActor [weak self] in
+            for await data in incomingStream {
+                guard let self, !Task.isCancelled else { break }
+                guard self.selectedMicrophoneSource == .appleWatch else { continue }
                 if self.audioEngine.engineStatus != .running {
                     self.audioEngine.startWearableLiveMode()
                 }
                 self.audioEngine.ingestWearableSpectrogramData(data)
             }
-            .store(in: &cancellables)
+        })
 
-        // Start/Stop-Befehle von der Apple Watch empfangen
-        NotificationCenter.default.publisher(for: .startRecordingCommand)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                self?.handleWatchRecordingStart(source: notification.object as? MicrophoneSource)
+        // Start/Stop-Befehle von der Apple Watch über einen zusammengeführten AsyncStream empfangen
+        let startCommands = Self.watchCommandStream(for: .startRecordingCommand) { .start($0) }
+        let stopCommands = Self.watchCommandStream(for: .stopRecordingCommand) { .stop($0) }
+        observationTasks.append(Task { @MainActor [weak self] in
+            for await command in merge(startCommands, stopCommands) {
+                guard let self, !Task.isCancelled else { break }
+                switch command {
+                case .start(let source):
+                    self.handleWatchRecordingStart(source: source)
+                case .stop(let source):
+                    self.handleWatchRecordingStop(source: source)
+                }
             }
-            .store(in: &cancellables)
+        })
+    }
 
-        NotificationCenter.default.publisher(for: .stopRecordingCommand)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                self?.handleWatchRecordingStop(source: notification.object as? MicrophoneSource)
+    private static func watchCommandStream(
+        for name: Notification.Name,
+        transform: @escaping @Sendable (MicrophoneSource?) -> WatchRecordingCommand
+    ) -> AsyncStream<WatchRecordingCommand> {
+        AsyncStream { continuation in
+            let token = NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: nil
+            ) { notification in
+                continuation.yield(transform(notification.object as? MicrophoneSource))
             }
-            .store(in: &cancellables)
+            nonisolated(unsafe) let removableToken = token
+            continuation.onTermination = { _ in
+                NotificationCenter.default.removeObserver(removableToken)
+            }
+        }
+    }
 
+    deinit {
+        watchGainContinuation.finish()
+        for task in observationTasks {
+            task.cancel()
+        }
     }
     
     func handleMicrophoneSourceChange(_ newSource: MicrophoneSource) {
@@ -205,8 +255,7 @@ class DashboardViewModel: ObservableObject {
     
     func updateWatchGain(_ newValue: Float) {
         watchGain = newValue
-        UserDefaults.standard.set(newValue, forKey: PersistenceKeys.Watch.gain)
-        connectivityManager.sendGainValue(newValue)
+        watchGainContinuation.yield(newValue)
     }
     
     func addWidget() {
@@ -302,6 +351,7 @@ class DashboardViewModel: ObservableObject {
     }
 
     private func widgetUsesSpectralWeighting(_ widget: WidgetConfiguration) -> Bool {
+        guard widget.displayStyle == .liveWidget else { return false }
         switch widget.type {
         case .spectrogram, .waterfall, .frequencyDisplay, .octaveBands:
             return true

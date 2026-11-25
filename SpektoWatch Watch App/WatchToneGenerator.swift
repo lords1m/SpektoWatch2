@@ -1,25 +1,26 @@
 import Foundation
 import AVFoundation
-import Combine
+import Observation
 import os
 
 /// Real-time sine tone synthesis for the watch Tongenerator face.
 /// Mirrors the iOS `ToneGenerator` engine pattern (`AVAudioSourceNode` + unfair lock).
-final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
-    private var audioEngine: AVAudioEngine?
-    private var srcNode: AVAudioSourceNode?
+@Observable
+final class WatchToneGenerator: @unchecked Sendable {
+    @ObservationIgnored private var audioEngine: AVAudioEngine?
+    @ObservationIgnored private var srcNode: AVAudioSourceNode?
 
-    @Published private(set) var isPlaying = false
+    private(set) var isPlaying = false
 
-    @Published var frequency: Float = 1000 {
+    var frequency: Float = 1000 {
         didSet { synthLock.withLock { $0.frequency = frequency } }
     }
 
-    @Published var amplitude: Float = 0.5 {
+    var amplitude: Float = 0.5 {
         didSet { synthLock.withLock { $0.amplitude = amplitude } }
     }
 
-    private var sampleRate: Double = 48_000
+    @ObservationIgnored private var sampleRate: Double = 48_000
 
     private struct SynthState {
         var frequency: Float = 1000
@@ -27,7 +28,7 @@ final class WatchToneGenerator: ObservableObject, @unchecked Sendable {
         var phase: Double = 0
     }
 
-    private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
+    @ObservationIgnored private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
 
     func start() {
         guard !isPlaying else { return }

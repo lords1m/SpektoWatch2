@@ -8,8 +8,8 @@ private enum WatchMainTab: Int, Hashable {
 }
 
 struct WatchContentView: View {
-    @EnvironmentObject private var audioEngine: WatchAudioEngine
-    @EnvironmentObject private var connectivityManager: WatchConnectivityManager
+    @Environment(WatchAudioEngine.self) private var audioEngine
+    @Environment(WatchConnectivityManager.self) private var connectivityManager
     @State private var selectedTab: WatchMainTab = .meter
 
     var body: some View {

@@ -72,7 +72,7 @@ final class WidgetSizingMigrationTests: XCTestCase {
     }
 
     /// A singleValue persisted at 4×6 (impossible under M8) must clamp
-    /// down to the singleValue's max size 2×2 on decode.
+    /// down to the singleValue's max size 3×3 on decode.
     func testSingleValueLegacySizeClampsDownToMax() throws {
         let json = #"""
         {
@@ -88,8 +88,8 @@ final class WidgetSizingMigrationTests: XCTestCase {
         let max = WidgetConfiguration.sizeRange(for: .singleValue).max
         XCTAssertLessThanOrEqual(config.size.columns, max.columns)
         XCTAssertLessThanOrEqual(config.size.rows, max.rows)
-        XCTAssertEqual(config.size.columns, 2)
-        XCTAssertEqual(config.size.rows, 2)
+        XCTAssertEqual(config.size.columns, max.columns)
+        XCTAssertEqual(config.size.rows, max.rows)
     }
 
     /// A legacy `octaveBands` widget should still decode (kept for

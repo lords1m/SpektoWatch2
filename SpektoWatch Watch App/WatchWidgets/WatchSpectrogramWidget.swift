@@ -1,8 +1,7 @@
 import SwiftUI
-import Combine
 
 struct WatchSpectrogramWidget: View {
-    @EnvironmentObject var audioEngine: WatchAudioEngine
+    @Environment(WatchAudioEngine.self) private var audioEngine
 
     private static let maxFrames = 40
     // Fixed-capacity ring buffer — O(1) append-and-drop-oldest, replacing the
@@ -47,12 +46,15 @@ struct WatchSpectrogramWidget: View {
         }
         // Single source of truth: `liveData` reflects whichever mode is active
         // (companion -> phone-pushed; wearableMic -> local audio). No branching.
-        .onReceive(
-            audioEngine.$liveData
-                .compactMap { $0 }
-                .throttledForWatchLiveDisplay()
-        ) { data in
-            processData(data)
+        .task {
+            await ObservationTrackingLoop.observeThrottled(
+                minimumInterval: SingleValueRefreshRate.default.minimumInterval
+            ) {
+                audioEngine.liveData
+            } onUpdate: { data in
+                guard let data else { return }
+                processData(data)
+            }
         }
     }
 

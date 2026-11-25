@@ -4,9 +4,13 @@ import Foundation
 /// beyond the last-publish timestamps:
 ///
 /// - `shouldEnqueueUI`: 60 Hz gate for the per-frame main-thread UI enqueue
-///   (currentLevel / octave bands / etc.). Called from the audio render thread.
-/// - `shouldPublishSpectrogram`: 15 Hz gate for `currentSpectrogramData` (the
-///   heaviest `objectWillChange` source). Called from the main thread.
+///   (currentLevel / octave bands / etc.). Called from the audio render thread
+///   with the frame's audio-position time, so the frames of one tap burst are
+///   not collapsed into one.
+/// - `shouldPublishSpectrogram`: duplicate filter for `currentSpectrogramData`.
+///   It is assigned in the same main-thread block as the other live arrays, so
+///   it adds no extra `objectWillChange`; widgets need it at ≥ 24 Hz.
+///   Called from the main thread.
 /// - `shouldSendToWatch`: 0.1 s gate for the WatchConnectivity spectrogram
 ///   send. Called from the main thread.
 ///
@@ -18,8 +22,9 @@ import Foundation
 final class UIPublishThrottle {
     /// 60 Hz live-metric publish cadence.
     let uiInterval: TimeInterval = 1.0 / 60.0
-    /// 15 Hz spectrogram publish cadence.
-    let spectrogramInterval: TimeInterval = 1.0 / 15.0
+    /// Only collapses same-runloop duplicates; the 60 Hz enqueue gate is the
+    /// real cap. (Was 15 Hz, which held spectrum/LAF/meter widgets below 24 fps.)
+    let spectrogramInterval: TimeInterval = 1.0 / 120.0
     /// 0.1 s WatchConnectivity send cadence.
     let watchInterval: TimeInterval = 0.1
 
@@ -35,7 +40,7 @@ final class UIPublishThrottle {
         return true
     }
 
-    /// 15 Hz gate for `currentSpectrogramData`.
+    /// Duplicate gate for `currentSpectrogramData`.
     func shouldPublishSpectrogram(now: TimeInterval) -> Bool {
         guard now - lastSpectrogramEnqueue >= spectrogramInterval else { return false }
         lastSpectrogramEnqueue = now

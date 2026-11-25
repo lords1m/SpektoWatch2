@@ -1,13 +1,13 @@
 import SwiftUI
-import Combine
 
 /// iPhone editor for all watch-app settings: live source, meter layout, mic gain.
 struct WatchAppSettingsView: View {
-    @EnvironmentObject private var services: AppServices
+    @Environment(AppServices.self) private var services
     @Environment(\.designAccent) private var accent
+    @Environment(\.ferriteLine) private var ferriteLine
     @Binding var watchGain: Float
 
-    @StateObject private var viewModel = WatchAppSettingsViewModel()
+    @State private var viewModel = WatchAppSettingsViewModel()
     @State private var widgetToEdit: WatchWidgetConfig?
     @State private var showingWidgetPicker = false
 
@@ -143,8 +143,10 @@ struct WatchAppSettingsView: View {
             viewModel.reloadDashboardConfig(from: services.connectivityManager)
             viewModel.watchGain = watchGain
         }
-        .onReceive(services.connectivityManager.$watchDashboardConfig.compactMap { $0 }) { config in
-            viewModel.updateDashboardConfig(config)
+        .onChange(of: services.connectivityManager.watchDashboardConfig) { _, config in
+            if let config {
+                viewModel.updateDashboardConfig(config)
+            }
         }
         .onChange(of: watchGain) { _, newValue in
             viewModel.watchGain = newValue
@@ -183,9 +185,10 @@ struct WatchAppSettingsView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(accent)
-                .foregroundColor(.black)
-                .cornerRadius(10)
+                .background(ferriteLine.color, in: RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
+                    .strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.line))
+                .foregroundColor(ferriteLine.onColor)
             }
 
             Button {
@@ -402,25 +405,26 @@ private struct MeterWidgetPickerSheet: View {
 
 // MARK: - View model
 
+@Observable
 @MainActor
-final class WatchAppSettingsViewModel: ObservableObject {
-    @Published var measurementSourcePreference: WatchMeasurementSourcePreference = .auto
-    @Published private(set) var meterConfig: WatchMeterLayoutConfig = WatchMeterLayoutConfig()
-    @Published private(set) var dashboardConfig: WatchDashboardConfig = WatchDashboardConfig()
-    @Published var dashboardLevelMeterOrientation: LevelMeterOrientation = .default {
+final class WatchAppSettingsViewModel {
+    var measurementSourcePreference: WatchMeasurementSourcePreference = .auto
+    private(set) var meterConfig: WatchMeterLayoutConfig = WatchMeterLayoutConfig()
+    private(set) var dashboardConfig: WatchDashboardConfig = WatchDashboardConfig()
+    var dashboardLevelMeterOrientation: LevelMeterOrientation = .default {
         didSet {
             guard dashboardLevelMeterOrientation != oldValue else { return }
             viewModelApplyDashboardLevelMeterOrientation()
         }
     }
-    @Published var defaultSingleValueRefreshRate: SingleValueRefreshRate = .default {
+    var defaultSingleValueRefreshRate: SingleValueRefreshRate = .default {
         didSet {
             guard defaultSingleValueRefreshRate != oldValue else { return }
             meterConfig.defaultSingleValueRefreshRate = defaultSingleValueRefreshRate
             meterConfig.save()
         }
     }
-    var watchGain: Float = 1.0
+    @ObservationIgnored var watchGain: Float = 1.0
 
     var meterDisplayWidgets: [WatchWidgetConfig] {
         meterConfig.orderedMeterWidgets
@@ -572,6 +576,6 @@ typealias WatchDashboardSettingsView = WatchAppSettingsView
 #Preview {
     NavigationStack {
         WatchAppSettingsView(watchGain: .constant(1.0))
-            .environmentObject(AppServices.testFixture())
+            .environment(AppServices.testFixture())
     }
 }

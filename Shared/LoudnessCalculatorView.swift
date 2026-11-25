@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct LoudnessCalculatorView: View {
-    @StateObject private var calculator = LoudnessCalculator()
+    @State private var calculator = LoudnessCalculator()
     @State private var splInput: String = "60"
     @State private var frequencyInput: String = "1000"
     @State private var showValidationError = false

@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 import WatchKit
-import Combine
+import Observation
 import Accelerate
 import os
 
@@ -25,15 +25,16 @@ private struct PendingWatchAudioFrame {
     let visualSamples: [Float]
 }
 
-class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDelegate {
+@Observable
+class WatchAudioEngine: NSObject, WKExtendedRuntimeSessionDelegate {
     /// Single source of truth for what the watch is doing.
-    /// Widgets observe `$liveData` instead of branching on `isRecording`.
-    @Published private(set) var operatingMode: WatchOperatingMode = .companion
+    /// Widgets observe `liveData` instead of branching on `isRecording`.
+    private(set) var operatingMode: WatchOperatingMode = .companion
 
     /// User policy for the live measurement source (auto / iPhone / watch).
-    @Published private(set) var measurementSourcePreference: WatchMeasurementSourcePreference
+    private(set) var measurementSourcePreference: WatchMeasurementSourcePreference
     /// Resolved source currently driving `liveData` (for UI indicator).
-    @Published private(set) var activeMeasurementSource: WatchActiveMeasurementSource = .idle
+    private(set) var activeMeasurementSource: WatchActiveMeasurementSource = .idle
 
     /// Legacy alias: `true` when live data comes from the watch mic policy.
     var standaloneEnabled: Bool { !usesPhoneAsLiveDataSource }
@@ -42,20 +43,20 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         !Self.isWatchOnlyApp && measurementSourcePreference == .iPhone
     }
 
-    private var phoneSpectrogramSubscription: AnyCancellable?
-    private var connectivityCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var phoneSpectrogramTask: Task<Void, Never>?
+    @ObservationIgnored private var connectivityAutoTask: Task<Void, Never>?
     private static let phoneStreamFreshness: TimeInterval = 2.0
     /// True when the watch mic tap is running for live level/spectrogram preview
     /// (standalone / watch-only), without an active file recording.
-    private var isLiveMonitoring = false
-    private var isMicTapInstalled = false
-    private var micTapFormat: AVAudioFormat?
-    private var audioEngine: AVAudioEngine
+    @ObservationIgnored private var isLiveMonitoring = false
+    @ObservationIgnored private var isMicTapInstalled = false
+    @ObservationIgnored private var micTapFormat: AVAudioFormat?
+    @ObservationIgnored private var audioEngine: AVAudioEngine
     private let bufferSize: AVAudioFrameCount = 4096
     private let sampleRate: Double = 44100.0
-    private var session: WKExtendedRuntimeSession?
+    @ObservationIgnored private var session: WKExtendedRuntimeSession?
     private let connectivityManager: WatchConnectivityManager
-    private var gain: Float = 1.0
+    @ObservationIgnored private var gain: Float = 1.0
 
     // Lokale FFT Konfiguration (Abgespeckt für Watch)
     private let fftSize: Int = 2048
@@ -65,25 +66,25 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // for `zrop` (half-spectrum), so bins were ~6 dB hot. zrop also halves
     // the buffer footprint.
     private let fftSetup: vDSP_DFT_Setup
-    private var windowedSamples: [Float]      // N-length windowed real signal
-    private var splitRealIn: [Float]          // N/2 — even-indexed samples
-    private var splitImagIn: [Float]          // N/2 — odd-indexed samples
-    private var realOut: [Float]              // N/2
-    private var imagOut: [Float]              // N/2
-    private var window: [Float]
-    private var fftMagnitudes: [Float]
+    @ObservationIgnored private var windowedSamples: [Float]      // N-length windowed real signal
+    @ObservationIgnored private var splitRealIn: [Float]          // N/2 — even-indexed samples
+    @ObservationIgnored private var splitImagIn: [Float]          // N/2 — odd-indexed samples
+    @ObservationIgnored private var realOut: [Float]              // N/2
+    @ObservationIgnored private var imagOut: [Float]              // N/2
+    @ObservationIgnored private var window: [Float]
+    @ObservationIgnored private var fftMagnitudes: [Float]
     // Linear-amplitude copy of the FFT magnitudes, captured before the dB
     // conversion in `performFFT`. Reused for weighted-energy + LCpeak math so
     // the watch produces real IEC 61672 metrics (LAeq, LCpeak) rather than a
     // broadband-as-LAeq placeholder. Preallocated — no audio-thread allocation.
-    private var fftLinearMagnitudes: [Float]
+    @ObservationIgnored private var fftLinearMagnitudes: [Float]
     private let visualDCT: vDSP.DCT
-    private var visualWindowedSamples: [Float]
-    private var visualCoefficients: [Float]
-    private var visualMagnitudes: [Float]
-    private var displayVisualMagnitudes: [Float]
+    @ObservationIgnored private var visualWindowedSamples: [Float]
+    @ObservationIgnored private var visualCoefficients: [Float]
+    @ObservationIgnored private var visualMagnitudes: [Float]
+    @ObservationIgnored private var displayVisualMagnitudes: [Float]
     #if DEBUG
-    private var debugFrameCount = 0
+    @ObservationIgnored private var debugFrameCount = 0
     #endif
     private let watchMicCalibrationOffset: Float = 100.0
 
@@ -92,11 +93,11 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // `metricsCalculator` integrates LAeq and holds LCpeak across the session.
     private let weightingProcessor: FrequencyWeightingProcessor
     private let metricsCalculator: AcousticMetricsCalculator
-    private var fftEnergyScratch: [Float]
-    private var lcPeakScratch: [Float]
+    @ObservationIgnored private var fftEnergyScratch: [Float]
+    @ObservationIgnored private var lcPeakScratch: [Float]
     /// Set on the main thread at recording start; read on the audio thread to
     /// derive the running recording duration for the calculator's Taktmaximal.
-    private var recordingStartDate: Date?
+    @ObservationIgnored private var recordingStartDate: Date?
 
     /// Active durable recording (standalone only). Created before the engine
     /// starts so the first audio frames are captured; the audio thread feeds it
@@ -106,20 +107,20 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
 
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate).
     private let binFrequencies: [Float]
-    private var displayVisualFrequencies: [Float]
+    @ObservationIgnored private var displayVisualFrequencies: [Float]
 
     // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
     // and `Array(samples.prefix(fftSize))` allocations.
-    private var monoSampleScratch: [Float] = []
-    private var fftInputScratch: [Float]
+    @ObservationIgnored private var monoSampleScratch: [Float] = []
+    @ObservationIgnored private var fftInputScratch: [Float]
 
-    @Published var isRecording = false
-    @Published var currentSpectrogramData: SpectrogramData?
+    var isRecording = false
+    var currentSpectrogramData: SpectrogramData?
 
     /// Unified data source for widgets. Mirrors either the local FFT result
     /// (when the watch mic is active) or the phone-pushed spectrogram (companion
-    /// mode). Widgets bind to `$liveData` and don't have to care which is which.
-    @Published var liveData: SpectrogramData?
+    /// mode). Widgets observe `liveData` and don't have to care which is which.
+    var liveData: SpectrogramData?
 
     // MARK: - Live-Data Flush Coalescing
     //
@@ -130,11 +131,11 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // Coalesce updates to ~5 Hz: store the latest data, schedule a single
     // flush, drop anything that arrives before the flush fires.
     private let liveDataLock = OSAllocatedUnfairLock()
-    private var pendingAudioFrame: PendingWatchAudioFrame?
-    private var isLiveDataFlushScheduled = false
+    @ObservationIgnored private var pendingAudioFrame: PendingWatchAudioFrame?
+    @ObservationIgnored private var isLiveDataFlushScheduled = false
     private static let liveDataFlushInterval: TimeInterval = 0.2  // 5 Hz
     private let visualDCTQueue = DispatchQueue(label: "com.spektowatch.watch-visual-dct", qos: .userInitiated)
-    private var displayVisualBinCount: Int
+    @ObservationIgnored private var displayVisualBinCount: Int
     private(set) var spectrogramDisplayBinCount: Int
     private(set) var spectrogramHistoryFrameCount: Int
 
@@ -236,6 +237,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     deinit {
+        phoneSpectrogramTask?.cancel()
+        connectivityAutoTask?.cancel()
         NotificationCenter.default.removeObserver(self)
         vDSP_DFT_DestroySetup(fftSetup)
     }
@@ -338,8 +341,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             }
             updateActiveMeasurementSource()
         } else {
-            phoneSpectrogramSubscription?.cancel()
-            phoneSpectrogramSubscription = nil
+            phoneSpectrogramTask?.cancel()
+            phoneSpectrogramTask = nil
             transition(to: .standalone)
             startLiveMonitoring()
             updateActiveMeasurementSource()
@@ -347,25 +350,23 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     private func bindConnectivityForAutoMode() {
-        connectivityManager.$isReachable
-            .combineLatest(
-                connectivityManager.$phoneAppState,
-                connectivityManager.$lastPhoneSpectrogramReceivedAt
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in
-                guard let self, self.measurementSourcePreference == .auto, !self.isRecording else { return }
-                self.reconcileLiveDataSource()
+        connectivityAutoTask?.cancel()
+        connectivityAutoTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                await ObservationTrackingLoop.waitForChange {
+                    _ = self.connectivityManager.isReachable
+                    _ = self.connectivityManager.phoneAppState
+                    _ = self.connectivityManager.lastPhoneSpectrogramReceivedAt
+                    _ = self.connectivityManager.spectrogramData
+                }
+                await Task.yield()
+                guard !Task.isCancelled else { break }
+                if self.measurementSourcePreference == .auto, !self.isRecording {
+                    self.reconcileLiveDataSource()
+                }
             }
-            .store(in: &connectivityCancellables)
-
-        connectivityManager.$spectrogramData
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self, self.measurementSourcePreference == .auto, !self.isRecording else { return }
-                self.reconcileLiveDataSource()
-            }
-            .store(in: &connectivityCancellables)
+        }
     }
 
     private func shouldMirrorPhone() -> Bool {
@@ -600,8 +601,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         case .wearableMic, .standalone:
             // Watch mic is master — drop the phone subscription so two streams
             // don't fight for `liveData`.
-            phoneSpectrogramSubscription?.cancel()
-            phoneSpectrogramSubscription = nil
+            phoneSpectrogramTask?.cancel()
+            phoneSpectrogramTask = nil
             // `liveData` will be set from `processAudioBuffer` on the next frame.
         }
     }
@@ -610,16 +611,22 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// stream when the watch is in companion mode.
     private func subscribeToPhoneSpectrogram() {
         guard usesPhoneAsLiveDataSource else { return }
-        phoneSpectrogramSubscription = connectivityManager.$spectrogramData
-            .compactMap { $0 }
-            .throttle(
-                for: .seconds(Self.liveDataFlushInterval),
-                scheduler: RunLoop.main,
-                latest: true
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] data in
+        if phoneSpectrogramTask != nil {
+            if liveData == nil, let current = connectivityManager.spectrogramData {
+                liveData = current
+            }
+            return
+        }
+        phoneSpectrogramTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ObservationTrackingLoop.observeThrottled(
+                minimumInterval: Self.liveDataFlushInterval,
+                emitInitial: true
+            ) {
+                self.connectivityManager.spectrogramData
+            } onUpdate: { [weak self] data in
                 guard let self,
+                      let data,
                       self.usesPhoneAsLiveDataSource,
                       self.operatingMode == .companion,
                       !self.isRecording,
@@ -627,6 +634,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                 self.liveData = data
                 self.updateActiveMeasurementSource()
             }
+        }
     }
 
     /// Whether live UI should mirror the iPhone over WatchConnectivity.

@@ -105,6 +105,8 @@ public enum PersistenceKeys {
         public static let blockSize        = "fft_blockSize"
         public static let overlapPercent   = "fft_overlapPercent"
         public static let showExplanations = "fft_showExplanations"
+        /// Live hop = sampleRate / display refresh rate (one column per frame).
+        public static let matchDisplayRefreshRate = "fft_matchDisplayRefreshRate"
 
         /// Schema version for the FFT persistence layout.
         public static let currentVersion = 3
