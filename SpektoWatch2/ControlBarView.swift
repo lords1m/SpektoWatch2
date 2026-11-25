@@ -210,7 +210,8 @@ struct ControlBarView: View {
         }
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
-        .ferriteGlass(in: RoundedRectangle(cornerRadius: FerriteRadius.dock, style: .continuous))
+        // Corners follow the display (iOS 26), never tighter than the dock radius.
+        .ferriteEdgeGlass(minimumRadius: FerriteRadius.dock)
         .padding(.horizontal, 12)
         .padding(.bottom, 2)
     }

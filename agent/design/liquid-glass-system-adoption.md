@@ -154,6 +154,23 @@ Files: `ModularDashboardView.swift`, `DashboardHeaderView.swift`, `ControlBarVie
 
 Done when: the three acceptance checks in §6 pass on the home screen.
 
+**As built (2026-11-25, verified on the iPhone 17 / iOS 26.5 simulator):**
+- There is no header pill on the home screen, so item 1 became: the edit-bar buttons sit in
+  one `FerriteGlassGroup`, and the slide-in falls back to a fade under Reduce Motion.
+- The transport stays as solid Home Screen icon tiles on the glass dock; item 3 was dropped.
+  Glass buttons would break the M23 Home Screen look, and solid tiles on a glass platter
+  already follow the "solid content inside glass" rule.
+- Dock → `ferriteEdgeGlass` (concentric corners). Page indicator + dock share one
+  `FerriteGlassGroup(spacing: 0)`; the bottom stack attaches via `ferriteBar`.
+- Undo snackbar → `ferriteGlass` (no material, hand stroke or shadow). Not checked on screen.
+- Removed the dead `footerBarHeight` GeometryReader/preference measurement.
+- **Finding:** `safeAreaBar` holding the conditionally inserted edit bar left it offset
+  horizontally by 10–28 pt after exit → re-enter. `HEAD` with `safeAreaInset` doesn't do this, and
+  removing the glass group doesn't help. The top bar therefore stays on `safeAreaInset`;
+  `ferriteBar` is documented as persistent-bars-only. Apply the same rule in Phase 3.
+- Pre-existing, unchanged: tall widgets are clipped at the page indicator in edit mode
+  (same on `HEAD`).
+
 ### Phase 3 — Secondary screens & sheets
 Files: `Views/RecordingsListView.swift`, `Views/RecordingDetailView.swift`,
 `AudioEditor/*`, `SpectrogramSettingsView.swift`, `WidgetSettingsView.swift`,

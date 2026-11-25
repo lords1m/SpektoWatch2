@@ -4,6 +4,11 @@ import SwiftUI
 /// space. iOS 26 uses `safeAreaBar`, which also gives content scrolling
 /// underneath a soft scroll-edge effect so the bar stays legible over the
 /// tile wall; earlier versions use `safeAreaInset`.
+///
+/// Only for bars that stay on screen. A bar inserted and removed
+/// conditionally (e.g. the jiggle-mode edit bar) came back horizontally
+/// offset after an exit/re-enter cycle under `safeAreaBar` on iOS 26.5;
+/// keep `safeAreaInset` for those.
 private struct FerriteBarModifier<Bar: View>: ViewModifier {
     var edge: VerticalEdge
     var spacing: CGFloat?

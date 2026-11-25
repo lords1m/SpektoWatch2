@@ -11,9 +11,9 @@ struct ModularDashboardView: View {
     @Environment(AppServices.self) private var services
     @State private var showLayoutsSheet = false
     @State private var launchedFeature: FeatureLauncherDestination?
-    @State private var footerBarHeight: CGFloat = 0
     @AppStorage("dashboard.activePreset") private var activePresetID: String = "overview"
     @Namespace private var zoomNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `dashboardManager` is owned by the caller (ContentView's @State).
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager, dashboardManager: DashboardManager) {
@@ -52,6 +52,10 @@ struct ModularDashboardView: View {
                 .zIndex(10)
             }
         }
+        // Plain safeAreaInset, not ferriteBar: on iOS 26 safeAreaBar leaves this
+        // conditionally inserted bar horizontally offset after an exit/re-enter
+        // cycle, and the paged home doesn't scroll, so there is no edge effect
+        // to gain.
         .safeAreaInset(edge: .top, spacing: 0) {
             if isEditMode {
                 HomeEditBar(
@@ -59,10 +63,11 @@ struct ModularDashboardView: View {
                     onPages: { showLayoutsSheet = true },
                     onDone: { setEditMode(false) }
                 )
-                .transition(.move(edge: .top).combined(with: .opacity))
+                // Reduce Motion: fade only, no slide.
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .ferriteBar(edge: .bottom) {
             homeBottom
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.widgetUndoToast?.id)
@@ -71,9 +76,6 @@ struct ModularDashboardView: View {
         }
         .onChange(of: dashboardManager.navigation) { _, _ in
             syncActivePresetStorage()
-        }
-        .onPreferenceChange(FooterBarHeightPreferenceKey.self) { value in
-            footerBarHeight = value
         }
         .onAppear { syncActivePresetStorage() }
         .sheet(isPresented: $viewModel.showWidgetPicker) {
@@ -191,7 +193,15 @@ struct ModularDashboardView: View {
 
     // MARK: Dots + dock
 
+    /// Page indicator and dock share one glass group so they render as the
+    /// same material; spacing 0 keeps the two shapes from merging.
     private var homeBottom: some View {
+        FerriteGlassGroup(spacing: 0) {
+            homeBottomStack
+        }
+    }
+
+    private var homeBottomStack: some View {
         VStack(spacing: FerriteSpace.s) {
             HomePageIndicator(
                 count: dashboardManager.isCustomMode ? 1 : PresetCatalogue.all.count,
@@ -211,11 +221,6 @@ struct ModularDashboardView: View {
                 onShowSettings: { viewModel.showSettings = true }
             )
         }
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(key: FooterBarHeightPreferenceKey.self, value: geo.size.height)
-            }
-        )
     }
 
     private func syncActivePresetStorage() {
@@ -238,18 +243,9 @@ struct ModularDashboardView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        .ferriteGlass()
         .padding(.horizontal, 20)
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
         .accessibilityIdentifier("widgetUndoSnackbar")
-    }
-}
-
-private struct FooterBarHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 

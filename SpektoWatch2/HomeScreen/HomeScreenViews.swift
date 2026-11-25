@@ -499,6 +499,16 @@ struct HomeEditBar: View {
     var onDone: () -> Void
 
     var body: some View {
+        // One glass group: the three buttons appear together and share the
+        // same material. Spacing below the 8pt gap keeps them separate.
+        FerriteGlassGroup(spacing: FerriteSpace.xs) {
+            buttons
+        }
+        .padding(.horizontal, FerriteSpace.l)
+        .padding(.top, FerriteSpace.xs)
+    }
+
+    private var buttons: some View {
         HStack(spacing: FerriteSpace.s) {
             Button(action: onAdd) {
                 Image(systemName: "plus")
@@ -526,7 +536,5 @@ struct HomeEditBar: View {
             }
             .buttonStyle(.ferriteGlassProminent)
         }
-        .padding(.horizontal, FerriteSpace.l)
-        .padding(.top, FerriteSpace.xs)
     }
 }
