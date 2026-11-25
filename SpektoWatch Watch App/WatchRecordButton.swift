@@ -15,7 +15,7 @@ struct WatchRecordButton: View {
             Button(action: toggleRecording) {
                 Image(systemName: audioEngine.isRecording ? "stop.fill" : "record.circle.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 22, height: 22)
                     .background(
                         Circle().fill(

@@ -535,15 +535,23 @@ struct FerriteGlassBar<Item: Hashable>: View {
 // MARK: - Glass button
 
 /// Navigation-layer button: `.round` for a single symbol, `.capsule` for
-/// symbol + word, `.prominent` for the one primary action (solid line fill,
-/// `on-line` text, ink edge). 44pt minimum; pressed scales to 96%. Inside
-/// a card or sheet body use `.ferritePrimary` / `.ferriteSecondary`.
+/// symbol + word, `.prominent` for the one primary action (line-tinted
+/// glass on iOS 26, a solid line fill with an ink edge earlier; `on-line`
+/// text). 44pt minimum. On iOS 26 the glass is interactive and supplies its
+/// own press response; earlier versions scale to 96% when pressed. Inside a
+/// card or sheet body use `.ferritePrimary` / `.ferriteSecondary`.
+///
+/// Pass `glassID` + `namespace` to morph the button with other glass in the
+/// same `FerriteGlassGroup`.
 struct FerriteGlassButtonStyle: ButtonStyle {
     enum Kind { case round, capsule, prominent }
     var kind: Kind = .capsule
+    var glassID: String? = nil
+    var namespace: Namespace.ID? = nil
 
     @Environment(\.ferriteLine) private var line
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func makeBody(configuration: Configuration) -> some View {
         let label = configuration.label
@@ -556,24 +564,31 @@ struct FerriteGlassButtonStyle: ButtonStyle {
             case .prominent:
                 label
                     .foregroundStyle(line.onColor)
-                    .background(line.color, in: Capsule())
-                    .overlay(Capsule().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
-                    .shadow(color: FerriteGlass.shadow, radius: FerriteGlass.shadowRadius, y: FerriteGlass.shadowY)
+                    .ferriteGlass(in: Capsule(), tint: line, interactive: true, id: glassID, namespace: namespace)
             case .round:
                 label
                     .foregroundStyle(FerriteColor.label)
                     .frame(width: 44, height: 44)
-                    .ferriteGlass(in: Circle(), interactive: true)
+                    .ferriteGlass(in: Circle(), interactive: true, id: glassID, namespace: namespace)
             case .capsule:
                 label
                     .foregroundStyle(FerriteColor.label)
-                    .ferriteGlass(interactive: true)
+                    .ferriteGlass(interactive: true, id: glassID, namespace: namespace)
             }
         }
         .contentShape(Capsule())
-        .scaleEffect(configuration.isPressed ? 0.96 : 1)
+        .scaleEffect(configuration.isPressed && !usesSystemGlass ? 0.96 : 1)
         .opacity(isEnabled ? 1 : 0.4)
         .animation(FerriteMotion.standard, value: configuration.isPressed)
+    }
+
+    /// System interactive glass already reacts to touch; scaling on top of
+    /// it would double the press response.
+    private var usesSystemGlass: Bool {
+        if #available(iOS 26.0, *) {
+            return !reduceTransparency
+        }
+        return false
     }
 }
 
@@ -581,6 +596,11 @@ extension ButtonStyle where Self == FerriteGlassButtonStyle {
     static var ferriteGlass: FerriteGlassButtonStyle { .init(kind: .capsule) }
     static var ferriteGlassRound: FerriteGlassButtonStyle { .init(kind: .round) }
     static var ferriteGlassProminent: FerriteGlassButtonStyle { .init(kind: .prominent) }
+
+    /// Glass button with a morph identity inside a `FerriteGlassGroup`.
+    static func ferriteGlass(_ kind: FerriteGlassButtonStyle.Kind, id: String, in namespace: Namespace.ID) -> FerriteGlassButtonStyle {
+        .init(kind: kind, glassID: id, namespace: namespace)
+    }
 }
 
 // MARK: - Glass sheet

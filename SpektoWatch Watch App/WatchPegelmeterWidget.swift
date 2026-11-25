@@ -59,7 +59,7 @@ struct WatchPegelmeterWidget: View {
 
     private var displayValue: String {
         guard isLive else { return "—" }
-        return String(format: "%.1f", laf)
+        return laf.formatted(.number.precision(.fractionLength(1)))
     }
 
     private var peakBar: some View {
@@ -91,7 +91,7 @@ struct WatchPegelmeterWidget: View {
                 .font(.system(size: 7, weight: .regular, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.45))
             Text(value.isFinite && value > -120 && value < 200
-                 ? String(format: "%.0f", value)
+                 ? value.formatted(.number.precision(.fractionLength(0)))
                  : "—")
                 .font(.system(size: 8, weight: .semibold, design: .monospaced))
                 .monospacedDigit()

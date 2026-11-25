@@ -263,10 +263,9 @@ final class PerformanceProfilingTests: XCTestCase {
             let fftSize = engine.currentBlockSize.rawValue
             let chunk = makeSineWave(frequency: 440, count: hopSize)
 
-            var publishedFrames = 0
-            let lock = NSLock()
+            let publishedFrames = OSAllocatedUnfairLock(initialState: 0)
             let subscription = engine.spectrogramBroadcaster.addListener { _ in
-                lock.lock(); publishedFrames += 1; lock.unlock()
+                publishedFrames.withLock { $0 += 1 }
             }
             defer { subscription.cancel() }
 
@@ -274,7 +273,7 @@ final class PerformanceProfilingTests: XCTestCase {
             let warmupChunks = Int(ceil(Double(fftSize) / Double(hopSize))) + 4
             for _ in 0..<warmupChunks { engine.processExternalAudio(chunk) }
             drainMainQueue()
-            lock.lock(); publishedFrames = 0; lock.unlock()
+            publishedFrames.withLock { $0 = 0 }
 
             // Messen: Die Chunks werden synthetisch ohne Echtzeit-Wartezeit eingespeist.
             // Daher muss die Cadence gegen simulierte Audiozeit bewertet werden, nicht
@@ -283,7 +282,7 @@ final class PerformanceProfilingTests: XCTestCase {
             for _ in 0..<measuredChunks { engine.processExternalAudio(chunk) }
             drainMainQueue()
 
-            lock.lock(); let frames = publishedFrames; lock.unlock()
+            let frames = publishedFrames.withLock { $0 }
             let simulatedDuration = Double(measuredChunks * hopSize) / sampleRate
             let fps = frames > 0 ? Double(frames) / max(simulatedDuration, 0.001) : 0.0
 

@@ -223,12 +223,11 @@ struct InnerCanvas: ViewModifier {
 }
 
 /// Widget card chrome — Ferrite card: `surface`, square, 1pt ink outline,
-/// no shadow. Edit mode adds the 2pt inner ink line (selected state); line
-/// colours never draw rules, so `accent` is accepted but ignored.
-struct LiquidGlassCard: ViewModifier {
+/// no shadow, and *not* glass (cards are content). Edit mode adds the 2pt
+/// inner ink line (selected state).
+struct WidgetCardChrome: ViewModifier {
     var cornerRadius: CGFloat = Radius.card
     var isEditing: Bool = false
-    var accent: Color = .green
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -259,8 +258,8 @@ extension View {
     func innerCanvas(cornerRadius: CGFloat = Radius.kernel) -> some View {
         modifier(InnerCanvas(cornerRadius: cornerRadius))
     }
-    func liquidGlassCard(cornerRadius: CGFloat = Radius.card, isEditing: Bool = false, accent: Color = .green) -> some View {
-        modifier(LiquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditing, accent: accent))
+    func widgetCardChrome(cornerRadius: CGFloat = Radius.card, isEditing: Bool = false) -> some View {
+        modifier(WidgetCardChrome(cornerRadius: cornerRadius, isEditing: isEditing))
     }
     func floatingPill(cornerRadius: CGFloat = Radius.pill) -> some View {
         modifier(FloatingPill(cornerRadius: cornerRadius))

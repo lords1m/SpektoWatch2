@@ -231,7 +231,7 @@ struct InteractiveLiveSpectrogramView: View {
         let timeAgo = winX * spanSeconds
         let fullFrac = Double(fStart) + (1 - uvY) * Double(fHeight)
         let f = hz(forFrac: min(max(fullFrac, 0), 1))
-        return "\(frequencyLabel(f))  •  −\(String(format: "%.2f", timeAgo)) s"
+        return "\(frequencyLabel(f))  •  −\(timeAgo.formatted(.number.precision(.fractionLength(2)))) s"
     }
 
     // MARK: - Frequency <-> normalized helpers
@@ -255,7 +255,9 @@ struct InteractiveLiveSpectrogramView: View {
     }
 
     private func frequencyLabel(_ hz: Double) -> String {
-        hz >= 1000 ? String(format: "%.1f kHz", hz / 1000) : String(format: "%.0f Hz", hz)
+        hz >= 1000
+            ? "\((hz / 1000).formatted(.number.precision(.fractionLength(1)))) kHz"
+            : "\(hz.formatted(.number.precision(.fractionLength(0)))) Hz"
     }
 
     // MARK: - Frequency tick overlay (viewport-aware)

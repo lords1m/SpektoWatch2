@@ -156,7 +156,7 @@ struct LevelHistoryView: View {
                         grid.addLine(to: CGPoint(x: chartRect.maxX, y: y))
                         context.stroke(grid, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.8)
 
-                        let label = Text("\(Int(tick))").font(.readout(size: 9, weight: .regular)).foregroundColor(ScientificChartPalette.axis)
+                        let label = Text("\(Int(tick))").font(.readout(size: 9, weight: .regular)).foregroundStyle(ScientificChartPalette.axis)
                         context.draw(label, at: CGPoint(x: chartRect.minX - 16, y: y))
                     }
 
@@ -169,9 +169,9 @@ struct LevelHistoryView: View {
                         context.stroke(vGrid, with: .color(ScientificChartPalette.gridMinor), lineWidth: 0.5)
 
                         let secondsFromNow = Double(timeSpan.rawValue) * (Double(division) / Double(timeDivisions) - 1.0)
-                        let label = Text(String(format: "%.1fs", secondsFromNow))
+                        let label = Text("\(secondsFromNow.formatted(.number.precision(.fractionLength(1))))s")
                             .font(.readout(size: 8, weight: .regular))
-                            .foregroundColor(ScientificChartPalette.axis)
+                            .foregroundStyle(ScientificChartPalette.axis)
                         context.draw(label, at: CGPoint(x: x, y: chartRect.maxY + 10))
                     }
 

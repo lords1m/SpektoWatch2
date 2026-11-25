@@ -96,7 +96,7 @@ struct SingleValueWidget: View {
             Text(displayValue)
                 .font(.numerals(numerals, size: 34, weight: .semibold))
                 .monospacedDigit()
-                .foregroundColor(isRunning ? .primary : .gray)
+                .foregroundStyle(isRunning ? Color.primary : Color.gray)
                 .minimumScaleFactor(0.4)
                 .lineLimit(1)
                 .contentTransition(.numericText(value: Double(value ?? 0)))

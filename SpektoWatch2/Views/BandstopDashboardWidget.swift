@@ -11,14 +11,14 @@ struct BandstopDashboardWidget: View {
             HStack {
                 Image(systemName: "waveform.path.badge.minus")
                     .font(.title3)
-                    .foregroundColor(hasActiveFilters ? .orange : .gray)
+                    .foregroundStyle(hasActiveFilters ? .orange : .gray)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Bandsperre")
                         .font(.headline)
                     Text(filterStatusText)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Spacer()
@@ -26,7 +26,7 @@ struct BandstopDashboardWidget: View {
                 Button(action: { showFullSettings = true }) {
                     Image(systemName: "gearshape.fill")
                         .font(.title3)
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                 }
             }
             
@@ -43,11 +43,11 @@ struct BandstopDashboardWidget: View {
                             HStack {
                                 Text("+\(services.filterManager.filters.count - 3) weitere")
                                     .font(.caption)
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(.blue)
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.caption)
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(.blue)
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -62,17 +62,17 @@ struct BandstopDashboardWidget: View {
                         Text("Filter hinzufügen")
                     }
                     .font(.subheadline)
-                    .foregroundColor(.blue)
+                    .foregroundStyle(.blue)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .background(Color.blue.opacity(0.1))
-                    .cornerRadius(8)
+                    .clipShape(.rect(cornerRadius: 8))
                 }
             }
         }
         .padding()
         .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
         .sheet(isPresented: $showFullSettings) {
             BandstopFilterSettingsView(filters: filterListBinding, onFilterChanged: services.filterManager.updateFilter)
         }
@@ -121,11 +121,11 @@ struct BandstopQuickToggleRow: View {
                 Text(filter.name)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundColor(filter.isEnabled ? .primary : .secondary)
+                    .foregroundStyle(filter.isEnabled ? .primary : .secondary)
                 
                 Text(filter.formattedRange)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
             
@@ -162,7 +162,7 @@ struct BandstopMiniWidget: View {
             HStack(spacing: 8) {
                 Image(systemName: "waveform.path.badge.minus")
                     .font(.body)
-                    .foregroundColor(hasActiveFilters ? .orange : .gray)
+                    .foregroundStyle(hasActiveFilters ? .orange : .gray)
                 
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Bandsperre")
@@ -170,7 +170,7 @@ struct BandstopMiniWidget: View {
                         .fontWeight(.semibold)
                     Text(statusText)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Spacer()
@@ -190,7 +190,7 @@ struct BandstopMiniWidget: View {
             }
             .padding(12)
             .background(Color(UIColor.secondarySystemGroupedBackground))
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
         }
         .buttonStyle(PlainButtonStyle())
         .sheet(isPresented: $showFullSettings) {
@@ -224,12 +224,12 @@ struct BandstopStatusIndicator: View {
         ZStack(alignment: .topTrailing) {
             Image(systemName: "waveform.path.badge.minus")
                 .font(.title2)
-                .foregroundColor(hasActiveFilters ? .orange : .gray)
+                .foregroundStyle(hasActiveFilters ? .orange : .gray)
             
             if hasActiveFilters {
                 Text("\(activeCount)")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(Color.orange))
                     .offset(x: 8, y: -8)

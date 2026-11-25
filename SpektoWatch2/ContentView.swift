@@ -37,8 +37,8 @@ struct ContentView: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(Color.yellow.opacity(0.85))
-                            .foregroundColor(.black)
-                            .cornerRadius(6)
+                            .foregroundStyle(.black)
+                            .clipShape(.rect(cornerRadius: 6))
                         Spacer()
                     }
                     // Clears the control bar in its tallest (compact two-line)

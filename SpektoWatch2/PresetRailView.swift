@@ -13,7 +13,7 @@ struct PresetRailView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(presets) { preset in
                         chip(preset)
@@ -45,7 +45,7 @@ struct PresetRailView: View {
             .onAppear {
                 // onChange does not fire for the initial value — center the
                 // restored chip explicitly so it isn't off-screen on launch.
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     proxy.scrollTo(activeID, anchor: .center)
                 }
             }
@@ -59,7 +59,6 @@ struct PresetRailView: View {
     private func chip(_ preset: DashboardPreset) -> some View {
         let isActive = !activeID.isEmpty && preset.id == activeID
         Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             activeID = preset.id
             onSelect?(preset)
         } label: {

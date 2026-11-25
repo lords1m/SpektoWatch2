@@ -99,7 +99,7 @@ struct WatchAppSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text(String(format: "Aktuell: %.1f×", watchGain))
+                Text("Aktuell: \(watchGain.formatted(.number.precision(.fractionLength(1))))×")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -188,7 +188,7 @@ struct WatchAppSettingsView: View {
                 .background(ferriteLine.color, in: RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
                     .strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.line))
-                .foregroundColor(ferriteLine.onColor)
+                .foregroundStyle(ferriteLine.onColor)
             }
 
             Button {

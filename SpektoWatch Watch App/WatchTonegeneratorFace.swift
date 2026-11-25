@@ -110,7 +110,7 @@ struct WatchTonegeneratorFace: View {
     }
 
     private var presetChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 4) {
                 ForEach(presetFrequencies, id: \.1) { preset in
                     Button {
@@ -132,6 +132,7 @@ struct WatchTonegeneratorFace: View {
                 }
             }
         }
+        .scrollIndicators(.hidden)
     }
 
     private func applyFrequency(_ hz: Float) {
@@ -223,17 +224,17 @@ struct WatchTonegeneratorFace: View {
     private var frequencyLabel: String {
         let frequencyHz = Double(toneGenerator.frequency)
         if frequencyHz >= 1000 {
-            return String(format: "%.2f kHz", frequencyHz / 1000)
+            return "\((frequencyHz / 1000).formatted(.number.precision(.fractionLength(2)))) kHz"
         }
-        return String(format: "%.0f Hz", frequencyHz)
+        return "\(frequencyHz.formatted(.number.precision(.fractionLength(0)))) Hz"
     }
 
     private var wavelengthLabel: String {
         let frequencyHz = Double(toneGenerator.frequency)
         let lambda = speedOfSoundMS / frequencyHz
         if lambda >= 1.0 {
-            return String(format: "%.2f m", lambda)
+            return "\(lambda.formatted(.number.precision(.fractionLength(2)))) m"
         }
-        return String(format: "%.1f cm", lambda * 100)
+        return "\((lambda * 100).formatted(.number.precision(.fractionLength(1)))) cm"
     }
 }

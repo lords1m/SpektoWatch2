@@ -161,7 +161,7 @@ struct WidgetCardView: View {
                 .clipped()
         }
         .frame(height: widget.frameHeight)
-        .liquidGlassCard(cornerRadius: cornerRadius, isEditing: isEditMode, accent: accent)
+        .widgetCardChrome(cornerRadius: cornerRadius, isEditing: isEditMode)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         // Resize handles go BEFORE the button overlays so the tap-eating
         // edge strips can't intercept touches meant for the gear/X buttons
@@ -550,12 +550,12 @@ private struct CardMetaReader: View {
         switch widgetType {
         case .levelHistory, .levelMeter, .singleValue:
             if let v = levels["LAF"], v.isFinite, v > -119.5 {
-                return (String(format: "%.1f", v), "dB(A)")
+                return (v.formatted(.number.precision(.fractionLength(1))), "dB(A)")
             }
             return nil
         case .spectrogram, .waterfall, .frequencyDisplay, .octaveBands, .spektralanalyseLab:
             if let v = levels["LAeq"], v.isFinite, v > -119.5 {
-                return (String(format: "%.1f", v), "dB Leq")
+                return (v.formatted(.number.precision(.fractionLength(1))), "dB Leq")
             }
             return nil
         case .phaseMeter, .toneGenerator, .masking, .audioEditor, .recordings, .settings:

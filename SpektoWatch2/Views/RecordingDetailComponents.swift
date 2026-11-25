@@ -47,7 +47,7 @@ struct MiniLineChart: View {
                     path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
                     context.stroke(path, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.8)
                     context.draw(
-                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
+                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundStyle(ScientificChartPalette.axis),
                         at: CGPoint(x: chartRect.minX - 14, y: y)
                     )
                 }
@@ -91,12 +91,12 @@ struct StatRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(.accentColor)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 24)
             Text(title)
             Spacer()
             Text(value)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
     }

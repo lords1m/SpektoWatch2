@@ -496,7 +496,7 @@ struct OscilloscopeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(wavelengthText)
                     .font(.readout(size: 9, weight: .medium))
-                    .foregroundColor(.green.opacity(0.9))
+                    .foregroundStyle(.green.opacity(0.9))
             }
             .padding(4)
         }
@@ -505,13 +505,13 @@ struct OscilloscopeView: View {
     private var wavelengthText: String {
         let wavelengthMeters = speedOfSoundMetersPerSecond / max(Double(frequency), 1)
         if wavelengthMeters >= 1.0 {
-            return String(format: "λ = %.2f m", wavelengthMeters)
+            return "λ = \(wavelengthMeters.formatted(.number.precision(.fractionLength(2)))) m"
         }
         let wavelengthCm = wavelengthMeters * 100
         if wavelengthCm >= 1.0 {
-            return String(format: "λ = %.1f cm", wavelengthCm)
+            return "λ = \(wavelengthCm.formatted(.number.precision(.fractionLength(1)))) cm"
         }
-        return String(format: "λ = %.1f mm", wavelengthMeters * 1000)
+        return "λ = \((wavelengthMeters * 1000).formatted(.number.precision(.fractionLength(1)))) mm"
     }
 
     private func drawDistanceGrid(
@@ -765,7 +765,7 @@ struct ToneGeneratorWidget: View {
                 Button(action: { showFullscreenOscilloscope = true }) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundStyle(.white.opacity(0.9))
                         .frame(width: 28, height: 28)
                         .background(Circle().fill(Color.black.opacity(0.5)))
                         .overlay(
@@ -782,10 +782,10 @@ struct ToneGeneratorWidget: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(frequencyValueText)
                     .font(.readout(size: 24, weight: .bold))
-                    .foregroundColor(toneGenerator.isPlaying ? .green : .primary)
+                    .foregroundStyle(toneGenerator.isPlaying ? .green : .primary)
                 Text(frequencyUnitText)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
 
             // Input mode switch: Hz direct entry  /  Piano keyboard
@@ -810,17 +810,17 @@ struct ToneGeneratorWidget: View {
                     HStack {
                         Text("20")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Text("20k")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
                 // Preset Buttons — octave centers. Trailing fade signals that the
                 // row scrolls past the visible edge (16k lives off-screen).
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 6) {
                         ForEach(presetFrequencies, id: \.1) { preset in
                             // 5 % relative tolerance so drag-release near a preset
@@ -839,7 +839,7 @@ struct ToneGeneratorWidget: View {
                                                 in: RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous))
                                     .overlay(RoundedRectangle(cornerRadius: FerriteRadius.tile, style: .continuous)
                                         .strokeBorder(isSelected ? FerriteColor.label : .clear, lineWidth: FerriteStroke.hairline))
-                                    .foregroundColor(isSelected ? ferriteLine.onColor : FerriteColor.label)
+                                    .foregroundStyle(isSelected ? ferriteLine.onColor : FerriteColor.label)
                                     .contentShape(Rectangle())
                             }
                             .accessibilityLabel("\(preset.0) Hertz")
@@ -858,6 +858,7 @@ struct ToneGeneratorWidget: View {
                         endPoint: .trailing
                     )
                 )
+                .scrollIndicators(.hidden)
             } else {
                 // Piano keyboard input
                 VStack(spacing: 6) {
@@ -865,7 +866,7 @@ struct ToneGeneratorWidget: View {
                     HStack(spacing: 6) {
                         Text("Oct")
                             .font(.caption2.weight(.medium))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text("\(pianoOctave)")
                             .font(.caption.weight(.bold).monospacedDigit())
                             .frame(minWidth: 14, alignment: .center)
@@ -883,7 +884,7 @@ struct ToneGeneratorWidget: View {
                         if let note = selectedNote {
                             Text(note.label)
                                 .font(.caption.weight(.semibold).monospacedDigit())
-                                .foregroundColor(accent)
+                                .foregroundStyle(accent)
                         }
                     }
 
@@ -912,7 +913,7 @@ struct ToneGeneratorWidget: View {
                 HStack(spacing: 4) {
                     Image(systemName: "speaker.fill")
                         .font(.caption)
-                        .foregroundColor(.gray)
+                        .foregroundStyle(.gray)
                     // sqrt/square mapping: slider position is perceptually linear
                     // (loudness ≈ amplitude²); stored value remains 0…1 amplitude
                     Slider(
@@ -927,7 +928,7 @@ struct ToneGeneratorWidget: View {
                     .accessibilityLabel("Lautstärke")
                     Image(systemName: "speaker.wave.3.fill")
                         .font(.caption)
-                        .foregroundColor(.gray)
+                        .foregroundStyle(.gray)
                 }
             }
 
@@ -943,8 +944,8 @@ struct ToneGeneratorWidget: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(toneGenerator.isPlaying ? Color.red : Color.green)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                .foregroundStyle(.white)
+                .clipShape(.rect(cornerRadius: 10))
             }
         }
         .padding(.horizontal, outerPadding)
@@ -982,11 +983,11 @@ struct ToneGeneratorWidget: View {
 
     private var frequencyValueText: String {
         if toneGenerator.frequency >= 1000 {
-            return String(format: "%.2f", toneGenerator.frequency / 1000)
+            return (toneGenerator.frequency / 1000).formatted(.number.precision(.fractionLength(2)))
         } else if toneGenerator.frequency >= 100 {
-            return String(format: "%.1f", toneGenerator.frequency)
+            return toneGenerator.frequency.formatted(.number.precision(.fractionLength(1)))
         } else {
-            return String(format: "%.2f", toneGenerator.frequency)
+            return toneGenerator.frequency.formatted(.number.precision(.fractionLength(2)))
         }
     }
 
@@ -1040,7 +1041,7 @@ private struct WaveformFullscreenView: View {
                         Button(action: { movementManager.calibrate() }) {
                             Image(systemName: "scope")
                                 .font(.caption2)
-                                .foregroundColor(.white.opacity(0.85))
+                                .foregroundStyle(.white.opacity(0.85))
                                 .frame(width: 28, height: 28)
                                 .background(Circle().fill(Color.black.opacity(0.55)))
                         }
@@ -1062,7 +1063,7 @@ private struct WaveformFullscreenView: View {
                     Button(action: { movementManager.toggle() }) {
                         Image(systemName: "figure.walk.motion")
                             .font(.caption2)
-                            .foregroundColor(movementManager.isActive ? .orange : .white.opacity(0.55))
+                            .foregroundStyle(movementManager.isActive ? .orange : .white.opacity(0.55))
                             .frame(width: 28, height: 28)
                             .background(
                                 Circle()

@@ -69,12 +69,12 @@ struct BandstopRegionView: View {
                     Text(filter.name)
                         .font(.caption2)
                         .fontWeight(.semibold)
-                        .foregroundColor(Color(hex: filter.color) ?? .red)
+                        .foregroundStyle(Color(hex: filter.color) ?? .red)
                         .lineLimit(1)
                     
                     Text(filter.formattedRange)
                         .font(.system(size: 9))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 4)

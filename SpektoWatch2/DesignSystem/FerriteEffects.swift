@@ -87,30 +87,45 @@ struct FerriteBlink: ViewModifier {
 
 // MARK: - Liquid glass surface
 
-/// The floating-layer material. iOS 26 uses the system `.glassEffect`;
-/// earlier versions draw `glass-fill` over a blur with a `glass-stroke`
-/// rim, a `glass-edge` highlight and the single `shadow-glass`. Under
-/// Reduce Transparency it becomes an opaque `glass-fill-strong` fill with
-/// a `label` outline.
+/// The floating-layer material — the only place the app draws glass.
+///
+/// - iOS 26+: the system `.glassEffect`, optionally tinted with a line
+///   colour (accent glass), interactive, and tagged with a morph identity.
+/// - Earlier: `glass-fill` over a blur with a `glass-stroke` rim, a
+///   `glass-edge` highlight and the single `shadow-glass`; tinted glass is
+///   a solid line fill with an ink edge. Increase Contrast swaps the rim
+///   for a `label` outline.
+/// - Reduce Transparency (any version): opaque `background` (or the line
+///   colour when tinted) with a `label` outline.
 struct FerriteGlassSurface<S: InsettableShape>: ViewModifier {
     var shape: S
+    var tint: FerriteLine? = nil
     var interactive: Bool = false
+    var glassID: String? = nil
+    var namespace: Namespace.ID? = nil
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
         if reduceTransparency {
             content
-                .background(FerriteColor.background, in: shape)
+                .background(tint?.color ?? FerriteColor.background, in: shape)
                 .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
         } else if #available(iOS 26.0, *) {
             content
-                .glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+                .glassEffect(.regular.tint(tint?.color).interactive(interactive), in: shape)
+                .modifier(FerriteGlassIdentity(id: glassID, namespace: namespace))
+        } else if let tint {
+            content
+                .background(tint.color, in: shape)
+                .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
+                .shadow(color: FerriteGlass.shadow, radius: FerriteGlass.shadowRadius, y: FerriteGlass.shadowY)
         } else {
             content
                 .background(.ultraThinMaterial, in: shape)
                 .background(FerriteGlass.fill, in: shape)
-                .overlay(shape.strokeBorder(FerriteGlass.stroke, lineWidth: FerriteStroke.hairline))
+                .overlay(shape.strokeBorder(rimColor, lineWidth: FerriteStroke.hairline))
                 .overlay(
                     shape.inset(by: 0.5)
                         .stroke(
@@ -122,18 +137,116 @@ struct FerriteGlassSurface<S: InsettableShape>: ViewModifier {
                 .shadow(color: FerriteGlass.shadow, radius: FerriteGlass.shadowRadius, y: FerriteGlass.shadowY)
         }
     }
+
+    private var rimColor: Color {
+        contrast == .increased ? FerriteColor.label : FerriteGlass.stroke
+    }
+}
+
+/// Glass that sits against a screen or sheet edge (dock, bottom bars). On
+/// iOS 26 its corners are concentric with the display — correct on every
+/// device, including iPhone Duo's outer display and iPad windows — never
+/// tighter than `minimumRadius`. Earlier versions use `minimumRadius` as a
+/// fixed radius.
+struct FerriteEdgeGlassSurface: ViewModifier {
+    var minimumRadius: CGFloat
+    var interactive: Bool = false
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(minimumRadius)), isUniform: true)
+            if reduceTransparency {
+                content
+                    .background(FerriteColor.background, in: shape)
+                    .overlay {
+                        // ConcentricRectangle isn't insettable: a 2× stroke
+                        // clipped to the shape leaves a 1pt inner outline.
+                        shape.stroke(FerriteColor.label, lineWidth: FerriteStroke.hairline * 2)
+                            .clipShape(shape)
+                            .allowsHitTesting(false)
+                    }
+            } else {
+                content.glassEffect(.regular.interactive(interactive), in: shape)
+            }
+        } else {
+            content.modifier(FerriteGlassSurface(
+                shape: RoundedRectangle(cornerRadius: minimumRadius, style: .continuous),
+                interactive: interactive
+            ))
+        }
+    }
+}
+
+/// Morph identity for glass inside a `FerriteGlassGroup` (iOS 26+). No-op
+/// when either the id or the namespace is missing.
+@available(iOS 26.0, *)
+private struct FerriteGlassIdentity: ViewModifier {
+    var id: String?
+    var namespace: Namespace.ID?
+
+    func body(content: Content) -> some View {
+        if let id, let namespace {
+            content.glassEffectID(id, in: namespace)
+        } else {
+            content
+        }
+    }
+}
+
+/// Merges separately laid-out glass shapes into one continuous piece of
+/// glass (iOS 26+); no visual change earlier.
+private struct FerriteGlassUnion: ViewModifier {
+    var id: String
+    var namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffectUnion(id: id, namespace: namespace)
+        } else {
+            content
+        }
+    }
 }
 
 extension View {
     /// Liquid glass for the floating navigation layer only. Never on cards,
     /// canvases, rows or body text; never glass on glass.
-    func ferriteGlass<S: InsettableShape>(in shape: S, interactive: Bool = false) -> some View {
-        modifier(FerriteGlassSurface(shape: shape, interactive: interactive))
+    ///
+    /// - Parameters:
+    ///   - tint: a line colour for accent glass — at most one per bar.
+    ///   - interactive: only for tappable glass.
+    ///   - id / namespace: morph identity inside a `FerriteGlassGroup`.
+    ///     Never drive the shape, size or tint from live audio values.
+    func ferriteGlass<S: InsettableShape>(
+        in shape: S,
+        tint: FerriteLine? = nil,
+        interactive: Bool = false,
+        id: String? = nil,
+        namespace: Namespace.ID? = nil
+    ) -> some View {
+        modifier(FerriteGlassSurface(shape: shape, tint: tint, interactive: interactive, glassID: id, namespace: namespace))
     }
 
     /// Capsule-shaped glass (bars and buttons).
-    func ferriteGlass(interactive: Bool = false) -> some View {
-        modifier(FerriteGlassSurface(shape: Capsule(), interactive: interactive))
+    func ferriteGlass(
+        tint: FerriteLine? = nil,
+        interactive: Bool = false,
+        id: String? = nil,
+        namespace: Namespace.ID? = nil
+    ) -> some View {
+        ferriteGlass(in: Capsule(), tint: tint, interactive: interactive, id: id, namespace: namespace)
+    }
+
+    /// Glass whose corners follow the screen edge it sits against.
+    func ferriteEdgeGlass(minimumRadius: CGFloat = FerriteRadius.dock, interactive: Bool = false) -> some View {
+        modifier(FerriteEdgeGlassSurface(minimumRadius: minimumRadius, interactive: interactive))
+    }
+
+    /// Joins this glass with every sibling sharing `id` into one shape.
+    func ferriteGlassUnion(id: String, namespace: Namespace.ID) -> some View {
+        modifier(FerriteGlassUnion(id: id, namespace: namespace))
     }
 
     func ferriteBlink(_ isActive: Bool = true) -> some View {

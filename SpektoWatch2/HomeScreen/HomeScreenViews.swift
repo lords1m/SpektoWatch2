@@ -331,7 +331,7 @@ struct HomeScreenPage: View {
             let metrics = HomeGridMetrics(width: geo.size.width)
             let packed = HomeGridPacker.pack(widgets.map { ($0.id, $0.homeFamily) })
 
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
                     // Empty wallpaper: long-press enters jiggle mode, a tap
                     // leaves it — the same as on iOS.
@@ -365,6 +365,7 @@ struct HomeScreenPage: View {
                 .animation(.spring(response: 0.38, dampingFraction: 0.82), value: widgets.map(\.homeFamily))
             }
             .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
         }
     }
 

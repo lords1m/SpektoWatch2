@@ -78,7 +78,7 @@ struct SpectrogramWidget: View {
             Button { showFullscreen = true } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundStyle(.white.opacity(0.9))
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(Color.black.opacity(0.5)))
                     .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))

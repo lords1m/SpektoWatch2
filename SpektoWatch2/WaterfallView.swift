@@ -350,7 +350,7 @@ struct WaterfallView: View {
 
     @ViewBuilder
     private func labelText(_ str: String) -> some View {
-        Text(str).font(.caption2).foregroundColor(.white.opacity(0.72))
+        Text(str).font(.caption2).foregroundStyle(.white.opacity(0.72))
     }
 
     private func drawSymbol(_ id: LabelID, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
@@ -377,7 +377,7 @@ struct WaterfallView: View {
                 if dataSet.isEmpty {
                     Text("Keine Wasserfall-Daten")
                         .font(.caption)
-                        .foregroundColor(.white.opacity(0.72))
+                        .foregroundStyle(.white.opacity(0.72))
                 }
             }
             .contentShape(Rectangle())
@@ -1200,7 +1200,7 @@ struct WaterfallView: View {
     }
 
     private func drawText(_ value: String, at point: CGPoint, anchor: UnitPoint, context: inout GraphicsContext) {
-        let text = Text(value).font(.caption2).foregroundColor(.white.opacity(0.72))
+        let text = Text(value).font(.caption2).foregroundStyle(.white.opacity(0.72))
         context.draw(text, at: point, anchor: anchor)
     }
 
@@ -1532,7 +1532,7 @@ struct WaterfallWidget: View {
             Button { showFullscreen = true } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundStyle(.white.opacity(0.9))
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(Color.black.opacity(0.5)))
                     .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))

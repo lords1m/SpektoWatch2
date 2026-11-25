@@ -21,41 +21,8 @@ struct GlassCard: ViewModifier {
     }
 }
 
-/// Quieter nested card: `surface-sunken` fill with a hairline, for cards
-/// inside cards or dense lists.
-struct GlassCardLite: ViewModifier {
-    var cornerRadius: CGFloat = FerriteRadius.card
-
-    func body(content: Content) -> some View {
-        content
-            .background(FerriteColor.surfaceSunken)
-            .overlay(Rectangle().strokeBorder(FerriteColor.hairline, lineWidth: FerriteStroke.hairline))
-    }
-}
-
-/// Floating bar — real liquid glass (navigation layer only).
-struct GlassBar: ViewModifier {
-    var cornerRadius: CGFloat = FerriteRadius.glass
-
-    func body(content: Content) -> some View {
-        content.ferriteGlass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-    }
-}
-
 extension View {
     func glassCard(cornerRadius: CGFloat = FerriteRadius.card) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
-    }
-
-    func glassCardLite(cornerRadius: CGFloat = FerriteRadius.card) -> some View {
-        modifier(GlassCardLite(cornerRadius: cornerRadius))
-    }
-
-    func glassBar(cornerRadius: CGFloat = FerriteRadius.glass) -> some View {
-        modifier(GlassBar(cornerRadius: cornerRadius))
-    }
-
-    func backgroundExtensionEffect(cornerRadius: CGFloat = FerriteRadius.glass) -> some View {
-        glassBar(cornerRadius: cornerRadius)
     }
 }

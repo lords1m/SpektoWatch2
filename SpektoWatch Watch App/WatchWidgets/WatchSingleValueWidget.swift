@@ -16,7 +16,7 @@ struct WatchSingleValueWidget: View {
                     // Value
                     Text(displayValue)
                         .font(.system(size: fontSize(for: geometry.size), weight: .bold, design: .monospaced))
-                        .foregroundColor(isActive ? valueColor : .secondary.opacity(0.75))
+                        .foregroundStyle(isActive ? valueColor : .secondary.opacity(0.75))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                 }
@@ -42,7 +42,7 @@ struct WatchSingleValueWidget: View {
 
     private var displayValue: String {
         guard isActive else { return "--" }
-        return String(format: "%.1f %@", currentValue, unitLabel)
+        return "\(currentValue.formatted(.number.precision(.fractionLength(1)))) \(unitLabel)"
     }
 
     private func fontSize(for size: CGSize) -> CGFloat {

@@ -75,7 +75,7 @@ struct SpectrogramSettingsView: View {
 
                     Text(audioEngine.spectrogramResolution.germanDetail)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     Picker("Frequenzachse", selection: $audioEngine.spectrogramFrequencyScale) {
                         ForEach(SpectrogramFrequencyScale.allCases) { scale in
@@ -86,26 +86,26 @@ struct SpectrogramSettingsView: View {
 
                     Text(audioEngine.spectrogramFrequencyScale.germanDetail)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("Frequenzbereich")
                             Spacer()
                             Text("\(frequencyLabel(audioEngine.spectrogramMinFrequency)) – \(frequencyLabel(audioEngine.spectrogramMaxFrequency))")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
 
                         HStack {
                             Text("Min")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                             Slider(value: $audioEngine.spectrogramMinFrequency, in: 0...2000, step: 10)
                         }
                         HStack {
                             Text("Max")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                             Slider(value: $audioEngine.spectrogramMaxFrequency, in: 1000...maxFrequencyCeiling, step: 100)
                         }
 
@@ -125,15 +125,15 @@ struct SpectrogramSettingsView: View {
                     HStack {
                         Text("80")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Slider(value: $audioEngine.calibrationOffset, in: 80...110, step: 1)
                         Text("110")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     Text("Niedrigerer Wert = niedrigere angezeigte Pegel")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     Button(action: {
                         audioEngine.resetCalibrationToDeviceDefault()
@@ -171,9 +171,9 @@ struct SpectrogramSettingsView: View {
                             Text("Fensterfunktion")
                             Spacer()
                             Text(fftConfiguration.windowFunction.localizedName)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                             Image(systemName: "chevron.up.chevron.down")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -217,7 +217,7 @@ struct SpectrogramSettingsView: View {
 
     private func frequencyLabel(_ freq: Double) -> String {
         freq >= 1000
-            ? String(format: "%.1f kHz", freq / 1000)
-            : String(format: "%.0f Hz", freq)
+            ? "\((freq / 1000).formatted(.number.precision(.fractionLength(1)))) kHz"
+            : "\(freq.formatted(.number.precision(.fractionLength(0)))) Hz"
     }
 }

@@ -136,7 +136,7 @@ private struct ParametersTabView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .background(Color(.systemGray6))
-                    .cornerRadius(8)
+                    .clipShape(.rect(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
@@ -178,8 +178,8 @@ private struct ParametersTabView: View {
 
             // Resolution Summary
             HStack(spacing: 16) {
-                ResolutionBadge(value: String(format: "%.1f", fftConfig.frequencyResolution), unit: "Hz", label: "Δf", color: .blue)
-                ResolutionBadge(value: String(format: "%.0f", fftConfig.timeResolutionMs), unit: "ms", label: "Δt", color: .orange)
+                ResolutionBadge(value: fftConfig.frequencyResolution.formatted(.number.precision(.fractionLength(1))), unit: "Hz", label: "Δf", color: .blue)
+                ResolutionBadge(value: fftConfig.timeResolutionMs.formatted(.number.precision(.fractionLength(0))), unit: "ms", label: "Δt", color: .orange)
                 ResolutionBadge(value: "\(fftConfig.binCount)", unit: "", label: "Bins", color: .green)
             }
             .frame(maxWidth: .infinity)
@@ -230,9 +230,9 @@ private struct WindowTabView: View {
 
             // Stats
             HStack(spacing: 12) {
-                StatBadge(label: "Hauptlappen", value: String(format: "%.1f×", fftConfig.windowFunction.mainLobeWidth), color: .blue)
+                StatBadge(label: "Hauptlappen", value: "\(fftConfig.windowFunction.mainLobeWidth.formatted(.number.precision(.fractionLength(1))))×", color: .blue)
                 StatBadge(label: "Seitenlappen", value: "\(Int(fftConfig.windowFunction.sidelobeAttenuation)) dB", color: .orange)
-                StatBadge(label: "Gain", value: String(format: "%.2f", fftConfig.windowFunction.coherentGain), color: .green)
+                StatBadge(label: "Gain", value: fftConfig.windowFunction.coherentGain.formatted(.number.precision(.fractionLength(2))), color: .green)
             }
 
             Divider()
@@ -271,8 +271,8 @@ private struct ResolutionTabView: View {
 
             // Current Resolution
             VStack(spacing: 8) {
-                ResolutionRow(icon: "waveform", label: "Frequenzauflösung", value: String(format: "%.2f Hz", fftConfig.frequencyResolution), color: .blue)
-                ResolutionRow(icon: "clock", label: "Zeitauflösung", value: String(format: "%.1f ms", fftConfig.timeResolutionMs), color: .orange)
+                ResolutionRow(icon: "waveform", label: "Frequenzauflösung", value: "\(fftConfig.frequencyResolution.formatted(.number.precision(.fractionLength(2)))) Hz", color: .blue)
+                ResolutionRow(icon: "clock", label: "Zeitauflösung", value: "\(fftConfig.timeResolutionMs.formatted(.number.precision(.fractionLength(1)))) ms", color: .orange)
                 ResolutionRow(icon: "number", label: "Frequenzbins", value: "\(fftConfig.binCount)", color: .green)
             }
         }
@@ -308,7 +308,7 @@ private struct ResolutionBadge: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .background(color.opacity(0.1))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
     }
 }
 

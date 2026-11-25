@@ -24,7 +24,7 @@ struct LoudnessCalculatorView: View {
                 
                 Text("Konvertierung: dB SPL → Phon → Sone")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 Divider()
                 
@@ -36,7 +36,7 @@ struct LoudnessCalculatorView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Schalldruckpegel (dB SPL)")
                             .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         
                         HStack {
                             TextField("0-130", text: $splInput)
@@ -46,14 +46,14 @@ struct LoudnessCalculatorView: View {
                                 #endif
                             
                             Text("dB SPL")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Frequenz (Hz)")
                             .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         
                         HStack {
                             TextField("20-20000", text: $frequencyInput)
@@ -63,7 +63,7 @@ struct LoudnessCalculatorView: View {
                                 #endif
                             
                             Text("Hz")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     
@@ -72,8 +72,8 @@ struct LoudnessCalculatorView: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                            .foregroundStyle(.white)
+                            .clipShape(.rect(cornerRadius: 10))
                     }
                 }
                 .padding()
@@ -82,7 +82,7 @@ struct LoudnessCalculatorView: View {
                 #else
                 .background(Color.gray.opacity(0.2))
                 #endif
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 
                 // Ergebnisse
                 if let result = calculator.result {
@@ -119,10 +119,10 @@ struct LoudnessCalculatorView: View {
                 if showValidationError {
                     Text("Ungültige Eingabe! dB SPL: 0-130, Frequenz: 20-20000 Hz")
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .padding()
                         .background(Color.red.opacity(0.1))
-                        .cornerRadius(8)
+                        .clipShape(.rect(cornerRadius: 8))
                 }
                 
                 // Info
@@ -136,14 +136,14 @@ struct LoudnessCalculatorView: View {
                     Text("• Stevens' Power Law: S = 2^((P-40)/10)")
                 }
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .padding()
                 #if os(iOS)
                 .background(Color(.systemGray6))
                 #else
                 .background(Color.gray.opacity(0.2))
                 #endif
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
             .padding()
         }
@@ -174,7 +174,7 @@ struct ResultCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
@@ -182,12 +182,12 @@ struct ResultCard: View {
                 
                 Text(unit)
                     .font(.title3)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             
             Text(description)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)

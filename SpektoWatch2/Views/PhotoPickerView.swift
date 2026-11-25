@@ -38,7 +38,7 @@ struct PhotoPickerView: UIViewControllerRepresentable {
             }
             provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
                 let data = (object as? UIImage).flatMap { $0.jpegData(compressionQuality: 0.85) }
-                DispatchQueue.main.async { self?.onPick(data) }
+                Task { @MainActor in self?.onPick(data) }
             }
         }
     }

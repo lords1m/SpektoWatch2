@@ -37,7 +37,7 @@ struct GlassIconButton: View {
                         .font(.caption2)
                         .fontWeight(.bold)
                         .monospacedDigit()
-                        .foregroundColor(FerriteLine.u2.onColor)
+                        .foregroundStyle(FerriteLine.u2.onColor)
                         .padding(4)
                         .background(Circle().fill(StatusColor.badge))
                         .overlay(Circle().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))

@@ -14,33 +14,35 @@ struct WatchLoudnessWidget: View {
     @State private var soneValue: Double?
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                VStack(spacing: 2) {
-                    if let phon = phonValue, let sone = soneValue {
-                        Text(String(format: "%.0f", phon))
-                            .font(.system(size: fontSize(for: geometry.size), weight: .bold, design: .monospaced))
-                            .foregroundColor(.blue)
-                            .minimumScaleFactor(0.5)
-                            .lineLimit(1)
+        Button {
+            showingDetail = true
+        } label: {
+            GeometryReader { geometry in
+                ZStack {
+                    VStack(spacing: 2) {
+                        if let phon = phonValue, let sone = soneValue {
+                            Text(phon, format: .number.precision(.fractionLength(0)))
+                                .font(.system(size: fontSize(for: geometry.size), weight: .bold, design: .monospaced))
+                                .foregroundStyle(.blue)
+                                .minimumScaleFactor(0.5)
+                                .lineLimit(1)
 
-                        Text(String(format: "%.1f", sone))
-                            .font(.system(size: max(7, geometry.size.height * 0.14)))
-                            .foregroundColor(.secondary.opacity(0.9))
-                            .lineLimit(1)
-                    } else {
-                        Text("--")
-                            .font(.system(size: fontSize(for: geometry.size), weight: .bold))
-                            .foregroundColor(.secondary.opacity(0.75))
+                            Text(sone, format: .number.precision(.fractionLength(1)))
+                                .font(.system(size: max(7, geometry.size.height * 0.14)))
+                                .foregroundStyle(.secondary.opacity(0.9))
+                                .lineLimit(1)
+                        } else {
+                            Text("--")
+                                .font(.system(size: fontSize(for: geometry.size), weight: .bold))
+                                .foregroundStyle(.secondary.opacity(0.75))
+                        }
                     }
+                    .padding(1)
                 }
-                .padding(1)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onTapGesture {
-                showingDetail = true
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .buttonStyle(.plain)
         .sheet(isPresented: $showingDetail) {
             LoudnessCalculatorView()
         }

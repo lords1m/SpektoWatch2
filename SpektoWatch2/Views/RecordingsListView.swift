@@ -356,11 +356,10 @@ struct RecordingsListView: View {
     private var displayedRecordings: [Recording] {
         var result = services.recordingManager.recordings
         if !searchText.isEmpty {
-            let query = searchText.lowercased()
             result = result.filter { recording in
-                if recording.name.lowercased().contains(query) { return true }
-                if recording.description.lowercased().contains(query) { return true }
-                return recording.tags.contains { $0.lowercased().contains(query) }
+                if recording.name.localizedStandardContains(searchText) { return true }
+                if recording.description.localizedStandardContains(searchText) { return true }
+                return recording.tags.contains { $0.localizedStandardContains(searchText) }
             }
         }
         switch currentSort {

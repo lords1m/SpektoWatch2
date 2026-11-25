@@ -249,7 +249,7 @@ struct EQEditorPanel: View {
                 .frame(height: 82)
                 .innerCanvas(cornerRadius: Radius.kernel)
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(EQPreset.allCases) { preset in
                         Button {
@@ -267,6 +267,7 @@ struct EQEditorPanel: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
 
             HStack(spacing: 10) {
                 ForEach(recipe.eqBands) { band in

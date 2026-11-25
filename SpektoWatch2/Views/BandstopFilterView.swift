@@ -92,7 +92,7 @@ struct FrequencyRangeSlider: View {
                     .overlay(
                         Text("L")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                     )
                     .scaleEffect(isDraggingLow ? 1.2 : 1.0)
                     .animation(.spring(response: 0.3), value: isDraggingLow)
@@ -128,7 +128,7 @@ struct FrequencyRangeSlider: View {
                     .overlay(
                         Text("H")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                     )
                     .scaleEffect(isDraggingHigh ? 1.2 : 1.0)
                     .animation(.spring(response: 0.3), value: isDraggingHigh)
@@ -218,7 +218,7 @@ struct BandstopFilterEditView: View {
                 
                 Button(action: onDelete) {
                     Image(systemName: "trash")
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                 }
             }
             
@@ -227,11 +227,11 @@ struct BandstopFilterEditView: View {
                 VStack(alignment: .leading) {
                     Text("Untere Grenze")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(formatFrequency(filter.lowFrequency))
                         .font(.title3)
                         .fontWeight(.semibold)
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                         .monospacedDigit()
                 }
                 
@@ -240,10 +240,10 @@ struct BandstopFilterEditView: View {
                 VStack {
                     Text("Bandbreite")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(formatFrequency(filter.bandwidth))
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .monospacedDigit()
                 }
                 
@@ -252,11 +252,11 @@ struct BandstopFilterEditView: View {
                 VStack(alignment: .trailing) {
                     Text("Obere Grenze")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(formatFrequency(filter.highFrequency))
                         .font(.title3)
                         .fontWeight(.semibold)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .monospacedDigit()
                 }
             }
@@ -277,13 +277,13 @@ struct BandstopFilterEditView: View {
                     Button(action: { filter.lowFrequency = max(20, filter.lowFrequency - stepSize(for: filter.lowFrequency)) }) {
                         Image(systemName: "minus.circle.fill")
                             .font(.title2)
-                            .foregroundColor(.blue)
+                            .foregroundStyle(.blue)
                     }
                     
                     Button(action: { filter.lowFrequency = min(filter.highFrequency - 1, filter.lowFrequency + stepSize(for: filter.lowFrequency)) }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
-                            .foregroundColor(.blue)
+                            .foregroundStyle(.blue)
                     }
                 }
                 
@@ -294,13 +294,13 @@ struct BandstopFilterEditView: View {
                     Button(action: { filter.highFrequency = max(filter.lowFrequency + 1, filter.highFrequency - stepSize(for: filter.highFrequency)) }) {
                         Image(systemName: "minus.circle.fill")
                             .font(.title2)
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                     }
                     
                     Button(action: { filter.highFrequency = min(20000, filter.highFrequency + stepSize(for: filter.highFrequency)) }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                     }
                 }
             }
@@ -322,8 +322,8 @@ struct BandstopFilterEditView: View {
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
                                 .background(Color.blue.opacity(0.1))
-                                .foregroundColor(.blue)
-                                .cornerRadius(8)
+                                .foregroundStyle(.blue)
+                                .clipShape(.rect(cornerRadius: 8))
                         }
                     }
                 }
@@ -332,7 +332,7 @@ struct BandstopFilterEditView: View {
         }
         .padding()
         .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
         .opacity(filter.isEnabled ? 1.0 : 0.6)
     }
     
@@ -374,21 +374,21 @@ struct BandstopFilterSettingsView: View {
                     HStack {
                         Image(systemName: "waveform.path.badge.minus")
                             .font(.title2)
-                            .foregroundColor(.orange)
+                            .foregroundStyle(.orange)
                         
                         VStack(alignment: .leading) {
                             Text("Bandsperre-Filter")
                                 .font(.headline)
                             Text("Frequenzbereiche von der Analyse ausschließen")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         
                         Spacer()
                     }
                     .padding()
                     .background(Color(UIColor.secondarySystemGroupedBackground))
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                     
                     // Filter List
                     ForEach($filters) { $filter in
@@ -408,8 +408,8 @@ struct BandstopFilterSettingsView: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.blue.opacity(0.1))
-                            .foregroundColor(.blue)
-                            .cornerRadius(12)
+                            .foregroundStyle(.blue)
+                            .clipShape(.rect(cornerRadius: 12))
                     }
                     
                     // Visualization
@@ -418,7 +418,7 @@ struct BandstopFilterSettingsView: View {
                             .frame(height: 100)
                             .padding()
                             .background(Color(UIColor.secondarySystemGroupedBackground))
-                            .cornerRadius(12)
+                            .clipShape(.rect(cornerRadius: 12))
                     }
                 }
                 .padding()
@@ -476,7 +476,7 @@ struct BandstopVisualizationView: View {
                     // Label
                     Text(filter.name)
                         .font(.caption2)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .position(x: (startX + endX) / 2, y: 15)
                 }
                 
@@ -491,7 +491,7 @@ struct BandstopVisualizationView: View {
                         
                         Text(freq >= 1000 ? "\(freq/1000)k" : "\(freq)")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     .position(x: x, y: geometry.size.height / 2)
                 }

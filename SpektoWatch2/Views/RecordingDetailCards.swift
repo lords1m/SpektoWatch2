@@ -141,13 +141,14 @@ struct RecordingPhotosCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 10) {
                         ForEach(photoFileNames, id: \.self) { fileName in
                             thumbnail(for: fileName)
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
             }
         }
         .padding()

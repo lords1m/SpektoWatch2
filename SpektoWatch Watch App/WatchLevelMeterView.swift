@@ -156,8 +156,8 @@ struct WatchLevelMeterView: View {
 
     private func timeLabel(_ seconds: Double) -> String {
         if seconds <= 0 { return "0s" }
-        if seconds >= 10 { return String(format: "%.0fs", seconds) }
-        if seconds >= 1 { return String(format: "%.1fs", seconds) }
-        return String(format: "%.2fs", seconds)
+        if seconds >= 10 { return "\(seconds.formatted(.number.precision(.fractionLength(0))))s" }
+        if seconds >= 1 { return "\(seconds.formatted(.number.precision(.fractionLength(1))))s" }
+        return "\(seconds.formatted(.number.precision(.fractionLength(2))))s"
     }
 }

@@ -296,7 +296,7 @@ struct WaveformDetailCanvas: View {
 
             let label = Text(AudioTimeFormatting.shortRuler(t, subSecond: step < 1.0))
                 .font(.readout(size: 9))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             ctx.draw(label, at: CGPoint(x: min(width - 20, max(20, x)), y: 8), anchor: .center)
             t += step
         }

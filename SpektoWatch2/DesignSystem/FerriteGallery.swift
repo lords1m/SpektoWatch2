@@ -8,6 +8,9 @@ struct FerriteGallery: View {
     @State private var level = 0.62
     @State private var notify = true
     @State private var tab: Tab = .live
+    @State private var isGlassExpanded = false
+    @Namespace private var glassNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
@@ -64,6 +67,8 @@ struct FerriteGallery: View {
                             Button("Start recording") {}.buttonStyle(.ferriteGlassProminent)
                         }
 
+                        glassGroupSample
+
                         FerriteGlassSheet {
                             FerriteEyebrow(text: "Calibration")
                             Text("Hold the phone at arm's length, microphone facing the source.")
@@ -86,6 +91,42 @@ struct FerriteGallery: View {
             .navigationTitle("Ferrite")
         }
         .ferriteTheme()
+    }
+
+    /// Grouped glass that morphs (iOS 26) between one control and a
+    /// cluster, plus edge glass whose corners follow the container.
+    private var glassGroupSample: some View {
+        VStack(alignment: .leading, spacing: FerriteSpace.m) {
+            FerriteEyebrow(text: "Glass group", style: .quiet)
+
+            FerriteGlassGroup {
+                HStack(spacing: FerriteSpace.s) {
+                    Button {
+                        withAnimation(reduceMotion ? nil : FerriteMotion.standard) {
+                            isGlassExpanded.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isGlassExpanded ? "xmark" : "slider.horizontal.3")
+                    }
+                    .buttonStyle(.ferriteGlass(.round, id: "toggle", in: glassNamespace))
+                    .accessibilityLabel(isGlassExpanded ? "Collapse" : "Expand")
+
+                    if isGlassExpanded {
+                        Button {} label: { Image(systemName: "waveform") }
+                            .buttonStyle(.ferriteGlass(.round, id: "spectrum", in: glassNamespace))
+                            .accessibilityLabel("Spectrum")
+                        Button("Record") {}
+                            .buttonStyle(.ferriteGlass(.prominent, id: "record", in: glassNamespace))
+                    }
+                }
+            }
+
+            Label("Edge glass", systemImage: "dock.rectangle")
+                .font(FerriteFont.headline)
+                .foregroundStyle(FerriteColor.label)
+                .frame(maxWidth: .infinity, minHeight: 60)
+                .ferriteEdgeGlass()
+        }
     }
 
     private var measurementCard: some View {

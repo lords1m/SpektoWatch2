@@ -133,7 +133,7 @@ private struct ParametersSection: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Color(.systemGray6))
-                        .cornerRadius(8)
+                        .clipShape(.rect(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
 
@@ -425,7 +425,7 @@ private struct ExplanationBox: View {
         }
         .padding()
         .background(Color.yellow.opacity(0.1))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
     }
 }
 
@@ -591,7 +591,7 @@ private struct WindowComparisonTable: View {
                 .background(window == selectedWindow ? Color.blue.opacity(0.1) : Color.clear)
             }
         }
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(.systemGray4), lineWidth: 1)
@@ -695,7 +695,7 @@ private struct ComparisonSpectrumView: View {
             }
         }
         .background(Color(.systemGray6))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
     }
 
     private func drawSpectrum(context: GraphicsContext, size: CGSize, config: (WindowFunction, FFTBlockSize), color: Color, yOffset: CGFloat) {

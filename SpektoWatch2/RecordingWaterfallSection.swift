@@ -92,7 +92,7 @@ struct RecordingWaterfallSection: View {
                 Text("\(Int(controller.dataSet.minDB))…\(Int(controller.dataSet.maxDB)) dB SPL")
             }
             .font(.caption)
-            .foregroundColor(.secondary)
+            .foregroundStyle(.secondary)
         }
         .padding()
         .glassCard(cornerRadius: 14)
@@ -102,7 +102,7 @@ struct RecordingWaterfallSection: View {
         HStack(spacing: 8) {
             Text("Bewertung")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             Picker("Frequenzbewertung", selection: $playbackWeighting) {
                 ForEach(FrequencyWeighting.allCases, id: \.self) { weighting in
                     Text(weighting.rawValue).tag(weighting)
@@ -125,7 +125,7 @@ struct RecordingWaterfallSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Zeitscheiben: \(controller.display.sliceCount)")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Slider(
                     value: Binding(
                         get: { Double(controller.display.sliceCount) },
@@ -142,7 +142,7 @@ struct RecordingWaterfallSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Spektrum")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Picker("Spektrum", selection: Binding(
                     get: { controller.display.spectrumMode },
                     set: {
@@ -164,7 +164,7 @@ struct RecordingWaterfallSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Min: \(Int(controller.display.minDB)) dB")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Slider(
                         value: Binding(
                             get: { Double(controller.display.minDB) },
@@ -181,7 +181,7 @@ struct RecordingWaterfallSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Max: \(Int(controller.display.maxDB)) dB")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Slider(
                         value: Binding(
                             get: { Double(controller.display.maxDB) },

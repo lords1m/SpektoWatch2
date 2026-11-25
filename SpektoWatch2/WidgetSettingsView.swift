@@ -57,7 +57,7 @@ struct WidgetSettingsView: View {
                      ? "Werte unter der Schwelle werden ausgeblendet (zeigt –)."
                      : "Signale unterhalb der Schwelle werden weich ausgeblendet (6 dB Übergang).")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -176,7 +176,7 @@ struct WidgetSettingsView: View {
                         VStack(alignment: .leading) {
                             Text("Dynamikbereich: \(Int(sensitivityValue)) dB")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
 
                             Slider(
                                 value: Binding(
@@ -189,7 +189,7 @@ struct WidgetSettingsView: View {
 
                             Text("Niedriger = mehr Kontrast, Höher = mehr Details")
                                 .font(.caption2)
-                                .foregroundColor(.gray)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
@@ -198,14 +198,14 @@ struct WidgetSettingsView: View {
                         let smoothingValue = Float(settings["frequencySmoothing"] ?? "0.0") ?? 0.0
 
                         VStack(alignment: .leading) {
-                            Text("Stärke: \(String(format: "%.2f", smoothingValue))")
+                            Text("Stärke: \(smoothingValue.formatted(.number.precision(.fractionLength(2))))")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
 
                             Slider(
                                 value: Binding(
                                     get: { Double(settings["frequencySmoothing"] ?? "0.0") ?? 0.0 },
-                                    set: { settings["frequencySmoothing"] = String(format: "%.2f", $0) }
+                                    set: { settings["frequencySmoothing"] = $0.formatted(.number.precision(.fractionLength(2))) }
                                 ),
                                 in: 0.0...1.0,
                                 step: 0.05
@@ -213,7 +213,7 @@ struct WidgetSettingsView: View {
 
                             Text("Versteckt FFT-Bin-Grenzen bei niedrigen Frequenzen. Eine leichte Grundglättung ist immer aktiv.")
                                 .font(.caption2)
-                                .foregroundColor(.gray)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .disabled(supportsOverrideToggle && !useWidgetOverrides)
@@ -345,9 +345,9 @@ struct WidgetSettingsView: View {
                         ))
                         let smoothing = WidgetSettings.historySmoothing(settings)
                         VStack(alignment: .leading) {
-                            Text("Glättung: \(String(format: "%.1f", smoothing))")
+                            Text("Glättung: \(smoothing.formatted(.number.precision(.fractionLength(1))))")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                             Slider(
                                 value: Binding(
                                     get: { Double(WidgetSettings.historySmoothing(settings)) },

@@ -1286,7 +1286,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                 ForEach(axisFrequencies, id: \.self) { freq in
                     Text(frequencyLabel(freq))
                         .font(.caption2)
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0)
                         .padding(.leading, 8)
                         .position(x: 25, y: yPosition(for: freq, height: spectroGeo.size.height))
@@ -1335,7 +1335,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
 
                             let text = Text(self.formatAxisTime(tick))
                                 .font(.caption2)
-                                .foregroundColor(.white.opacity(0.9))
+                                .foregroundStyle(.white.opacity(0.9))
 
                             shadowContext.draw(text, at: CGPoint(x: x, y: baselineY), anchor: .center)
                             lastLabelX = x

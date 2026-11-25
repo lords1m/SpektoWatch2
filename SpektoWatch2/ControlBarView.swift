@@ -53,7 +53,7 @@ private struct PlayPauseButton: View {
                     if state.isLiveMode {
                         Image(systemName: "pause.circle")
                             .font(.system(size: iconSize))
-                            .foregroundColor(StatusColor.live)
+                            .foregroundStyle(StatusColor.live)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
                             .accessibilityLabel(state.playPauseAccessibilityLabel)
@@ -61,7 +61,7 @@ private struct PlayPauseButton: View {
                     } else {
                         Image(systemName: "play.circle")
                             .font(.system(size: iconSize))
-                            .foregroundColor(StatusColor.live.opacity(0.8))
+                            .foregroundStyle(StatusColor.live.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(state.playPauseAccessibilityIdentifier)
                             .accessibilityLabel(state.playPauseAccessibilityLabel)
@@ -132,7 +132,7 @@ private struct RecordStopButton: View {
                     if isActive {
                         Image(systemName: "stop.circle")
                             .font(.system(size: iconSize))
-                            .foregroundColor(StatusColor.recording)
+                            .foregroundStyle(StatusColor.recording)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
                             .accessibilityLabel(baseState.recordStopAccessibilityLabel)
@@ -140,7 +140,7 @@ private struct RecordStopButton: View {
                     } else {
                         Image(systemName: "record.circle.fill")
                             .font(.system(size: iconSize))
-                            .foregroundColor(StatusColor.recording.opacity(0.8))
+                            .foregroundStyle(StatusColor.recording.opacity(0.8))
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                             .accessibilityIdentifier(baseState.recordStopAccessibilityIdentifier)
                             .accessibilityLabel(baseState.recordStopAccessibilityLabel)
@@ -346,7 +346,7 @@ struct ControlBarView: View {
             VStack(alignment: alignment, spacing: 1) {
                 Text(statusText)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(statusColor)
+                    .foregroundStyle(statusColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .accessibilityIdentifier("controlBarStatusLabel")
@@ -355,7 +355,7 @@ struct ControlBarView: View {
                     Text(timeString(from: services.recordingManager.currentRecordingDuration))
                         .font(.numerals(numerals, size: 11))
                         .monospacedDigit()
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

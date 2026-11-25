@@ -156,12 +156,12 @@ struct WatchModularFace: View {
 
     private func format0(_ v: Float) -> String {
         guard v.isFinite, v > -120, v < 200 else { return "—" }
-        return String(format: "%.0f", v)
+        return v.formatted(.number.precision(.fractionLength(0)))
     }
 
     private func format1(_ v: Float) -> String {
         guard v.isFinite, v > -120 else { return "—" }
-        return String(format: "%.1f", v)
+        return v.formatted(.number.precision(.fractionLength(1)))
     }
 
     private func stripColor(_ t: Double) -> Color {

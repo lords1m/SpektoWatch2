@@ -83,7 +83,7 @@ struct SpectrogramCrosshairOverlay: View {
         .font(.caption2.monospacedDigit())
         .padding(6)
         .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
-        .foregroundColor(.white)
+        .foregroundStyle(.white)
     }
 }
 

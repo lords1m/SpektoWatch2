@@ -49,9 +49,9 @@ struct WatchLevelMeterWidget: View {
             }
             .frame(width: barWidth)
 
-            Text(String(format: "%.0f", currentLevel))
+            Text(currentLevel, format: .number.precision(.fractionLength(0)))
                 .font(.system(size: min(size.width * 0.28, 11), weight: .bold, design: .monospaced))
-                .foregroundColor(levelColor(normalized))
+                .foregroundStyle(levelColor(normalized))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
@@ -73,9 +73,9 @@ struct WatchLevelMeterWidget: View {
             }
             .frame(height: barHeight)
 
-            Text(String(format: "%.0f %@", currentLevel, unitLabel))
+            Text("\(currentLevel.formatted(.number.precision(.fractionLength(0)))) \(unitLabel)")
                 .font(.system(size: min(size.height * 0.38, 10), weight: .bold, design: .monospaced))
-                .foregroundColor(levelColor(normalized))
+                .foregroundStyle(levelColor(normalized))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }

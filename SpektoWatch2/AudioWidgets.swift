@@ -167,7 +167,7 @@ private struct SpectrumBandChartView: View {
             let height = size.height
 
             if bands.isEmpty || bands.allSatisfy({ $0 <= -100 }) {
-                let text = Text("Warte auf Audio...").font(.caption).foregroundColor(.gray)
+                let text = Text("Warte auf Audio...").font(.caption).foregroundStyle(.gray)
                 context.draw(text, at: CGPoint(x: size.width/2, y: size.height/2))
                 return
             }
@@ -205,7 +205,7 @@ private struct SpectrumBandChartView: View {
                     path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
                     context.stroke(path, with: .color(ScientificChartPalette.gridMajor), lineWidth: 0.7)
                     context.draw(
-                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
+                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundStyle(ScientificChartPalette.axis),
                         at: CGPoint(x: chartRect.minX - 14, y: y)
                     )
                 }
@@ -214,7 +214,7 @@ private struct SpectrumBandChartView: View {
                     let yNorm = ScientificAxis.normalized(tick, min: minDB, max: maxDB)
                     let y = chartRect.maxY - CGFloat(yNorm) * chartRect.height
                     context.draw(
-                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
+                        Text("\(Int(tick))").font(.readout(size: 8, weight: .regular)).foregroundStyle(ScientificChartPalette.axis),
                         at: CGPoint(x: chartRect.minX - 14, y: y)
                     )
                 }
@@ -266,12 +266,12 @@ private struct SpectrumBandChartView: View {
 
             if mode == .continuous {
                 context.draw(
-                    Text(formatHz(frequencies.first ?? 0)).font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
+                    Text(formatHz(frequencies.first ?? 0)).font(.readout(size: 8, weight: .regular)).foregroundStyle(ScientificChartPalette.axis),
                     at: CGPoint(x: chartRect.minX, y: height - bottomPadding / 2),
                     anchor: .leading
                 )
                 context.draw(
-                    Text(formatHz(frequencies.last ?? 0)).font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
+                    Text(formatHz(frequencies.last ?? 0)).font(.readout(size: 8, weight: .regular)).foregroundStyle(ScientificChartPalette.axis),
                     at: CGPoint(x: chartRect.maxX, y: height - bottomPadding / 2),
                     anchor: .trailing
                 )
@@ -280,7 +280,7 @@ private struct SpectrumBandChartView: View {
                 for i in stride(from: 0, to: bandData.labels.count, by: max(1, bandData.labelStride)) {
                     let x = chartRect.minX + CGFloat(i) * barWidth + barWidth / 2
                     context.draw(
-                        Text(bandData.labels[i]).font(.readout(size: 8, weight: .regular)).foregroundColor(ScientificChartPalette.axis),
+                        Text(bandData.labels[i]).font(.readout(size: 8, weight: .regular)).foregroundStyle(ScientificChartPalette.axis),
                         at: CGPoint(x: x, y: height - bottomPadding / 2)
                     )
                 }
@@ -374,8 +374,8 @@ private struct SpectrumBandChartView: View {
     }
 
     private func formatHz(_ hz: Float) -> String {
-        if hz >= 1000 { return String(format: "%.1fk", hz / 1000) }
-        return String(format: "%.0f", hz)
+        if hz >= 1000 { return "\((hz / 1000).formatted(.number.precision(.fractionLength(1))))k" }
+        return hz.formatted(.number.precision(.fractionLength(0)))
     }
 
     private func logBandDiagnosticsIfNeeded(_ bandData: SpectrumBandData) {
@@ -583,7 +583,7 @@ struct LevelMeterWidget: View {
                 Spacer(minLength: 8)
                 Text(String(format: "Spitze %.0f", peakDB))
                     .font(.readout(size: 10, weight: .medium))
-                    .foregroundColor(ScientificChartPalette.secondarySeries)
+                    .foregroundStyle(ScientificChartPalette.secondarySeries)
             }
         }
     }
@@ -717,7 +717,7 @@ struct PhaseMeterWidget: View {
             VStack(spacing: 4) {
                 Text("Korrelation")
                     .font(.caption)
-                    .foregroundColor(.gray)
+                    .foregroundStyle(.gray)
 
                 GeometryReader { geo in
                     let w = geo.size.width
@@ -732,7 +732,7 @@ struct PhaseMeterWidget: View {
                             endPoint: .trailing
                         ))
                         .opacity(0.3)
-                        .cornerRadius(4)
+                        .clipShape(.rect(cornerRadius: 4))
 
                     // Center marker
                     Rectangle()
@@ -757,12 +757,12 @@ struct PhaseMeterWidget: View {
                     Spacer()
                     Text("+1").font(.caption2)
                 }
-                .foregroundColor(.gray)
+                .foregroundStyle(.gray)
 
                 // Numeric readout
                 Text(String(format: "%.2f", live.currentStereoPhase))
                     .font(.system(.body, design: .monospaced))
-                    .foregroundColor(indicatorColor(phase: live.currentStereoPhase))
+                    .foregroundStyle(indicatorColor(phase: live.currentStereoPhase))
             }
             .padding()
 
@@ -816,13 +816,13 @@ struct PhaseMeterWidget: View {
         VStack(spacing: 8) {
             Image(systemName: "mic.slash")
                 .font(.title2)
-                .foregroundColor(.gray)
+                .foregroundStyle(.gray)
             Text("Kein Stereo-Signal")
                 .font(.caption)
-                .foregroundColor(.gray)
+                .foregroundStyle(.gray)
             Text("Stereo-Mikrofon in den\nEinstellungen aktivieren")
                 .font(.caption2)
-                .foregroundColor(.gray.opacity(0.7))
+                .foregroundStyle(.gray.opacity(0.7))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

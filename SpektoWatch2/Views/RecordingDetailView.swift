@@ -380,7 +380,7 @@ struct RecordingDetailView: View {
                     exportCard
                 } else {
                     Text("Keine .spekto-Messdaten vorhanden. Für tiefe Analyse bitte Messdatenaufzeichnung aktivieren.")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .glassCard(cornerRadius: 14)
@@ -442,10 +442,10 @@ struct RecordingDetailView: View {
                     Color.black
                     ProgressView("Spektrogramm wird berechnet...")
                         .tint(.white)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
                 .frame(height: 280)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             } else {
                 ZStack {
                     Color.black
@@ -454,7 +454,7 @@ struct RecordingDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(height: 280)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
 
             if let provider = spectrogramModel.provider,
@@ -486,7 +486,7 @@ struct RecordingDetailView: View {
                 .disabled(!audioPlayer.isLoaded)
                 .accessibilityLabel("5 Sekunden vor")
             }
-            .foregroundColor(FerriteColor.label)
+            .foregroundStyle(FerriteColor.label)
 
             Button {
                 addMarkerAtCurrentTime()
@@ -522,7 +522,7 @@ struct RecordingDetailView: View {
                         .font(.caption)
                         .monospacedDigit()
                 }
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             }
         }
         .padding()
@@ -533,7 +533,7 @@ struct RecordingDetailView: View {
         HStack(spacing: 8) {
             Text("Frequenzbewertung")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             Spacer()
             Picker("Frequenzbewertung", selection: $playbackWeighting) {
                 ForEach(FrequencyWeighting.allCases, id: \.self) { weighting in
@@ -672,7 +672,7 @@ struct RecordingDetailView: View {
             Text("Messwerttabelle")
                 .font(.headline)
 
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
+            ScrollView([.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: spacing) {
                         Text("t [s]").bold().frame(width: timeColumnWidth, alignment: .leading)
@@ -1140,7 +1140,7 @@ private struct ExportActionButton: View {
                     if isDisabled, let hint = disabledHint {
                         Text(hint)
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
