@@ -1,6 +1,6 @@
 # Task 2: Split RecordingDetailView
 
-Status: in_progress
+Status: completed
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A6 in `2026-05-21-architecture-review.md`

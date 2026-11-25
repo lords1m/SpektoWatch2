@@ -791,7 +791,7 @@ tasks:
         default (no test-plan key exists for it).
     - id: task-2-pdf-report-fixture
       name: PDF Report Fixture
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-2-pdf-report-fixture.md
       notes: >
         Code-side complete: all four fatalError stubs replaced with frozen
@@ -800,7 +800,7 @@ tasks:
         to first Cloud run (simulator broken locally per AGENT.md).
     - id: task-3-record-and-commit-baselines
       name: Record & Commit Baselines
-      status: pending
+      status: completed
       file: agent/tasks/milestone-7-xcode-cloud-snapshot-testing/task-3-record-and-commit-baselines.md
     - id: task-4-acceptance
       name: Acceptance
@@ -895,7 +895,7 @@ tasks:
         tracked under task-6.
     - id: task-2-widget-card-headers
       name: Widget Card Headers
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-2-widget-card-headers.md
       notes: >
         Code-side landed 2026-05-21 on branch redesign/liquid-glass.
@@ -914,7 +914,7 @@ tasks:
         acceptance gated on hardware (task-6).
     - id: task-3-preset-rail-wiring
       name: Preset Rail Wiring & Compositions
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-3-preset-rail-wiring.md
       notes: >
         Code-side landed 2026-05-21 on branch redesign/liquid-glass.
@@ -931,7 +931,7 @@ tasks:
         proxy (architecture is single-channel).
     - id: task-4-watch-faces-and-complications
       name: Watch Faces & Complications
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-4-watch-faces-and-complications.md
       notes: >
         Broken into 5 subtasks (4a Pegelmesser, 4b Spektrogramm, 4c
@@ -984,7 +984,7 @@ tasks:
         Hardware acceptance still pending under task-6.
     - id: task-5-density-numerals-application
       name: Density & Numerals Application
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-12-liquid-glass-redesign/task-5-density-numerals-application.md
       notes: >
         Code-side landed 2026-05-21 on branch redesign/liquid-glass.
@@ -1060,22 +1060,22 @@ tasks:
   M21:
     - id: task-1-standalone-activation
       name: "Standalone Activation & Phone-Absent UX"
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-21-watch-standalone/task-1-standalone-activation.md
       notes: "Code landed 2026-05-30: PersistenceKeys.Watch.standaloneEnabled; WatchAudioEngine.standaloneEnabled (@Published) + setStandaloneEnabled(); init starts in .standalone (no phone subscription) when preference set; startRecording→.standalone vs .wearableMic; stopRecording stays .standalone (no companion revert) + clears live display; WatchDashboardView standaloneToggle (applewatch/iphone, disabled mid-recording) + record button skips phone coordination in standalone. WCSession audit clean (all sends isReachable-guarded, replyHandler:nil, no semaphores). watchOS build green. Remaining: hardware verify (task-6)."
     - id: task-2-share-dsp-metrics
       name: "Share DSP/Metrics to the Watch Target"
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-21-watch-standalone/task-2-share-dsp-metrics.md
       notes: "Code-side complete 2026-05-30: git mv AcousticMetricsCalculator.swift + FrequencyWeightingProcessor.swift into Shared/ (both targets include the Shared/ sync group → compiles into iOS+watch, no pbxproj edits, no duplicate symbols). WatchAudioEngine now computes real metrics: performFFT captures linear magnitudes (memcpy) pre-dB; processAudioBuffer derives Z/A/C energy (vDSP_vsq+vDSP_sve / vDSP_dotpr vs squared weighting gains), applies calibration in energy domain, LCpeak via vDSP_vmul(C gains)+vDSP_maxv, feeds metricsCalculator.updateMetrics() → time-integrated levels; SpectrogramData carries real LAF/LAeq/LCpeak (was placeholder broadband). Watch FFT config 2048@44100. iOS + watchOS builds green (sequential). Remaining: on-device ±1.0 dB parity vs phone (task-6)."
     - id: task-3-local-store
       name: "Persistent Local Recordings Store"
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-21-watch-standalone/task-3-local-store.md
       notes: "Code-side complete 2026-05-30: git mv MeasurementDataFormat/Writer/Reader → Shared/ (watch can now write .swr; completes the writer-sharing deferred from task-2; iOS unchanged). New Shared/WatchRecordingMetadata.swift (Codable record, stable UUID id = file basename = sync dedupe key, syncState local/syncing/synced — shared for task-5 ingest). New WatchRecordingStore (durable catalog watch_recordings_catalog.json under Application Support, NOT temporaryDirectory; loads on launch, drops missing-file entries, atomic writes, @Published recordings for task-4). Rewrote WatchRecordingSession: stable id, writes <id>.caf + <id>.swr, MeasurementDataWriter (LAF/LAeq/LCpeak, no full-FFT), finalize() returns metadata. Wired WatchAudioEngine: standalone opens session before engine.start; processAudioBuffer feeds audio+measurement frame (disk I/O off audio thread); stopRecording finalizes+registers after tap removal; existing WKExtendedRuntimeSession willExpire/didInvalidate already route to stopRecording → clean flush. iOS+watchOS builds green. Remaining: hardware relaunch-durability + no-corrupt-on-abrupt-end (task-6)."
     - id: task-4-recordings-ui
       name: "Watch Recordings UI"
-      status: in_progress
+      status: completed
       file: agent/tasks/milestone-21-watch-standalone/task-4-recordings-ui.md
       notes: "Code-side complete 2026-05-30: new WatchRecordingsView.swift — WatchRecordingsView (List backed by WatchRecordingStore.shared @Published recordings, .carousel style, glass bg, empty state) added as a new NavigationStack page in WatchContentView's paged TabView; WatchRecordingDetailView (LAeq/LCpeak/duration/weighting/sync summary on a glass card + destructive Löschen via confirmationDialog → store.delete frees audio+.swr+catalog entry, then dismiss); WatchSyncStateBadge (local/syncing/synced glyph, ready for task-5); WatchRecordingFormat helpers. Added optional laeq/lcPeak to shared WatchRecordingMetadata, captured at finalize from the last frame (LAeq cumulative, LCpeak running max = session aggregates) so detail shows real metrics without re-reading .swr. Follows existing watch SwiftUI patterns. iOS+watchOS builds green. Remaining: on-device list/open/delete pass (task-6)."
     - id: task-5-sync-back
@@ -1351,11 +1351,15 @@ active_context:
     - M18: Xcode Cloud run with UI tests enabled.
 
     M10 (iOS Standalone Widgets) deferred 2026-05-30 by user direction.
-    Active focus: M20 (Live Activities) on-device acceptance (task-2) and
-    M21 (Standalone Watch) hardware acceptance (task-6). M22 (Audio Editor &
-    Format Converter) is planned with 7 tasks and ready to begin at
-    M22/task-1-edit-model-and-waveform-analyzer, followed by M23 (Home-Screen
-    Launcher & Dual-Mode Widgets, 6 tasks). Consider regenerating
+    Active focus: M22 (Audio Editor & Format Converter) tasks 1–6 complete;
+    current task M22/task-7 acceptance + UI tests. M23 (Home-Screen Launcher &
+    Dual-Mode Widgets) tasks 1–5 complete; task-6 acceptance open. Hardware
+    acceptance also open for M20/task-2 and M21/task-6.
+    Liquid Glass system adoption planned in
+    agent/design/liquid-glass-system-adoption.md (5 phases; Phase 1 design-
+    system code landed 2026-11-25 in ba6137c; iOS build green; not yet
+    tracked as ACP tasks).
+    Consider regenerating
     simulator screenshots now that local simulator is available
     (agent/scripts/capture-screenshots.py).
 

@@ -1,6 +1,6 @@
 # Task 4: Watch Recordings UI
 
-Status: in_progress
+Status: completed
 Created: 2026-05-30
 Milestone: `milestone-21-watch-standalone`
 

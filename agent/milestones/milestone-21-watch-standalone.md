@@ -1,6 +1,6 @@
 # Milestone 21: Standalone Watch App
 
-Status: pending
+Status: in_progress
 Created: 2026-05-30
 Priority: medium
 Estimated: 2.5 weeks

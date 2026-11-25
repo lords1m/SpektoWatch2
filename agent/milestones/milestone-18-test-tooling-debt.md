@@ -1,6 +1,6 @@
 # Milestone 18: Test & Tooling Debt + UI Screenshot Coverage
 
-Status: in_progress
+Status: completed
 Created: 2026-05-25
 Priority: medium
 Estimated: 1.5 weeks

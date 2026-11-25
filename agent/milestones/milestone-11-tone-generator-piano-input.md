@@ -1,6 +1,6 @@
 # Milestone 11: Tone Generator Piano Input
 
-Status: pending
+Status: completed
 Started: null
 Priority: low
 Estimated: 0.5 weeks

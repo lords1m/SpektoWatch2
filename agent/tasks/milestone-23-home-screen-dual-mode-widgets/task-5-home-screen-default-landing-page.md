@@ -1,6 +1,6 @@
 # Task 5: Home-Screen Default Landing Page & Presets Integration
 
-Status: pending
+Status: completed
 Created: 2026-11-25
 Milestone: `milestone-23-home-screen-dual-mode-widgets`
 

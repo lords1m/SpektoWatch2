@@ -1,6 +1,6 @@
 # Task 4: Expand acp-validate to M6–M17
 
-Status: pending
+Status: completed
 Created: 2026-05-25
 
 ## Goal

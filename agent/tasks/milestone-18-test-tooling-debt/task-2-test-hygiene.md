@@ -1,6 +1,6 @@
 # Task 2: Test Fixture & Teardown Hygiene
 
-Status: pending
+Status: completed
 Created: 2026-05-25
 
 ## Goal

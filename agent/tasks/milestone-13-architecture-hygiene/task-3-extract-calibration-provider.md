@@ -1,6 +1,6 @@
 # Task 3: Extract CalibrationProvider from AudioEngine
 
-Status: in_progress
+Status: completed
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A1 phase 1 in `2026-05-21-architecture-review.md`

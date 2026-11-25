@@ -1,6 +1,6 @@
 # Milestone 22: Audio Editor & Format Converter
 
-Status: pending
+Status: in_progress
 Created: 2026-11-25
 Priority: medium
 Estimated: 3 weeks

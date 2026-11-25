@@ -1,6 +1,6 @@
 # Task 6: Format Conversion Sheet, Save Flows & App Entry Points
 
-Status: pending
+Status: completed
 Created: 2026-11-25
 Milestone: `milestone-22-audio-editor-and-converter`
 

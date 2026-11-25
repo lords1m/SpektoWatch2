@@ -1,6 +1,6 @@
 # Task 3: Live Widgets for All App Functions
 
-Status: pending
+Status: completed
 Created: 2026-11-25
 Milestone: `milestone-23-home-screen-dual-mode-widgets`
 

@@ -1,6 +1,6 @@
 # Task 3: Record & Commit Baselines
 
-Status: pending
+Status: completed
 Created: 2026-05-20
 Milestone: `milestone-7-xcode-cloud-snapshot-testing`
 Depends on: task-1, task-2

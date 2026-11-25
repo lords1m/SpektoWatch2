@@ -1,6 +1,6 @@
 # Milestone 10: iOS Standalone Widgets
 
-Status: pending
+Status: deferred
 Priority: medium
 Estimated: 2 weeks
 

@@ -1,6 +1,6 @@
 # Milestone 23: Home-Screen Launcher & Dual-Mode Widgets
 
-Status: pending
+Status: in_progress
 Created: 2026-11-25
 Priority: medium
 Estimated: 2 weeks

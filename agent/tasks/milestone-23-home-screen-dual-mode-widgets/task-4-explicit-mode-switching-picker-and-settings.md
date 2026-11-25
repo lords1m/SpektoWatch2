@@ -1,6 +1,6 @@
 # Task 4: Explicit Mode Switching in Picker, Settings & Card Chrome
 
-Status: pending
+Status: completed
 Created: 2026-11-25
 Milestone: `milestone-23-home-screen-dual-mode-widgets`
 

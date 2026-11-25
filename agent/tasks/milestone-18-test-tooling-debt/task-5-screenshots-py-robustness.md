@@ -1,6 +1,6 @@
 # Task 5: capture-screenshots.py Robustness
 
-Status: pending
+Status: completed
 Created: 2026-05-25
 
 ## Goal

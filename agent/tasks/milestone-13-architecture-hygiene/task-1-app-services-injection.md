@@ -1,6 +1,6 @@
 # Task 1: AppServices injection layer
 
-Status: in_progress
+Status: completed
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A7 in `2026-05-21-architecture-review.md`

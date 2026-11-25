@@ -1,6 +1,6 @@
 # Task 6: Shared UI Screenshot Helper
 
-Status: pending
+Status: completed
 Created: 2026-05-25
 
 ## Goal

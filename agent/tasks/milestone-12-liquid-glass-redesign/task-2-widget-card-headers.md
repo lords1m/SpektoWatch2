@@ -1,6 +1,6 @@
 # Task 2: Widget Card Headers
 
-Status: in_progress
+Status: completed
 Created: 2026-05-21
 Milestone: `milestone-12-liquid-glass-redesign`
 Depends on: task-1

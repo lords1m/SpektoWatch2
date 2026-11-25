@@ -1,6 +1,6 @@
 # Task 2: PDF Report Fixture
 
-Status: in_progress
+Status: completed
 Created: 2026-05-20
 Milestone: `milestone-7-xcode-cloud-snapshot-testing`
 Depends on: task-1

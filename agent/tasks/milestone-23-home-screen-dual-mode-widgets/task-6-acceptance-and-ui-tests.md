@@ -1,6 +1,6 @@
 # Task 6: Acceptance, Automated Tests & Hardware Verification
 
-Status: pending
+Status: in_progress
 Created: 2026-11-25
 Milestone: `milestone-23-home-screen-dual-mode-widgets`
 

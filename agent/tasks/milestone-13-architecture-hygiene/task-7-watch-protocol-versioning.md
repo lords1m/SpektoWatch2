@@ -1,6 +1,6 @@
 # Task 7: Watch protocol version byte + AppState envelope
 
-Status: in_progress
+Status: completed
 Created: 2026-05-21
 Milestone: `milestone-13-architecture-hygiene`
 Source finding: A5 in `2026-05-21-architecture-review.md`

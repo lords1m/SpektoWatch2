@@ -1,6 +1,6 @@
 # Task 2: Share DSP/Metrics to the Watch Target
 
-Status: in_progress
+Status: completed
 Created: 2026-05-30
 Milestone: `milestone-21-watch-standalone`
 
