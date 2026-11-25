@@ -1,5 +1,7 @@
 # Verbesserungsplan SpektoWatch2 (für Claude Code)
 
+> **STATUS: COMPLETED / ARCHIVED** (Phases 1–8 executed; see `agent/reports/2026-06-11-improvement-plan-acceptance.md` and `agent/STATE.md` for current state and remaining follow-ups. **Do not re-execute completed phases.**)
+>
 > Erstellt: 2026-06-10, basierend auf Architektur-Review.
 > Format folgt der bestehenden `agent/`-Milestone-Struktur. Jede Phase ist ein
 > eigener, unabhängig abnehmbarer Arbeitsblock. Phasen in der angegebenen

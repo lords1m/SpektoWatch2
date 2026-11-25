@@ -59,15 +59,20 @@ final class WatchRecordingSession {
         self.audioURL = audioURL
         self.measurementURL = measurementURL
         self.audioFile = try AVAudioFile(forWriting: audioURL, settings: format.settings)
-        self.measurementWriter = try MeasurementDataWriter(
-            fileURL: measurementURL,
-            metricKeys: WatchRecordingSession.metricKeys,
-            sampleRate: format.sampleRate,
-            fps: fps,
-            fftBlockSize: fftBlockSize,
-            fftBinCount: 0,
-            fileFormatVersion: MeasurementDataFormat.version2
-        )
+        do {
+            self.measurementWriter = try MeasurementDataWriter(
+                fileURL: measurementURL,
+                metricKeys: WatchRecordingSession.metricKeys,
+                sampleRate: format.sampleRate,
+                fps: fps,
+                fftBlockSize: fftBlockSize,
+                fftBinCount: 0,
+                fileFormatVersion: MeasurementDataFormat.version2
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: audioURL)
+            throw error
+        }
     }
 
     func writeBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -114,7 +119,11 @@ final class WatchRecordingSession {
     func finalize(title: String) -> WatchRecordingMetadata {
         if !isFinalized {
             isFinalized = true
-            try? measurementWriter.close()
+            do {
+                try measurementWriter.close()
+            } catch {
+                log.error("measurement writer close error: \(String(describing: error), privacy: .public)")
+            }
             // AVAudioFile flushes on dealloc; nothing else to close explicitly.
         }
         let minLevel = minBroadbandLevel.isFinite ? minBroadbandLevel : -120.0

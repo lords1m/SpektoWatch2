@@ -5,12 +5,12 @@
 # For full CI parity use: xcodebuild test -testPlan spekto-watch2 (see docs/test-plans/).
 # Manual matrix: docs/test-plans/manual-test-matrix.md
 
-set -e
+set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_NAME="SpektoWatch2"
 SCHEME_IOS="SpektoWatch2"
-DESTINATION_IOS="platform=iOS Simulator,name=iPhone 15 Pro,OS=17.2"
+DESTINATION_IOS="${DESTINATION_IOS:-platform=iOS Simulator,name=iPhone 16}"
 
 echo "=========================================="
 echo "SpektoWatch Test Runner"
@@ -29,15 +29,26 @@ run_tests() {
     echo "Running: $test_type"
     echo "------------------------------------------"
 
-    xcodebuild test \
-        -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
-        -scheme "$SCHEME_IOS" \
-        -destination "$DESTINATION_IOS" \
-        -only-testing:"$test_target" \
-        -resultBundlePath "$PROJECT_DIR/TestResults/$test_type.xcresult" \
-        2>&1 | xcpretty
+    local status=0
+    if command -v xcpretty >/dev/null 2>&1; then
+        xcodebuild test \
+            -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
+            -scheme "$SCHEME_IOS" \
+            -destination "$DESTINATION_IOS" \
+            -only-testing:"$test_target" \
+            -resultBundlePath "$PROJECT_DIR/TestResults/$test_type.xcresult" \
+            2>&1 | xcpretty || status=$?
+    else
+        xcodebuild test \
+            -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
+            -scheme "$SCHEME_IOS" \
+            -destination "$DESTINATION_IOS" \
+            -only-testing:"$test_target" \
+            -resultBundlePath "$PROJECT_DIR/TestResults/$test_type.xcresult" \
+            || status=$?
+    fi
 
-    if [ $? -eq 0 ]; then
+    if [ "$status" -eq 0 ]; then
         echo "✅ $test_type PASSED"
     else
         echo "❌ $test_type FAILED"

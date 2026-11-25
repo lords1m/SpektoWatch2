@@ -71,7 +71,6 @@ class AudioEngine: ObservableObject {
     /// (extracted in Phase 3, Task 3.4).
     private let wearableIngest: WearableIngestCoordinator
     private let spectrogramProcessor: SpectrogramProcessor
-    private let visualSpectrogramProcessor: VisualSpectrogramProcessor
     /// Pure per-frame DSP (FFT → weighting → bands → energies → LCpeak) and the
     /// real-time scratch buffers (extracted in Phase 3, Task 3.3). Driven only
     /// from the audio render thread via `processFFTFrame`.
@@ -109,11 +108,13 @@ class AudioEngine: ObservableObject {
     // MARK: - Buffer Management
 
     /// Offset-based FFT-window accumulator (sampleBuffer/offset/frame scratch).
-    /// Always touched under `processingLock`, except the lockless reset in
-    /// `stopAudioCapture` (matching the pre-extraction inline buffers).
+    /// Always touched under `processingLock`.
     private let sampleRing = SampleRingBuffer()
-    private var visualDBMagnitudesScratch: [Float] = []
-    private var gainBoost: Float = 10.0
+    private var gainBoost: Float = 10.0 {
+        didSet {
+            rtSettingsLock.withLock { $0.gainBoost = gainBoost }
+        }
+    }
 
     // Reusable scratch buffer for the mono channel of an incoming audio callback.
     // Avoids allocating a fresh `[Float]` per buffer (typical iOS audio buffer is
@@ -132,17 +133,40 @@ class AudioEngine: ObservableObject {
     // pressure. Matches the pattern already used by `FFTProcessor`.
     private let processingLock = OSAllocatedUnfairLock()
 
+    // MARK: - Real-Time Thread Mirrors
+
+    private struct RTSettings {
+        var calibrationOffset: Float = CalibrationProvider.defaultOffset
+        var frequencyWeighting: FrequencyWeighting = .a
+        var scrollSpeed: ScrollSpeed = .normal
+        var gainBoost: Float = 10.0
+        var recordingStartTime: Date? = nil
+    }
+
+    private struct RTPerfStats {
+        var lastAudioBufferTimestamp: TimeInterval = 0
+        var fftProcessTimeAccumMs: Double = 0
+        var fftProcessCount: Int = 0
+        var maxBufferedSeconds: Double = 0
+        var pendingSampleRateLog: (source: String, sampleRate: Double)? = nil
+    }
+
+    private struct RTStereoState {
+        var isStereo: Bool = false
+        var phase: Float = 1.0
+    }
+
+    private let rtSettingsLock = OSAllocatedUnfairLock<RTSettings>(initialState: RTSettings())
+    private let rtPerfLock = OSAllocatedUnfairLock<RTPerfStats>(initialState: RTPerfStats())
+    private let rtStereoLock = OSAllocatedUnfairLock<RTStereoState>(initialState: RTStereoState())
+
     // MARK: - State Management
 
     private var isUsingDummyData = false
     private var isStartingCapture = false
     private var debugPrintCounter = 0
     private let maxHistorySize = 1000
-    private var lastAudioBufferTimestamp: TimeInterval = 0
     private var latencyLogCounter = 0
-    private var fftProcessTimeAccumMs: Double = 0
-    private var fftProcessCount: Int = 0
-    private var maxBufferedSeconds: Double = 0
     private let enableVerboseLogs = false
     private let enableSpectrumDiagnostics = ProcessInfo.processInfo.environment["SPEKTO_DEBUG_SPECTRUM"] == "1"
     /// Pure timing gates for the publish path: 60 Hz UI / 15 Hz spectrogram /
@@ -181,6 +205,7 @@ class AudioEngine: ObservableObject {
     // dB SPL = dBFS + calibrationOffset.
     @Published var calibrationOffset: Float = CalibrationProvider.defaultOffset {
         didSet {
+            rtSettingsLock.withLock { $0.calibrationOffset = calibrationOffset }
             CalibrationProvider.persist(offset: calibrationOffset)
         }
     }
@@ -188,7 +213,11 @@ class AudioEngine: ObservableObject {
 
     // MARK: - Recording
 
-    private var recordingStartTime: Date?
+    private var recordingStartTime: Date? {
+        didSet {
+            rtSettingsLock.withLock { $0.recordingStartTime = recordingStartTime }
+        }
+    }
 
     // --- AE-2: Writer cross-thread safety ---
     //
@@ -282,6 +311,7 @@ class AudioEngine: ObservableObject {
     }
     @Published var frequencyWeighting: FrequencyWeighting = .a {
         didSet {
+            rtSettingsLock.withLock { $0.frequencyWeighting = frequencyWeighting }
             connectivityManager.sendFrequencyWeightingSelection(frequencyWeighting.rawValue)
         }
     }
@@ -350,7 +380,11 @@ class AudioEngine: ObservableObject {
             NotificationCenter.default.post(name: .spectrogramFrequencyRangeChanged, object: nil)
         }
     }
-    @Published var scrollSpeed: ScrollSpeed = .normal
+    @Published var scrollSpeed: ScrollSpeed = .normal {
+        didSet {
+            rtSettingsLock.withLock { $0.scrollSpeed = scrollSpeed }
+        }
+    }
     
     @Published var availableDataSources: [AVAudioSessionDataSourceDescription] = []
     @Published var selectedDataSource: AVAudioSessionDataSourceDescription? {
@@ -380,19 +414,6 @@ class AudioEngine: ObservableObject {
         metricsCalculator = AcousticMetricsCalculator(sampleRate: sampleRate)
         wearableIngest = WearableIngestCoordinator(sampleRate: sampleRate)
         spectrogramProcessor = SpectrogramProcessor(bandstopFilterManager: filterManager)
-        // Visualisierungspfad nach Apple "Visualizing Sound as an Audio
-        // Spectrogram": DCT-II auf dem gefensterten Sample-Block, Mel-
-        // Filterbank mit 128 Bändern (20 Hz – 20 kHz), anschließend 20·log10.
-        // Mel-Bänder sind bereits perzeptuell skaliert; der Adapter respektiert
-        // `visualFrequencies` und überlagert keine zweite Log-Achse mehr.
-        let initialResolution = SpectrogramResolution.current
-        visualSpectrogramProcessor = VisualSpectrogramProcessor(
-            transformSize: fftSize,
-            sampleRate: processingSampleRate,
-            windowFunction: .hann,
-            melBandCount: initialResolution.melBandCount,
-            frequencyRange: 20...20_000
-        )
         spectrogramProcessor.binningFactor = 1
         spectrogramProcessor.spectrogramTimeWeighting = .fast
         spectrogramProcessor.hopDuration = Float(tapBlockSize) / Float(sampleRate)
@@ -488,12 +509,6 @@ class AudioEngine: ObservableObject {
     }
 
     private func applySpectrogramResolutionToProcessors() {
-        visualSpectrogramProcessor.reconfigure(
-            transformSize: fftSize,
-            sampleRate: processingSampleRate,
-            windowFunction: currentWindowFunction,
-            melBandCount: spectrogramResolution.melBandCount
-        )
         connectivityManager.sendSpectrogramResolution(spectrogramResolution)
     }
     
@@ -545,40 +560,8 @@ class AudioEngine: ObservableObject {
         guard newSize != fftSize || newWindow != currentWindowFunction else { return }
 
         Logger.audioEngine.info("Applying FFT config: \(newWindow.rawValue), \(newSize) samples")
-
-        // Thread-sichere Rekonfiguration
-        processingLock.withLockUnchecked {
-            // Buffer leeren um Race-Conditions zu vermeiden
-            sampleRing.reset()
-            visualDBMagnitudesScratch.removeAll()
-
-            // AE-7: Pre-allocate energy scratch buffers to the new FFT bin count so
-            // the audio render thread never hits the lazy-allocation branch in
-            // processFFTFrame. energyCount == newSize/2 (half-spectrum bin count).
-            processingPipeline.resetScratch(energyCount: newSize / 2)
-
-            // Aktualisiere interne Werte
-            fftSize = newSize
-            currentWindowFunction = newWindow
-            currentBlockSize = config.blockSize
-
-            // Rekonfiguriere den FFT Processor
-            fftProcessor.reconfigure(fftSize: newSize, windowFunction: newWindow)
-            visualSpectrogramProcessor.reconfigure(
-                transformSize: newSize,
-                sampleRate: processingSampleRate,
-                windowFunction: newWindow
-            )
-
-            // Erstelle neuen Weighting Processor (alter wird nach unlock freigegeben)
-            let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
-            weightingProcessor = newWeightingProcessor
-        }
-
-        // Veröffentliche Änderungen
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        reconfigureFFT(blockSize: config.blockSize, windowFunction: newWindow)
+        objectWillChange.send()
     }
 
     /// Setzt nur die Fensterfunktion
@@ -588,11 +571,6 @@ class AudioEngine: ObservableObject {
         processingLock.withLockUnchecked {
             currentWindowFunction = function
             fftProcessor.setWindowFunction(function)
-            visualSpectrogramProcessor.reconfigure(
-                transformSize: fftSize,
-                sampleRate: processingSampleRate,
-                windowFunction: function
-            )
         }
         Logger.audioEngine.info("Window function changed to: \(function.rawValue)")
     }
@@ -601,29 +579,28 @@ class AudioEngine: ObservableObject {
     func setBlockSize(_ size: FFTBlockSize) {
         guard size.rawValue != fftSize else { return }
 
+        reconfigureFFT(blockSize: size, windowFunction: currentWindowFunction)
+        Logger.audioEngine.info("FFT size changed to: \(size.rawValue)")
+    }
+
+    private func reconfigureFFT(blockSize: FFTBlockSize, windowFunction: WindowFunction) {
+        let newSize = blockSize.rawValue
         processingLock.withLockUnchecked {
             // Buffer leeren um Race-Conditions zu vermeiden
             sampleRing.reset()
-            visualDBMagnitudesScratch.removeAll()
 
-            // AE-7: Pre-allocate energy scratch buffers.
-            processingPipeline.resetScratch(energyCount: size.rawValue / 2)
+            // AE-7: Pre-allocate energy scratch buffers to the new FFT bin count so
+            // the audio render thread never hits the lazy-allocation branch in
+            // processFFTFrame. energyCount == newSize/2 (half-spectrum bin count).
+            processingPipeline.resetScratch(energyCount: newSize / 2)
 
-            fftSize = size.rawValue
-            currentBlockSize = size
-            fftProcessor.reconfigure(fftSize: size.rawValue, windowFunction: currentWindowFunction)
-            visualSpectrogramProcessor.reconfigure(
-                transformSize: size.rawValue,
-                sampleRate: processingSampleRate,
-                windowFunction: currentWindowFunction
-            )
+            fftSize = newSize
+            currentWindowFunction = windowFunction
+            currentBlockSize = blockSize
 
-            // Erstelle neuen Weighting Processor
-            let newWeightingProcessor = FrequencyWeightingProcessor(fftSize: size.rawValue, sampleRate: processingSampleRate)
-            weightingProcessor = newWeightingProcessor
+            fftProcessor.reconfigure(fftSize: newSize, windowFunction: windowFunction)
+            weightingProcessor = FrequencyWeightingProcessor(fftSize: newSize, sampleRate: processingSampleRate)
         }
-
-        Logger.audioEngine.info("FFT size changed to: \(size.rawValue)")
     }
 
     /// Gibt die aktuelle Frequenzauflösung zurück
@@ -868,7 +845,9 @@ class AudioEngine: ObservableObject {
         }
 
         // Reset buffer state
-        sampleRing.reset()
+        processingLock.withLockUnchecked {
+            sampleRing.reset()
+        }
     }
 
     private func setupRecordingFile() {
@@ -954,7 +933,8 @@ class AudioEngine: ObservableObject {
                 )
             }
         }
-        lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
+        let now = CFAbsoluteTimeGetCurrent()
+        rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp = now }
         processSamples(samples)
     }
     
@@ -1318,14 +1298,10 @@ class AudioEngine: ObservableObject {
         if observedSampleRate > 0 {
             lastObservedInputSampleRate = observedSampleRate
             updateProcessingSampleRateIfNeeded(observedSampleRate, source: "Mic")
-            if abs(observedSampleRate - processingSampleRate) > 1.0 && debugPrintCounter % 240 == 0 {
-                Logger.audioEngine.warning(
-                    "Mic sample-rate mismatch: input \(observedSampleRate, format: .fixed(precision: 1)) Hz vs processing \(self.processingSampleRate, format: .fixed(precision: 1)) Hz"
-                )
-            }
         }
 
-        lastAudioBufferTimestamp = CFAbsoluteTimeGetCurrent()
+        let now = CFAbsoluteTimeGetCurrent()
+        rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp = now }
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         
@@ -1360,39 +1336,34 @@ class AudioEngine: ObservableObject {
             phase = dotProd / (sqrt(sumSqL * sumSqR) + 1e-9)
         }
 
-        processSamples(monoSampleScratch)
-
+        // Publish stereo state via lock so updateUI drains it at 60 Hz instead of
+        // queueing 86 DispatchQueue.main.async closures/sec from the RT thread.
         let isStereo = channels > 1
-        // Only dispatch when values actually change — isStereoActive rarely flips,
-        // so unconditionally queueing 86 closures/sec was pure overhead.
-        let capturedPhase = phase
-        DispatchQueue.main.async {
-            if self.live.isStereoActive != isStereo { self.live.isStereoActive = isStereo }
-            self.live.currentStereoPhase = capturedPhase
+        rtStereoLock.withLockUnchecked { state in
+            state.isStereo = isStereo
+            state.phase = phase
         }
+
+        processSamples(monoSampleScratch)
     }
     
     private func processSamples(_ newSamples: [Float]) {
+        let rtSettings = rtSettingsLock.withLockUnchecked { $0 }
+        let cal = rtSettings.calibrationOffset
+
         // Calculate peak level (dBFS → dB SPL mit Kalibrierung)
         var rms: Float = 0
         vDSP_rmsqv(newSamples, 1, &rms, vDSP_Length(newSamples.count))
         let signalDBFS = 20 * log10(rms + 1e-9)
-        let signalDB = signalDBFS + calibrationOffset  // Konvertiere zu dB SPL
         // vDSP_maxmgv returns max-magnitude (|x|): correct for signed audio peak
         // (a negative trough like -0.95 vs +0.10 was previously ignored by `max()`)
         // and faster than scalar `max()` + `abs()`.
         var peakAbs: Float = 0
         vDSP_maxmgv(newSamples, 1, &peakAbs, vDSP_Length(newSamples.count))
         let peakDBFS = 20 * log10(peakAbs + 1e-9)
-        let peakDB = peakDBFS + calibrationOffset  // Konvertiere zu dB SPL
+        let peakDB = peakDBFS + cal  // Konvertiere zu dB SPL
         
-        // Debug logging
         debugPrintCounter += 1
-        if enableVerboseLogs && debugPrintCounter % 240 == 0 {
-            let minSample = newSamples.min() ?? 0
-            let maxSample = newSamples.max() ?? 0
-            Logger.audioEngine.debug("Input RMS: \(signalDB, format: .fixed(precision: 1)) dB SPL (dBFS: \(signalDBFS, format: .fixed(precision: 1))), Samples: [\(minSample, format: .fixed(precision: 3)) ... \(maxSample, format: .fixed(precision: 3))]")
-        }
         
         // Impulse detection (measure end-to-end latency) + one-shot silence warning.
         signalMonitor.detectImpulse(signalDBFS: signalDBFS, now: CFAbsoluteTimeGetCurrent())
@@ -1404,27 +1375,26 @@ class AudioEngine: ObservableObject {
         // guard a reconfigure during a tap callback races on Swift array
         // storage. Lock width is kept to the array operations themselves;
         // downstream FFT work already takes its own snapshots.
-        processingLock.withLockUnchecked {
+        let (currentFFTSize, currentSampleRate, bufferedSamples) = processingLock.withLockUnchecked { () -> (Int, Double, Int) in
             sampleRing.append(newSamples)
+            return (fftSize, processingSampleRate, sampleRing.bufferedCount)
         }
 
-        // Lese aktuelle FFT-Größe thread-sicher.
-        let currentFFTSize = processingLock.withLockUnchecked { fftSize }
-
         // Backlog (wie viel Audio noch in der Queue steckt)
-        let bufferedSamples = processingLock.withLockUnchecked { sampleRing.bufferedCount }
-        let bufferedSeconds = Double(bufferedSamples) / processingSampleRate
-        if bufferedSeconds > maxBufferedSeconds {
-            maxBufferedSeconds = bufferedSeconds
+        let bufferedSeconds = Double(bufferedSamples) / currentSampleRate
+        rtPerfLock.withLockUnchecked { stats in
+            if bufferedSeconds > stats.maxBufferedSeconds {
+                stats.maxBufferedSeconds = bufferedSeconds
+            }
         }
         // Keep the visualization near real-time: if processing falls behind,
         // drop oldest queued samples instead of rendering stale history.
         // Never trim below one full FFT window (+ one hop), otherwise no frames can be processed.
-        let hop = max(1, scrollSpeed.rawValue)
-        let minRequiredBufferedSeconds = Double(currentFFTSize + hop) / processingSampleRate
+        let hop = max(1, rtSettings.scrollSpeed.rawValue)
+        let minRequiredBufferedSeconds = Double(currentFFTSize + hop) / currentSampleRate
         let effectiveBacklogLimitSeconds = max(maxRealtimeBacklogSeconds, minRequiredBufferedSeconds)
         if bufferedSeconds > effectiveBacklogLimitSeconds {
-            let targetBufferedSamples = Int(effectiveBacklogLimitSeconds * processingSampleRate)
+            let targetBufferedSamples = Int(effectiveBacklogLimitSeconds * currentSampleRate)
             var samplesToDrop = bufferedSamples - targetBufferedSamples
             if samplesToDrop > 0 {
                 samplesToDrop = (samplesToDrop / hop) * hop
@@ -1456,8 +1426,11 @@ class AudioEngine: ObservableObject {
             let t0 = CFAbsoluteTimeGetCurrent()
             processFFTFrame(samples: frame, peakLevel: peakDB)
             let t1 = CFAbsoluteTimeGetCurrent()
-            fftProcessTimeAccumMs += (t1 - t0) * 1000.0
-            fftProcessCount += 1
+            let elapsedMs = (t1 - t0) * 1000.0
+            rtPerfLock.withLockUnchecked { stats in
+                stats.fftProcessTimeAccumMs += elapsedMs
+                stats.fftProcessCount += 1
+            }
         }
     }
     
@@ -1466,16 +1439,14 @@ class AudioEngine: ObservableObject {
         os_signpost(.begin, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID)
         defer { os_signpost(.end, log: Self.performanceLog, name: "FFTFrameProcessing", signpostID: signpostID) }
 
-        // R8: snapshot calibrationOffset once at the top of the frame so all
-        // downstream uses (vDSP_vsadd, energy factor, LCpeak) see a consistent
-        // value and the @Published property is not read multiple times on the
-        // audio render thread.
-        let cal = calibrationOffset
+        // Snapshot all cross-thread settings once at the top of the frame.
+        let rtSettings = rtSettingsLock.withLockUnchecked { $0 }
+        let cal = rtSettings.calibrationOffset
 
-        // Thread-sichere FFT-Verarbeitung — snapshot all three lock-protected
+        // Thread-sichere FFT-Verarbeitung — snapshot all lock-protected
         // fields in one critical section to keep them mutually consistent.
-        let (currentFFTSize, localFFTProcessor, localWeightingProcessor) = processingLock.withLockUnchecked {
-            (fftSize, fftProcessor, weightingProcessor)
+        let (currentFFTSize, currentSampleRate, localFFTProcessor, localWeightingProcessor) = processingLock.withLockUnchecked {
+            (fftSize, processingSampleRate, fftProcessor, weightingProcessor)
         }
 
         // Prüfe ob Samples zur aktuellen FFT-Größe passen
@@ -1484,7 +1455,9 @@ class AudioEngine: ObservableObject {
         // Gate A/C spectral tracks to data consumers that actually need them.
         // Z is always available; A/C are emitted only for the selected global
         // weighting, active widget overrides, or measurement recording.
-        let requiredSpectralWeightings = requiredSpectralWeightingsForCurrentFrame()
+        let requiredSpectralWeightings = requiredSpectralWeightingsForCurrentFrame(
+            frequencyWeighting: rtSettings.frequencyWeighting
+        )
         // Bark band aggregation — only when a widget requests it (zero-cost otherwise).
         let needsBark = widgetBarkBandsRequiredLock.withLockUnchecked { $0 }
 
@@ -1497,8 +1470,8 @@ class AudioEngine: ObservableObject {
             fftProcessor: localFFTProcessor,
             weightingProcessor: localWeightingProcessor,
             spectrogramProcessor: spectrogramProcessor,
-            sampleRate: processingSampleRate,
-            gainBoost: gainBoost,
+            sampleRate: currentSampleRate,
+            gainBoost: rtSettings.gainBoost,
             calibrationOffset: cal,
             needsA: requiredSpectralWeightings.contains(.a),
             needsC: requiredSpectralWeightings.contains(.c),
@@ -1514,15 +1487,14 @@ class AudioEngine: ObservableObject {
         let displayBarkBandsC = dsp.barkBandsC
 
         // Update acoustic metrics
-        let dt = Float(scrollSpeed.rawValue) / Float(processingSampleRate)
+        let dt = Float(rtSettings.scrollSpeed.rawValue) / Float(currentSampleRate)
         spectrogramProcessor.hopDuration = dt
-        // Derive recording duration on the audio thread from recordingStartTime
-        // rather than reading the `@Published` `recording.recordingDuration` (main-only
-        // writer). The same pattern is used a few lines below for the writer
-        // timestamp.
+        // Derive recording duration on the audio thread from the lock-mirrored
+        // recordingStartTime rather than reading `@Published recording.recordingDuration`.
+        let nowRef = CFAbsoluteTimeGetCurrent()
         let audioThreadRecordingDuration: TimeInterval
-        if let startTime = recordingStartTime {
-            audioThreadRecordingDuration = Date().timeIntervalSince(startTime)
+        if let startTime = rtSettings.recordingStartTime {
+            audioThreadRecordingDuration = max(0, nowRef - startTime.timeIntervalSinceReferenceDate)
         } else {
             audioThreadRecordingDuration = 0
         }
@@ -1538,7 +1510,7 @@ class AudioEngine: ObservableObject {
             bandsZ: displayOctaveBandsZ,
             bandsA: dsp.hasA ? displayOctaveBandsA : [],
             bandsC: dsp.hasC ? displayOctaveBandsC : [],
-            loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
+            loudnessReferenceKey: Self.loudnessLevelKey(for: rtSettings.frequencyWeighting)
         )
         let levels = metricsResult.levels
 
@@ -1556,12 +1528,7 @@ class AudioEngine: ObservableObject {
         let atIsMeasurement = audioThreadIsMeasurementRecording.withLockUnchecked { $0 }
         if atIsRecording && atIsMeasurement {
             if let writer = recordingWriter.rtLoadMeasurementWriter() {
-                let timestampSeconds: Float
-                if let startTime = recordingStartTime {
-                    timestampSeconds = Float(Date().timeIntervalSince(startTime))
-                } else {
-                    timestampSeconds = Float(recording.recordingDuration)
-                }
+                let timestampSeconds = Float(audioThreadRecordingDuration)
                 let metricValues = recordingWriter.metricKeys.map { levels[$0] ?? -120.0 }
                 do {
                     try writer.writeFrame(
@@ -1588,6 +1555,8 @@ class AudioEngine: ObservableObject {
             binnedMagnitudes: dsp.bandMagnitudesZ
         )
         
+        let bufferTimestamp = rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp }
+
         // Create spectrogram data with all weightings
         let spectrogramData = SpectrogramData(
             frequencies: dsp.bandFrequencies,
@@ -1598,8 +1567,8 @@ class AudioEngine: ObservableObject {
             visualMagnitudes: nil,
             broadbandLevel: broadbandLevel,
             levels: levels,
-            sampleRate: processingSampleRate,
-            timestamp: Date(timeIntervalSinceReferenceDate: lastAudioBufferTimestamp)
+            sampleRate: currentSampleRate,
+            timestamp: Date(timeIntervalSinceReferenceDate: bufferTimestamp)
         )
         
         // Feed spectrogram renderers directly — bypasses objectWillChange, no SwiftUI re-render.
@@ -1623,7 +1592,9 @@ class AudioEngine: ObservableObject {
         )
     }
 
-    private func requiredSpectralWeightingsForCurrentFrame() -> Set<FrequencyWeighting> {
+    private func requiredSpectralWeightingsForCurrentFrame(
+        frequencyWeighting: FrequencyWeighting
+    ) -> Set<FrequencyWeighting> {
         var weightings: Set<FrequencyWeighting> = [.z, frequencyWeighting]
         // Read via audio-thread-safe mirror locks (AE-3).
         if audioThreadIsRecordingToFile.withLockUnchecked({ $0 })
@@ -1655,26 +1626,48 @@ class AudioEngine: ObservableObject {
             return
         }
 
-        let bufferTs = lastAudioBufferTimestamp
+        let bufferTs = rtPerfLock.withLockUnchecked { $0.lastAudioBufferTimestamp }
         let processingLagMs = (processEndTime - bufferTs) * 1000.0
         DispatchQueue.main.async {
             self.latencyLogCounter += 1
             if self.latencyLogCounter % 120 == 0 {
                 let uiLagMs = (CFAbsoluteTimeGetCurrent() - bufferTs) * 1000.0
                 let mainThreadDelayMs = (CFAbsoluteTimeGetCurrent() - processEndTime) * 1000.0
-                let avgFftMs = self.fftProcessCount > 0 ? (self.fftProcessTimeAccumMs / Double(self.fftProcessCount)) : 0
+                let (accumMs, count, maxBuf) = self.rtPerfLock.withLock { stats -> (Double, Int, Double) in
+                    let snapshot = (stats.fftProcessTimeAccumMs, stats.fftProcessCount, stats.maxBufferedSeconds)
+                    stats.fftProcessTimeAccumMs = 0
+                    stats.fftProcessCount = 0
+                    stats.maxBufferedSeconds = 0
+                    return snapshot
+                }
+                let avgFftMs = count > 0 ? (accumMs / Double(count)) : 0
                 let line = String(
                     format: "[Latency] processing %.0f ms, main-thread delay %.0f ms, UI %.0f ms, FFT avg %.1f ms, backlog %.2f s",
                     processingLagMs,
                     mainThreadDelayMs,
                     uiLagMs,
                     avgFftMs,
-                    self.maxBufferedSeconds
+                    maxBuf
                 )
                 print(line)
-                self.fftProcessTimeAccumMs = 0
-                self.fftProcessCount = 0
-                self.maxBufferedSeconds = 0
+            }
+
+            if let sampleRateLog = self.rtPerfLock.withLock({ stats -> (String, Double)? in
+                let pending = stats.pendingSampleRateLog
+                stats.pendingSampleRateLog = nil
+                return pending
+            }) {
+                Logger.audioEngine.info(
+                    "Reconfigured DSP sample rate (\(sampleRateLog.0)): \(sampleRateLog.1, format: .fixed(precision: 1)) Hz"
+                )
+            }
+
+            let stereo = self.rtStereoLock.withLock { $0 }
+            if self.live.isStereoActive != stereo.isStereo {
+                self.live.isStereoActive = stereo.isStereo
+            }
+            if stereo.isStereo || self.live.currentStereoPhase != stereo.phase {
+                self.live.currentStereoPhase = stereo.phase
             }
 
             self.signalMonitor.reportPendingImpulse(peakDbfs: peakLevel - self.calibrationOffset)
@@ -1840,7 +1833,8 @@ class AudioEngine: ObservableObject {
     private func updateProcessingSampleRateIfNeeded(_ newSampleRate: Double, source: String) {
         guard newSampleRate > 1000 else { return }
         let normalized = (newSampleRate * 10).rounded() / 10
-        guard abs(normalized - processingSampleRate) > 1.0 else { return }
+        let currentRate = processingLock.withLockUnchecked { processingSampleRate }
+        guard abs(normalized - currentRate) > 1.0 else { return }
 
         processingLock.withLockUnchecked {
             processingSampleRate = normalized
@@ -1851,19 +1845,12 @@ class AudioEngine: ObservableObject {
                 sampleRate: normalized,
                 windowFunction: currentWindowFunction
             )
-            visualSpectrogramProcessor.reconfigure(
-                transformSize: fftSize,
-                sampleRate: normalized,
-                windowFunction: currentWindowFunction
-            )
             weightingProcessor = FrequencyWeightingProcessor(
                 fftSize: fftSize,
                 sampleRate: normalized
             )
         }
 
-        Logger.audioEngine.info(
-            "Reconfigured DSP sample rate (\(source)): \(normalized, format: .fixed(precision: 1)) Hz"
-        )
+        rtPerfLock.withLockUnchecked { $0.pendingSampleRateLog = (source, normalized) }
     }
 }

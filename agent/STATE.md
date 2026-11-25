@@ -1,0 +1,33 @@
+# Project State Ledger (Single Source of Truth)
+
+> **Last updated:** 2026-11-24
+> **Rule:** Read this file and run `git log -n 15 --oneline` **before** planning or editing code. Update this file in the same commit whenever you finish a task or defer work.
+
+## 1. Done & Locked In (Do Not Re-Implement)
+
+- **VERBESSERUNGSPLAN Phases 1–8** (see `agent/reports/2026-06-11-improvement-plan-acceptance.md`):
+  - `WatchConnectivityManager` deduplicated into `Shared/WatchConnectivityManager.swift`.
+  - `AudioCaptureSession`, `ProcessingPipeline`, `WearableIngestCoordinator`, `UIPublishThrottle`, `InputSignalMonitor`, `SampleRingBuffer`, and `RecordingWriterCoordinator` extracted from `AudioEngine`.
+  - DI migrated to `AppServices` with structured concurrency in `startAudio()`.
+  - `Localizable.xcstrings` added for DSP enums; `ChartRenderer` axis grid helper extracted; `SpectrogramProcessor.thirdOctaveCenters` deduplicated.
+  - WatchConnectivity explicit `protocolVersion`, typed Codable codec, and 4-byte binary packet header.
+  - `.spekto` v3 read/write path promoted as default iOS format (`35066c9`).
+- **2026-11-24 Review Hardening & Efficiency Pass:**
+  - **Data-loss guards:** `RecordingManager` tracks `metadataLoadFailed` (blocks `saveRecordings` and `removeOrphanedRecordingFiles` on decode failure); `DashboardManager` guards `saveConfiguration` against `configurationLoadFailed` and fixes the `persistConfigurationAfterLoad` race with a generation counter; `PersistenceMigrator` synchronizes `ensureMigrationsComplete` and isolates non-`.standard` `UserDefaults`; `MeasurementDataReader` adds `ioLock`, TLV size cap, overflow checks, and seek-index fallback.
+  - **WatchConnectivity:** `mergeAndUpdateApplicationContext` merges into `session.applicationContext` (fixes partial overwrites and `receivedApplicationContext` bug); `handleMessageError` preserves chronological retry order; `peerProtocolVersion` no longer regresses to `0`; `syncPendingRecordings` retries `.syncing` entries; staged transfer timeout ingests audio-only recordings instead of deleting `.caf`.
+  - **RT-Audio & DSP safety:** `AudioEngine` removed dead `visualSpectrogramProcessor`/`visualDBMagnitudesScratch`, deduplicated `reconfigureFFT`, mirrored RT settings/perf/stereo state into `OSAllocatedUnfairLock`s, removed 86 Hz `DispatchQueue.main.async` stereo dispatch and RT `Logger` calls, and locked `sampleRing.reset()`. `InputSignalMonitor` uses `OSAllocatedUnfairLock` and logs silence on main. `NoiseGenerator` uses lock-free `xorshift32`. `WatchAudioEngine` locks `activeRecordingSession`, syncs visual buffer resizes onto `visualDCTQueue`, cleans up mic tap/session on failure/teardown, and preserves `.notStarted` `WKExtendedRuntimeSession` on wrist-drop. Clamped invalid inputs in `FFTProcessor`, `FrequencyWeightingProcessor`, `SpectrogramProcessor`, and `TriggerSpectrumAccumulator`.
+  - **UI, Accessibility & CI efficiency:** `WaterfallView.drawHeatmap` blits a single RGBA8 `CGImage` instead of per-cell `Path` fills; `SpectrumBandChartView` gates diagnostic recomputation behind `#if DEBUG`; `PhaseMeterWidget` observes `LiveAcousticState` directly; `NavigableSpectrogramView` uses `@ViewBuilder` instead of `AnyView` and forwards `axisKind` to `SpectrogramMinimap`; `RecordingDetailView` removes `services.audioEngine!` force-unwrap and cancels `waterfallExportTask` on disappear; `LoudnessCalculator` deduplicates ISO-226 tables and guards `log10`; `WatchComplicationViews` displays `entry.weighting`; added 44pt tap targets / VoiceOver labels to `ModularDashboardView.hiddenHandle`, `WaterfallFullscreenView`, `PhaseMeterWidget`, and `SpektoWatch2WidgetLiveActivity`; fixed `spekto-watch2.xctestplan` target ID and `run_tests.sh` (`pipefail` + iOS 18 simulator).
+  - **Regression tests & repo hygiene:** Added regression tests in `RecordingPersistenceDurabilityTests`, `PersistenceMigratorTests`, and `ReviewHardeningRegressionTests`; untracked logs, `.trace-analysis/`, `.understand-anything/`, `xcuserdata/`, `Spectowatch Widget Screenshots /`, and removed `-`, `urls.json`, `smartui-web.json`.
+  - **2026-11-24 Wave 2 Hot-Path & Exporter Pass:** Zero-allocation binary search + two-pointer sweep in `SpectrumBandAggregator`; in-place `FrequencyWeightingProcessor.applyWeighting` + scratch reuse in `ProcessingPipeline`; `SampleRingBuffer` offset clamping + capacity retention; `MeasurementDataWriter` `deinit` deadlock fix + locked counters + `flagsOffset`; `FFTProcessor` in-place `vvexpf` + locked bin/window getters; `AudioPlayerManager` timer leak fix + seek `playbackGeneration` + locked tap state + speaker routing check; `ToneGeneratorWidget` single-lock render + negative phase wrap fix; `CSVExporter`/`JSONMeasurementExporter`/`PDFReportGenerator` switched to `readFrameSummary` (single-pass PDF, partial-write loop in CSV, `autoreleasepool` on PDF photos); `SpectrogramImageRenderer` buffer reuse + cancellation + safe `CGDataProvider`; `RecordingsListView` `$recordings` observation fix + hoisted date boundaries; `RecordingPhotosCard` off-main ImageIO thumbnail downsampling; `SpectralNoveltyDetector` & `AudioCaptureSession` input clamping/`weak self`; `WatchRecordingStore`/`WatchRecordingSession` orphan cleanup and close logging.
+
+## 2. Intentionally Deferred / Do Not Touch Without Explicit Request
+
+- **Architecture:** Stay 100% native Swift / SwiftUI / Metal / Accelerate. Do **not** migrate to Flutter/React Native. (If Android is ever targeted, use a shared Rust/C++ DSP core with native UI.)
+- **`AudioEngine.swift` further splitting (< 600 LOC):** Deferred until macOS Instruments profiling confirms a need; keep existing facades stable.
+- **Unused views (`AdvancedAnalysisView`, `BandstopDashboardWidget`, `BandstopFilterView`, `BandstopOverlayView`, `LevelHistoryFullscreenView`):** Pending product decision on whether to wire up or delete.
+
+## 3. Active Backlog (Requires macOS / Xcode / Hardware)
+
+1. **macOS/Xcode verification:** Build all 7 targets (`SpektoWatch2`, `SpektoWatch Watch App`, `SpektoWatch Complications`, `SpektoWatch2WidgetExtension`, and test targets) and run `SpektoWatch2Tests` + `SpektoWatchTests`.
+2. **Xcode project config cleanup:** Wire `Watch-Info.plist` properly for `SpektoWatch Watch App`, remove stale `PBXFileSystemSynchronizedBuildFileExceptionSet` entries (`Managers/RecordingManager.swift`, `Info.plist`), set Debug `SWIFT_OPTIMIZATION_LEVEL = -Onone`, and wire `.xctestplan` to schemes.
+3. **Hardware / Instruments sign-off:** Run `BASELINE_PROFILING_MATRIX.md` against `PERFORMANCE_BUDGET.md` and complete `M21/task-6-acceptance.md`.

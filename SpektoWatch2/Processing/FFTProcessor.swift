@@ -202,32 +202,34 @@ class FFTProcessor: @unchecked Sendable {
     // MARK: - Initialization
 
     init(fftSize: Int, sampleRate: Double, windowFunction: WindowFunction = .hann) {
-        self.fftSize = fftSize
-        self.sampleRate = sampleRate
+        let safeFFTSize = max(2, fftSize)
+        let safeSampleRate = max(1.0, sampleRate)
+        self.fftSize = safeFFTSize
+        self.sampleRate = safeSampleRate
         self.windowFunction = windowFunction
 
         // Create FFT setup
         self.fftSetup = vDSP_DFT_zrop_CreateSetup(
             nil,
-            vDSP_Length(fftSize),
+            vDSP_Length(safeFFTSize),
             vDSP_DFT_Direction.FORWARD
         )
 
         // Pre-allocate buffers
-        self.window = [Float](repeating: 0, count: fftSize)
-        self.realIn = [Float](repeating: 0, count: fftSize / 2)
-        self.imagIn = [Float](repeating: 0, count: fftSize / 2)
-        self.realPart = [Float](repeating: 0, count: fftSize / 2)
-        self.imagPart = [Float](repeating: 0, count: fftSize / 2)
-        self.windowedSamples = [Float](repeating: 0, count: fftSize)
-        self.magnitudesBuffer = [Float](repeating: 0, count: fftSize / 2)
+        self.window = [Float](repeating: 0, count: safeFFTSize)
+        self.realIn = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.imagIn = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.realPart = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.imagPart = [Float](repeating: 0, count: safeFFTSize / 2)
+        self.windowedSamples = [Float](repeating: 0, count: safeFFTSize)
+        self.magnitudesBuffer = [Float](repeating: 0, count: safeFFTSize / 2)
 
         // Create window
-        self.window = windowFunction.generate(size: fftSize)
+        self.window = windowFunction.generate(size: safeFFTSize)
 
         // Compute frequency bins
-        let nyquist = Float(sampleRate / 2.0)
-        let binCount = fftSize / 2
+        let nyquist = Float(safeSampleRate / 2.0)
+        let binCount = safeFFTSize / 2
         self.frequencies = (0..<binCount).map { Float($0) * nyquist / Float(binCount) }
     }
 
@@ -298,7 +300,7 @@ class FFTProcessor: @unchecked Sendable {
 
     /// Gibt die aktuelle Fensterfunktion als Array zurück (für Visualisierung)
     func getWindowValues() -> [Float] {
-        return window
+        lock.withLock { window }
     }
     
     deinit {
@@ -451,30 +453,38 @@ class FFTProcessor: @unchecked Sendable {
         if output.count != count {
             output = [Float](repeating: 0, count: count)
         }
+        guard count > 0 else { return }
 
-        // exponents = dbMagnitudes * ln(10) / 20  →  result = exp(exponents) = 10^(dB/20)
-        var exponents = [Float](repeating: 0, count: count)
+        // output = dbMagnitudes * ln(10) / 20  →  output = exp(output) = 10^(dB/20)
         var scale = Float(log(10.0) / 20.0)
-        vDSP_vsmul(dbMagnitudes, 1, &scale, &exponents, 1, vDSP_Length(count))
+        vDSP_vsmul(dbMagnitudes, 1, &scale, &output, 1, vDSP_Length(count))
         var n = Int32(count)
-        vvexpf(&output, exponents, &n)
+        output.withUnsafeMutableBufferPointer { buf in
+            guard let base = buf.baseAddress else { return }
+            vvexpf(base, base, &n)
+        }
     }
     
     /// Returns the frequency of a specific FFT bin
     /// - Parameter bin: Bin index
     /// - Returns: Frequency in Hz
     func frequencyForBin(_ bin: Int) -> Float {
-        guard bin >= 0 && bin < frequencies.count else { return 0 }
-        return frequencies[bin]
+        lock.withLock {
+            guard bin >= 0 && bin < frequencies.count else { return 0 }
+            return frequencies[bin]
+        }
     }
     
     /// Returns the bin index for a specific frequency
     /// - Parameter frequency: Frequency in Hz
     /// - Returns: Closest bin index
     func binForFrequency(_ frequency: Float) -> Int {
-        let nyquist = Float(sampleRate / 2.0)
-        let normalizedFreq = min(max(frequency, 0), nyquist)
-        let bin = Int((normalizedFreq / nyquist) * Float(fftSize / 2))
-        return min(bin, fftSize / 2 - 1)
+        lock.withLock {
+            let nyquist = Float(sampleRate / 2.0)
+            guard nyquist > 0, fftSize >= 2 else { return 0 }
+            let normalizedFreq = min(max(frequency, 0), nyquist)
+            let bin = Int((normalizedFreq / nyquist) * Float(fftSize / 2))
+            return min(bin, fftSize / 2 - 1)
+        }
     }
 }

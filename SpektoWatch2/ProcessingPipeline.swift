@@ -49,6 +49,8 @@ final class ProcessingPipeline {
     // the FFT size changes — see `resetScratch(energyCount:)`.
     private var fftLinearMagnitudesScratch: [Float] = []
     private var fftDBMagnitudesScratch: [Float] = []
+    private var dbAScratch: [Float] = []
+    private var dbCScratch: [Float] = []
     private var fftEnergyScratch: [Float] = []
     /// Scratch buffer for per-bin C-weighted amplitudes used in LCpeak.
     /// Resized alongside `fftEnergyScratch` when the FFT size changes.
@@ -59,8 +61,10 @@ final class ProcessingPipeline {
     /// hits the lazy-allocation branch in `computeFrame`. Called by the caller
     /// under its `processingLock` when the FFT size changes (AE-7).
     func resetScratch(energyCount: Int) {
-        fftLinearMagnitudesScratch.removeAll()
-        fftDBMagnitudesScratch.removeAll()
+        fftLinearMagnitudesScratch.removeAll(keepingCapacity: true)
+        fftDBMagnitudesScratch.removeAll(keepingCapacity: true)
+        dbAScratch = [Float](repeating: -120.0, count: energyCount)
+        dbCScratch = [Float](repeating: -120.0, count: energyCount)
         fftEnergyScratch = [Float](repeating: 0, count: energyCount)
         lcPeakScratch = [Float](repeating: 0, count: energyCount)
     }
@@ -90,10 +94,12 @@ final class ProcessingPipeline {
 
         // Gate A/C spectral tracks to data consumers that actually need them.
         let dbZ = fftDBMagnitudesScratch
-        let dbA = needsA ? weightingProcessor.applyWeighting(
-            to: fftDBMagnitudesScratch, frequencies: fftProcessor.frequencies, weighting: .a) : nil
-        let dbC = needsC ? weightingProcessor.applyWeighting(
-            to: fftDBMagnitudesScratch, frequencies: fftProcessor.frequencies, weighting: .c) : nil
+        if needsA {
+            weightingProcessor.applyWeighting(to: fftDBMagnitudesScratch, weighting: .a, into: &dbAScratch)
+        }
+        if needsC {
+            weightingProcessor.applyWeighting(to: fftDBMagnitudesScratch, weighting: .c, into: &dbCScratch)
+        }
 
         // Spectrogram Processing (Filtering, Octaves, Binning, Smoothing)
         let processedZ = spectrogramProcessor.process(
@@ -102,22 +108,18 @@ final class ProcessingPipeline {
             sampleRate: sampleRate,
             smoothingTrack: .z
         )
-        let processedA = dbA.map {
-            spectrogramProcessor.process(
-                frequencies: fftProcessor.frequencies,
-                dbMagnitudes: $0,
-                sampleRate: sampleRate,
-                smoothingTrack: .a
-            )
-        }
-        let processedC = dbC.map {
-            spectrogramProcessor.process(
-                frequencies: fftProcessor.frequencies,
-                dbMagnitudes: $0,
-                sampleRate: sampleRate,
-                smoothingTrack: .c
-            )
-        }
+        let processedA = needsA ? spectrogramProcessor.process(
+            frequencies: fftProcessor.frequencies,
+            dbMagnitudes: dbAScratch,
+            sampleRate: sampleRate,
+            smoothingTrack: .a
+        ) : nil
+        let processedC = needsC ? spectrogramProcessor.process(
+            frequencies: fftProcessor.frequencies,
+            dbMagnitudes: dbCScratch,
+            sampleRate: sampleRate,
+            smoothingTrack: .c
+        ) : nil
 
         let displayOctaveBandsZ = SpectrumBandAggregator.thirdOctaveBands(
             frequencies: processedZ.bandFrequencies,
@@ -165,7 +167,6 @@ final class ProcessingPipeline {
                                   weightingProcessor.cWeightingGainsSq.count))
         if fftEnergyScratch.count != energyCount {
             fftEnergyScratch = [Float](repeating: 0, count: energyCount)
-            lcPeakScratch = [Float](repeating: 0, count: energyCount)
         }
         vDSP_vsq(fftLinearMagnitudesScratch, 1, &fftEnergyScratch, 1, vDSP_Length(energyCount))
 

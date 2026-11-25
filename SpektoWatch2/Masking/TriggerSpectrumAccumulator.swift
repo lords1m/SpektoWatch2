@@ -47,12 +47,19 @@ final class TriggerSpectrumAccumulator {
     // Ambient baseline: set by MaskingEngine after calibration step
     var ambientBands: [Float]?
 
+    private let sampleRate: Double
+    private let hopSize: Double
+
     // MARK: – Init
 
     init(sampleRate: Double = 44100, hopSize: Int = 512,
          historySeconds: Double = 8, preMarkSeconds: Double = 1.0, postMarkSeconds: Double = 0.5) {
-        let fps = sampleRate / Double(hopSize)
-        self.windowCapacity  = Int(fps * historySeconds)
+        let safeSampleRate = max(1.0, sampleRate)
+        let safeHopSize = max(1, hopSize)
+        self.sampleRate = safeSampleRate
+        self.hopSize = Double(safeHopSize)
+        let fps = safeSampleRate / Double(safeHopSize)
+        self.windowCapacity  = max(1, Int(fps * historySeconds))
         self.preMarkSeconds  = preMarkSeconds
         self.postMarkSeconds = postMarkSeconds
         self.ringBuffer = [Frame?](repeating: nil, count: windowCapacity)
@@ -82,8 +89,6 @@ final class TriggerSpectrumAccumulator {
         isMarking = false
         markStartHead = nil
 
-        let sampleRate = 44100.0
-        let hopSize    = 512.0
         let fps        = sampleRate / hopSize
         let preFames   = Int(preMarkSeconds * fps)
         let postFrames = Int(postMarkSeconds * fps)
@@ -100,7 +105,7 @@ final class TriggerSpectrumAccumulator {
 
         for offset in 0..<frameRange {
             let idx = (captureStart + offset) % windowCapacity
-            guard let frame = ringBuffer[idx] else { continue }
+            guard let frame = ringBuffer[idx], frame.bands.count >= TriggerSpectrum.bandCount else { continue }
             for b in 0..<TriggerSpectrum.bandCount {
                 bandAccum[b] += frame.bands[b]
             }
@@ -128,7 +133,7 @@ final class TriggerSpectrumAccumulator {
         var accum = [Float](repeating: 0, count: TriggerSpectrum.bandCount)
         var count = 0
         for frame in ringBuffer {
-            guard let f = frame else { continue }
+            guard let f = frame, f.bands.count >= TriggerSpectrum.bandCount else { continue }
             for b in 0..<TriggerSpectrum.bandCount { accum[b] += f.bands[b] }
             count += 1
         }

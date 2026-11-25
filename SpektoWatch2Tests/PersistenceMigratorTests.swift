@@ -119,4 +119,15 @@ final class PersistenceMigratorTests: XCTestCase {
         XCTAssertEqual(defaults.double(forKey: PersistenceKeys.spectrogramFrequencySmoothing), 0.25, accuracy: 1e-9)
         XCTAssertTrue(defaults.bool(forKey: PersistenceKeys.Watch.standaloneEnabled))
     }
+
+    func testEnsureMigrationsCompleteWorksOnCustomSuite() {
+        defaults.set(Data([0x1]), forKey: "DashboardConfiguration_v1")
+        PersistenceMigrator.ensureMigrationsComplete(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: "DashboardConfiguration_v1"))
+        XCTAssertEqual(
+            defaults.integer(forKey: PersistenceKeys.persistenceSchemaVersion),
+            PersistenceMigrator.currentSchemaVersion
+        )
+    }
 }

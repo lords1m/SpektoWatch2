@@ -288,12 +288,16 @@ private struct SpectrumBandChartView: View {
         }
         .drawingGroup()
         .onAppear {
+            #if DEBUG
             let bandData = computeBandData(mode: mode, frequencies: frequencies, spectrum: spectrum)
             logBandDiagnosticsIfNeeded(bandData)
+            #endif
         }
         .onChange(of: spectrum) { _, newSpectrum in
+            #if DEBUG
             let bandData = computeBandData(mode: mode, frequencies: frequencies, spectrum: newSpectrum)
             logBandDiagnosticsIfNeeded(bandData)
+            #endif
         }
     }
 
@@ -681,17 +685,28 @@ struct OctaveBandWidget: View {
 
 // MARK: - Phase Meter Widget
 struct PhaseMeterWidget: View {
-    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject private var live: LiveAcousticState
+
+    init(audioEngine: AudioEngine) {
+        _live = ObservedObject(wrappedValue: audioEngine.live)
+    }
 
     var body: some View {
         Group {
-            if audioEngine.live.isStereoActive {
+            if live.isStereoActive {
                 stereoContent
             } else {
                 monoPlaceholder
             }
         }
         .innerCanvas(cornerRadius: 0)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Phasenmesser")
+        .accessibilityValue(
+            live.isStereoActive
+                ? String(format: "Korrelation %.2f", live.currentStereoPhase)
+                : "Kein Stereo-Signal"
+        )
     }
 
     // MARK: Stereo view
@@ -707,7 +722,7 @@ struct PhaseMeterWidget: View {
                 GeometryReader { geo in
                     let w = geo.size.width
                     let h = geo.size.height
-                    let phase = audioEngine.live.currentStereoPhase
+                    let phase = live.currentStereoPhase
 
                     // Gradient background: red (–1, out of phase) → green (+1, mono/in phase)
                     Rectangle()

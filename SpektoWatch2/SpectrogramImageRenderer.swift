@@ -109,16 +109,21 @@ final class SpectrogramImageRenderer {
 
         var overlap = [Float]()
         let chunkFrames = fftSize * 8
+        guard let chunkBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(chunkFrames)) else {
+            throw MeasurementDataError.ioFailure("Audiopuffer konnte nicht erstellt werden.")
+        }
         var sourceColumn = 0
 
         while file.framePosition < file.length {
+            try Task.checkCancellation()
             let remaining = Int(file.length - file.framePosition)
             let toRead = AVAudioFrameCount(min(chunkFrames, remaining))
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: toRead) else { break }
-            try file.read(into: buffer)
-            guard let channel = buffer.floatChannelData?[0] else { break }
+            chunkBuffer.frameLength = 0
+            try file.read(into: chunkBuffer, frameCount: toRead)
+            guard let channel = chunkBuffer.floatChannelData?[0] else { break }
 
-            let count = Int(buffer.frameLength)
+            let count = Int(chunkBuffer.frameLength)
+            guard count > 0 else { break }
             let samples = overlap + Array(UnsafeBufferPointer(start: channel, count: count))
 
             var offset = 0
@@ -135,11 +140,11 @@ final class SpectrogramImageRenderer {
                 var scale = 2.0 / Float(fftSize)
                 vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize))
 
+                let invRange = 1.0 / max(maxDb - minDb, 1e-6)
                 for y in 0..<targetHeight {
                     let bin = rowToBin[y]
-                    let db = 20 * log10(magnitudes[bin] + 1e-12) + calibrationOffset
-                    let dbfs = db - calibrationOffset
-                    let normalized = max(0, min(1, (dbfs - minDb) / max(maxDb - minDb, 1e-6)))
+                    let dbfs = 20 * log10(magnitudes[bin] + 1e-12)
+                    let normalized = max(0, min(1, (dbfs - minDb) * invRange))
                     let index = y * width + pixelX
                     if normalized > heatmap[index] {
                         heatmap[index] = normalized
@@ -157,7 +162,9 @@ final class SpectrogramImageRenderer {
     }
 
     private func makeUIImage(fromARGB argb: [UInt8], width: Int, height: Int) throws -> UIImage {
-        let provider = CGDataProvider(data: Data(argb) as CFData)!
+        guard let provider = CGDataProvider(data: Data(argb) as CFData) else {
+            throw MeasurementDataError.ioFailure("Bilddaten-Provider konnte nicht erstellt werden.")
+        }
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let cg = CGImage(
             width: width,

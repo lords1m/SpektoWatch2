@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: in_progress
   started: "2026-05-12"
-  current_milestone: M13
+  current_milestone: M20
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.

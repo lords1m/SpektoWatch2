@@ -42,6 +42,7 @@ enum MeasurementDataFormat {
     static let v3HeaderCRCOffset = 36
     static let v3SeekIndexOffsetField = 40
     static let v3TLVLengthOffset = 48
+    static let flagsOffset = 34
     static let frameCountOffset = 8
     static let flagHasFullFFT: UInt16 = 1 << 0
     static let flagCompressedFFT: UInt16 = 1 << 1

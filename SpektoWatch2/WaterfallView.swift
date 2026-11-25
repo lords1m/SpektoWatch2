@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import CoreGraphics
 
 // ============================================================================
 // MARK: - Turbo colormap LUT (matches HighEndSpectrogramShaders.metal)
@@ -13,7 +14,19 @@ import Combine
 /// old per-segment colorizer; the LUT keeps the hot path allocation-free.
 private enum TurboColormap {
     static let entries: [Color] = (0..<256).map { i in
-        sample(t: Float(i) / 255.0)
+        let (r, g, b) = sampleRGB(t: Float(i) / 255.0)
+        return Color(red: Double(r), green: Double(g), blue: Double(b))
+    }
+
+    /// Pre-computed 256-entry RGBA8 lookup table for CGImage heatmap blitting.
+    static let rgbaEntries: [(UInt8, UInt8, UInt8, UInt8)] = (0..<256).map { i in
+        let (r, g, b) = sampleRGB(t: Float(i) / 255.0)
+        return (
+            UInt8((r * 255.0).rounded()),
+            UInt8((g * 255.0).rounded()),
+            UInt8((b * 255.0).rounded()),
+            255
+        )
     }
 
     /// Looks up a normalized `t` in [0, 1] against the LUT.
@@ -22,7 +35,7 @@ private enum TurboColormap {
         return entries[Int(clamped * 255)]
     }
 
-    private static func sample(t: Float) -> Color {
+    private static func sampleRGB(t: Float) -> (Float, Float, Float) {
         let t2 = t * t
         let t3 = t2 * t
         let t4 = t3 * t
@@ -30,11 +43,7 @@ private enum TurboColormap {
         let r =  0.13572138 +  4.61539260 * t - 42.66032258 * t2 + 132.13108234 * t3 - 152.94239396 * t4 +  59.28637943 * t5
         let g =  0.09140261 +  2.19418839 * t +  4.84296658 * t2 -  14.18503333 * t3 +   4.27729857 * t4 +   2.82956604 * t5
         let b =  0.10667330 + 12.64194608 * t - 60.58204836 * t2 + 110.36276771 * t3 -  89.90310912 * t4 +  27.34824973 * t5
-        return Color(
-            red: Double(max(0, min(1, r))),
-            green: Double(max(0, min(1, g))),
-            blue: Double(max(0, min(1, b)))
-        )
+        return (max(0, min(1, r)), max(0, min(1, g)), max(0, min(1, b)))
     }
 }
 
@@ -763,9 +772,8 @@ struct WaterfallView: View {
     // ========================================================================
 
     /// Filled frequency×time heatmap. Each cell is coloured by its level via
-    /// the Turbo LUT — the standard, legible spectrogram surface. Rows/columns
-    /// are downsampled to ≈1 cell per pixel so the command count stays bounded
-    /// regardless of slice / bin count.
+    /// the Turbo LUT into a single RGBA8 `CGImage` and blitted in one draw call,
+    /// eliminating up to ~120,000 per-cell `Path` allocations per frame.
     private func drawHeatmap(plot: CGRect, context: inout GraphicsContext) {
         let slices = dataSet.slices
         guard let first = slices.first, !first.magnitudes.isEmpty else { return }
@@ -775,8 +783,10 @@ struct WaterfallView: View {
         let rows = min(slices.count, max(40, Int(plot.height)))
         let cols = min(binCount, max(64, Int(plot.width)))
         guard rows > 0, cols > 0 else { return }
-        let cellW = plot.width / CGFloat(cols)
-        let cellH = plot.height / CGFloat(rows)
+
+        let bytesPerRow = cols * 4
+        var pixels = [UInt8](repeating: 0, count: rows * bytesPerRow)
+        let lut = TurboColormap.rgbaEntries
 
         for row in 0..<rows {
             // Row 0 = top = oldest; last row = bottom = newest ("aktuell").
@@ -784,8 +794,8 @@ struct WaterfallView: View {
             let sliceIdx = min(slices.count - 1, max(0, Int((sliceFrac * Float(slices.count - 1)).rounded())))
             let mags = slices[sliceIdx].magnitudes
             guard !mags.isEmpty else { continue }
-            let y = plot.minY + CGFloat(row) * cellH
             let lastMagIndex = mags.count - 1
+            let rowOffset = row * bytesPerRow
 
             for col in 0..<cols {
                 // Column maps to the panned frequency window [pan, pan+1].
@@ -794,14 +804,35 @@ struct WaterfallView: View {
                 if binFracWindow < 0 || binFracWindow > 1 { continue }
                 let binIdx = min(lastMagIndex, max(0, Int((binFracWindow * Float(lastMagIndex)).rounded())))
                 let norm = normalizedLevel(mags[binIdx])
-                if norm <= 0.002 { continue }   // leave the near-floor black
-                let rect = CGRect(x: plot.minX + CGFloat(col) * cellW,
-                                  y: y,
-                                  width: cellW + 0.75,
-                                  height: cellH + 0.75)
-                context.fill(Path(rect), with: .color(TurboColormap.color(for: norm)))
+                if norm <= 0.002 { continue }   // leave the near-floor transparent/black
+                let lutIndex = Int(max(0, min(1, norm)) * 255)
+                let rgba = lut[lutIndex]
+                let px = rowOffset + col * 4
+                pixels[px]     = rgba.0
+                pixels[px + 1] = rgba.1
+                pixels[px + 2] = rgba.2
+                pixels[px + 3] = rgba.3
             }
         }
+
+        let data = Data(pixels)
+        guard let provider = CGDataProvider(data: data as CFData),
+              let cgImage = CGImage(
+                width: cols,
+                height: rows,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+              ) else {
+            return
+        }
+        context.draw(Image(decorative: cgImage, scale: 1.0), in: plot)
     }
 
     /// Frequency (vertical) and time (horizontal) gridlines for the heatmap.
@@ -1550,8 +1581,10 @@ private struct WaterfallFullscreenView: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 28))
                     .foregroundStyle(.white.opacity(0.9))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
-            .padding(12)
+            .padding(8)
             .accessibilityLabel("Wasserfall schließen")
         }
     }

@@ -54,8 +54,7 @@ final class PDFReportGenerator {
                   FileManager.default.fileExists(atPath: url.path) else { return nil }
             return try? MeasurementDataReader(fileURL: url)
         }()
-        let lineValues = try loadBroadbandValues(reader: measurementReader)
-        let bands = try loadAverageThirdOctaves(reader: measurementReader)
+        let (lineValues, bands) = try loadChartData(reader: measurementReader)
         try Task.checkCancellation()
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
@@ -105,15 +104,17 @@ final class PDFReportGenerator {
             if !photoURLs.isEmpty {
                 var pageIndex = 3
                 for photoURL in photoURLs {
-                    guard let image = UIImage(contentsOfFile: photoURL.path) else { continue }
-                    context.beginPage()
-                    let cg = context.cgContext
-                    drawSectionTitle("Angehängtes Foto", at: CGPoint(x: 40, y: 40), in: cg)
-                    let maxRect = CGRect(x: 40, y: 70, width: pageRect.width - 80, height: pageRect.height - 140)
-                    let fitted = AVMakeRect(aspectRatio: image.size, insideRect: maxRect)
-                    image.draw(in: fitted)
-                    drawFooter(in: cg, rect: pageRect, page: pageIndex)
-                    pageIndex += 1
+                    autoreleasepool {
+                        guard let image = UIImage(contentsOfFile: photoURL.path) else { return }
+                        context.beginPage()
+                        let cg = context.cgContext
+                        drawSectionTitle("Angehängtes Foto", at: CGPoint(x: 40, y: 40), in: cg)
+                        let maxRect = CGRect(x: 40, y: 70, width: pageRect.width - 80, height: pageRect.height - 140)
+                        let fitted = AVMakeRect(aspectRatio: image.size, insideRect: maxRect)
+                        image.draw(in: fitted)
+                        drawFooter(in: cg, rect: pageRect, page: pageIndex)
+                        pageIndex += 1
+                    }
                 }
             }
         }
@@ -151,7 +152,7 @@ final class PDFReportGenerator {
             "LAFmax": recording.peakLevel,
             "LCpeak": recording.peakLevel
         ]
-        if let reader, reader.frameCount > 0, let last = try? reader.readFrame(at: reader.frameCount - 1) {
+        if let reader, reader.frameCount > 0, let last = try? reader.readFrameSummary(at: reader.frameCount - 1) {
             for (idx, key) in reader.header.metricKeys.enumerated() where idx < last.metrics.count {
                 values[key] = last.metrics[idx]
             }
@@ -260,40 +261,22 @@ final class PDFReportGenerator {
         text.draw(in: rect, withAttributes: attributes)
     }
 
-    private func loadBroadbandValues(reader: MeasurementDataReader?) throws -> [Float] {
-        guard let reader, reader.frameCount > 0 else { return [recordingFallbackValue] }
-        var values: [Float] = []
-        values.reserveCapacity(reader.frameCount)
-        for index in 0..<reader.frameCount {
-            if index.isMultiple(of: 256) {
-                try Task.checkCancellation()
-            }
-            values.append(try reader.readFrame(at: index).broadbandLevel)
-        }
-        return values
-    }
-
-    private var recordingFallbackValue: Float { -120.0 }
-
-    /// Returns per-band time-averaged third-octave levels in dB.
+    /// Reads broadband level history and energy-averaged third-octave bands
+    /// in a single summary pass (`readFrameSummary`, skipping full FFT bins).
     ///
-    /// M15 task-6: averaging happens in the linear-power domain
-    /// (`10^(dB/10)`), then converts back via `10·log10(mean)` —
-    /// energy-correct Leq per band. The previous implementation summed
-    /// dB values arithmetically and divided by frame count, which
-    /// understates the time-average for signals with dynamic range
-    /// (e.g. a `−20` dB / `−80` dB two-frame fixture: arithmetic mean
-    /// `−50` dB, energy mean ≈ `−23` dB).
-    ///
-    /// A missing band sample (sentinel `-120` dB, ~1e-12 linear power)
-    /// contributes effectively zero to the linear sum and stays a
-    /// floor in the average.
-    private func loadAverageThirdOctaves(reader: MeasurementDataReader?) throws -> (z: [Float], a: [Float], c: [Float]) {
+    /// M15 task-6: averaging happens in the linear-power domain (`10^(dB/10)`),
+    /// then converts back via `10·log10(mean)` — energy-correct Leq per band.
+    private func loadChartData(
+        reader: MeasurementDataReader?
+    ) throws -> (lineValues: [Float], bands: (z: [Float], a: [Float], c: [Float])) {
         let count = MeasurementDataFormat.thirdOctaveBandCount
         guard let reader, reader.frameCount > 0 else {
             let empty = [Float](repeating: -120.0, count: count)
-            return (empty, empty, empty)
+            return ([recordingFallbackValue], (empty, empty, empty))
         }
+
+        var lineValues: [Float] = []
+        lineValues.reserveCapacity(reader.frameCount)
 
         // Accumulate in Double-precision linear power; dB values can span
         // ~10 orders of magnitude per band, more than single-precision can
@@ -306,7 +289,8 @@ final class PDFReportGenerator {
             if index.isMultiple(of: 256) {
                 try Task.checkCancellation()
             }
-            let frame = try reader.readFrame(at: index)
+            let frame = try reader.readFrameSummary(at: index)
+            lineValues.append(frame.broadbandLevel)
             for i in 0..<count {
                 zPower[i] += pow(10.0, Double(frame.thirdOctaveZ[i]) / 10.0)
                 aPower[i] += pow(10.0, Double(frame.thirdOctaveA[i]) / 10.0)
@@ -324,8 +308,10 @@ final class PDFReportGenerator {
             a[i] = energyMeanDB(sum: aPower[i], divider: divider, floorDB: floorDB)
             c[i] = energyMeanDB(sum: cPower[i], divider: divider, floorDB: floorDB)
         }
-        return (z, a, c)
+        return (lineValues, (z, a, c))
     }
+
+    private var recordingFallbackValue: Float { -120.0 }
 
     /// Converts a linear-power running sum into a time-averaged dB level.
     /// Clamps to `floorDB` when the mean is non-positive (entirely sentinel

@@ -9,12 +9,14 @@ tasks, progress, and handoff reports in plain files under `agent/`.
 Start every agent session by reading:
 
 1. `AGENT.md`
-2. `agent/progress.yaml`
-3. `agent/design/requirements.md`
-4. `agent/design/project-draft.md`
-5. `agent/design/spektowatch-field-engineering-design.md`
-6. Any milestone or task file referenced by `agent/progress.yaml`
-7. `agent/screenshots/INDEX.md` — visual ground truth for the current UI
+2. **`agent/STATE.md`** — single source of truth for what is already done, deferred, and next
+3. Run `git log -n 15 --oneline` to confirm recent commits before planning or editing
+4. `agent/progress.yaml`
+5. `agent/design/requirements.md`
+6. `agent/design/project-draft.md`
+7. `agent/design/spektowatch-field-engineering-design.md`
+8. Any milestone or task file referenced by `agent/progress.yaml`
+9. `agent/screenshots/INDEX.md` (when a refreshed local catalog is present)
 
 Then run:
 
@@ -23,6 +25,12 @@ Then run:
 ```
 
 Use `./agent/scripts/acp-validate` before handing work back.
+
+## Preventing Duplicate Work
+
+- **Verify before implementing:** Check `agent/STATE.md`, `git log -n 15 --oneline`, and the actual Swift source before executing any task from a milestone or plan document.
+- **Keep `agent/STATE.md` current:** Update `agent/STATE.md` (and `agent/progress.yaml` when milestone state changes) in the **same commit** as completed work.
+- **Do not re-run archived plans:** Plans marked `COMPLETED / ARCHIVED` (such as `VERBESSERUNGSPLAN.md`) are historical records only.
 
 ## UI Screenshots
 

@@ -17,16 +17,17 @@ final class CSVExporter {
         }
 
         stream.open()
-        defer { stream.close() }
 
         // PE-2: remove the partially-written CSV on cancellation or any throw
         // past stream-open so /tmp doesn't accumulate orphan exports.
+        // Register removeItem BEFORE stream.close so LIFO defer closes first.
         var exportSucceeded = false
         defer {
             if !exportSucceeded {
                 try? FileManager.default.removeItem(at: outputURL)
             }
         }
+        defer { stream.close() }
 
         // PE-3: CSV uses `;` field separator and `.` decimal (C locale).
         // Decision recorded 2026-05-24 (M15 task-10): keep C-locale numeric
@@ -34,8 +35,12 @@ final class CSVExporter {
         // file (R, Python, MATLAB). Excel-DE imports via the semicolon
         // delimiter without locale conversion of the values themselves.
 
-        let metrics = selectedMetrics.filter { reader.header.metricKeys.contains($0) }
-        var header = ["Zeit[s]"] + metrics + ["Breitband[dB]"]
+        let keyToIndex = Dictionary(uniqueKeysWithValues: reader.header.metricKeys.enumerated().map { ($1, $0) })
+        let metricPairs: [(key: String, index: Int)] = selectedMetrics.compactMap { key in
+            guard let idx = keyToIndex[key] else { return nil }
+            return (key, idx)
+        }
+        var header = ["Zeit[s]"] + metricPairs.map(\.key) + ["Breitband[dB]"]
         if includeThirdOctaves {
             header += Self.thirdOctaveCenters.map { "Z_\(Self.bandLabel($0))" }
             header += Self.thirdOctaveCenters.map { "A_\(Self.bandLabel($0))" }
@@ -47,10 +52,12 @@ final class CSVExporter {
             if index.isMultiple(of: 256) {
                 try Task.checkCancellation()
             }
-            let frame = try reader.readFrame(at: index)
-            var values: [String] = [Self.format(frame.timestamp)]
-            for key in metrics {
-                let value = frame.value(forMetric: key, using: reader.header.metricKeys) ?? -120.0
+            let frame = try reader.readFrameSummary(at: index)
+            var values: [String] = []
+            values.reserveCapacity(2 + metricPairs.count + (includeThirdOctaves ? 93 : 0))
+            values.append(Self.format(frame.timestamp))
+            for pair in metricPairs {
+                let value = pair.index < frame.metrics.count ? frame.metrics[pair.index] : -120.0
                 values.append(Self.format(value))
             }
             values.append(Self.format(frame.broadbandLevel))
@@ -68,13 +75,19 @@ final class CSVExporter {
     }
 
     private func writeLine(_ line: String, to stream: OutputStream) throws {
-        guard let data = (line + "\n").data(using: .utf8) else { return }
-        let result = data.withUnsafeBytes { bytes in
-            guard let ptr = bytes.bindMemory(to: UInt8.self).baseAddress else { return -1 }
-            return stream.write(ptr, maxLength: data.count)
-        }
-        if result < 0 {
-            throw MeasurementDataError.ioFailure(stream.streamError?.localizedDescription ?? "Unbekannter Stream-Fehler")
+        guard let data = (line + "\n").data(using: .utf8), !data.isEmpty else { return }
+        try data.withUnsafeBytes { bytes in
+            guard let base = bytes.bindMemory(to: UInt8.self).baseAddress else {
+                throw MeasurementDataError.ioFailure("Leerer Ausgabepuffer.")
+            }
+            var totalWritten = 0
+            while totalWritten < data.count {
+                let written = stream.write(base.advanced(by: totalWritten), maxLength: data.count - totalWritten)
+                if written <= 0 {
+                    throw MeasurementDataError.ioFailure(stream.streamError?.localizedDescription ?? "Unbekannter Stream-Fehler")
+                }
+                totalWritten += written
+            }
         }
     }
 
@@ -96,7 +109,10 @@ final class JSONMeasurementExporter {
         frames.reserveCapacity(reader.frameCount)
 
         for index in 0..<reader.frameCount {
-            let frame = try reader.readFrame(at: index)
+            if index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
+            let frame = try reader.readFrameSummary(at: index)
             var metrics: [String: Float] = [:]
             for (metricIndex, key) in reader.header.metricKeys.enumerated() where metricIndex < frame.metrics.count {
                 metrics[key] = frame.metrics[metricIndex]

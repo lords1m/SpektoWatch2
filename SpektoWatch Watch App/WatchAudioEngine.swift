@@ -102,7 +102,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// starts so the first audio frames are captured; the audio thread feeds it
     /// per buffer and `stopRecording` finalizes + registers it in the catalog.
     /// `nil` in companion/wearableMic modes where the phone owns storage.
-    private var activeRecordingSession: WatchRecordingSession?
+    private let recordingSessionLock = OSAllocatedUnfairLock<WatchRecordingSession?>(initialState: nil)
 
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate).
     private let binFrequencies: [Float]
@@ -267,12 +267,16 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     }
 
     private func applySpectrogramResolution(_ resolution: SpectrogramResolution) {
-        displayVisualBinCount = resolution.watchDisplayBinCount
         spectrogramDisplayBinCount = resolution.watchDisplayBinCount
         spectrogramHistoryFrameCount = resolution.watchHistoryFrameCount
-        displayVisualMagnitudes = [Float](repeating: -180.0, count: displayVisualBinCount)
+        let newBinCount = resolution.watchDisplayBinCount
         let nyquist = Float(sampleRate / 2.0)
-        displayVisualFrequencies = Self.makeDisplayFrequencies(count: displayVisualBinCount, nyquist: nyquist)
+        visualDCTQueue.async { [weak self] in
+            guard let self else { return }
+            self.displayVisualBinCount = newBinCount
+            self.displayVisualMagnitudes = [Float](repeating: -180.0, count: newBinCount)
+            self.displayVisualFrequencies = Self.makeDisplayFrequencies(count: newBinCount, nyquist: nyquist)
+        }
     }
 
     @objc private func handleMeasurementSourcePreferenceChanged(notification: Notification) {
@@ -485,7 +489,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             if recording, prefersWatchLocalRecording {
                 let fps = Float(tapFormat.sampleRate) / Float(bufferSize)
                 do {
-                    activeRecordingSession = try WatchRecordingSession(
+                    let newSession = try WatchRecordingSession(
                         format: tapFormat,
                         directory: WatchRecordingStore.shared.directory,
                         weighting: "A",
@@ -493,9 +497,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                         fftBlockSize: fftSize,
                         calibrationOffset: watchMicCalibrationOffset
                     )
+                    recordingSessionLock.withLock { $0 = newSession }
                 } catch {
                     print("[WatchAudioEngine] failed to open recording session: \(error)")
-                    activeRecordingSession = nil
+                    recordingSessionLock.withLock { $0 = nil }
                 }
             }
 
@@ -513,9 +518,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             print("[WatchAudioEngine] Mic capture active (recording=\(recording), tap \(tapFormat.sampleRate) Hz)")
         } catch {
             print("Watch audio engine start error: \(error)")
+            teardownMicCaptureOnMain(clearLiveDisplay: false)
             if recording {
                 isRecording = false
-                activeRecordingSession = nil
+                recordingSessionLock.withLock { $0 = nil }
                 transition(to: prefersWatchLocalRecording ? .standalone : .companion)
             } else {
                 isLiveMonitoring = false
@@ -532,6 +538,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         micTapFormat = nil
         session?.invalidate()
         session = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         if clearLiveDisplay {
             currentSpectrogramData = nil
             liveData = nil
@@ -546,8 +553,12 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         session?.invalidate()
         session = nil
 
-        if let recordingSession = activeRecordingSession {
-            activeRecordingSession = nil
+        let takenSession: WatchRecordingSession? = recordingSessionLock.withLock { current in
+            let s = current
+            current = nil
+            return s
+        }
+        if let recordingSession = takenSession {
             let title = WatchAudioEngine.defaultRecordingTitle(for: recordingSession.startDate)
             let metadata = recordingSession.finalize(title: title)
             WatchRecordingStore.shared.register(metadata)
@@ -749,7 +760,10 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         let levelSPL = levels["LAF"] ?? -120.0
 
         // Durable standalone capture: persist this buffer's audio + metrics.
-        if let session = activeRecordingSession {
+        // Hold the lock only across the session check + writes so stopRecording's
+        // `finalize` never races with an in-flight audio buffer.
+        recordingSessionLock.withLockUnchecked { session in
+            guard let session else { return }
             session.writeBuffer(buffer)
             session.writeMeasurementFrame(
                 levels: levels,
@@ -1110,7 +1124,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     /// if the `WKExtendedRuntimeSession` is missed or rejected.
     func handleSceneBackgrounded() {
         if isRecording {
-            if let session, session.state == .running {
+            if let session, session.state == .running || session.state == .notStarted {
                 return
             }
             stopRecording()

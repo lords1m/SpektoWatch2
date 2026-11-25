@@ -55,10 +55,12 @@ final class AudioCaptureSession {
         if UITestRuntime.useTestAudio { return }
         #endif
         let audioSession = AVAudioSession.sharedInstance()
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
             do {
                 try audioSession.setCategory(.record, mode: .measurement, options: [])
-                try audioSession.setPreferredIOBufferDuration(Double(self.tapBlockSize) / self.nominalSampleRate)
+                let rate = max(1.0, self.nominalSampleRate)
+                try audioSession.setPreferredIOBufferDuration(Double(self.tapBlockSize) / rate)
                 try audioSession.setActive(true)
             } catch {
                 Logger.audioEngine.warning("Prewarm failed: \(error.localizedDescription)")
@@ -83,7 +85,8 @@ final class AudioCaptureSession {
         let audioSession = AVAudioSession.sharedInstance()
 
         try audioSession.setCategory(.record, mode: .measurement, options: [])
-        try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / nominalSampleRate)
+        let rate = max(1.0, nominalSampleRate)
+        try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / rate)
 
         if audioSession.isInputGainSettable {
             try audioSession.setInputGain(1.0)

@@ -88,11 +88,36 @@ final class WatchRecordingStore: ObservableObject {
             let decoded = try JSONDecoder().decode([WatchRecordingMetadata].self, from: data)
             // Drop catalog entries whose audio file vanished (e.g. partial write
             // before a crash) so the UI never references missing files.
-            recordings = decoded
+            let surviving = decoded
                 .filter { fileManager.fileExists(atPath: directory.appendingPathComponent($0.audioFileName).path) }
                 .sorted { $0.createdAt > $1.createdAt }
+            recordings = surviving
+            if surviving.count != decoded.count {
+                saveCatalog()
+            }
+            cleanupOrphanedFiles()
         } catch {
             log.error("catalog decode failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Removes `.caf` and `.swr` files in `directory` that are not referenced
+    /// by any catalog entry (e.g. left behind after a crash or failed start).
+    private func cleanupOrphanedFiles() {
+        var referenced = Set<String>()
+        for rec in recordings {
+            referenced.insert(rec.audioFileName)
+            referenced.insert(rec.measurementFileName)
+        }
+        guard let contents = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for url in contents {
+            let ext = url.pathExtension.lowercased()
+            guard ext == "caf" || ext == "swr" else { continue }
+            if !referenced.contains(url.lastPathComponent) {
+                try? fileManager.removeItem(at: url)
+            }
         }
     }
 

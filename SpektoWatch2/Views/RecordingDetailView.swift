@@ -25,7 +25,7 @@ struct RecordingDetailView: View {
     // The second @StateObject vizAudioEngine was removed: constructing a new
     // AudioEngine per detail view allocated a full second DSP pipeline including
     // WatchConnectivityManager, BandstopFilterManager, and all @Published state.
-    private var audioEngine: AudioEngine { services.audioEngine! }
+    private var audioEngine: AudioEngine? { services.audioEngine }
 
     @State private var recording: Recording
     @State private var selectedTab: DetailTab = .overview
@@ -66,6 +66,7 @@ struct RecordingDetailView: View {
     @State private var exportAlertTitle = "Export fehlgeschlagen"
     @State private var isExportingSpectrogram = false
     @State private var isExportingWaterfall = false
+    @State private var waterfallExportTask: Task<Void, Never>?
     @State private var spectrogramExportError: String?
     @State private var showSpectrogramExportError = false
     @State private var autoFitToastText: String?
@@ -167,7 +168,9 @@ struct RecordingDetailView: View {
 
             // PlaybackAnalyzer suspends the live mic engine and routes
             // playback samples through the shared pipeline (M14/R1).
-            playbackAnalyzer.start(engine: audioEngine, recording: recording)
+            if let audioEngine {
+                playbackAnalyzer.start(engine: audioEngine, recording: recording)
+            }
             audioPlayer.onAudioSamples = { [weak playbackAnalyzer] samples, sampleRate in
                 playbackAnalyzer?.processSamples(samples, sampleRate: sampleRate)
             }
@@ -202,6 +205,8 @@ struct RecordingDetailView: View {
             waterfallController.cancel()
             spectrogramExportTask?.cancel()
             spectrogramExportTask = nil
+            waterfallExportTask?.cancel()
+            waterfallExportTask = nil
             isExportingWaterfall = false
             exportTask?.cancel()
             exportTask = nil
@@ -516,7 +521,7 @@ struct RecordingDetailView: View {
     @ViewBuilder
     private var playbackWidgetsCard: some View {
         let widgets = playbackWidgets.filter { $0.type != .spectrogram }
-        if !widgets.isEmpty {
+        if !widgets.isEmpty, let audioEngine {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Widgets")
                     .font(.headline)
@@ -950,7 +955,8 @@ struct RecordingDetailView: View {
         }
         let recordingID = recording.id.uuidString
         isExportingWaterfall = true
-        Task.detached(priority: .userInitiated) {
+        waterfallExportTask?.cancel()
+        waterfallExportTask = Task.detached(priority: .userInitiated) {
             let result: Result<URL, Error> = Result {
                 try WaterfallImageExporter().export(dataSet: dataSet, recordingID: recordingID)
             }

@@ -511,10 +511,13 @@ class HighEndSpectrogramAdapter: MTKView {
             }
             return Self.hashFrequencies(freqs)
         }()
-        if mappingCache == nil
-            || cachedInputSize != magnitudes.count
-            || cachedInputFrequenciesHash != incomingHash {
-            precomputeMapping(inputSize: magnitudes.count, inputFrequencies: inputFrequencies)
+        let cache = stateLock.withLockUnchecked { () -> [BinMapping]? in
+            if mappingCache == nil
+                || cachedInputSize != magnitudes.count
+                || cachedInputFrequenciesHash != incomingHash {
+                precomputeMapping(inputSize: magnitudes.count, inputFrequencies: inputFrequencies)
+            }
+            return mappingCache
         }
 
         // Ensure reusable buffer
@@ -531,7 +534,7 @@ class HighEndSpectrogramAdapter: MTKView {
             reusableInterpolatedColumnData = [Float](repeating: 0, count: frequencyBins)
         }
 
-        guard let cache = mappingCache else { return }
+        guard let cache else { return }
 
         let minDBFS = displayMinDBFS
         let maxDBFS = displayMaxDBFS
@@ -929,22 +932,32 @@ class HighEndSpectrogramAdapter: MTKView {
     /// Switches the frequency axis between log and linear. Invalidates the
     /// frequency-mapping cache so the next frame rebuilds the bin layout.
     func setFrequencyScale(_ scale: SpectrogramFrequencyScale) {
-        guard frequencyScale != scale else { return }
-        frequencyScale = scale
-        invalidateMappingCache()
+        stateLock.withLockUnchecked {
+            guard frequencyScale != scale else { return }
+            frequencyScale = scale
+            invalidateMappingCacheLocked()
+        }
     }
 
     /// Sets the displayed frequency range (Hz). No-op if unchanged.
     func setFrequencyRange(min lo: Float, max hi: Float) {
         let clampedLo = max(1.0, min(lo, hi - 1.0))
         let clampedHi = max(clampedLo + 1.0, hi)
-        guard abs(clampedLo - minFrequency) > 0.01 || abs(clampedHi - maxFrequency) > 0.01 else { return }
-        minFrequency = clampedLo
-        maxFrequency = clampedHi
-        invalidateMappingCache()
+        stateLock.withLockUnchecked {
+            guard abs(clampedLo - minFrequency) > 0.01 || abs(clampedHi - maxFrequency) > 0.01 else { return }
+            minFrequency = clampedLo
+            maxFrequency = clampedHi
+            invalidateMappingCacheLocked()
+        }
     }
 
     private func invalidateMappingCache() {
+        stateLock.withLockUnchecked {
+            invalidateMappingCacheLocked()
+        }
+    }
+
+    private func invalidateMappingCacheLocked() {
         mappingCache = nil
         cachedInputSize = 0
         cachedInputFrequencies = nil
@@ -987,11 +1000,10 @@ class HighEndSpectrogramAdapter: MTKView {
     func setFrequencyBinCount(_ count: Int) {
         let clamped = max(256, min(2048, count))
         guard clamped != frequencyBins else { return }
-        frequencyBins = clamped
-        mappingCache = nil
-        cachedInputSize = 0
-        cachedInputFrequencies = nil
-        cachedInputFrequenciesHash = 0
+        stateLock.withLockUnchecked {
+            frequencyBins = clamped
+            invalidateMappingCacheLocked()
+        }
         reusableColumnData = []
         reusableSmoothedColumnData = []
         previousColumnData = []
