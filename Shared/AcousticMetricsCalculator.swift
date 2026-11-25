@@ -11,7 +11,8 @@ import os
 struct MetricsResult {
     /// Broadband acoustic levels (LAF, LAS, LAeq, PHON, SONE, …).
     var levels: [String: Float]
-    /// Per-band Leq (31 third-octave, Z-weighted), EMA-smoothed in linear power.
+    /// Per-band Leq (31 third-octave, Z-weighted): energy integrated over the
+    /// measurement time from the unsmoothed bands (MC-4).
     /// Empty if no Z-band data was passed on this call.
     var bandLeqZ: [Float]
     /// Per-band Leq (31 third-octave, A-weighted). Empty when A-weighting is not active.
@@ -99,20 +100,26 @@ class AcousticMetricsCalculator: @unchecked Sendable {
     private var lastTaktTime: TimeInterval = 0
     private var taktValues: [Float] = []
 
-    // MARK: - Per-band Leq EMA
+    // MARK: - Per-band Leq (MC-4)
 
-    /// EMA coefficient for per-band Leq smoothing (~50-sample warm-up at 15 Hz).
-    /// Default 0.02; exposed as a `let` so it can be read by tests without
-    /// adding a full accessor method.
-    let leqBandAlpha: Float = 0.02
+    /// Per-band energy integrals `Σ 10^(L/10)·dt` (linear power × seconds)
+    /// and the integrated time per weighting. Leq = 10·log10(E/T) — a true
+    /// equivalent level, independent of hop size or display smoothing
+    /// (previously an EMA with a fixed 0.02 per-frame coefficient on
+    /// display-smoothed bands). Protected by `lock`.
+    private var bandEnergyZ: [Double] = []
+    private var bandEnergyA: [Double] = []
+    private var bandEnergyC: [Double] = []
+    private var bandTimeZ: Double = 0
+    private var bandTimeA: Double = 0
+    private var bandTimeC: Double = 0
 
-    /// Per-band Leq EMA accumulators stored in **linear power** domain.
-    /// 31 entries each (third-octave centres 20 Hz … 12 500 Hz).
-    /// Protected by `lock`. Initialised lazily on the first frame that
-    /// includes band data — no allocation on class init.
-    private var bandLeqLinearZ: [Float] = []
-    private var bandLeqLinearA: [Float] = []
-    private var bandLeqLinearC: [Float] = []
+    /// RT-5: percentile scans over the 2701-bin histogram run every
+    /// `percentileInterval` frames, not every frame.
+    private let percentileInterval = 16
+    private var framesSincePercentile = Int.max / 2
+    private var cachedLAF5: Float = -120.0
+    private var cachedLAF95: Float = -120.0
 
     // MARK: - Initialization
 
@@ -158,29 +165,37 @@ class AcousticMetricsCalculator: @unchecked Sendable {
         bandsZ: [Float] = [],
         bandsA: [Float] = [],
         bandsC: [Float] = [],
-        loudnessReferenceKey: String = "LAF"
+        loudnessReferenceKey: String = "LZF",
+        timeDomain: TimeDomainLevelMeter.Snapshot? = nil
     ) -> MetricsResult {
 
         var result = lock.withLockUnchecked { () -> MetricsResult in
-            // Calculate exponential averaging coefficients
-            let alphaFast = 1.0 - exp(-dt / TimeWeighting.fast.timeConstant)
-            let alphaSlow = 1.0 - exp(-dt / TimeWeighting.slow.timeConstant)
-
-            // Update exponentially averaged energies
-            lafEnergy = (1.0 - alphaFast) * lafEnergy + alphaFast * energyA
-            lasEnergy = (1.0 - alphaSlow) * lasEnergy + alphaSlow * energyA
-
-            lcfEnergy = (1.0 - alphaFast) * lcfEnergy + alphaFast * energyC
-            lcsEnergy = (1.0 - alphaSlow) * lcsEnergy + alphaSlow * energyC
-
-            lzfEnergy = (1.0 - alphaFast) * lzfEnergy + alphaFast * energyZ
-            lzsEnergy = (1.0 - alphaSlow) * lzsEnergy + alphaSlow * energyZ
-
-            // Time-integrated LAeq (A-weighted frame energy × hop duration).
             let frameDt = Double(max(dt, 0))
-            if frameDt > 0 {
-                laeqEnergyIntegral += Double(energyA) * frameDt
-                laeqTotalTime += frameDt
+            if let td = timeDomain {
+                // MC-3/MC-5: broadband levels come from the per-sample
+                // time-domain meter; the FFT frame energies are ignored.
+                lafEnergy = Float(td.lafEnergy); lasEnergy = Float(td.lasEnergy)
+                lcfEnergy = Float(td.lcfEnergy); lcsEnergy = Float(td.lcsEnergy)
+                lzfEnergy = Float(td.lzfEnergy); lzsEnergy = Float(td.lzsEnergy)
+                laeqEnergyIntegral = td.laeqEnergy * td.elapsed
+                laeqTotalTime = td.elapsed
+                lafMax = TimeDomainLevelMeter.Snapshot.dB(td.lafMaxEnergy)
+                lcPeakHold = TimeDomainLevelMeter.Snapshot.dB(td.lcPeakEnergy)
+            } else {
+                // Legacy frame-energy path (stored-data tooling / tests).
+                let alphaFast = 1.0 - exp(-dt / TimeWeighting.fast.timeConstant)
+                let alphaSlow = 1.0 - exp(-dt / TimeWeighting.slow.timeConstant)
+                lafEnergy = (1.0 - alphaFast) * lafEnergy + alphaFast * energyA
+                lasEnergy = (1.0 - alphaSlow) * lasEnergy + alphaSlow * energyA
+                lcfEnergy = (1.0 - alphaFast) * lcfEnergy + alphaFast * energyC
+                lcsEnergy = (1.0 - alphaSlow) * lcsEnergy + alphaSlow * energyC
+                lzfEnergy = (1.0 - alphaFast) * lzfEnergy + alphaFast * energyZ
+                lzsEnergy = (1.0 - alphaSlow) * lzsEnergy + alphaSlow * energyZ
+                if frameDt > 0 {
+                    laeqEnergyIntegral += Double(energyA) * frameDt
+                    laeqTotalTime += frameDt
+                }
+                lcPeakHold = max(lcPeakHold, peakLevel)
             }
 
             // Calculate broadband level (LAF)
@@ -189,9 +204,6 @@ class AcousticMetricsCalculator: @unchecked Sendable {
             // Update min/max
             lafMin = min(lafMin, broadbandLevel)
             lafMax = max(lafMax, broadbandLevel)
-
-            // Update LCpeak hold
-            lcPeakHold = max(lcPeakHold, peakLevel)
 
             // Update histogram — clamp to valid range so no sample is silently lost.
             let histIndex = Int((broadbandLevel - histMinDB) * 10.0)
@@ -224,10 +236,16 @@ class AcousticMetricsCalculator: @unchecked Sendable {
                 "LAFT5": currentTaktMax,
             ]
 
-            // Add percentiles if we have enough data
+            // Percentiles: refreshed every `percentileInterval` frames.
             if lafTotalCounts > 0 {
-                levels["LAF5"] = calculatePercentile_locked(targetPercentage: 0.05)
-                levels["LAF95"] = calculatePercentile_locked(targetPercentage: 0.95)
+                framesSincePercentile += 1
+                if framesSincePercentile >= percentileInterval {
+                    framesSincePercentile = 0
+                    cachedLAF5 = calculatePercentile_locked(targetPercentage: 0.05)
+                    cachedLAF95 = calculatePercentile_locked(targetPercentage: 0.95)
+                }
+                levels["LAF5"] = cachedLAF5
+                levels["LAF95"] = cachedLAF95
             } else {
                 levels["LAF5"] = -120.0
                 levels["LAF95"] = -120.0
@@ -241,42 +259,26 @@ class AcousticMetricsCalculator: @unchecked Sendable {
                 levels["LAFTeq"] = currentTaktMax > -1000 ? currentTaktMax : -120.0
             }
 
-            // Per-band Leq EMA — linear power domain.
-            // First call seeds the buffer directly; subsequent calls apply EMA.
-            // Skipped when the caller passes an empty array (weighting not active).
-            let keep = 1.0 - leqBandAlpha
-
-            if !bandsZ.isEmpty {
-                if bandLeqLinearZ.count != bandsZ.count {
-                    bandLeqLinearZ = bandsZ.map { pow(10.0, $0 / 10.0) }
-                } else {
-                    for i in 0..<bandsZ.count {
-                        bandLeqLinearZ[i] = keep * bandLeqLinearZ[i] + leqBandAlpha * pow(10.0, bandsZ[i] / 10.0)
-                    }
+            // Per-band Leq (MC-4): integrate unsmoothed band energy.
+            func integrate(_ bands: [Float], into energy: inout [Double], time: inout Double) -> [Float] {
+                guard !bands.isEmpty else { return [] }
+                if energy.count != bands.count {
+                    energy = [Double](repeating: 0, count: bands.count)
+                    time = 0
                 }
-            }
-            if !bandsA.isEmpty {
-                if bandLeqLinearA.count != bandsA.count {
-                    bandLeqLinearA = bandsA.map { pow(10.0, $0 / 10.0) }
-                } else {
-                    for i in 0..<bandsA.count {
-                        bandLeqLinearA[i] = keep * bandLeqLinearA[i] + leqBandAlpha * pow(10.0, bandsA[i] / 10.0)
+                let step = frameDt > 0 ? frameDt : 0
+                if step > 0 {
+                    for i in 0..<bands.count where bands[i].isFinite {
+                        energy[i] += pow(10.0, Double(bands[i]) / 10.0) * step
                     }
+                    time += step
                 }
+                guard time > 0 else { return bands }
+                return energy.map { Float(10.0 * log10(max($0 / time, 1e-12))) }
             }
-            if !bandsC.isEmpty {
-                if bandLeqLinearC.count != bandsC.count {
-                    bandLeqLinearC = bandsC.map { pow(10.0, $0 / 10.0) }
-                } else {
-                    for i in 0..<bandsC.count {
-                        bandLeqLinearC[i] = keep * bandLeqLinearC[i] + leqBandAlpha * pow(10.0, bandsC[i] / 10.0)
-                    }
-                }
-            }
-
-            let outLeqZ = bandLeqLinearZ.map { 10.0 * log10(max($0, 1e-12)) }
-            let outLeqA = bandLeqLinearA.map { 10.0 * log10(max($0, 1e-12)) }
-            let outLeqC = bandLeqLinearC.map { 10.0 * log10(max($0, 1e-12)) }
+            let outLeqZ = integrate(bandsZ, into: &bandEnergyZ, time: &bandTimeZ)
+            let outLeqA = integrate(bandsA, into: &bandEnergyA, time: &bandTimeA)
+            let outLeqC = integrate(bandsC, into: &bandEnergyC, time: &bandTimeC)
 
             return MetricsResult(levels: levels,
                                  bandLeqZ: outLeqZ,
@@ -289,9 +291,12 @@ class AcousticMetricsCalculator: @unchecked Sendable {
         // allocation occurs on the audio render thread.
         if !frequencies.isEmpty && !magnitudes.isEmpty {
             let freq = LoudnessCalculator.dominantFrequency(frequencies: frequencies, magnitudes: magnitudes)
+            // MC-6: ISO 226 contours already model the ear's frequency
+            // response — feed an unweighted (Z) level, not LAF (double
+            // equal-loudness correction).
             let spl = Double(
                 result.levels[loudnessReferenceKey]
-                    ?? result.levels["LAF"]
+                    ?? result.levels["LZF"]
                     ?? -120.0
             )
             let phonVal = LoudnessCalculator.phon(spl: spl, frequency: freq)
@@ -328,9 +333,15 @@ class AcousticMetricsCalculator: @unchecked Sendable {
             lastTaktTime = 0
             taktValues = []
 
-            bandLeqLinearZ = []
-            bandLeqLinearA = []
-            bandLeqLinearC = []
+            bandEnergyZ = []
+            bandEnergyA = []
+            bandEnergyC = []
+            bandTimeZ = 0
+            bandTimeA = 0
+            bandTimeC = 0
+            framesSincePercentile = Int.max / 2
+            cachedLAF5 = -120.0
+            cachedLAF95 = -120.0
         }
     }
 

@@ -86,17 +86,17 @@ Severity: **H** high · **M** medium · **L** low. ✔ = re-verified by hand.
 
 | ID | Sev | Location | Defect |
 |---|---|---|---|
-| MC-1 | H | `SampleRingBuffer.swift:72`, `AudioEngine.swift:~1490` | Hop > FFT size: read offset clamped, frames every ~FFT samples while `dt = hop/fs` → LAF Fast up to 8× too fast. |
-| MC-2 | M | `ProcessingPipeline.swift:171-182`, `SpectrumBandAggregator.swift:168` | No window power (ENBW) normalisation → Hann→Rect +4.3 dB, Hann→FlatTop −3.3 dB; bands ~1.8 dB high vs broadband. |
-| MC-3 | M | `ProcessingPipeline.swift:192-201` | LCpeak = max C-weighted bin, not time-domain peak → can read below LCF. |
-| MC-4 | M | `AcousticMetricsCalculator.swift:107, 254`, `SpectrogramProcessor.swift:239-256` | Band "Leq" is EMA with fixed 0.02/frame on display-smoothed dB bands → hop- and setting-dependent; persisted to files. |
-| MC-5 | M | `AcousticMetricsCalculator.swift:164-201` | Broadband energy averaged over whole FFT window (≤372 ms) before 125 ms time weighting → Fast smeared, LAFmax under-reads. |
-| MC-6 | L | `AcousticMetricsCalculator.swift:290`, `Shared/LoudnessCalculator.swift:104` | Phon fed A-weighted level (double equal-loudness correction); >90 phon extrapolated from zero. |
-| MC-7 | M | `WatchAudioEngine.swift:55, 676, 742` | Watch: fs hard-coded 44.1 kHz; only first 2048 of ~4096 frames analysed; `dt` half real time. |
-| MC-8 | M | `Masking/TriggerSpectrumAccumulator.swift:55, 92-107`, `SpectralNoveltyDetector.swift` | Assumes 86 frames/s; `captureEnd = writeHead + postFrames` reads unwritten slots. |
-| MC-9 | L | `Masking/MaskerSuggestionEngine.swift` | `min(totalRMSdB, -10)` on dB SPL → suggested volume constant −10 dBFS. |
-| MC-10 ✔ | L | `Masking/MaskingPreviewPlayer.swift:120-123` | `bandwidth = 1/q` (wrong Q→octave); `bands.count..<3` traps for >3 bands. |
-| MC-11 | L | `LAFGraphView.swift:33-87` | Buffer not resized on 44.1→48 kHz → time axis ~8% off (plus per-frame array copy, double publish). |
+| MC-1 | H | `SampleRingBuffer.swift:72`, `AudioEngine.swift:~1490` | Hop > FFT size: read offset clamped, frames every ~FFT samples while `dt = hop/fs` → LAF Fast up to 8× too fast. → fixed (M22 task-6, pending macOS verification) |
+| MC-2 | M | `ProcessingPipeline.swift:171-182`, `SpectrumBandAggregator.swift:168` | No window power (ENBW) normalisation → Hann→Rect +4.3 dB, Hann→FlatTop −3.3 dB; bands ~1.8 dB high vs broadband. → fixed (M22 task-6, pending macOS verification) |
+| MC-3 | M | `ProcessingPipeline.swift:192-201` | LCpeak = max C-weighted bin, not time-domain peak → can read below LCF. → fixed (M22 task-6, pending macOS verification) |
+| MC-4 | M | `AcousticMetricsCalculator.swift:107, 254`, `SpectrogramProcessor.swift:239-256` | Band "Leq" is EMA with fixed 0.02/frame on display-smoothed dB bands → hop- and setting-dependent; persisted to files. → fixed (M22 task-6, pending macOS verification) |
+| MC-5 | M | `AcousticMetricsCalculator.swift:164-201` | Broadband energy averaged over whole FFT window (≤372 ms) before 125 ms time weighting → Fast smeared, LAFmax under-reads. → fixed (M22 task-6, pending macOS verification) |
+| MC-6 | L | `AcousticMetricsCalculator.swift:290`, `Shared/LoudnessCalculator.swift:104` | Phon fed A-weighted level (double equal-loudness correction); >90 phon extrapolated from zero. → fixed (M22 task-6, pending macOS verification) |
+| MC-7 | M | `WatchAudioEngine.swift:55, 676, 742` | Watch: fs hard-coded 44.1 kHz; only first 2048 of ~4096 frames analysed; `dt` half real time. → fixed (M22 task-6, pending macOS verification) |
+| MC-8 | M | `Masking/TriggerSpectrumAccumulator.swift:55, 92-107`, `SpectralNoveltyDetector.swift` | Assumes 86 frames/s; `captureEnd = writeHead + postFrames` reads unwritten slots. → fixed (M22 task-6, pending macOS verification) |
+| MC-9 | L | `Masking/MaskerSuggestionEngine.swift` | `min(totalRMSdB, -10)` on dB SPL → suggested volume constant −10 dBFS. → fixed (M22 task-6, pending macOS verification) |
+| MC-10 ✔ | L | `Masking/MaskingPreviewPlayer.swift:120-123` | `bandwidth = 1/q` (wrong Q→octave); `bands.count..<3` traps for >3 bands. → fixed (M22 task-6, pending macOS verification) |
+| MC-11 | L | `LAFGraphView.swift:33-87` | Buffer not resized on 44.1→48 kHz → time axis ~8% off (plus per-frame array copy, double publish). → fixed (M22 task-6, pending macOS verification) |
 
 ## Rendering, UI & feature polish → task-7
 

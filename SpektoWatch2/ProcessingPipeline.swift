@@ -29,6 +29,12 @@ final class ProcessingPipeline {
         let displayOctaveBandsZ: [Float]
         let displayOctaveBandsA: [Float]
         let displayOctaveBandsC: [Float]
+        /// MC-4: third-octave bands from the **unsmoothed** calibrated FFT
+        /// spectrum (no display temporal/frequency smoothing). Used for band
+        /// Leq integration and written to `.spekto`.
+        let rawOctaveBandsZ: [Float]
+        let rawOctaveBandsA: [Float]
+        let rawOctaveBandsC: [Float]
         let hasA: Bool
         let hasC: Bool
         let barkBandsZ: [Float]
@@ -140,6 +146,17 @@ final class ProcessingPipeline {
             )
         } ?? Self.emptyThirdOctaveBands
 
+        let rawOctaveBandsZ = SpectrumBandAggregator.thirdOctaveBands(
+            frequencies: fftProcessor.frequencies,
+            spectrum: dbZ
+        )
+        let rawOctaveBandsA = needsA
+            ? SpectrumBandAggregator.thirdOctaveBands(frequencies: fftProcessor.frequencies, spectrum: dbAScratch)
+            : Self.emptyThirdOctaveBands
+        let rawOctaveBandsC = needsC
+            ? SpectrumBandAggregator.thirdOctaveBands(frequencies: fftProcessor.frequencies, spectrum: dbCScratch)
+            : Self.emptyThirdOctaveBands
+
         // Bark band aggregation — only when a widget requests it (zero-cost otherwise).
         // Uses the same binned band data as third-octave so no extra FFT pass is needed.
         let displayBarkBandsZ: [Float]
@@ -211,6 +228,9 @@ final class ProcessingPipeline {
             displayOctaveBandsZ: displayOctaveBandsZ,
             displayOctaveBandsA: displayOctaveBandsA,
             displayOctaveBandsC: displayOctaveBandsC,
+            rawOctaveBandsZ: rawOctaveBandsZ,
+            rawOctaveBandsA: rawOctaveBandsA,
+            rawOctaveBandsC: rawOctaveBandsC,
             hasA: processedA != nil,
             hasC: processedC != nil,
             barkBandsZ: displayBarkBandsZ,

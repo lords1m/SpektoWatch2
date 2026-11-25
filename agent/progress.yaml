@@ -1091,9 +1091,9 @@ tasks:
       notes: "Code landed 2026-11-24 (Shared/RealtimeSlotQueue.swift; tests: M22RealtimeThreadingRegressionTests; TSan test-plan config added). Residual: DSP still returns fresh arrays per frame (SpectrogramProcessor/aggregators) — full zero-alloc needs DSP rewrite; verify with Instruments in task-8. Also fixed pre-existing undefined BinMapping type (from 118601f). Owns RT-1..8."
     - id: task-6-measurement-correctness
       name: "Measurement Correctness"
-      status: pending
+      status: code_complete
       file: agent/tasks/milestone-22-code-review-remediation/task-6-measurement-correctness.md
-      notes: "Owns MC-1..11; Q2."
+      notes: "Code landed 2026-11-25 (Shared/TimeDomainLevelMeter.swift; tests: MeasurementReferenceTests, updated AcousticMetricsCalculatorTests). Q2 applied as option (a): Recording.metricsVersion=2, legacy label in detail view + PDF. Scale kept at the Hann-FFT calibration reference so existing calibration offsets remain valid. Owns MC-1..11; Q2."
     - id: task-7-rendering-ui-polish
       name: "Rendering, UI & Feature Polish"
       status: pending

@@ -63,6 +63,16 @@ struct Recording: Identifiable, Codable {
     var fftBlockSize: Int
     /// `nil` = not yet probed; `false` = sidecar has metrics only (e.g. legacy watch capture).
     var spectralDataAvailable: Bool?
+    /// M22 / Q2: version of the level maths the stored metrics were computed
+    /// with. `nil` (all recordings before M22) = legacy frame-energy maths;
+    /// `Recording.currentMetricsVersion` = time-domain IEC weighting,
+    /// window-normalised spectra and integrated band Leq.
+    var metricsVersion: Int?
+
+    static let currentMetricsVersion = 2
+
+    /// `true` when the stored values predate the M22 measurement maths.
+    var usesLegacyMetrics: Bool { (metricsVersion ?? 1) < Self.currentMetricsVersion }
 
     // Computed property für location
     var location: CLLocationCoordinate2D? {
@@ -93,6 +103,7 @@ struct Recording: Identifiable, Codable {
         case calibrationOffset
         case fftBlockSize
         case spectralDataAvailable
+        case metricsVersion
     }
     
     init(
@@ -117,7 +128,8 @@ struct Recording: Identifiable, Codable {
         markers: [MeasurementMarker]? = nil,
         calibrationOffset: Float = 94.0,
         fftBlockSize: Int = 4096,
-        spectralDataAvailable: Bool? = nil
+        spectralDataAvailable: Bool? = nil,
+        metricsVersion: Int? = Recording.currentMetricsVersion
     ) {
         self.id = id
         self.name = name
@@ -141,6 +153,7 @@ struct Recording: Identifiable, Codable {
         self.calibrationOffset = calibrationOffset
         self.fftBlockSize = fftBlockSize
         self.spectralDataAvailable = spectralDataAvailable
+        self.metricsVersion = metricsVersion
     }
     
     /// Formatierte Anzeige der Dauer. Stellt sich bei langen Sessions auf
@@ -207,5 +220,6 @@ struct Recording: Identifiable, Codable {
         calibrationOffset = try container.decodeIfPresent(Float.self, forKey: .calibrationOffset) ?? 94.0
         fftBlockSize = try container.decodeIfPresent(Int.self, forKey: .fftBlockSize) ?? 4096
         spectralDataAvailable = try container.decodeIfPresent(Bool.self, forKey: .spectralDataAvailable)
+        metricsVersion = try container.decodeIfPresent(Int.self, forKey: .metricsVersion)
     }
 }

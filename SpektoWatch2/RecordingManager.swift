@@ -495,7 +495,8 @@ final class RecordingManager: NSObject, ObservableObject {
             markers: source.markers,
             calibrationOffset: source.calibrationOffset,
             fftBlockSize: source.fftBlockSize,
-            spectralDataAvailable: newMeasurementFileName != nil ? source.spectralDataAvailable : false
+            spectralDataAvailable: newMeasurementFileName != nil ? source.spectralDataAvailable : false,
+            metricsVersion: source.metricsVersion
         )
         recordings.insert(duplicate, at: 0)
         saveRecordings()

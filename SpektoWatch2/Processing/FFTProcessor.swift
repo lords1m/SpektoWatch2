@@ -199,6 +199,24 @@ class FFTProcessor: @unchecked Sendable {
     /// Aktuelle Fensterfunktion
     private(set) var windowFunction: WindowFunction = .hann
 
+    /// MC-2: amplitude scale making bin **power** window-independent,
+    /// referenced to Hann (so existing calibrations are unchanged):
+    /// `sqrt((Σw²/N)_hann / (Σw²/N)_window)`. Rect was +4.3 dB, Flat-Top
+    /// −3.3 dB relative to Hann before this correction.
+    private var powerNormalization: Float = 1
+
+    /// Hann's `Σw²/N` (periodic Hann = 0.375).
+    static let hannMeanSquare: Float = 0.375
+
+    /// `sqrt(0.375 / (Σw²/N))` for `window` (1 for an empty window).
+    static func powerNormalization(for window: [Float]) -> Float {
+        guard !window.isEmpty else { return 1 }
+        var meanSquare: Float = 0
+        vDSP_measqv(window, 1, &meanSquare, vDSP_Length(window.count))
+        guard meanSquare > 1e-9 else { return 1 }
+        return sqrt(hannMeanSquare / meanSquare)
+    }
+
     // MARK: - Initialization
 
     init(fftSize: Int, sampleRate: Double, windowFunction: WindowFunction = .hann) {
@@ -226,6 +244,7 @@ class FFTProcessor: @unchecked Sendable {
 
         // Create window
         self.window = windowFunction.generate(size: safeFFTSize)
+        self.powerNormalization = Self.powerNormalization(for: window)
 
         // Compute frequency bins
         let nyquist = Float(safeSampleRate / 2.0)
@@ -242,6 +261,7 @@ class FFTProcessor: @unchecked Sendable {
             guard function != windowFunction else { return }
             windowFunction = function
             window = function.generate(size: fftSize)
+            powerNormalization = Self.powerNormalization(for: window)
         }
     }
 
@@ -284,6 +304,7 @@ class FFTProcessor: @unchecked Sendable {
 
             // Reallocate buffers
             window = windowFunction.generate(size: fftSize)
+            powerNormalization = Self.powerNormalization(for: window)
             realIn = [Float](repeating: 0, count: fftSize / 2)
             imagIn = [Float](repeating: 0, count: fftSize / 2)
             realPart = [Float](repeating: 0, count: fftSize / 2)
@@ -397,8 +418,8 @@ class FFTProcessor: @unchecked Sendable {
             }
         }
 
-        // Normalize
-        var scale = 2.0 / Float(fftSize)
+        // Normalize (2/N amplitude, then window power normalisation — MC-2)
+        var scale = 2.0 / Float(fftSize) * powerNormalization
         vDSP_vsmul(magnitudesBuffer, 1, &scale, &magnitudesBuffer, 1, vDSP_Length(fftSize / 2))
 
         output.withUnsafeMutableBufferPointer { outputBuffer in

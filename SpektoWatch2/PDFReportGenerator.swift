@@ -182,13 +182,18 @@ final class PDFReportGenerator {
 
     private func drawConfiguration(recording: Recording, rect: CGRect, in context: CGContext) {
         drawSectionTitle("Konfiguration", at: CGPoint(x: rect.minX, y: rect.minY - 18), in: context)
-        let lines = [
+        var lineItems = [
             "FFT-Blockgröße: \(recording.fftBlockSize)",
             calibrationStateText(recording.calibrationOffset),
             "Zeitbewertung: \(recording.timeWeighting)",
             "Frequenzbewertung: \(recording.frequencyWeighting)",
             "Beschreibung: \(recording.description.isEmpty ? "-" : recording.description)"
-        ].joined(separator: "\n")
+        ]
+        if recording.usesLegacyMetrics {
+            // M22 / Q2: values computed with the pre-M22 level maths.
+            lineItems.append("Berechnung: Legacy (vor M22)")
+        }
+        let lines = lineItems.joined(separator: "\n")
         drawText(lines, rect: rect, font: .systemFont(ofSize: 10))
     }
 

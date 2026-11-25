@@ -52,7 +52,9 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private var micTapFormat: AVAudioFormat?
     private var audioEngine: AVAudioEngine
     private let bufferSize: AVAudioFrameCount = 4096
-    private let sampleRate: Double = 44100.0
+    /// MC-7: the tap's real sample rate (was hard-coded 44.1 kHz while the
+    /// watch delivers 48 kHz). Updated on main before the tap is installed.
+    private var sampleRate: Double = 44100.0
     private var session: WKExtendedRuntimeSession?
     /// WL-1: `true` once the current runtime session reported
     /// `extendedRuntimeSessionDidStart`. An invalidation before that is a
@@ -110,7 +112,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     // Real IEC 61672 metrics on the watch (M21/task-2). Shared with iOS via
     // `Shared/`. `weightingProcessor` supplies the precomputed A/C gain curves;
     // `metricsCalculator` integrates LAeq and holds LCpeak across the session.
-    private let weightingProcessor: FrequencyWeightingProcessor
+    private var weightingProcessor: FrequencyWeightingProcessor
     private let metricsCalculator: AcousticMetricsCalculator
     private var fftEnergyScratch: [Float]
     private var lcPeakScratch: [Float]
@@ -127,7 +129,13 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     private let recordingSessionLock = OSAllocatedUnfairLock<WatchRecordingSession?>(initialState: nil)
 
     // Pre-computed once, reused per-frame: bin frequencies (constant for given fftSize/sampleRate).
-    private let binFrequencies: [Float]
+    private var binFrequencies: [Float]
+    /// MC-3/5/7: shared time-domain broadband meter (identical maths to iOS).
+    private var levelMeter = TimeDomainLevelMeter(sampleRate: 44_100)
+    /// Set on main at recording start; the tap thread resets the meter.
+    private let levelMeterResetRequested = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// Welch power accumulator (all hops of a tap buffer).
+    private var welchPowerScratch: [Float] = []
     private var displayVisualFrequencies: [Float]
 
     // Reusable scratch buffers — avoid per-callback `Array(repeating: 0, count: ...)`
@@ -460,6 +468,23 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         WatchAppSettingsSync.markLocalChange(PersistenceKeys.Watch.measurementSourcePreference)
     }
 
+    /// MC-7: rebuilds rate-dependent DSP for the tap's sample rate. Main
+    /// thread, before the tap is installed (no concurrent audio callback).
+    private func configureDSP(forSampleRate rate: Double) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard rate > 1_000, abs(rate - sampleRate) > 0.5 else { return }
+        sampleRate = rate
+        weightingProcessor = FrequencyWeightingProcessor(fftSize: fftSize, sampleRate: rate)
+        levelMeter = TimeDomainLevelMeter(sampleRate: rate)
+        let binWidth = Float(rate) / Float(fftSize)
+        binFrequencies = (0..<(fftSize / 2)).map { Float($0) * binWidth }
+        let nyquist = Float(rate / 2)
+        visualDCTQueue.async { [weak self] in
+            guard let self else { return }
+            self.displayVisualFrequencies = Self.makeDisplayFrequencies(count: self.displayVisualBinCount, nyquist: nyquist)
+        }
+    }
+
     /// Begin watch-mic live preview (levels + spectrogram) without starting a
     /// file recording. Used for watch-only / standalone operation per M21.
     func startLiveMonitoring() {
@@ -508,6 +533,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         if recording {
             guard !isRecording else { return }
             metricsCalculator.reset()
+            levelMeterResetRequested.withLock { $0 = true }
             recordingStartDate = Date()
             transition(to: prefersWatchLocalRecording ? .standalone : .wearableMic)
             isRecording = true
@@ -535,6 +561,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                     channels: 1,
                     interleaved: false
                 ) ?? hardwareFormat
+                configureDSP(forSampleRate: tapFormat.sampleRate)
 
                 inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: tapFormat) { [weak self] buffer, _ in
                     self?.processAudioBuffer(buffer)
@@ -736,6 +763,7 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
                 channels: 1,
                 interleaved: false
             ) ?? hardwareFormat
+            configureDSP(forSampleRate: tapFormat.sampleRate)
             audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: tapFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
@@ -852,17 +880,17 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         // Berechne lokale FFT für sofortige Anzeige und für den optionalen
         // Watch-als-Quelle-Stream. Raw-Audio wird nicht mehr über WCSession
         // gesendet; der Phone-Pfad bekommt nur verarbeitete Spektrogrammdaten.
+        // MC-3/5/7: broadband levels from every sample of the buffer.
+        if levelMeterResetRequested.withLockUnchecked({ r -> Bool in let v = r; r = false; return v }) {
+            levelMeter.reset()
+        }
+        let timeDomain = levelMeter.process(monoSampleScratch.prefix(frameCount), calibrationOffset: watchMicCalibrationOffset)
+
         guard frameCount >= fftSize else { return }
 
-        // Copy first `fftSize` samples into our reusable FFT input buffer instead
-        // of allocating via `Array(samples.prefix(fftSize))` per call.
-        monoSampleScratch.withUnsafeBufferPointer { src in
-            fftInputScratch.withUnsafeMutableBufferPointer { dst in
-                _ = memcpy(dst.baseAddress!, src.baseAddress!,
-                           fftSize * MemoryLayout<Float>.stride)
-            }
-        }
-        performFFT(fftInputScratch)
+        // MC-7: analyse every `fftSize` hop of the buffer (previously only
+        // the first 2048 of ~4096 samples) and average their power spectra.
+        performWelchFFT(frameCount: frameCount)
 
         let splMagnitudesZ = calibratedSPL(fromDBFS: fftMagnitudes)
         let dbA = weightingProcessor.applyWeighting(
@@ -918,7 +946,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         vDSP_maxv(lcPeakScratch, 1, &cPeakLinear, vDSP_Length(lcPeakCount))
         let lcPeak = 20.0 * log10(cPeakLinear + 1e-9) + watchMicCalibrationOffset
 
-        let dt: Float = Float(fftSize) / Float(sampleRate)
+        // MC-7: one metrics frame per buffer → real elapsed time.
+        let dt: Float = Float(frameCount) / Float(sampleRate)
         let recordingDuration = tapSettingsLock.withLockUnchecked { $0.recordingStartDate }
             .map { Date().timeIntervalSince($0) } ?? 0
 
@@ -934,7 +963,8 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             bandsZ: thirdOctaveZ,
             bandsA: thirdOctaveA,
             bandsC: thirdOctaveC,
-            loudnessReferenceKey: "LAF"
+            loudnessReferenceKey: "LZF",
+            timeDomain: timeDomain
         )
         let levels = metricsResult.levels
         let levelSPL = levels["LAF"] ?? -120.0
@@ -1135,6 +1165,40 @@ class WatchAudioEngine: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         return .auto
     }
     
+    /// MC-7: FFT of every non-overlapping `fftSize` hop in the buffer,
+    /// power-averaged into `fftLinearMagnitudes` / `fftMagnitudes` (dB).
+    /// `fftInputScratch` holds the last hop afterwards (visual spectrogram).
+    private func performWelchFFT(frameCount: Int) {
+        let half = fftSize / 2
+        if welchPowerScratch.count != half {
+            welchPowerScratch = [Float](repeating: 0, count: half)
+        }
+        vDSP_vclr(&welchPowerScratch, 1, vDSP_Length(half))
+        let hops = max(1, frameCount / fftSize)
+        for hop in 0..<hops {
+            let start = hop * fftSize
+            monoSampleScratch.withUnsafeBufferPointer { src in
+                fftInputScratch.withUnsafeMutableBufferPointer { dst in
+                    _ = memcpy(dst.baseAddress!, src.baseAddress!.advanced(by: start),
+                               fftSize * MemoryLayout<Float>.stride)
+                }
+            }
+            performFFT(fftInputScratch)
+            // accumulate |X|² of the linear spectrum
+            vDSP_vma(fftLinearMagnitudes, 1, fftLinearMagnitudes, 1, welchPowerScratch, 1, &welchPowerScratch, 1, vDSP_Length(half))
+        }
+        guard hops > 1 else { return }
+        var inv = 1 / Float(hops)
+        vDSP_vsmul(welchPowerScratch, 1, &inv, &welchPowerScratch, 1, vDSP_Length(half))
+        var n = Int32(half)
+        vvsqrtf(&fftLinearMagnitudes, welchPowerScratch, &n)
+        var lo: Float = 1e-9
+        var hi = Float.greatestFiniteMagnitude
+        vDSP_vclip(fftLinearMagnitudes, 1, &lo, &hi, &fftMagnitudes, 1, vDSP_Length(half))
+        var ref: Float = 1
+        vDSP_vdbcon(fftMagnitudes, 1, &ref, &fftMagnitudes, 1, vDSP_Length(half), 1)
+    }
+
     private func performFFT(_ samples: [Float]) {
         // Windowing into the N-length real signal buffer
         vDSP_vmul(samples, 1, window, 1, &windowedSamples, 1, vDSP_Length(fftSize))

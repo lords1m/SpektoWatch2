@@ -344,25 +344,19 @@ final class AcousticMetricsCalculatorTests: XCTestCase {
             "Band Leq should stay at the constant input level after many frames")
     }
 
-    /// Verifies that the per-band Leq EMA matches the closed-form expression
-    /// `x_N = x0·(1−α)^N + x1·(1−(1−α)^N)` after a step from `seed` to `newTarget`.
-    func testBandLeqEMAMatchesClosedForm() {
+    /// M22 MC-4: per-band Leq is a true energy integral,
+    /// `Leq = 10·log10(Σ 10^(L/10)·dt / Σ dt)` — not an EMA.
+    func testBandLeqIsEnergyIntegral() {
         let calc = AcousticMetricsCalculator(sampleRate: 44100.0)
-        let alpha  = calc.leqBandAlpha          // 0.02
-        let seed:      Float = 70.0             // dB — first frame seeds here
-        let newTarget: Float = 50.0             // dB — subsequent frames
+        let seed:      Float = 70.0
+        let newTarget: Float = 50.0
         let n = 31
-        let seedBands      = [Float](repeating: seed,      count: n)
-        let newTargetBands = [Float](repeating: newTarget, count: n)
 
-        // Frame 1: seed
         _ = calc.updateMetrics(
             energyZ: 1e-5, energyA: 1e-5, energyC: 1e-5,
             peakLevel: seed, dt: 0.05, recordingDuration: 0.0,
-            bandsZ: seedBands
+            bandsZ: [Float](repeating: seed, count: n)
         )
-
-        // Frames 2…(N+1): apply EMA toward newTarget
         let N = 150
         var result = MetricsResult(levels: [:], bandLeqZ: [], bandLeqA: [], bandLeqC: [])
         for i in 1...N {
@@ -370,18 +364,32 @@ final class AcousticMetricsCalculatorTests: XCTestCase {
                 energyZ: 1e-5, energyA: 1e-5, energyC: 1e-5,
                 peakLevel: newTarget, dt: 0.05,
                 recordingDuration: Double(i) * 0.05,
-                bandsZ: newTargetBands
+                bandsZ: [Float](repeating: newTarget, count: n)
             )
         }
+        let linSeed = pow(10.0, Double(seed) / 10.0)
+        let linNew  = pow(10.0, Double(newTarget) / 10.0)
+        let expected = Float(10.0 * log10((linSeed + Double(N) * linNew) / Double(N + 1)))
+        XCTAssertEqual(result.bandLeqZ[0], expected, accuracy: 0.01)
+    }
 
-        // Closed-form: linear-domain EMA after N steps
-        let linSeed   = pow(10.0, Double(seed)      / 10.0)
-        let linNew    = pow(10.0, Double(newTarget)  / 10.0)
-        let decay     = pow(Double(1.0 - alpha), Double(N))
-        let expected  = Float(10.0 * log10(linSeed * decay + linNew * (1.0 - decay)))
-
-        XCTAssertEqual(result.bandLeqZ[0], expected, accuracy: 0.5,
-            "Band Leq EMA must match closed-form after \(N) frames")
+    /// Band Leq must not depend on the frame rate (hop size).
+    func testBandLeqIndependentOfHop() {
+        func leq(dt: Float) -> Float {
+            let calc = AcousticMetricsCalculator(sampleRate: 44100.0)
+            var out: Float = 0
+            let frames = Int((10.0 / dt).rounded())
+            for i in 0..<frames {
+                let level: Float = Double(i) * Double(dt) < 5 ? 80 : 60
+                out = calc.updateMetrics(
+                    energyZ: 1e-5, energyA: 1e-5, energyC: 1e-5, peakLevel: level,
+                    dt: dt, recordingDuration: Double(i) * Double(dt),
+                    bandsZ: [Float](repeating: level, count: 31)
+                ).bandLeqZ[0]
+            }
+            return out
+        }
+        XCTAssertEqual(leq(dt: 0.0116), leq(dt: 0.093), accuracy: 0.1)
     }
 
     /// After `reset()`, band Leq buffers are cleared: the next frame seeds fresh.

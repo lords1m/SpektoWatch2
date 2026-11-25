@@ -60,12 +60,19 @@ struct RecordingConfigurationCard: View {
     let sampleRate: Double
     let fftBlockSize: Int
     let calibrationOffset: Float
+    /// Q2: shown when the values were computed with the pre-M22 maths.
+    var usesLegacyMetrics: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Konfiguration")
                 .font(.headline)
             Divider()
+            if usesLegacyMetrics {
+                Label("Legacy-Berechnung (vor M22): Pegel bei nicht-Standard-Fenster/Hop können abweichen", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
             StatRow(icon: "gauge", title: "Zeitbewertung", value: timeWeighting)
             StatRow(icon: "slider.horizontal.3", title: "Frequenzbewertung", value: frequencyWeighting)
             StatRow(icon: "music.note", title: "Samplerate", value: "\(Int(sampleRate)) Hz")

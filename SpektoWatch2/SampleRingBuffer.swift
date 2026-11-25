@@ -21,12 +21,24 @@ final class SampleRingBuffer {
     /// Reusable copy target for the current FFT window. Resized only when the
     /// FFT size changes; never reallocated per frame in the steady state.
     private var frameScratch: [Float] = []
+    /// MC-1: part of a hop larger than the buffered samples. Skipped from the
+    /// head of the next appended samples so frames stay exactly `hop` samples
+    /// apart (previously the offset was clamped and frames came every
+    /// ~`frameSize` samples while metrics assumed `dt = hop / fs`).
+    private var pendingSkip: Int = 0
 
     /// Number of unconsumed samples (live samples ahead of the read offset).
     var bufferedCount: Int { max(0, buffer.count - offset) }
 
     /// Appends a freshly captured tap buffer.
     func append(_ samples: [Float]) {
+        if pendingSkip > 0 {
+            let skip = min(pendingSkip, samples.count)
+            pendingSkip -= skip
+            guard skip < samples.count else { return }
+            buffer.append(contentsOf: samples[skip...])
+            return
+        }
         buffer.append(contentsOf: samples)
     }
 
@@ -69,8 +81,15 @@ final class SampleRingBuffer {
                 )
             }
         }
-        offset = min(offset + max(1, hop), buffer.count)
-        if offset > frameSize * 2 {
+        let advance = max(1, hop)
+        let available = buffer.count - offset
+        if advance > available {
+            pendingSkip += advance - available
+            offset = buffer.count
+        } else {
+            offset += advance
+        }
+        if offset > frameSize * 2 || (offset == buffer.count && pendingSkip > 0) {
             let toRemove = min(offset, buffer.count)
             buffer.removeFirst(toRemove)
             offset = 0
@@ -83,6 +102,7 @@ final class SampleRingBuffer {
     func reset() {
         buffer.removeAll(keepingCapacity: true)
         offset = 0
+        pendingSkip = 0
         frameScratch.removeAll(keepingCapacity: true)
     }
 }

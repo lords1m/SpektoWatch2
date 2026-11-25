@@ -6,8 +6,11 @@ import Combine
 /// instead of each owning a private buffer that restarts empty when presented.
 @MainActor
 final class LevelHistoryStore: ObservableObject {
-    @Published private(set) var levelBuffer: [Float] = []
-    @Published private(set) var writeIndex: Int = 0
+    /// MC-11: plain storage mutated in place; one `tick` publish per ingest
+    /// (previously two `@Published` writes and a full array copy per frame).
+    private(set) var levelBuffer: [Float] = []
+    private(set) var writeIndex: Int = 0
+    @Published private(set) var tick: UInt64 = 0
 
     private var observedSampleRate: Double = 44100.0
     private var scrollSpeedValue: Int = 1
@@ -36,6 +39,7 @@ final class LevelHistoryStore: ObservableObject {
         let safeColumns = max(10, columns)
         levelBuffer = [Float](repeating: -120.0, count: safeColumns)
         writeIndex = 0
+        tick &+= 1
         lastUpdateTimestamp = 0
         lastBufferedLevel = -120.0
     }
@@ -47,7 +51,12 @@ final class LevelHistoryStore: ObservableObject {
     /// time elapsed — under load the chart visibly compressed relative to the
     /// spectrogram alongside it.
     func ingest(level: Float, sampleRate: Double) {
-        if sampleRate > 0 { observedSampleRate = sampleRate }
+        // MC-11: a 44.1 → 48 kHz switch changes the slot rate; rebuild so the
+        // time axis stays correct (it was ~8 % off).
+        if sampleRate > 0, abs(sampleRate - observedSampleRate) > 1 {
+            observedSampleRate = sampleRate
+            rebuild()
+        }
         guard !levelBuffer.isEmpty else { rebuild(); return }
         let safeLevel = level.isNaN || level.isInfinite ? -120.0 : level
         let now = Date().timeIntervalSinceReferenceDate
@@ -62,17 +71,14 @@ final class LevelHistoryStore: ObservableObject {
             return min(max(1, raw), levelBuffer.count)
         }()
 
-        // Copy once, mutate the local copy (no CoW per iteration), assign back once.
-        // Without this, each subscript write to the @Published array triggers a
-        // separate CoW copy — O(n) per slot when slotsToWrite > 1.
-        var localBuffer = levelBuffer
+        // Mutated in place: `levelBuffer` is not @Published, so no CoW copy.
         var localWriteIndex = writeIndex
         let previous = lastBufferedLevel
         if slotsToWrite > 1 {
             // Interpolate intermediate slots so the buffer fills wall-clock
             // time rather than once per callback. Mirrors the
             // `reusableInterpolatedColumnData` path in the spectrogram adapter.
-            localBuffer.withUnsafeMutableBufferPointer { buf in
+            levelBuffer.withUnsafeMutableBufferPointer { buf in
                 for step in 1...slotsToWrite {
                     let mix = Float(step) / Float(slotsToWrite)
                     localWriteIndex = (localWriteIndex + 1) % buf.count
@@ -80,11 +86,11 @@ final class LevelHistoryStore: ObservableObject {
                 }
             }
         } else {
-            localWriteIndex = (localWriteIndex + 1) % localBuffer.count
-            localBuffer[localWriteIndex] = safeLevel
+            localWriteIndex = (localWriteIndex + 1) % levelBuffer.count
+            levelBuffer[localWriteIndex] = safeLevel
         }
         writeIndex = localWriteIndex
-        levelBuffer = localBuffer
+        tick &+= 1
 
         lastUpdateTimestamp = now
         lastBufferedLevel = safeLevel

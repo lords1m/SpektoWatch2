@@ -15,7 +15,11 @@ struct MaskerSuggestionEngine {
 
     // MARK: – Public entry point
 
-    static func suggest(for trigger: TriggerSpectrum) -> MaskerSuggestion {
+    /// - Parameter calibrationOffset: dB SPL = dBFS + offset. MC-9: the
+    ///   trigger level is dB SPL and must be converted before it is compared
+    ///   with the −10 dBFS output cap (it was clamped directly, so every
+    ///   suggestion came out at −10 dBFS).
+    static func suggest(for trigger: TriggerSpectrum, calibrationOffset: Float = 100) -> MaskerSuggestion {
         let sourceBands = trigger.netBands    // use ambient-subtracted spectrum if available
 
         // 1. Select masker via cosine distance on log-spectrum
@@ -33,8 +37,9 @@ struct MaskerSuggestionEngine {
         // 3. Collapse to 3 EQ bands
         let eqBands = collapseToThreeBands(gains: rawGains)
 
-        // 4. Safe initial volume: trigger level + 6 dB headroom – 6 dB safety, cap at –10 dBFS
-        let safeVolume = min(trigger.totalRMSdB + 6.0 - 6.0, -10.0)
+        // 4. Safe initial volume: trigger level (as dBFS) + 6 dB headroom
+        //    − 6 dB safety, capped at −10 dBFS and floored at −60 dBFS.
+        let safeVolume = suggestedVolumeDBFS(triggerSPL: trigger.totalRMSdB, calibrationOffset: calibrationOffset)
 
         return MaskerSuggestion(
             maskerType: best.masker,
@@ -42,6 +47,12 @@ struct MaskerSuggestionEngine {
             volumedBFS: safeVolume,
             confidenceScore: 1.0 - best.distance   // distance 0 = perfect match
         )
+    }
+
+    static func suggestedVolumeDBFS(triggerSPL: Float, calibrationOffset: Float) -> Float {
+        guard triggerSPL.isFinite, calibrationOffset.isFinite else { return -30 }
+        let triggerDBFS = triggerSPL - calibrationOffset
+        return max(-60, min(triggerDBFS + 6.0 - 6.0, -10.0))
     }
 
     // MARK: – Masker selection

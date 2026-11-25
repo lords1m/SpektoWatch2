@@ -82,6 +82,15 @@ final class MaskingEngine: ObservableObject {
     init(audioEngine: AudioEngine) {
         self.audioEngine = audioEngine
         wireAudioEngine(audioEngine)
+        accumulator.onCaptureFinalized = { [weak self] captured in
+            // Called from `feed` on the main actor (receiveBands).
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if case .waitingForTrigger = self.state {
+                    self.applyCaptureResult(captured)
+                }
+            }
+        }
 
         noveltyDetector.onNoveltyDetected = { [weak self] in
             Task { @MainActor [weak self] in
@@ -125,12 +134,19 @@ final class MaskingEngine: ObservableObject {
     // Step 2: user releases "Das war es" (called on touch-up)
     func endMark() {
         guard case .marking = state else { return }
-        let captured = accumulator.endMark()
+        let accepted = accumulator.endMark()
+        state = .waitingForTrigger
+        // MC-8: with a post-mark window the capture finishes once those
+        // frames have arrived (`onCaptureFinalized`); otherwise it's done now.
+        if !accumulator.isCapturePending {
+            applyCaptureResult(accepted)
+        }
+    }
+
+    private func applyCaptureResult(_ captured: Bool) {
         captureCount = accumulator.captureCount
         convergenceScore = accumulator.convergenceScore
         currentTriggerSpectrum = accumulator.currentSpectrum()
-        state = .waitingForTrigger
-
         if captured && accumulator.captureCount >= minimumCaptures && convergenceScore >= 0.7 {
             computeSuggestion()
         }
@@ -145,7 +161,10 @@ final class MaskingEngine: ObservableObject {
     func usePreset(_ preset: TriggerPreset) {
         accumulator.reset()
         currentTriggerSpectrum = preset.spectrum
-        let suggestion = MaskerSuggestionEngine.suggest(for: preset.spectrum)
+        let suggestion = MaskerSuggestionEngine.suggest(
+            for: preset.spectrum,
+            calibrationOffset: audioEngine?.effectiveCalibrationOffset ?? CalibrationProvider.defaultOffset
+        )
         state = .ready(suggestion)
     }
 
@@ -273,7 +292,10 @@ final class MaskingEngine: ObservableObject {
     private func computeSuggestion() {
         guard let spectrum = accumulator.currentSpectrum() else { return }
         currentTriggerSpectrum = spectrum
-        let suggestion = MaskerSuggestionEngine.suggest(for: spectrum)
+        let suggestion = MaskerSuggestionEngine.suggest(
+            for: spectrum,
+            calibrationOffset: audioEngine?.effectiveCalibrationOffset ?? CalibrationProvider.defaultOffset
+        )
         state = .ready(suggestion)
     }
 }

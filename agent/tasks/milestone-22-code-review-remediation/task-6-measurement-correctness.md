@@ -1,6 +1,6 @@
 # Task 6: Measurement Correctness
 
-Status: pending
+Status: code_complete (pending macOS build + simulator tests)
 Created: 2026-11-24
 Milestone: `milestone-22-code-review-remediation`
 Owns: MC-1 … MC-11

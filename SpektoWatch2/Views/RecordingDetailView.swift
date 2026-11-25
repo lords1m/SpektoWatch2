@@ -270,7 +270,8 @@ struct RecordingDetailView: View {
                     frequencyWeighting: recording.frequencyWeighting,
                     sampleRate: recording.sampleRate,
                     fftBlockSize: recording.fftBlockSize,
-                    calibrationOffset: recording.calibrationOffset
+                    calibrationOffset: recording.calibrationOffset,
+                    usesLegacyMetrics: recording.usesLegacyMetrics
                 )
                 RecordingNotesCard(text: $recording.description) {
                     services.recordingManager.updateRecording(recording)

@@ -99,15 +99,26 @@ class LoudnessCalculator: ObservableObject {
                 return phons[i] + (spl - lo) / (hi - lo) * (phons[i + 1] - phons[i])
             }
         }
-        // Extrapolation
-        if spl < phonRow[0] {
-            guard abs(phonRow[0]) > 1e-9 else { return phons[0] }
-            return phons[0] * (spl / phonRow[0])
-        } else {
-            let last = phons.count - 1
-            guard abs(phonRow[last]) > 1e-9 else { return phons[last] }
-            return phons[last] * (spl / phonRow[last])
+        return extrapolatePhon(spl: spl, splRow: phonRow, phons: phons)
+    }
+
+    /// MC-6: outside the ISO 226 table, continue along the slope of the
+    /// nearest contour segment (the old code scaled the end value by
+    /// `spl / tableSPL`, which made >90 phon depend on the absolute SPL ratio).
+    /// Below the lowest contour the result is clamped at 0 phon.
+    static func extrapolatePhon(spl: Double, splRow: [Double], phons: [Double]) -> Double {
+        guard splRow.count >= 2, splRow.count == phons.count else { return phons.first ?? 0 }
+        if spl < splRow[0] {
+            let span = splRow[1] - splRow[0]
+            guard abs(span) > 1e-9 else { return phons[0] }
+            let slope = (phons[1] - phons[0]) / span
+            return max(0, phons[0] + (spl - splRow[0]) * slope)
         }
+        let last = splRow.count - 1
+        let span = splRow[last] - splRow[last - 1]
+        guard abs(span) > 1e-9 else { return phons[last] }
+        let slope = (phons[last] - phons[last - 1]) / span
+        return phons[last] + (spl - splRow[last]) * slope
     }
 
     // MARK: - ISO 226:2003 Equal-Loudness Contour Data (shared with static tables)
@@ -287,16 +298,9 @@ class LoudnessCalculator: ObservableObject {
             }
         }
         
-        // Extrapolation außerhalb des Bereichs
-        if spl < freqData[phonLevels.first!]! {
-            let firstSPL = freqData[phonLevels.first!]!
-            guard abs(firstSPL) > 1e-9 else { return phonLevels.first! }
-            return phonLevels.first! * (spl / firstSPL)
-        } else {
-            let lastSPL = freqData[phonLevels.last!]!
-            guard abs(lastSPL) > 1e-9 else { return phonLevels.last! }
-            return phonLevels.last! * (spl / lastSPL)
-        }
+        // Extrapolation außerhalb des Bereichs (MC-6: along the contour slope)
+        let row = phonLevels.map { freqData[$0] ?? 0 }
+        return Self.extrapolatePhon(spl: spl, splRow: row, phons: phonLevels)
     }
     
     private func interpolateSPL(phon: Double, freqData: [Double: Double]) -> Double {

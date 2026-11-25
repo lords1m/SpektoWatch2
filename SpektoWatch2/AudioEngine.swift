@@ -85,6 +85,16 @@ class AudioEngine: ObservableObject {
     private var retiredDSPObjects: [AnyObject] = []
     /// RT-5: preallocated per-frame metric value buffer (render thread only).
     private var metricValuesScratch: [Float] = []
+    /// MC-3/MC-5: per-sample A/C/Z time-weighted broadband meter. Swapped on
+    /// sample-rate change under `processingLock`; used on the processing
+    /// thread only.
+    private var levelMeter = TimeDomainLevelMeter(sampleRate: 44_100)
+    /// Latest meter snapshot, handed from `processSamples` to the next FFT
+    /// frame on the same thread.
+    private var latestTimeDomainLevels: TimeDomainLevelMeter.Snapshot?
+    /// Set from main by `resetMetrics()`; the processing thread resets the
+    /// meter before its next block (the meter itself is not thread-safe).
+    private let levelMeterResetRequested = OSAllocatedUnfairLock<Bool>(initialState: false)
     private let testGenerator: TestAudioGenerator
     private let bandstopFilterManager: BandstopFilterManager
     private let connectivityManager: WatchConnectivityManager
@@ -1385,6 +1395,7 @@ class AudioEngine: ObservableObject {
     
     private func resetMetrics() {
         metricsCalculator.reset()
+        levelMeterResetRequested.withLock { $0 = true }
         wearableIngest.reset()
 
         DispatchQueue.main.async {
@@ -1434,7 +1445,7 @@ class AudioEngine: ObservableObject {
                 thirdsA: octaveBandsA,
                 thirdsC: octaveBandsC,
                 recordingDuration: recording.recordingDuration,
-                loudnessReferenceKey: Self.loudnessLevelKey(for: frequencyWeighting)
+                loudnessReferenceKey: "LZF"
             )
             bandLeq = (integrated.bandLeqZ, integrated.bandLeqA, integrated.bandLeqC)
         }
@@ -1570,6 +1581,15 @@ class AudioEngine: ObservableObject {
         vDSP_maxmgv(newSamples, 1, &peakAbs, vDSP_Length(newSamples.count))
         let peakDBFS = 20 * log10(peakAbs + 1e-9)
         let peakDB = peakDBFS + cal  // Konvertiere zu dB SPL
+
+        // MC-3/MC-5: time-domain broadband levels for this block.
+        let meter = processingLock.withLockUnchecked { levelMeter }
+        if levelMeterResetRequested.withLockUnchecked({ requested -> Bool in
+            let r = requested; requested = false; return r
+        }) {
+            meter.reset()
+        }
+        latestTimeDomainLevels = meter.process(newSamples, gain: rtSettings.gainBoost, calibrationOffset: cal)
         
         debugPrintCounter += 1
         
@@ -1715,10 +1735,13 @@ class AudioEngine: ObservableObject {
             recordingDuration: audioThreadRecordingDuration,
             frequencies: localFFTProcessor.frequencies,
             magnitudes: dbZ,
-            bandsZ: displayOctaveBandsZ,
-            bandsA: dsp.hasA ? displayOctaveBandsA : [],
-            bandsC: dsp.hasC ? displayOctaveBandsC : [],
-            loudnessReferenceKey: Self.loudnessLevelKey(for: rtSettings.frequencyWeighting)
+            // MC-4: integrate the unsmoothed bands, not the display bands.
+            bandsZ: dsp.rawOctaveBandsZ,
+            bandsA: dsp.hasA ? dsp.rawOctaveBandsA : [],
+            bandsC: dsp.hasC ? dsp.rawOctaveBandsC : [],
+            // MC-6: loudness from the unweighted level.
+            loudnessReferenceKey: "LZF",
+            timeDomain: latestTimeDomainLevels
         )
         let levels = metricsResult.levels
 
@@ -1750,9 +1773,10 @@ class AudioEngine: ObservableObject {
                         timestamp: timestampSeconds,
                         metricValues: metricValuesScratch,
                         broadbandLevel: broadbandLevel,
-                        thirdOctaveZ: displayOctaveBandsZ,
-                        thirdOctaveA: displayOctaveBandsA,
-                        thirdOctaveC: displayOctaveBandsC,
+                        // MC-4: persist measurement bands, not display-smoothed ones.
+                        thirdOctaveZ: dsp.rawOctaveBandsZ,
+                        thirdOctaveA: dsp.rawOctaveBandsA,
+                        thirdOctaveC: dsp.rawOctaveBandsC,
                         fullFFT: dbZ
                     )
                 } catch {
@@ -2176,12 +2200,14 @@ class AudioEngine: ObservableObject {
         let (size, window) = processingLock.withLockUnchecked { (fftSize, fftProcessor.windowFunction) }
         let newFFT = FFTProcessor(fftSize: size, sampleRate: rate, windowFunction: window)
         let newWeighting = FrequencyWeightingProcessor(fftSize: size, sampleRate: rate)
+        let newMeter = TimeDomainLevelMeter(sampleRate: rate)
         let retired: [AnyObject] = processingLock.withLockUnchecked {
-            let old: [AnyObject] = [fftProcessor, weightingProcessor]
+            let old: [AnyObject] = [fftProcessor, weightingProcessor, levelMeter]
             processingSampleRate = rate
             sampleRing.reset()
             fftProcessor = newFFT
             weightingProcessor = newWeighting
+            levelMeter = newMeter
             return old
         }
         retireDSPObjects(retired)

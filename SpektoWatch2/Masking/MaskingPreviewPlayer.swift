@@ -112,17 +112,27 @@ final class MaskingPreviewPlayer: ObservableObject {
     }
 
     private func configureEQ(_ eq: AVAudioUnitEQ, bands: [EQBand]) {
-        for (i, band) in bands.prefix(3).enumerated() {
+        let slots = min(3, eq.bands.count)
+        for (i, band) in bands.prefix(slots).enumerated() {
             let eqBand         = eq.bands[i]
             eqBand.filterType  = avFilterType(for: band.type)
             eqBand.frequency   = band.frequency
             eqBand.gain        = band.gainDB
-            eqBand.bandwidth   = 1.0 / max(0.1, band.q)   // AVAudioUnitEQ uses octave-bandwidth
+            eqBand.bandwidth   = Self.octaveBandwidth(forQ: band.q)
             eqBand.bypass      = false
         }
-        for i in bands.count..<3 {
+        // MC-10: `bands.count..<3` trapped for more than three bands.
+        for i in min(bands.count, slots)..<slots {
             eq.bands[i].bypass = true
         }
+    }
+
+    /// MC-10: AVAudioUnitEQ takes bandwidth in octaves:
+    /// `N = (2 / ln 2) · asinh(1 / (2Q))` (was `1/Q`).
+    static func octaveBandwidth(forQ q: Float) -> Float {
+        let safeQ = max(0.1, q.isFinite ? q : 1)
+        let n = (2 / Float(log(2.0))) * asinh(1 / (2 * safeQ))
+        return max(0.05, min(5.0, n))
     }
 
     private func avFilterType(for type: EQBand.BandType) -> AVAudioUnitEQFilterType {

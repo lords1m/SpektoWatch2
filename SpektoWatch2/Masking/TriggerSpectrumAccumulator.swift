@@ -15,14 +15,20 @@ final class TriggerSpectrumAccumulator {
     // MARK: – Configuration
 
     private let windowCapacity: Int    // how many frames fit in the ring buffer
-    private let preMarkSeconds: Double // frames captured before mark start
+    private let preMarkSeconds: Double // seconds captured before mark start
     private let postMarkSeconds: Double
+    private let historySeconds: Double
 
     // MARK: – Ring buffer (all access on main thread)
 
+    /// MC-8: frames carry their arrival time. The live band feed arrives at
+    /// the UI publish cadence (~60 Hz, or ~10 Hz from the Watch), not at the
+    /// 86 frames/s the old `sampleRate / hopSize` math assumed, so capture
+    /// windows are selected by time instead of by frame count.
     private struct Frame {
         let bands: [Float]
         let rmsDB: Float
+        let time: TimeInterval
     }
 
     private var ringBuffer: [Frame?]
@@ -30,8 +36,14 @@ final class TriggerSpectrumAccumulator {
 
     // MARK: – Mark state
 
-    private var markStartHead: Int? = nil    // writeHead when beginMark() was called
+    private var markStartTime: TimeInterval? = nil
     private var isMarking: Bool = false
+    /// Capture window waiting for its post-mark frames to arrive.
+    private var pendingCapture: (start: TimeInterval, end: TimeInterval)?
+
+    /// Called on the main thread when a deferred capture (one with a
+    /// post-mark window) has been evaluated. `true` = capture added.
+    var onCaptureFinalized: ((Bool) -> Void)?
 
     // MARK: – Accumulated captures
 
@@ -47,65 +59,75 @@ final class TriggerSpectrumAccumulator {
     // Ambient baseline: set by MaskingEngine after calibration step
     var ambientBands: [Float]?
 
-    private let sampleRate: Double
-    private let hopSize: Double
+    /// `true` while a capture waits for its post-mark frames.
+    var isCapturePending: Bool { pendingCapture != nil }
 
     // MARK: – Init
 
+    /// `sampleRate`/`hopSize` are kept for source compatibility; the ring is
+    /// sized for `maxFrameRate` frames per second of history.
     init(sampleRate: Double = 44100, hopSize: Int = 512,
-         historySeconds: Double = 8, preMarkSeconds: Double = 1.0, postMarkSeconds: Double = 0.5) {
-        let safeSampleRate = max(1.0, sampleRate)
-        let safeHopSize = max(1, hopSize)
-        self.sampleRate = safeSampleRate
-        self.hopSize = Double(safeHopSize)
-        let fps = safeSampleRate / Double(safeHopSize)
-        self.windowCapacity  = max(1, Int(fps * historySeconds))
+         historySeconds: Double = 8, preMarkSeconds: Double = 1.0, postMarkSeconds: Double = 0.5,
+         maxFrameRate: Double = 120) {
+        self.historySeconds = max(0, historySeconds)
+        self.windowCapacity  = max(1, Int(max(1, maxFrameRate) * self.historySeconds))
         self.preMarkSeconds  = preMarkSeconds
-        self.postMarkSeconds = postMarkSeconds
+        self.postMarkSeconds = max(0, postMarkSeconds)
         self.ringBuffer = [Frame?](repeating: nil, count: windowCapacity)
     }
 
     // MARK: – Feed (called every audio frame from MaskingEngine)
 
-    func feed(bands: [Float], rmsDB: Float) {
-        ringBuffer[writeHead % windowCapacity] = Frame(bands: bands, rmsDB: rmsDB)
+    func feed(bands: [Float], rmsDB: Float, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        ringBuffer[writeHead % windowCapacity] = Frame(bands: bands, rmsDB: rmsDB, time: time)
         writeHead += 1
+        if let pending = pendingCapture, time >= pending.end {
+            pendingCapture = nil
+            let captured = finalizeCapture(start: pending.start, end: pending.end)
+            onCaptureFinalized?(captured)
+        }
     }
 
     // MARK: – Tap-to-mark interface
 
     // Called when the user presses "Das war es"
-    func beginMark() {
-        markStartHead = writeHead
+    func beginMark(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        markStartTime = time
         isMarking = true
     }
 
-    // Called when the user releases "Das war es".
-    // Extracts frames around the mark, computes their mean spectrum, adds it as a capture.
-    // Returns true if the capture was valid (at least a few frames available).
+    /// Called when the user releases "Das war es".
+    ///
+    /// MC-8: the capture window is `[markStart − pre, release + post]`. When
+    /// `post > 0` the capture completes once frames up to the window end have
+    /// arrived (reported via `onCaptureFinalized`) — the old code read
+    /// not-yet-written ring slots. Returns `true` if a capture was accepted
+    /// (immediately evaluated or pending), `false` otherwise.
     @discardableResult
-    func endMark() -> Bool {
-        guard isMarking, let startHead = markStartHead else { return false }
+    func endMark(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard isMarking, let start = markStartTime else { return false }
         isMarking = false
-        markStartHead = nil
+        markStartTime = nil
+        let window = (start: start - preMarkSeconds, end: time + postMarkSeconds)
+        if postMarkSeconds > 0 {
+            pendingCapture = window
+            return true
+        }
+        return finalizeCapture(start: window.start, end: window.end)
+    }
 
-        let fps        = sampleRate / hopSize
-        let preFames   = Int(preMarkSeconds * fps)
-        let postFrames = Int(postMarkSeconds * fps)
-
-        let captureStart = max(0, startHead - preFames)
-        let captureEnd   = writeHead + postFrames     // may extend slightly into future
-        let frameRange   = min(captureEnd - captureStart, windowCapacity)
-
-        guard frameRange >= 3 else { return false }
-
+    /// Mean spectrum of all ring frames inside `[start, end]`.
+    private func finalizeCapture(start: TimeInterval, end: TimeInterval) -> Bool {
         var bandAccum = [Float](repeating: 0, count: TriggerSpectrum.bandCount)
         var rmsAccum: Float = 0
         var validFrames = 0
 
-        for offset in 0..<frameRange {
-            let idx = (captureStart + offset) % windowCapacity
-            guard let frame = ringBuffer[idx], frame.bands.count >= TriggerSpectrum.bandCount else { continue }
+        let count = min(writeHead, windowCapacity)
+        for offset in 0..<count {
+            let idx = (writeHead - 1 - offset) % windowCapacity
+            guard let frame = ringBuffer[idx] else { continue }
+            if frame.time < start { break }  // walking backwards in time
+            guard frame.time <= end, frame.bands.count >= TriggerSpectrum.bandCount else { continue }
             for b in 0..<TriggerSpectrum.bandCount {
                 bandAccum[b] += frame.bands[b]
             }
@@ -113,7 +135,7 @@ final class TriggerSpectrumAccumulator {
             validFrames += 1
         }
 
-        guard validFrames > 0 else { return false }
+        guard validFrames >= 3 else { return false }
 
         let scale = 1.0 / Float(validFrames)
         let meanBands = bandAccum.map { $0 * scale }
@@ -171,7 +193,8 @@ final class TriggerSpectrumAccumulator {
         convergenceScore = 0
         ambientBands = nil
         isMarking = false
-        markStartHead = nil
+        markStartTime = nil
+        pendingCapture = nil
     }
 
     // MARK: – Private helpers
