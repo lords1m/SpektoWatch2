@@ -125,7 +125,11 @@ final class AudioEditorEngine {
                 engine.prepare()
                 try engine.start()
             } catch {
-                // The route may have changed since load: rewire and retry once.
+                // The route may have changed since load: free any resources that
+                // prepare() allocated (mmap'd system buffers) before rewiring;
+                // calling disconnectNodeOutput on a prepared-but-not-started engine
+                // triggers a malloc error because those buffers aren't heap-allocated.
+                engine.stop()
                 reconnectGraph(to: file.processingFormat)
                 do {
                     engine.prepare()
