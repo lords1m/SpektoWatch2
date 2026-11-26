@@ -283,18 +283,24 @@ class DashboardManager {
 
     // MARK: - Navigation
 
-    func selectPreset(id: String) {
+    func selectPreset(id: String, feedback: Bool = true) {
         let clamped = DashboardStateFactory.clampPresetID(id)
+        // Already there: don't swap widgets, re-save or buzz again.
+        if case .preset(let current) = navigation, current == clamped { return }
         storeWidgetsToActiveContext()
         navigation = .preset(activePresetID: clamped)
         reloadWidgetsFromNavigation()
         saveConfiguration()
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if feedback {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
     }
 
-    func setActivePresetIndex(_ index: Int) {
+    /// `feedback: false` for page swipes — the swipe itself is the feedback,
+    /// like on the iOS Home Screen.
+    func setActivePresetIndex(_ index: Int, feedback: Bool = true) {
         guard index >= 0, index < PresetCatalogue.all.count else { return }
-        selectPreset(id: PresetCatalogue.all[index].id)
+        selectPreset(id: PresetCatalogue.all[index].id, feedback: feedback)
     }
 
     /// Alias for preset rail — switches preset page without resetting widgets.

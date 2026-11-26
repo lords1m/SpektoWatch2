@@ -42,15 +42,22 @@ final class AudioEditorEngine {
     @ObservationIgnored private weak var suspendedLiveEngine: AudioEngine?
     @ObservationIgnored private var didSuspendLiveEngine = false
 
+    @ObservationIgnored nonisolated(unsafe) private var configurationObserver: NSObjectProtocol?
+
+    /// Only attaches nodes. The graph is wired in `load(url:recipe:)`,
+    /// after the session allows output: wiring it here (while live capture
+    /// still holds a record-only session) bound the mixer to an output with
+    /// no channels, so playback never started or stayed silent.
     init() {
         engine.attach(playerNode)
         engine.attach(eqNode)
-        engine.connect(playerNode, to: eqNode, format: nil)
-        engine.connect(eqNode, to: engine.mainMixerNode, format: nil)
     }
 
     deinit {
         updateTask?.cancel()
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
         engine.stop()
     }
 
@@ -87,8 +94,10 @@ final class AudioEditorEngine {
         self.recipe = recipe
         duration = recipe.effectiveDuration
         currentTime = 0
+        activatePlaybackSession()
         reconnectGraph(to: file.processingFormat)
         applyEQParameters()
+        observeConfigurationChanges()
         isLoaded = true
     }
 
@@ -113,9 +122,18 @@ final class AudioEditorEngine {
 
         if !engine.isRunning {
             do {
+                engine.prepare()
                 try engine.start()
             } catch {
-                return
+                // The route may have changed since load: rewire and retry once.
+                reconnectGraph(to: file.processingFormat)
+                do {
+                    engine.prepare()
+                    try engine.start()
+                } catch {
+                    Logger.audioEngine.error("AudioEditorEngine start failed: \(error.localizedDescription)")
+                    return
+                }
             }
         }
 
@@ -186,16 +204,41 @@ final class AudioEditorEngine {
     // MARK: - Private
 
     private func applyEQParameters() {
+        // Gain is the EQ's globalGain (set above); the mixer stays at unity
+        // so preview and export match and gain isn't applied twice.
         AudioUnitEQConfigurator.configure(eqNode: eqNode, recipe: recipe, bypassed: isBypassed)
-        let gainFactor: Float = isBypassed ? 1.0 : powf(10.0, recipe.gainDB / 20.0)
-        engine.mainMixerNode.outputVolume = max(0.05, min(4.0, gainFactor))
+        engine.mainMixerNode.outputVolume = 1.0
     }
 
+    /// Wires player → EQ → mixer → output for the file's format, with the
+    /// mixer → output link re-derived from the current hardware route.
     private func reconnectGraph(to format: AVAudioFormat) {
         engine.disconnectNodeOutput(playerNode)
         engine.disconnectNodeOutput(eqNode)
+        engine.disconnectNodeOutput(engine.mainMixerNode)
         engine.connect(playerNode, to: eqNode, format: format)
         engine.connect(eqNode, to: engine.mainMixerNode, format: format)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+    }
+
+    /// The engine stops itself when the route or session changes (headphones,
+    /// live capture reconfiguring the session). Rewire it and keep the
+    /// playhead so the next play works.
+    private func observeConfigurationChanges() {
+        guard configurationObserver == nil else { return }
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let file = self.audioFile else { return }
+                let wasPlaying = self.isPlaying
+                if wasPlaying { self.pause() }
+                self.reconnectGraph(to: file.processingFormat)
+                if wasPlaying { self.play() }
+            }
+        }
     }
 
     private func schedulePlayback(fromEditedTime startEdited: TimeInterval, file: AVAudioFile) {

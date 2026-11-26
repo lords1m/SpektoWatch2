@@ -121,7 +121,10 @@ enum AudioEditRenderer {
             AVLinearPCMBitDepthKey: 32,
             AVLinearPCMIsFloatKey: true,
             AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: !format.isInterleaved,
+            // File data is always interleaved (WAV/CAF can't hold planar
+            // PCM); the processing format below stays planar to match the
+            // read buffers.
+            AVLinearPCMIsNonInterleaved: false,
         ]
         let outFile = try AVAudioFile(forWriting: destinationURL, settings: floatSettings, commonFormat: .pcmFormatFloat32, interleaved: format.isInterleaved)
 
@@ -218,9 +221,10 @@ enum AudioEditRenderer {
         engine.connect(playerNode, to: eqNode, format: format)
         engine.connect(eqNode, to: engine.mainMixerNode, format: format)
 
+        // Gain is the EQ's globalGain (set by the configurator); the mixer
+        // stays at unity so it isn't applied twice.
         AudioUnitEQConfigurator.configure(eqNode: eqNode, recipe: recipe, bypassed: false)
-        let gainFactor = powf(10.0, recipe.gainDB / 20.0)
-        engine.mainMixerNode.outputVolume = max(0.05, min(4.0, gainFactor))
+        engine.mainMixerNode.outputVolume = 1.0
 
         try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: chunkSize)
         try engine.start()
@@ -241,7 +245,7 @@ enum AudioEditRenderer {
             AVLinearPCMBitDepthKey: 32,
             AVLinearPCMIsFloatKey: true,
             AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: !format.isInterleaved,
+            AVLinearPCMIsNonInterleaved: false,
         ]
         let outputFile = try AVAudioFile(
             forWriting: outputURL,
@@ -255,6 +259,7 @@ enum AudioEditRenderer {
         }
 
         let targetFrames = max(AVAudioFramePosition(1), frameCount)
+        var stalledRenders = 0
         while engine.manualRenderingSampleTime < frameCount {
             try Task.checkCancellation()
             let remaining = frameCount - engine.manualRenderingSampleTime
@@ -262,14 +267,17 @@ enum AudioEditRenderer {
             let status = try engine.renderOffline(framesToRender, to: renderBuffer)
             switch status {
             case .success:
+                stalledRenders = 0
                 if renderBuffer.frameLength > 0 {
                     try outputFile.write(from: renderBuffer)
                 }
                 progress(min(1.0, Double(engine.manualRenderingSampleTime) / Double(targetFrames)))
-            case .insufficientDataFromInputNode:
-                break
-            case .cannotDoInCurrentContext:
-                break
+            case .insufficientDataFromInputNode, .cannotDoInCurrentContext:
+                // Retry, but never spin forever on a stuck graph.
+                stalledRenders += 1
+                if stalledRenders > 2_000 {
+                    throw AudioEditRenderError.renderFailed("Offline-Rendering hängt.")
+                }
             case .error:
                 throw AudioEditRenderError.renderFailed("AVAudioEngine renderOffline Status .error")
             @unknown default:

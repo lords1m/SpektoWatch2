@@ -130,7 +130,9 @@ enum AudioFormatConverter {
                         outStatus.pointee = .haveData
                         return inputBuffer
                     } catch {
-                        outStatus.pointee = .noDataNow
+                        // `.noDataNow` here made the loop spin forever on a
+                        // read error; end the stream instead.
+                        outStatus.pointee = .endOfStream
                         return nil
                     }
                 }
@@ -192,11 +194,14 @@ enum AudioFormatConverter {
                 AVLinearPCMIsNonInterleaved: false,
             ]
         case .m4aAAC:
+            // AAC-LC rejects bitrates above ~6 bit/sample per channel
+            // (320 kbps mono fails); clamp to what the encoder accepts.
+            let maxKbps = Int(sampleRate * Double(channels) * 6 / 1000)
             return [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: sampleRate,
                 AVNumberOfChannelsKey: channels,
-                AVEncoderBitRateKey: bitrateKbps * 1000,
+                AVEncoderBitRateKey: max(32, min(bitrateKbps, maxKbps)) * 1000,
             ]
         case .alac:
             return [

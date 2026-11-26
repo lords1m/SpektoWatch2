@@ -14,11 +14,17 @@ struct ModularDashboardView: View {
     @AppStorage("dashboard.activePreset") private var activePresetID: String = "overview"
     @Namespace private var zoomNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The page the pager shows. Owned locally so a swipe never waits on
+    /// `DashboardManager` (widget swap, persistence, observation fan-out);
+    /// the manager follows once the page has settled.
+    @State private var pageSelection: Int
+    @State private var pageCommitTask: Task<Void, Never>?
 
     /// `dashboardManager` is owned by the caller (ContentView's @State).
     init(audioEngine: AudioEngine, connectivityManager: WatchConnectivityManager, dashboardManager: DashboardManager) {
         _viewModel = State(initialValue: DashboardViewModel(dashboardManager: dashboardManager, audioEngine: audioEngine, connectivityManager: connectivityManager))
         self.dashboardManager = dashboardManager
+        _pageSelection = State(initialValue: dashboardManager.activePresetIndex)
     }
 
     var body: some View {
@@ -71,8 +77,13 @@ struct ModularDashboardView: View {
             homeBottom
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.widgetUndoToast?.id)
-        .onChange(of: dashboardManager.activePresetIndex) { _, _ in
+        .onChange(of: dashboardManager.activePresetIndex) { _, newIndex in
+            // External navigation (Layouts sheet, load finished): follow it.
+            if pageSelection != newIndex { pageSelection = newIndex }
             syncActivePresetStorage()
+        }
+        .onChange(of: pageSelection) { _, newIndex in
+            commitPageSelection(newIndex)
         }
         .onChange(of: dashboardManager.navigation) { _, _ in
             syncActivePresetStorage()
@@ -133,11 +144,7 @@ struct ModularDashboardView: View {
         if dashboardManager.isCustomMode {
             page(widgets: dashboardManager.widgets, isActive: true)
         } else {
-            let selection = Binding<Int>(
-                get: { dashboardManager.activePresetIndex },
-                set: { dashboardManager.setActivePresetIndex($0) }
-            )
-            TabView(selection: selection) {
+            TabView(selection: $pageSelection) {
                 ForEach(Array(PresetCatalogue.all.indices), id: \.self) { index in
                     Group {
                         // Paged TabView mounts all pages eagerly. Only the
@@ -145,10 +152,13 @@ struct ModularDashboardView: View {
                         // page — otherwise every off-screen preset's widgets
                         // stay subscribed and re-render on each 15 Hz audio
                         // publish. Far pages mount on demand.
-                        if abs(index - dashboardManager.activePresetIndex) <= 1 {
+                        // Keyed on the pager's own selection, so the next
+                        // neighbour is mounted as soon as a page settles,
+                        // not after the manager has caught up.
+                        if abs(index - pageSelection) <= 1 {
                             page(
                                 widgets: dashboardManager.widgets(forPresetIndex: index),
-                                isActive: index == dashboardManager.activePresetIndex
+                                isActive: index == dashboardManager.activePresetIndex && index == pageSelection
                             )
                         } else {
                             Color.clear
@@ -205,10 +215,12 @@ struct ModularDashboardView: View {
         VStack(spacing: FerriteSpace.s) {
             HomePageIndicator(
                 count: dashboardManager.isCustomMode ? 1 : PresetCatalogue.all.count,
-                current: dashboardManager.isCustomMode ? 0 : dashboardManager.activePresetIndex,
+                current: dashboardManager.isCustomMode ? 0 : pageSelection,
                 onSelect: { index in
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        dashboardManager.setActivePresetIndex(index)
+                    // Only the pager animates; the manager commits afterwards
+                    // without an animation of its own.
+                    withAnimation(reduceMotion ? nil : FerriteMotion.standard) {
+                        pageSelection = index
                     }
                 }
             ) {
@@ -220,6 +232,26 @@ struct ModularDashboardView: View {
                 style: .dock,
                 onShowSettings: { viewModel.showSettings = true }
             )
+        }
+    }
+
+    /// Commits the settled page to the manager once the paging animation is
+    /// over. Swapping `widgets` and persisting mid-swipe made the pager
+    /// stutter and jump; done afterwards (and without an animation
+    /// transaction) nothing on screen changes, since the page already shows
+    /// the preset's widgets.
+    private func commitPageSelection(_ index: Int) {
+        pageCommitTask?.cancel()
+        guard !dashboardManager.isCustomMode, dashboardManager.activePresetIndex != index else { return }
+        pageCommitTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, pageSelection == index,
+                  dashboardManager.activePresetIndex != index else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                dashboardManager.setActivePresetIndex(index, feedback: false)
+            }
         }
     }
 
