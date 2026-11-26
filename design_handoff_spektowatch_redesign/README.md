@@ -1,5 +1,8 @@
 # SpektoWatch — UX Redesign Handoff
 
+> **Status 2026-11:** Implemented as milestone M12 (Liquid Glass redesign). Since then the app moved to the Ferrite v2 design system and an iOS-style Home Screen; the floating header pill and preset rail described below are no longer mounted. Treat this bundle as a historical reference; current state is in `agent/STATE.md`.
+
+
 ## Overview
 
 This bundle contains a redesign of the SpektoWatch iOS app — a scientific audio measurement instrument (spectrogram, waterfall, LAF time-series, frequency spectrum, level meter, tone generator, masking, FFT lab) and its accompanying Apple Watch app + Complications.

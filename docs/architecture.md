@@ -1,6 +1,6 @@
-# SpektoWatch2 Fullstack-Übersicht
+# SpektoWatch2 Architekturüberblick
 
-Stand: 2026-05-31
+Stand: 2026-11-26 (vormals `FULLSTACK_UEBERSICHT.md`)
 Repo: `SpektoWatch2` (iOS + watchOS, Swift/SwiftUI)
 
 ## 1) Stack auf einen Blick
@@ -34,16 +34,28 @@ Damit werden einzelne Dateien trotz gleicher Namen gezielt aus Targets ausgeschl
 ## 3) Laufzeit-Architektur (iOS)
 
 ### App Bootstrap
-- Entry: `SpektoWatch2/SpektoWatch2App.swift`
-- Instanziert und injiziert:
-  - `AudioEngine`
-  - `BandstopFilterManager`
-  - `WatchConnectivityManager`
-  - `RecordingManager`
-  - `FFTConfiguration`
+- Entry: `SpektoWatch2/SpektoWatch2App.swift` → `ContentView`
+- Dependency Injection über `AppServices` (`SpektoWatch2/AppServices.swift`):
+  - sofort: `BandstopFilterManager`, `WatchConnectivityManager`,
+    `RecordingManager`, `FFTConfiguration`, `MaskingProfileManager`
+  - verzögert (structured concurrency in `startAudio()`): `AudioEngine`,
+    `MaskingEngine`
+- `AudioEngine` ist eine Fassade über `AudioCaptureSession`,
+  `ProcessingPipeline`, `WearableIngestCoordinator`, `UIPublishThrottle`,
+  `InputSignalMonitor`, `SampleRingBuffer` und `RecordingWriterCoordinator`.
 
 ### UI-Schichten
-- Root: `ContentView` -> `ModularDashboardView`
+- Root: `ContentView` -> `ModularDashboardView`, dargestellt als
+  iOS-artiger Home-Screen mit wischbaren Seiten pro Preset
+  (`SpektoWatch2/HomeScreen/`: 4-Spalten-Grid, Icon-Tiles, Live-Widgets,
+  Vollbild-Launcher). `PresetRailView`/Header-Pill sind nicht mehr eingehängt.
+- Design-System: `SpektoWatch2/DesignSystem/` (Ferrite v2);
+  `DesignTokens.swift`/`GlassStyle.swift` sind Legacy-Shims darauf.
+- Audio-Editor & Formatkonverter: `SpektoWatch2/AudioEditor/`
+  (WAV/MP3/M4A-AAC/ALAC/AIFF/CAF, MP3 via LAME-xcframework).
+- Masking/Trigger-Akquise: `SpektoWatch2/Masking/`
+  (ursprüngliche Spezifikation: `agent/design/masking-generator-spec.md`).
+- Live Activity: `SpektoWatch2/LiveActivity/` + `SpektoWatch2Widget/`
 - Dashboard-Verwaltung:
   - `DashboardViewModel`
   - `DashboardManager` (persistiert Widget-Layout in `UserDefaults`)
@@ -117,7 +129,8 @@ flowchart LR
   - Watch-Dashboard-Layout und Persistenz
 
 ### Persistenz
-- Dashboard-Widgets iOS: `DashboardConfiguration_v5` (`DashboardManager`)
+- Alle Keys zentral in `Shared/PersistenceKeys.swift`, Migrationen in `Shared/PersistenceMigrator.swift`
+- Dashboard-Layouts iOS: `DashboardLayouts_v2` (`DashboardManager`; `DashboardConfiguration_v5` nur noch Legacy-Snapshot)
 - FFT-Settings: `fft_*` Keys (`FFTConfiguration`)
 - Kalibrierung/Glättung: `calibrationOffset`, `spectrogramFrequencySmoothing` (`AudioEngine`)
 - Watch-Layout: `watchDashboardConfig` (`WatchDashboardConfig`)
@@ -147,63 +160,34 @@ Hinweis: Bei einigen Widget-Parametern (z. B. Colormap/TimeSpan/Sensitivity) ist
 
 ## 8) Wartungshinweise
 
-### Plattformgetrennte Konnektivität
-- `SpektoWatch2/WatchConnectivityManager.swift` enthält die iOS-Seite.
-- `Shared/WatchConnectivityManager.swift` enthält die watchOS-Seite.
+### Konnektivität
+- `Shared/WatchConnectivityManager.swift` ist die einzige Implementierung
+  (iOS und watchOS, plattformspezifische Teile per `#if os(...)`).
+- Typisiertes Protokoll mit `protocolVersion`, Codable-Codec und
+  4-Byte-Binärheader: `Shared/WatchConnectivityProtocol.swift`.
 
-Die Implementierungen teilen das typisierte Protokoll aus
-`Shared/WatchConnectivityProtocol.swift`, bleiben aber plattformspezifisch.
+### Ungenutzte Bandsperre-UI
+- `BandstopFilterManager` ist im DSP-Pfad aktiv (`SpectrogramProcessor`).
+- `BandstopDashboardWidget`, `BandstopFilterView`, `BandstopOverlayView`
+  sind derzeit nicht eingehängt (Produktentscheidung offen, siehe
+  `agent/STATE.md`).
+
+### Lautheit-Rechner
+- `Shared/LoudnessCalculator.swift` + `Shared/LoudnessCalculatorView.swift`,
+  eingebunden über `WatchLoudnessWidget`.
+- ISO-226:2003-Näherung (Equal-Loudness-Konturen) + Stevens-Potenzgesetz für
+  Phon → Sone. Keine Zwicker-Methode nach ISO 532-1, kein Anspruch auf
+  Normkonformität; ISO 226:2023 ist noch nicht umgesetzt.
 
 ### Harte Samplerate-Annahmen
 - Einzelne Komponenten rechnen weiterhin implizit mit 44.1 kHz (z. B. in bestimmten Zeitachsen-/Buffergrößen-Berechnungen).
 - Der zentrale Live-DSP-Pfad in `AudioEngine` arbeitet bereits mit dynamischer `processingSampleRate`.
 
-## 9) Historischer Performance-Audit (Mai 2026)
+## 9) Performance
 
-Der folgende Abschnitt dokumentiert den Ausgangspunkt des Performance-Audits
-und ist kein aktueller Backlog. Der Großteil dieser Punkte wurde in späteren
-Meilensteinen umgesetzt. Für den aktuellen Status sind `agent/progress.yaml`
-und die zugehörigen Acceptance-Reports maßgeblich.
-
-Detaillierte Fixes mit Codebeispielen: `PERFORMANCE_REVIEW.md`
-
-### Priorität 1 — größter Effekt, geringstes Risiko
-
-| # | Datei | Problem | Fix | Erwarteter Effekt |
-|---|-------|---------|-----|-------------------|
-| 1 | `Processing/FrequencyWeightingProcessor.swift:66` | `log10(gain[i])` wird pro Frame neu berechnet, obwohl Gains konstant sind. 3 × 4096 × 86 ≈ 1 M `log10`-Calls/s | `gainsDB` bei `init` vorberechnen, Hot-Path per `vDSP_vadd` | ~3–5 % CPU |
-| 2 | `AudioEngine.swift:1167` | A-, C- und Z-Gewichtung werden **immer** berechnet, auch wenn nur eine angezeigt wird. `spectrogramProcessor.process()` läuft 3×. | Berechnung auf aktive Gewichtung + `isMeasurementRecording`-Gate beschränken | **~30–40 % Reduktion in `processFFTFrame`** (größter Einzelgewinn) |
-| 3 | `Processing/FFTProcessor.swift:381` | Skalare `log10`-Schleife über 4096 Bins in `convertToDB` | `vvlog10f` aus Accelerate + `vDSP_vsmul` | 5–8× schneller auf diesem Helper |
-| 4 | `MeasurementDataWriter.swift:43` | Synchrone Disk-Writes (`fileHandle.write`) direkt auf dem Audio-Thread. Bei 86 Frames/s × ~17 KB = ~1,4 MB/s → Stalls und Frame-Drops auf älteren Geräten | Pre-alloc `Data`, Writes auf serielle Dispatch Queue auslagern | Eliminiert Frame-Drops beim Recording auf iPhone 11 o. ä. |
-| 5 | `Processing/FFTProcessor.swift:330` | `performFFT` gibt `[Float]`-Kopie zurück → ~1,3 MB/s Allokation auf Hot-Path | Buffer-out Variante; `AudioEngine` hält reusable `[Float]`. Skalare Interleave-Schleife (Z. 356) → `vDSP_ctoz`. `NSLock` → `os_unfair_lock` | ~5–10 % CPU |
-
-### Priorität 2 — Accelerate-Sweep durch restliche DSP-Kette
-
-| # | Datei | Problem | Fix |
-|---|-------|---------|-----|
-| 6 | `AudioEngine.swift:1247` | Skalare Energy-Loop (magSq, energyA/C/Z) | `vDSP_vsq` + `vDSP_dotpr`; `aWeightsSq` einmalig vorberechnen |
-| 7 | `AudioEngine.swift:1161` | Skalares `calibrationOffset`-Add über 4096 Bins | `vDSP_vsadd` |
-| 8 | `SpectrogramProcessor.swift:104` | `log10(attenuationMap[i])` per Bin pro Frame, obwohl Map nur bei Filteränderung wechselt | `attenuationDB: [Float]` cachen, Hot-Path → `vDSP_vadd` |
-| 9 | `SpectrogramProcessor.swift:175` | `while + .append()` baut Output-Array; `reserveCapacity` vorhanden, aber Zuweisung per Index fehlt | Exakte Größe prä-allokieren, Index-Zuweisung; oder `vDSP_desamp` für Binning |
-| 10 | `SpectrogramProcessor.swift:162` | Skalares `max`-Loop über Oktavband-Range | `vDSP_maxv` |
-
-### Priorität 3 — Input-Pfad & UI
-
-| # | Datei | Problem | Fix |
-|---|-------|---------|-----|
-| 11 | `AudioEngine.swift:1021` | `Array(UnsafeBufferPointer(...))` auf jedem Audio-Callback → frische Allokation | Pre-alloc reusable `[Float]` mit `maxFrameCount`, dann `memcpy` |
-| 12 | `AudioEngine.swift:1049` | `newSamples.max()` ist falsch (signed max, dann abs) und scalar | `vDSP_maxmgv` — schneller *und* korrekt |
-| 13 | `AudioEngine.swift:1400` | 8 separate `@Published` Writes pro UI-Tick → 8× `objectWillChange` | In einen `AudioSnapshot`-Struct bündeln, einmal publishen |
-| 14 | `AudioEngine.swift:1427` | `magnitudes.map { $0 - offset }` bei Watch-Sends → Allokation @ 10 Hz | `vDSP_vsadd`; oder Offset im Packet-Header mitschicken |
-| 15 | `AudioEngine.swift:1416` | `levelHistory.removeFirst()` ist O(n) | Ring-Buffer-Struct verwenden |
-
-### Empfohlene Reihenfolge
-
-`#1, #5, #3` → `#2` → `#4` → `#6–#10` → `#11–#15`
-
-Fixes 1–3 allein sollen `processFFTFrame` um **40–50 %** reduzieren (iPhone 12-Klasse). Benchmarks vor/nach: `PerformanceProfilingTests.swift` erweitern.
-
----
+Budgets, Profiling-Matrix und Instruments-Anleitung: `docs/performance.md`.
+Der historische DSP-Audit vom Mai 2026 steht in
+`agent/reports/2026-05-06-performance-review.md`.
 
 ## 10) End-to-End für Live iOS (Referenzfluss)
 
@@ -226,7 +210,7 @@ flowchart TD
 - Die Live-Analyse ist zentral in `AudioEngine` gebündelt und wird von den iOS-Widgets gemeinsam genutzt.
 - Watch unterstützt Hybridbetrieb (lokale Sofort-FFT + iPhone-Hauptverarbeitung).
 - Metal/Shader-Seite ist optimiert (Jan 2026) — Performance ist im Budget.
-- Der historische Swift-DSP-Audit bleibt in Abschnitt 9 als Referenz erhalten;
-  der aktuelle Stand wird in `agent/progress.yaml` gepflegt.
+- Der aktuelle Projektstand wird in `agent/STATE.md` und
+  `agent/progress.yaml` gepflegt.
 - Einzelne verbleibende 44,1-kHz-Annahmen außerhalb des Kernpfads sollten bei
   Änderungen an Zeitachsen und Buffergrößen erneut geprüft werden.

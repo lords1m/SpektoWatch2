@@ -1,4 +1,7 @@
 # SPEKTRALGRUND
+
+> **Status 2026-11:** Historical art direction behind `spektowatch_plate_I/II` (`render_plate*.py`). The in-app design system is now Ferrite v2 (`SpektoWatch2/DesignSystem/`); this document no longer governs app UI.
+
 ### A Visual Philosophy for SpektoWatch
 
 ---

@@ -1,11 +1,11 @@
 # Project State Ledger (Single Source of Truth)
 
-> **Last updated:** 2026-11-25
+> **Last updated:** 2026-11-26
 > **Rule:** Read this file and run `git log -n 15 --oneline` **before** planning or editing code. Update this file in the same commit whenever you finish a task or defer work.
 
 ## 1. Done & Locked In (Do Not Re-Implement)
 
-- **VERBESSERUNGSPLAN Phases 1–8** (see `agent/reports/2026-06-11-improvement-plan-acceptance.md`):
+- **VERBESSERUNGSPLAN Phases 1–8** (plan archived at `agent/reports/2026-06-10-verbesserungsplan.md`; see `agent/reports/2026-06-11-improvement-plan-acceptance.md`):
   - `WatchConnectivityManager` deduplicated into `Shared/WatchConnectivityManager.swift`.
   - `AudioCaptureSession`, `ProcessingPipeline`, `WearableIngestCoordinator`, `UIPublishThrottle`, `InputSignalMonitor`, `SampleRingBuffer`, and `RecordingWriterCoordinator` extracted from `AudioEngine`.
   - DI migrated to `AppServices` with structured concurrency in `startAudio()`.
@@ -22,6 +22,7 @@
   - **2026-11-25 M22 (Audio Editor & Format Converter) + M23 (Home-Screen Launcher & Dual-Mode Widgets) — Code-Side Complete:** Implemented `SpektoWatch2/AudioEditor/` (`AudioEditModels`, `WaveformAnalyzer`, `AudioEditorEngine`, `AudioEditRenderer`, `LameMP3Encoder` via `BB9z/LAME-xcframework` @ `3.100.3` iOS-only, `AudioFormatConverter` for WAV/MP3/M4A-AAC/ALAC/AIFF/CAF, Voice-Memos-style `WaveformViews`/`AudioEditorPanels`/`AudioExportSheet`/`AudioEditorView`/`AudioEditorHomeWidget`), `RecordingManager` copy/replace/import flows, `RecordingDetailView`/`RecordingsListView` entry points, and `SpektoWatch2/HomeScreen/` (`FeatureIconTileView`, `HomeFunctionWidgets`, `FeatureFullScreenHostView`, `WidgetDisplayStyle` `.liveWidget`/`.icon` with `preferredLiveSize` + explicit switchers in `WidgetPickerView`/`WidgetSettingsView` + mixed Home-Screen start page). All 9 Xcode targets build cleanly; added `AudioEditorTests` and `WidgetDisplayStyleMigrationTests`.
   - **2026-11-25 Ferrite v2 (U-Bahnhof Paradestraße) integrated:** `SpektoWatch2/DesignSystem/` rewritten to match the Ferrite design-system artifact — pure black/white neutrals, `FerriteLine` (Ink + U1–U9, stored as `ferrite.line`, replaces `FerriteAccent`/`ferrite.accent`), grey `FerriteBand`, SF Pro only (no mono), square 1pt-outlined cards/canvases with 24pt grout grid, form-based `FerriteStatusBadge`/`FerriteMeter`, new `FerriteLineBadge`/`FerriteLinePicker`/`FerriteTileBand`/`FerriteGlassBar`/`FerriteGlassButtonStyle`/`FerriteGlassSheet`; scanlines/glow/cursor/brackets removed. Legacy `Radius`, `LiquidGlassCard`, `InnerCanvas`, `FloatingPill` (`DesignTokens.swift`) and `GlassStyle.swift` map onto it; `FerriteStatus` = status accents from the line palette (accent fills only: badge markers, meter caution/loud tiles, dots — never text or rules). iOS app builds; visual simulator check still pending.
   - **2026-11-25 iOS-style Home Screen:** `ModularDashboardView` now renders presets as swipeable Home-Screen pages (`HomeScreen/HomeScreenLayout.swift` 4-column iOS grid + packer mapping stored `WidgetSize` onto icon/small/medium/large/page families — no persistence migration; `HomeScreen/HomeScreenViews.swift` squircle `HomeAppIcon`, `HomeScreenTileView` with context menu, jiggle + "−", `HomeScreenPage`, `HomeWallpaper`, `HomePageIndicator`, `HomeEditBar`), `WidgetCardView.Chrome.homeWidget` (rounded, fixed height, no resize handles), `ControlBarView.Style.dock` + `HomeStatusLabel`, zoom launch via `.navigationTransition(.zoom)`. Header pill + `PresetRailView` no longer mounted (files kept). Free drag-resize replaced by family switching in the context menu. UI tests that tapped the old header/rail need updating.
+  - **2026-11-26 Docs cleanup:** Root docs consolidated into `docs/` (`architecture.md`, `spectrogram.md`, `performance.md` merged from the three `PERFORMANCE_*`/`BASELINE_*` files + `profiling.md`); redirect stubs, `BANDSTOP_INTEGRATION.md`, `LOUDNESS_CALCULATOR_README.md`, `design/themes/claude-atelier.md` and the duplicate `agent/drafts/` draft removed; `VERBESSERUNGSPLAN.md` → `agent/reports/`, masker prompt → `agent/design/masking-generator-spec.md`.
 
 ## 2. Intentionally Deferred / Do Not Touch Without Explicit Request
 
@@ -33,4 +34,4 @@
 
 1. **macOS/Xcode verification:** Build all 7 targets (`SpektoWatch2`, `SpektoWatch Watch App`, `SpektoWatch Complications`, `SpektoWatch2WidgetExtension`, and test targets) and run `SpektoWatch2Tests` + `SpektoWatchTests`.
 2. **Xcode project config cleanup:** Wire `Watch-Info.plist` properly for `SpektoWatch Watch App`, remove stale `PBXFileSystemSynchronizedBuildFileExceptionSet` entries (`Managers/RecordingManager.swift`, `Info.plist`), set Debug `SWIFT_OPTIMIZATION_LEVEL = -Onone`, and wire `.xctestplan` to schemes.
-3. **Hardware / Instruments sign-off:** Run `BASELINE_PROFILING_MATRIX.md` against `PERFORMANCE_BUDGET.md` and complete `M21/task-6-acceptance.md`.
+3. **Hardware / Instruments sign-off:** Run the baseline matrix in `docs/performance.md` against its budget and complete `M21/task-6-acceptance.md`.

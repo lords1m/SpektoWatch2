@@ -3,7 +3,7 @@
 Status: addressed  
 Created: 2026-05-11  
 Addressed: 2026-05-11  
-Source draft: `agent/drafts/spektowatch-project.draft.md`
+Source draft: `agent/design/project-draft.md`
 
 ## How To Respond
 

@@ -1,6 +1,14 @@
 # Spectrogram Reference — HighEndSpectrogramAdapter
 
-Stand: 2026-05 (FFT-Messpfad + DCT-Visualpfad)  
+Stand: 2026-05 (FFT-Messpfad + DCT-Visualpfad), Statusnotiz 2026-11  
+
+> **Status 2026-11:** Der iOS-Live-Pfad liefert `visualMagnitudes = nil`
+> (`AudioEngine`), der tote iOS-Visualpfad wurde entfernt. Der
+> `HighEndSpectrogramAdapter` nutzt auf iOS daher den Fallback auf die
+> FFT-Bandmagnituden. `VisualSpectrogramProcessor` (DCT-II + Mel, in
+> `SpectrogramProcessor.swift`) wird nur noch von `WatchAudioEngine` verwendet.
+> Die Abschnitte zum DCT/Mel-Pfad unten beschreiben daher den Watch-Pfad bzw.
+> den historischen iOS-Stand.
 Renderer: `HighEndSpectrogramAdapter` + `HighEndSpectrogramShaders.metal`
 
 ---
@@ -418,7 +426,7 @@ private let timeColumns: Int = 2580  // 86 updates/s × 30 s
 
 **Ring-Buffer-Seam:** Ein sehr feiner Übergang am Schreibkopf ist trotz Fade-Out bei manchen Colormaps sichtbar. `fadeWidth` im Shader leicht erhöhen wenn störend.
 
-**Samplerate-Annahme:** Einzelne Textur-/Zeitachsen-Berechnungen rechnen implizit mit 44,1 kHz. Bei abweichender `processingSampleRate` muss `timeColumns` entsprechend angepasst werden (→ `FULLSTACK_UEBERSICHT.md`, Abschnitt 8).
+**Samplerate-Annahme:** Einzelne Textur-/Zeitachsen-Berechnungen rechnen implizit mit 44,1 kHz. Bei abweichender `processingSampleRate` muss `timeColumns` entsprechend angepasst werden (→ `docs/architecture.md`, Abschnitt 8).
 
 ---
 

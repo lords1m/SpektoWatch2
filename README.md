@@ -26,9 +26,11 @@ Wichtige Targets:
 
 - `TESTFLIGHT_EXTERNAL_TESTING.md`: Beschreibung und `What to Test` für externe
   TestFlight-Tests
+- `docs/architecture.md`: Architekturüberblick
+- `docs/spectrogram.md`: Spektrogramm-Renderer (`HighEndSpectrogramAdapter`)
+- `docs/performance.md`: Performance-Budget, Profiling-Matrix, Instruments
 - `docs/test-plans/`: manuelle Testmatrix, Xcode-Testpläne, Snapshot/UI-Anleitungen
-- `FULLSTACK_UEBERSICHT.md`: Architekturüberblick
-- `AGENT.md`: Repository-Kontext und Validierungsworkflow
+- `AGENT.md` + `agent/STATE.md`: Agent-Kontext, aktueller Stand, Validierung
 
 ## Validierung
 

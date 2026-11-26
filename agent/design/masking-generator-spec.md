@@ -1,5 +1,8 @@
 # Feature-Prompt: Adaptiver Maskierungs-Generator für SpektoWatch
 
+> **Status 2026-11:** Original feature prompt (formerly root `spektowatch_masker_prompt.md`). Implemented in `SpektoWatch2/Masking/`; kept as the design rationale and science background.
+
+
 ## Kontext
 
 SpektoWatch ist eine bestehende iOS-App zur spektralen Audio-Analyse. Wir wollen ein neues Feature ergänzen: einen **personalisierten Sound-Masking-Generator** für ADHS- und Misophonie-Betroffene, denen einzelne Störgeräusche (Tippen, Schmatzen, Knarzen, Klacken) die Konzentration nehmen.

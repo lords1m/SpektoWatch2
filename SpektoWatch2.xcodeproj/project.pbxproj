@@ -170,7 +170,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				__Snapshots__/PDFReportSnapshotTests/README.txt,
-				SNAPSHOT_TESTING.md,
 			);
 			target = 37969D312F2E096A009D1923 /* SpektoWatch2Tests */;
 		};
