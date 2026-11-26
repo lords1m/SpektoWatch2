@@ -231,6 +231,31 @@ Files: `SpektoWatch Watch App/WatchDashboardView.swift`, `WatchRecordButton.swif
 - **Resizability**: iPad split view and iPhone Duo outer/inner displays — dock width capped on
   regular width, concentric corners correct on both Duo displays.
 
+### Spatial depth pass (2026-11-26)
+
+Goal: glass and Home Screen objects read as lit, layered 3D objects instead of flat
+frosted stickers. References (Mobbin, iOS 26 apps): Moonly player (domed glass transport
+buttons with a lit top rim), Grok voice bar (glass capsule with a gradient rim), Reddit /
+Alan / IMDb floating tab bars (selected lens inside the glass, soft wide shadow under the bar).
+
+As built — one light source, top/slightly leading, all from static shapes (`FerriteDepth.swift`):
+- `FerriteSpecularRim`: 1 pt lit rim along the top, faint reflection on the far edge, 2.5 pt
+  bevel shade on the lower inner edge. Works with `ConcentricRectangle` (2× stroke clipped).
+- `FerriteSheen`: soft light over the upper half, under the content.
+- `FerriteDropShadow`: contact + ambient shadow with the shape's interior knocked out
+  (`destinationOut`), so glass never samples a shadow fill and live kernels never invalidate
+  the blur.
+- Tokens: `FerriteDepth` (rim, reflect, bevel, sheen) and `FerriteElevation.raised` /
+  `.floating` in `FerriteTokens.swift`. `FerriteGlass.edge/shadowRadius/shadowY` removed.
+- Applied in `FerriteGlassSurface` / `FerriteEdgeGlassSurface` (every glass variant: bars,
+  dock, page indicator, glass buttons, snackbar, watch-settings sync panel), the
+  `FerriteGlassBar` selection lens, `HomeIconGlyph` (Home icons + dock tiles: sheen between
+  ink and symbol, rim, `raised` shadow) and the `.homeWidget` card chrome (rim + `raised`).
+- Reduce Transparency: no sheen, rim or shadow (opaque + outline as before).
+- Not changed: content-layer cards, canvases, rows (still flat Ferrite), watchOS (Phase 4).
+- Not yet checked on screen (no macOS in this session): iOS 26 glass + rim, iOS 18 fallback,
+  dark mode, jiggle-mode performance with per-tile shadows, Instruments budget (Phase 5).
+
 ## 5. Relationship to M12
 
 Fold M12 task-6 (hardware acceptance) into Phase 5 rather than running it twice: Phases 2–4

@@ -89,14 +89,19 @@ struct FerriteBlink: ViewModifier {
 
 /// The floating-layer material — the only place the app draws glass.
 ///
+/// Every variant is spatial: a sheen over the upper half, a lit rim along
+/// the top with a faint reflection on the far edge, a bevel shade on the
+/// lower inner edge, and the `floating` contact + ambient shadow
+/// (`FerriteDepth.swift`). Sheen and rim sit inside the glass content, so
+/// they morph with it; the shadow is cast by the static shape only.
+///
 /// - iOS 26+: the system `.glassEffect`, optionally tinted with a line
 ///   colour (accent glass), interactive, and tagged with a morph identity.
-/// - Earlier: `glass-fill` over a blur with a `glass-stroke` rim, a
-///   `glass-edge` highlight and the single `shadow-glass`; tinted glass is
-///   a solid line fill with an ink edge. Increase Contrast swaps the rim
-///   for a `label` outline.
+/// - Earlier: `glass-fill` over a blur with a `glass-stroke` rim; tinted
+///   glass is a solid line fill with an ink edge. Increase Contrast swaps
+///   the rim for a `label` outline.
 /// - Reduce Transparency (any version): opaque `background` (or the line
-///   colour when tinted) with a `label` outline.
+///   colour when tinted) with a `label` outline, no light or shadow.
 struct FerriteGlassSurface<S: InsettableShape>: ViewModifier {
     var shape: S
     var tint: FerriteLine? = nil
@@ -113,29 +118,29 @@ struct FerriteGlassSurface<S: InsettableShape>: ViewModifier {
                 .background(tint?.color ?? FerriteColor.background, in: shape)
                 .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
         } else if #available(iOS 26.0, *) {
-            content
+            lit(content)
                 .glassEffect(.regular.tint(tint?.color).interactive(interactive), in: shape)
                 .modifier(FerriteGlassIdentity(id: glassID, namespace: namespace))
+                .background { FerriteDropShadow(shape: shape, elevation: .floating) }
         } else if let tint {
-            content
+            lit(content)
                 .background(tint.color, in: shape)
                 .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
-                .shadow(color: FerriteGlass.shadow, radius: FerriteGlass.shadowRadius, y: FerriteGlass.shadowY)
+                .background { FerriteDropShadow(shape: shape, elevation: .floating) }
         } else {
-            content
+            lit(content)
                 .background(.ultraThinMaterial, in: shape)
                 .background(FerriteGlass.fill, in: shape)
                 .overlay(shape.strokeBorder(rimColor, lineWidth: FerriteStroke.hairline))
-                .overlay(
-                    shape.inset(by: 0.5)
-                        .stroke(
-                            LinearGradient(colors: [FerriteGlass.edge, .clear], startPoint: .top, endPoint: .center),
-                            lineWidth: FerriteStroke.hairline
-                        )
-                        .allowsHitTesting(false)
-                )
-                .shadow(color: FerriteGlass.shadow, radius: FerriteGlass.shadowRadius, y: FerriteGlass.shadowY)
+                .background { FerriteDropShadow(shape: shape, elevation: .floating) }
         }
+    }
+
+    /// Sheen under the content, specular rim and bevel over it.
+    private func lit(_ content: Content) -> some View {
+        content
+            .background { FerriteSheen(shape: shape) }
+            .overlay { FerriteSpecularRim(shape: shape) }
     }
 
     private var rimColor: Color {
@@ -147,7 +152,7 @@ struct FerriteGlassSurface<S: InsettableShape>: ViewModifier {
 /// iOS 26 its corners are concentric with the display — correct on every
 /// device, including iPhone Duo's outer display and iPad windows — never
 /// tighter than `minimumRadius`. Earlier versions use `minimumRadius` as a
-/// fixed radius.
+/// fixed radius. Lit and shadowed like `FerriteGlassSurface`.
 struct FerriteEdgeGlassSurface: ViewModifier {
     var minimumRadius: CGFloat
     var interactive: Bool = false
@@ -168,7 +173,11 @@ struct FerriteEdgeGlassSurface: ViewModifier {
                             .allowsHitTesting(false)
                     }
             } else {
-                content.glassEffect(.regular.interactive(interactive), in: shape)
+                content
+                    .background { FerriteSheen(shape: shape) }
+                    .overlay { FerriteSpecularRim(shape: shape) }
+                    .glassEffect(.regular.interactive(interactive), in: shape)
+                    .background { FerriteDropShadow(shape: shape, elevation: .floating) }
             }
         } else {
             content.modifier(FerriteGlassSurface(

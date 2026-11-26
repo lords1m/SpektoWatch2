@@ -519,6 +519,7 @@ struct FerriteGlassBar<Item: Hashable>: View {
                         if selected {
                             Capsule().fill(FerriteGlass.fillStrong)
                                 .overlay(Capsule().strokeBorder(FerriteGlass.stroke, lineWidth: FerriteStroke.hairline))
+                                .overlay { FerriteSpecularRim(shape: Capsule()) }
                         }
                     }
                     .contentShape(Capsule())

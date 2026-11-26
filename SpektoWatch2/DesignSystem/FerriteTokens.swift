@@ -193,12 +193,61 @@ enum FerriteStatus {
 enum FerriteGlass {
     static let fill       = Color(ferriteLight: 0xFFFFFF, dark: 0x141414, lightAlpha: 0.70, darkAlpha: 0.70)
     static let fillStrong = Color(ferriteLight: 0xFFFFFF, dark: 0x141414, lightAlpha: 0.86, darkAlpha: 0.86)
-    static let edge       = Color(ferriteLight: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.95, darkAlpha: 0.30)
     static let stroke     = Color(ferriteLight: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.14, darkAlpha: 0.18)
-    /// `shadow-glass` — the single shadow in the system.
+    /// `shadow-glass` — the ambient part of `FerriteElevation.floating`.
     static let shadow     = Color(ferriteLight: 0x000000, dark: 0x000000, lightAlpha: 0.12, darkAlpha: 0.60)
-    static let shadowRadius: CGFloat = 12
-    static let shadowY: CGFloat = 8
+}
+
+// MARK: - Depth (spatial light)
+//
+// One light source, above and slightly to the leading side. It gives
+// glass and Home Screen icons a lit rim along the top, a faint reflection
+// on the far edge, a bevel shade on the lower inner edge, and a two-part
+// drop shadow (a tight contact shadow plus a wide ambient one) so they
+// read as objects floating at different heights over the tile wall.
+// Decorative only, never meaning; off under Reduce Transparency.
+enum FerriteDepth {
+    /// Specular rim along the lit (top) edge.
+    static let rimLight   = Color(ferriteLight: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.95, darkAlpha: 0.50)
+    /// Reflected light on the far (bottom) edge.
+    static let rimReflect = Color(ferriteLight: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.45, darkAlpha: 0.16)
+    /// Bevel shade on the lower inner edge.
+    static let bevelShade = Color(ferriteLight: 0x000000, dark: 0x000000, lightAlpha: 0.08, darkAlpha: 0.40)
+    /// Sheen over the upper half of a glass surface or icon.
+    static let sheen      = Color(ferriteLight: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.30, darkAlpha: 0.08)
+    /// Sheen on solid ink icons (stronger, the ink absorbs it).
+    static let iconSheen  = Color(ferriteLight: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.22, darkAlpha: 0.30)
+    /// Lit rim width (inside the shape).
+    static let rimWidth: CGFloat = 1
+    /// Bevel shade width (inside the shape).
+    static let bevelWidth: CGFloat = 2.5
+}
+
+/// How high a surface floats. Shadows are drawn from the static shape
+/// only (`FerriteDropShadow`), so live content inside never re-renders them.
+struct FerriteElevation: Sendable {
+    var contactColor: Color
+    var contactRadius: CGFloat
+    var contactY: CGFloat
+    var ambientColor: Color
+    var ambientRadius: CGFloat
+    var ambientY: CGFloat
+
+    /// Home Screen icons and widgets: resting on the wall.
+    static let raised = FerriteElevation(
+        contactColor: Color(ferriteLight: 0x000000, dark: 0x000000, lightAlpha: 0.14, darkAlpha: 0.60),
+        contactRadius: 1.5, contactY: 1,
+        ambientColor: Color(ferriteLight: 0x000000, dark: 0x000000, lightAlpha: 0.10, darkAlpha: 0.50),
+        ambientRadius: 10, ambientY: 6
+    )
+
+    /// Navigation glass: bars, dock, glass buttons — the highest layer.
+    static let floating = FerriteElevation(
+        contactColor: Color(ferriteLight: 0x000000, dark: 0x000000, lightAlpha: 0.12, darkAlpha: 0.55),
+        contactRadius: 2, contactY: 1.5,
+        ambientColor: FerriteGlass.shadow,
+        ambientRadius: 22, ambientY: 14
+    )
 }
 
 // MARK: - Typography

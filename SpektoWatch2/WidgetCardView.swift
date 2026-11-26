@@ -132,6 +132,9 @@ struct WidgetCardView: View {
         .background(FerriteColor.surface, in: shape)
         .clipShape(shape)
         .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
+        // Lit rim + resting shadow, both from the static shape, so the live
+        // kernel inside never re-renders them.
+        .ferriteDepth(in: shape)
         .contentShape(shape)
     }
 

@@ -68,6 +68,15 @@ struct FerriteGallery: View {
                         }
 
                         glassGroupSample
+
+                        VStack(alignment: .leading, spacing: FerriteSpace.m) {
+                            FerriteEyebrow(text: "Depth", style: .quiet)
+                            HStack(spacing: FerriteSpace.l) {
+                                HomeIconGlyph(symbol: "waveform", line: .u2, size: 60)
+                                HomeIconGlyph(symbol: "folder.fill", line: .u7, size: 60)
+                                HomeIconGlyph(symbol: "gearshape.fill", size: 60)
+                            }
+                        }
                     }
                     .padding(FerriteSpace.l)
                     .padding(.bottom, 96)

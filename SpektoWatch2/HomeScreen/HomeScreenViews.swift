@@ -79,6 +79,9 @@ struct HomeIconGlyph: View {
                         .frame(height: max(5, (size * 0.11).rounded()))
                 }
             }
+            // Sheen sits on the ink, under the symbol: the icon reads as a
+            // lit, slightly domed tile rather than a flat stamp.
+            .overlay { FerriteSheen(shape: shape, color: FerriteDepth.iconSheen) }
             .overlay {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.42, weight: .semibold))
@@ -89,6 +92,7 @@ struct HomeIconGlyph: View {
             .clipShape(shape)
             // Ink edge keeps the icon readable on a black wallpaper in dark mode.
             .overlay(shape.strokeBorder(FerriteColor.hairline, lineWidth: FerriteStroke.hairline))
+            .ferriteDepth(in: shape)
             .frame(width: size, height: size)
     }
 }
