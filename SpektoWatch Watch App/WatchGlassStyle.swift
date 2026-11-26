@@ -3,7 +3,6 @@ import SwiftUI
 enum WatchStylePalette {
     static let accentBlue = Color(red: 0.23, green: 0.64, blue: 1.0)
     static let cardBorder = Color.white.opacity(0.22)
-    static let cardShadow = Color.black.opacity(0.28)
 }
 
 struct WatchAppBackground: View {
@@ -32,31 +31,58 @@ struct WatchAppBackground: View {
     }
 }
 
+/// Content-layer card: solid fill and a hairline, no material, no shadow.
+/// Cards sit over live level canvases and in Always-On, so they never blur
+/// what is behind them (battery, legibility). Glass is reserved for the
+/// floating control layer (`watchGlass`).
 struct WatchGlassCard: ViewModifier {
     var cornerRadius: CGFloat = 10
 
     func body(content: Content) -> some View {
         content
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(
+                Color.white.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(WatchStylePalette.cardBorder, lineWidth: 1)
             )
-            .shadow(color: WatchStylePalette.cardShadow, radius: 6, x: 0, y: 3)
     }
 }
 
-struct WatchGlassBar: ViewModifier {
-    var cornerRadius: CGFloat = 14
+/// Liquid glass for floating watch controls (the record button).
+///
+/// - watchOS 26+: the system `.glassEffect`, optionally tinted, interactive
+///   when tappable.
+/// - watchOS 11-25: a solid tint fill (or `thinMaterial` untinted) with a
+///   hairline rim — the previous look.
+/// - Always-On (`isLuminanceReduced`) or Reduce Transparency: a solid dim
+///   fill, no glass sampling.
+struct WatchGlassSurface<S: InsettableShape>: ViewModifier {
+    var shape: S
+    var tint: Color? = nil
+    var interactive: Bool = false
+
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
-        content
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.24), radius: 7, x: 0, y: 4)
+        if isLuminanceReduced || reduceTransparency {
+            content
+                .background((tint ?? Color.white).opacity(isLuminanceReduced ? 0.35 : 0.80), in: shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.30), lineWidth: 1))
+        } else if #available(watchOS 26.0, *) {
+            content
+                .glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
+        } else if let tint {
+            content
+                .background(tint.opacity(0.80), in: shape)
+        } else {
+            content
+                .background(.thinMaterial, in: shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.24), lineWidth: 1))
+        }
     }
 }
 
@@ -65,7 +91,17 @@ extension View {
         modifier(WatchGlassCard(cornerRadius: cornerRadius))
     }
 
-    func watchGlassBar(cornerRadius: CGFloat = 14) -> some View {
-        modifier(WatchGlassBar(cornerRadius: cornerRadius))
+    /// Glass for the floating control layer only; never over a live canvas.
+    func watchGlass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        modifier(WatchGlassSurface(shape: shape, tint: tint, interactive: interactive))
+    }
+
+    /// The record / stop control: the one tinted glass control per screen.
+    func watchRecordGlass(isRecording: Bool) -> some View {
+        watchGlass(
+            in: Circle(),
+            tint: isRecording ? .red : WatchStylePalette.accentBlue,
+            interactive: true
+        )
     }
 }

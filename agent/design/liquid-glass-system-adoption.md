@@ -207,7 +207,7 @@ Files: `Views/RecordingsListView.swift`, `Views/RecordingDetailView.swift`,
 - Audio editor: no floating transport exists (panels are solid cards), so the item was dropped.
 - Not checked on screen: the feature full-screen close button, the spectrum legend, iOS 18.
 
-### Phase 4 — watchOS
+### Phase 4 — watchOS — code landed 2026-11-26
 Files: `SpektoWatch Watch App/WatchDashboardView.swift`, `WatchRecordButton.swift`, faces.
 
 - `WatchGlassBar` → `ferriteGlass` (gated `watchOS 26`). `WatchGlassCard` is content → solid
@@ -216,6 +216,18 @@ Files: `SpektoWatch Watch App/WatchDashboardView.swift`, `WatchRecordButton.swif
   glass automatically.
 - No glass over live spectrogram/level canvases on the faces (battery, and legibility in
   Always-On). When `isLuminanceReduced`, glass becomes a solid dim fill.
+
+**As built (2026-11-26, Linux session — not built, not checked on a watch):**
+- `WatchGlassStyle.swift`: `WatchGlassBar` deleted (0 callers). `WatchGlassCard` is a solid card
+  (8 % white fill + hairline, no material, no shadow; `cardShadow` removed). New `WatchGlassSurface` /
+  `watchGlass(in:tint:interactive:)`: system `.glassEffect` on watchOS 26, the old solid tint /
+  `thinMaterial` look on watchOS 11–25, and a solid dim fill when `isLuminanceReduced` or Reduce
+  Transparency is on.
+- `watchRecordGlass(isRecording:)` → tinted interactive glass for the record/stop circle; used by
+  `WatchRecordButton` and the duplicate in `WatchDashboardView`. It sits in the footer, below the
+  canvases, never over them. Other controls are system buttons/toolbars, which go glass on watchOS 26
+  without changes.
+- Not checked: watchOS 26 rendering, Always-On fallback, `accessibilityReduceTransparency` on watchOS.
 
 ### Phase 5 — Performance, accessibility, acceptance
 - **GPU budget**: with the dock and header over a live spectrogram + waterfall, record an

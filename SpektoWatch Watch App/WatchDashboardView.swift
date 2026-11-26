@@ -113,13 +113,7 @@ struct WatchDashboardView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(
-                        isRecording
-                            ? Color.red.opacity(0.80)
-                            : WatchStylePalette.accentBlue.opacity(0.80)
-                    )
-                )
+                .watchRecordGlass(isRecording: isRecording)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isRecording ? "Aufnahme stoppen" : "Aufnahme starten")

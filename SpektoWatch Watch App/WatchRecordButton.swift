@@ -17,13 +17,7 @@ struct WatchRecordButton: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 22, height: 22)
-                    .background(
-                        Circle().fill(
-                            audioEngine.isRecording
-                                ? Color.red.opacity(0.80)
-                                : WatchStylePalette.accentBlue.opacity(0.80)
-                        )
-                    )
+                    .watchRecordGlass(isRecording: audioEngine.isRecording)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(audioEngine.isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
