@@ -275,6 +275,19 @@ As built — one light source, top/slightly leading, all from static shapes (`Fe
 - Not yet checked on screen (no macOS in this session): iOS 26 glass + rim, iOS 18 fallback,
   dark mode, jiggle-mode performance with per-tile shadows, Instruments budget (Phase 5).
 
+**As built (2026-11-25):** simulator pass and hardware checklist in
+`agent/reports/2026-11-25-liquid-glass-phase-5-acceptance.md`.
+- Edit bar at accessibility text sizes: labels wrapped letter by letter. Now a `ViewThatFits`
+  falls back to icon-only glass buttons, with the same labels and identifiers and the large
+  content viewer.
+- Dark + Increase Contrast checked: pass. Reduce Transparency/Motion, GPU traces and iOS 18
+  are moved to the hardware checklist.
+- **iPad disabled for now** (user decision, 2026-11-25): `TARGETED_DEVICE_FAMILY = 1` for
+  the app and widget extension. iPad resizability is out of scope until it's turned back on.
+- Unit test build fixed (`IntegrationTests.swift`, Swift 6 captured-var mutation →
+  `OSAllocatedUnfairLock`). 524 tests: 2 failures, both unrelated (PDF outline baseline
+  whitespace; a timing-sensitive wearable test that passes in isolation). Details in the report.
+
 ## 5. Relationship to M12
 
 Fold M12 task-6 (hardware acceptance) into Phase 5 rather than running it twice: Phases 2–4

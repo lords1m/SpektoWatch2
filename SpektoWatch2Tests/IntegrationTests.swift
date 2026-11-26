@@ -1,4 +1,5 @@
 import XCTest
+import os
 @testable import SpektoWatch2
 
 /// Integrationstests für die Zusammenarbeit verschiedener Komponenten
@@ -216,12 +217,11 @@ final class IntegrationTests: XCTestCase {
             sin(2 * .pi * toneFreq * Float(i) / sampleRate) * 0.5
         }
 
-        var publishedFrames = 0
-        let frameCountLock = NSLock()
+        // Sendable counter: the listener may fire off the main actor, and Swift 6
+        // rejects mutating a captured local `var` from concurrent code.
+        let publishedFrames = OSAllocatedUnfairLock(initialState: 0)
         let subscription = audioEngine.spectrogramBroadcaster.addListener { _ in
-            frameCountLock.lock()
-            publishedFrames += 1
-            frameCountLock.unlock()
+            publishedFrames.withLock { $0 += 1 }
         }
         defer { subscription.cancel() }
 
@@ -230,18 +230,14 @@ final class IntegrationTests: XCTestCase {
         }
         drainMainQueue()
 
-        frameCountLock.lock()
-        publishedFrames = 0
-        frameCountLock.unlock()
+        publishedFrames.withLock { $0 = 0 }
 
         for _ in 0..<measuredChunks {
             audioEngine.processExternalAudio(testChunk)
         }
         drainMainQueue()
 
-        frameCountLock.lock()
-        let producedFrames = publishedFrames
-        frameCountLock.unlock()
+        let producedFrames = publishedFrames.withLock { $0 }
 
         let minimumFrames = Int(Double(measuredChunks) * 0.95)
         XCTAssertGreaterThanOrEqual(

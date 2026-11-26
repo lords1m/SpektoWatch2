@@ -522,18 +522,67 @@ struct HomeEditBar: View {
             }
             .buttonStyle(.ferriteGlassRound)
 
-            Spacer()
+            Spacer(minLength: FerriteSpace.s)
 
+            // At accessibility text sizes the labels no longer fit on one line
+            // (they wrapped letter by letter); fall back to icon-only glass
+            // buttons. VoiceOver labels and test identifiers stay the same, and
+            // the large content viewer shows the label on long press.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: FerriteSpace.s) {
+                    pagesButton(iconOnly: false)
+                    doneButton(iconOnly: false)
+                }
+                HStack(spacing: FerriteSpace.s) {
+                    pagesButton(iconOnly: true)
+                    doneButton(iconOnly: true)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pagesButton(iconOnly: Bool) -> some View {
+        if iconOnly {
+            Button(action: onPages) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.system(size: 17, weight: .bold))
+                    .accessibilityIdentifier("layoutsButton")
+                    .accessibilityLabel("Seiten")
+            }
+            .buttonStyle(.ferriteGlassRound)
+            .accessibilityShowsLargeContentViewer {
+                Label("Seiten", systemImage: "square.stack.3d.up")
+            }
+        } else {
             Button(action: onPages) {
                 Label("Seiten", systemImage: "square.stack.3d.up")
                     .font(FerriteFont.headline)
+                    .lineLimit(1)
                     .accessibilityIdentifier("layoutsButton")
             }
             .buttonStyle(.ferriteGlass)
+        }
+    }
 
+    @ViewBuilder
+    private func doneButton(iconOnly: Bool) -> some View {
+        if iconOnly {
+            Button(action: onDone) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 17, weight: .bold))
+                    .accessibilityIdentifier("editDashboardButton")
+                    .accessibilityLabel("Bearbeiten beenden")
+            }
+            .buttonStyle(.ferriteGlassProminent)
+            .accessibilityShowsLargeContentViewer {
+                Label("Fertig", systemImage: "checkmark")
+            }
+        } else {
             Button(action: onDone) {
                 Text("Fertig")
                     .font(FerriteFont.headline)
+                    .lineLimit(1)
                     .padding(.horizontal, FerriteSpace.xs)
                     .accessibilityIdentifier("editDashboardButton")
                     .accessibilityLabel("Bearbeiten beenden")
