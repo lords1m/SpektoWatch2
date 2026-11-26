@@ -118,6 +118,7 @@ case "$current_milestone_yaml" in
   M21) task_dir="agent/tasks/milestone-21-watch-standalone" ;;
   M22) task_dir="agent/tasks/milestone-22-audio-editor-and-converter" ;;
   M23) task_dir="agent/tasks/milestone-23-home-screen-dual-mode-widgets" ;;
+  M24) task_dir="agent/tasks/milestone-24-liquid-glass-system-adoption" ;;
   *)   task_dir="agent/tasks/$current_milestone_yaml" ;;
 esac
 

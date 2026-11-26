@@ -1,6 +1,6 @@
 # Liquid Glass — System Adoption Plan
 
-Status: proposed · 2026-11-25
+Status: in progress as M24 (`agent/milestones/milestone-24-liquid-glass-system-adoption.md`) · Phases 1–3 landed 2026-11-25
 Builds on: M12 (Liquid Glass Redesign, code-complete, acceptance pending) and the
 Ferrite design system (`SpektoWatch2/DesignSystem/`).
 

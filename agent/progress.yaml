@@ -2,7 +2,7 @@ project:
   name: SpektoWatch2
   status: in_progress
   started: "2026-05-12"
-  current_milestone: M22
+  current_milestone: M24
   description: >
     iOS/watchOS sound level measurement app with spectrogram, recording,
     export, and field-engineering reporting capabilities.
@@ -381,6 +381,7 @@ milestones:
       acceptance (task-6) deferred: 8 checklist items require on-device
       verification of themes/accents, presets, edit mode, tweaks
       persistence, transport LED, watch faces, and regression scan.
+      2026-11-26: task-6 folded into M24 task-5 (same chrome, verify once).
     file: agent/milestones/milestone-12-liquid-glass-redesign.md
 
   M20:
@@ -472,6 +473,25 @@ milestones:
       All 9 targets build cleanly; simulator test execution awaits host
       `sudo xcodebuild -license accept` + hardware acceptance (task-6).
     file: agent/milestones/milestone-23-home-screen-dual-mode-widgets.md
+
+  M24:
+    name: Liquid Glass System Adoption
+    status: in_progress
+    started: "2026-11-25"
+    priority: medium
+    progress: 60
+    estimated_weeks: "2"
+    tasks_completed: 3
+    tasks_total: 5
+    notes: >
+      Plan: agent/design/liquid-glass-system-adoption.md (one task per phase).
+      Phase 1 Ferrite glass API landed with Ferrite v2 (ba6137c); Phase 2 home
+      shell grouping (b1671b7) and Phase 3 secondary screens/sheets (615c1a3)
+      verified on the iPhone 17 / iOS 26.5 simulator. The iOS target has no
+      Material outside DesignSystem/. Next: Phase 4 watchOS (task-4). Task-5
+      absorbs M12 task-6 hardware acceptance. Deferred: glassCard ->
+      ferriteCard rename (23 callers).
+    file: agent/milestones/milestone-24-liquid-glass-system-adoption.md
 
 tasks:
   M1:
@@ -1145,12 +1165,42 @@ tasks:
       status: in_progress
       file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-6-acceptance-and-ui-tests.md
 
-updated_at: 2026-11-25
-last_completed_task: M23/task-5-home-screen-default-landing-page
-current_milestone: M22
-current_task: task-7-acceptance-and-ui-tests
-last_proceed: 2026-05-30
+  M24:
+    - id: task-1-foundation-api
+      name: "Foundation API (Ferrite glass group, bar, edge glass, buttons)"
+      status: completed
+      file: agent/tasks/milestone-24-liquid-glass-system-adoption/task-1-foundation-api.md
+    - id: task-2-home-shell
+      name: "Home Shell (edit bar, dock + page indicator, snackbar)"
+      status: completed
+      file: agent/tasks/milestone-24-liquid-glass-system-adoption/task-2-home-shell.md
+    - id: task-3-secondary-screens-and-sheets
+      name: "Secondary Screens & Sheets"
+      status: completed
+      file: agent/tasks/milestone-24-liquid-glass-system-adoption/task-3-secondary-screens-and-sheets.md
+    - id: task-4-watchos
+      name: "watchOS"
+      status: pending
+      file: agent/tasks/milestone-24-liquid-glass-system-adoption/task-4-watchos.md
+    - id: task-5-performance-accessibility-acceptance
+      name: "Performance, Accessibility & Acceptance (absorbs M12 task-6)"
+      status: pending
+      file: agent/tasks/milestone-24-liquid-glass-system-adoption/task-5-performance-accessibility-acceptance.md
+
+updated_at: 2026-11-26
+last_completed_task: M24/task-3-secondary-screens-and-sheets
+current_milestone: M24
+current_task: task-4-watchos
+last_proceed: 2026-11-26
 last_proceed_note: >
+  ACP update (2026-11-26): registered M24 Liquid Glass System Adoption from
+  agent/design/liquid-glass-system-adoption.md. Tasks 1-3 completed
+  (ba6137c, b1671b7, 615c1a3); current_task -> M24/task-4 (watchOS), the next
+  code-side work. M22/task-7, M23/task-6, M20/task-2 and M21/task-6 remain
+  open but need hardware or a simulator test run. Docs consolidated into docs/
+  the same day (architecture.md, spectrogram.md, performance.md).
+  ---
+  Previous proceed note (2026-05-30): >
   M21 (Standalone Watch App) task-5 code-side complete (2026-05-30): opportunistic
   sync-back to phone. All sync-back infrastructure was already implemented;
   task-5 required one fix: SpektoWatch2/WatchConnectivityManager.swift switch on
@@ -1304,6 +1354,9 @@ parked:
   - milestone: M13
     task: task-9-acceptance
     reason: code-side acceptance complete; promotion gated on hardware behavior parity + Instruments re-render comparison
+  - milestone: M12
+    task: task-6-acceptance
+    reason: folded into M24 task-5-performance-accessibility-acceptance (2026-11-26)
 recent_reports:
   - agent/reports/2026-05-27-m12-ux-polish.md
   - agent/reports/2026-05-27-milestone-13-phase2-followup.md
@@ -1320,64 +1373,43 @@ recent_reports:
   - agent/reports/2026-05-21-performance-centralization-audit.md
 active_context:
   summary: >
-    M1–M6, M11, M14, M15, M16, M17, M18 complete code-side. M19 (Instruments
-    Trace Perf Fixes) tasks 1–6 complete; task-7 acceptance is hardware-only.
-    M12 (Liquid Glass Redesign) code-complete (tasks 1–8; task-6 acceptance
-    hardware-deferred). M13 (Architecture Hygiene) all Phase-1 tasks complete,
-    Phase-2 deferred. M7/M8 parked on hardware/Xcode Cloud.
-    All work on branch redesign/liquid-glass.
+    Code-side complete: M1-M7, M11, M14-M18; M8, M9, M12, M13, M19-M23 are
+    code-side complete and wait only on hardware, Xcode Cloud or a simulator
+    test run (see each milestone's acceptance task and agent/STATE.md).
 
-    Critical regression fixed (2026-05-29): DCT/Mel visual spectrogram pipeline
-    (cblas_sgemv 128×1024 at 86 Hz on the audio render thread) removed.
-    Introduced in commit a0e872e; caused audio-thread overrun + blurry display.
-    AudioEngine.swift no longer calls computeDBMagnitudes; SpectrogramData
-    always has visualFrequencies/visualMagnitudes = nil. Spectrogram now uses
-    FFT path exclusively. iOS BUILD SUCCEEDED.
+    Active: M24 Liquid Glass System Adoption. Tasks 1-3 done (Ferrite glass
+    API, home shell, secondary screens/sheets). Next code-side task:
+    M24/task-4 (watchOS: WatchGlassBar -> ferriteGlass, solid WatchGlassCard,
+    prominent record button, no glass over live canvases / Always-On).
+    M24/task-5 absorbs M12 task-6 hardware acceptance.
 
-    TT-1 resolved (2026-05-29): SpektoWatch2Tests uses
-    PBXFileSystemSynchronizedRootGroup — all .swift files in the test
-    directory are auto-compiled. No pbxproj changes needed.
+    Landed 2026-11-24/25 outside milestone tracking (recorded in
+    agent/STATE.md): review hardening + hot-path passes, Ferrite v2 design
+    system, iOS-style Home Screen (swipeable preset pages, dock, jiggle edit
+    mode). UI tests that tapped the old header/preset rail need updating.
 
-    Hardware acceptance still open for:
-    - M19: Instruments re-trace on iPhone 12 mini (task-7).
-    - M12: 8-item hardware checklist (themes/accents/presets/watch faces).
-    - M13: 6 hardware-only verification items (cold-launch parity, audio
-      correctness, widget render parity, recording flow, watch pairing,
-      Instruments re-render).
-    - M14: CPU%, re-render counts, LAF/LAeq reference, pixel diff.
-    - M15: calibration parity ±0.5 dB, long-recording export wall-clock.
-    - M16: WA-1…WA-5 watch connectivity outcomes.
-    - M17: UI-1…UI-7 on-device scenarios.
-    - M18: Xcode Cloud run with UI tests enabled.
+    Open acceptance (hardware / simulator test run):
+    - M22/task-7 audio editor; M23/task-6 home screen dual-mode widgets.
+    - M20/task-2 Live Activity on device; M21/task-6 standalone watch.
+    - M19/task-7 Instruments re-trace; M13/task-9, M9/task-11, M8/task-2.
+    - M7/task-2 Xcode Cloud RECORD_SNAPSHOTS baseline.
 
-    M10 (iOS Standalone Widgets) deferred 2026-05-30 by user direction.
-    Active focus: M22 (Audio Editor & Format Converter) tasks 1–6 complete;
-    current task M22/task-7 acceptance + UI tests. M23 (Home-Screen Launcher &
-    Dual-Mode Widgets) tasks 1–5 complete; task-6 acceptance open. Hardware
-    acceptance also open for M20/task-2 and M21/task-6.
-    Liquid Glass system adoption planned in
-    agent/design/liquid-glass-system-adoption.md (5 phases; Phase 1 design-
-    system code landed 2026-11-25 in ba6137c; iOS build green; not yet
-    tracked as ACP tasks).
-    Consider regenerating
-    simulator screenshots now that local simulator is available
-    (agent/scripts/capture-screenshots.py).
+    Deferred: M10 (iOS standalone widgets, by user direction 2026-05-30).
+    Backlog: glassCard -> ferriteCard rename; unused Bandstop views pending
+    product decision.
 
-    Parked / gated tracks:
-    - M8 task-2 acceptance: gated on hardware/Xcode Cloud validation.
-    - M7 task-2: gated on Xcode Cloud RECORD_SNAPSHOTS=YES baseline.
-    - M9 task-11, M12 task-4, M13 task-9: code-side complete; gated
-      on hardware screenshot/behavior verification.
-    - M11 (Tone Generator Piano Input): low-priority backlog.
+    Docs: docs/architecture.md (code map), docs/performance.md (budget +
+    profiling), docs/spectrogram.md, docs/test-plans/.
 known_constraints:
   - Watch complication manual acceptance still requires Apple Watch hardware or
     an interactive paired simulator session.
-  - Repository contains uncommitted user changes; do not overwrite them.
+  - Do not overwrite uncommitted user changes if any are present.
   - WatchConnectivity must remain bandwidth-conscious; no raw audio over the link.
-  - Masking is a future core feature, out of scope until a dedicated milestone.
+  - Masking is implemented (SpektoWatch2/Masking/); spec and science background
+    in agent/design/masking-generator-spec.md.
   - External calibrated microphone compliance workflow is out of scope until a
     dedicated milestone.
-  - Local simulator is available again as of 2026-05-28.
+  - Local simulator is available (iPhone 17 / iOS 26.5 used on 2026-11-25).
   - M5 task-3-live-data-integration accepted UserDefaults.standard for the
     complication shared state; M6 task-4 superseded this with an App Group
     (code-side complete; Xcode entitlement wiring still required).

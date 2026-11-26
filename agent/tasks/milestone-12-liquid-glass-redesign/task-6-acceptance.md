@@ -1,5 +1,7 @@
 # Task 6: Acceptance
 
+> **2026-11-26:** Folded into M24 task-5 (`agent/tasks/milestone-24-liquid-glass-system-adoption/task-5-performance-accessibility-acceptance.md`). Run the checklist there, once, after the M24 chrome changes.
+
 Status: in_progress
 Created: 2026-05-21
 Milestone: `milestone-12-liquid-glass-redesign`
