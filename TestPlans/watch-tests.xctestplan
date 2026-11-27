@@ -1,0 +1,35 @@
+{
+  "configurations" : [
+    {
+      "id" : "84A7432D-B37A-426B-BA12-66D85EA21E58",
+      "name" : "Watch Tests",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "environmentVariableEntries" : [
+      {
+        "key" : "TZ",
+        "value" : "UTC"
+      }
+    ],
+    "language" : "en",
+    "region" : "US",
+    "testExecutionOrdering" : "random",
+    "testTimeoutsEnabled" : true,
+    "userInterfaceStyle" : "light"
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:SpektoWatch2.xcodeproj",
+        "identifier" : "AA11AA11AA11AA11AA110003",
+        "name" : "SpektoWatchTests"
+      }
+    }
+  ],
+  "version" : 1
+}

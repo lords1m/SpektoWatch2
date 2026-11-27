@@ -97,6 +97,35 @@ final class WidgetGridScreenshotTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testResizeGestureUpdatesAccessibleSpan() throws {
+        try waitForWidgetSizePresetInstalled()
+
+        let editButton = controlElement(in: app, identifier: "editDashboardButton")
+        XCTAssertTrue(editButton.waitForExistence(timeout: viewWait))
+        editButton.tap()
+        settle()
+
+        let resizeHandle = controlElement(in: app, identifier: "homeResizeHandle")
+        XCTAssertTrue(resizeHandle.waitForExistence(timeout: viewWait))
+        let originalSpan = try XCTUnwrap(resizeHandle.value as? String)
+
+        let width = app.frame.width
+        let margin: CGFloat = width >= 400 ? 20 : 16
+        let pitch = (width - 2 * margin) / 4
+        let start = resizeHandle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.0))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: pitch))
+        )
+
+        let spanChanged = expectation(
+            for: NSPredicate(format: "value != %@", originalSpan),
+            evaluatedWith: resizeHandle
+        )
+        wait(for: [spanChanged], timeout: viewWait)
+    }
+
     /// Same as testWidgetSizeGrid but also enters edit mode on each page so the
     /// resize handles and delete circles are visible. Useful for verifying that
     /// widget chrome doesn't obscure edit affordances at small sizes.
@@ -119,14 +148,20 @@ final class WidgetGridScreenshotTests: XCTestCase {
         for (index, page) in pages.enumerated() {
             // Enter edit mode
             let editButton = controlElement(in: app, identifier: "editDashboardButton")
-            if editButton.waitForExistence(timeout: viewWait) {
-                editButton.tap()
-                settle()
-                capture("M9-\(page.num)-\(page.name)-edit")
-                // Exit edit mode
-                editButton.tap()
-                settle()
+            XCTAssertTrue(editButton.waitForExistence(timeout: viewWait), "Edit button should be visible")
+            editButton.tap()
+            settle()
+
+            if page.name != "Einzelwert" {
+                let resizeHandle = controlElement(in: app, identifier: "homeResizeHandle")
+                XCTAssertTrue(resizeHandle.waitForExistence(timeout: viewWait), "Resizable widgets should expose resize controls")
+                XCTAssertFalse((resizeHandle.value as? String ?? "").isEmpty, "Resize controls should report the current span")
             }
+
+            capture("M9-\(page.num)-\(page.name)-edit")
+            // Exit edit mode
+            editButton.tap()
+            settle()
 
             if index < pages.count - 1 {
                 app.swipeLeft()

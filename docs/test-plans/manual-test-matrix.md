@@ -519,34 +519,19 @@ Signatur: _______________
 
 ## 10. Automatisierte Tests (XCTest)
 
-### Unit Tests (empfohlen zu implementieren)
+Automated coverage is maintained in `SpektoWatch2Tests`,
+`SpektoWatchTests`, and `SpektoWatch2UITests`. The test plans and commands are
+documented in [TestPlans](README.md):
 
-```swift
-// FFTProcessorTests.swift
-func testFFTMagnitudeCalculation()
-func testWindowFunctionGeneration()
-func testBlockSizeReconfiguration()
-func testFrequencyBinCalculation()
+- `spekto-watch2`: full iOS unit and UI suite.
+- `watch-tests`: Watch unit suite, run on a watchOS simulator.
+- `snapshots`: PDF image and document-outline baseline checks.
+- `ui-tests`: iOS screenshot and interaction suite.
 
-// FrequencyWeightingTests.swift
-func testAWeightingAt1kHz()
-func testAWeightingAt100Hz()
-func testCWeightingCurve()
-
-// WatchConnectivityTests.swift
-func testMessageQueueing()
-func testRetryLogic()
-func testSpectrogramDataSerialization()
-```
-
-### UI Tests (XCUITest)
-
-```swift
-// SpektoWatchUITests.swift
-func testLiveModeStartStop()
-func testSettingsNavigation()
-func testFFTConfigurationUI()
-```
+`./run_tests.sh` runs a smoke subset of iOS unit/UI classes followed by the
+Watch unit suite. Run the `spekto-watch2` plan separately for the full iOS
+suite. Hardware-dependent audio, connectivity, battery, and instrumented
+performance checks remain in the manual matrix above.
 
 ---
 

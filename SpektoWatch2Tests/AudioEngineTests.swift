@@ -55,29 +55,53 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertEqual(audioEngine.currentWindowFunction, .hamming, "Window function should change again")
     }
 
-    /// Testet Blockgröße-Änderung
-    /// HINWEIS: Dieser Test ist temporär deaktiviert wegen Memory-Management-Issues
-    func testBlockSizeChange() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues in test context")
-        // audioEngine.setBlockSize(.size4096)
-        // XCTAssertEqual(audioEngine.currentBlockSize, .size4096, "Block size should change")
+    func testBlockSizeChange() {
+        let newSize: FFTBlockSize = audioEngine.currentBlockSize == .size2048 ? .size4096 : .size2048
+        audioEngine.setBlockSize(newSize)
+
+        XCTAssertEqual(audioEngine.currentBlockSize, newSize)
     }
 
-    /// Testet FFTConfiguration Anwendung
-    /// HINWEIS: Dieser Test ist temporär deaktiviert wegen Memory-Management-Issues
-    /// beim schnellen Wechseln der FFT-Konfiguration im Test-Kontext
     func testApplyFFTConfiguration() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues in test context")
+        let config = FFTConfiguration()
+        let originalBlockSize = config.blockSize
+        let originalWindowFunction = config.windowFunction
+        defer {
+            config.blockSize = originalBlockSize
+            config.windowFunction = originalWindowFunction
+        }
+
+        let newSize: FFTBlockSize = audioEngine.currentBlockSize == .size2048 ? .size4096 : .size2048
+        let newWindow = try XCTUnwrap(
+            WindowFunction.allCases.first { $0 != audioEngine.currentWindowFunction }
+        )
+        config.blockSize = newSize
+        config.windowFunction = newWindow
+
+        audioEngine.applyFFTConfiguration(config)
+
+        XCTAssertEqual(audioEngine.currentBlockSize, newSize)
+        XCTAssertEqual(audioEngine.currentWindowFunction, newWindow)
     }
 
-    /// Testet Frequenzauflösung-Berechnung
-    func testFrequencyResolution() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues")
+    func testFrequencyResolutionTracksBlockSize() {
+        let initialResolution = audioEngine.frequencyResolution
+        let initialSize = audioEngine.currentBlockSize.rawValue
+        let newSize: FFTBlockSize = initialSize == FFTBlockSize.size8192.rawValue ? .size4096 : .size8192
+        audioEngine.setBlockSize(newSize)
+
+        let expected = initialResolution * Float(initialSize) / Float(newSize.rawValue)
+        XCTAssertEqual(audioEngine.frequencyResolution, expected, accuracy: 0.01)
     }
 
-    /// Testet Zeitauflösung-Berechnung
-    func testTimeResolution() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues")
+    func testTimeResolutionTracksBlockSize() {
+        let initialResolution = audioEngine.timeResolutionMs
+        let initialSize = audioEngine.currentBlockSize.rawValue
+        let newSize: FFTBlockSize = initialSize == FFTBlockSize.size2048.rawValue ? .size4096 : .size2048
+        audioEngine.setBlockSize(newSize)
+
+        let expected = initialResolution * Float(newSize.rawValue) / Float(initialSize)
+        XCTAssertEqual(audioEngine.timeResolutionMs, expected, accuracy: 0.01)
     }
 
     // MARK: - Weighting Tests
@@ -284,20 +308,22 @@ final class AudioEngineTests: XCTestCase {
         // Sollte nicht abstürzen
     }
 
-    // MARK: - Thread Safety Tests (TEST-INT-010)
-    // Diese Tests sind temporär deaktiviert wegen Memory-Management-Issues
-    // beim schnellen Wechseln der FFT-Konfiguration im Test-Kontext
-
-    func testConcurrentConfigAndProcessing() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues")
-    }
-
     func testRapidWindowFunctionSwitching() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues")
+        for _ in 0..<3 {
+            for window in WindowFunction.allCases {
+                audioEngine.setWindowFunction(window)
+            }
+        }
+
+        XCTAssertEqual(audioEngine.currentWindowFunction, try XCTUnwrap(WindowFunction.allCases.last))
     }
 
     func testRapidBlockSizeSwitching() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues")
+        for size in FFTBlockSize.allCases {
+            audioEngine.setBlockSize(size)
+        }
+
+        XCTAssertEqual(audioEngine.currentBlockSize, try XCTUnwrap(FFTBlockSize.allCases.last))
     }
 
     // MARK: - Recording Statistics Tests
@@ -339,9 +365,15 @@ final class AudioEngineTests: XCTestCase {
         }
     }
 
-    /// Misst Performance der FFT-Rekonfiguration
-    func testReconfigurationPerformance() throws {
-        throw XCTSkip("Test temporarily disabled due to memory management issues")
+    func testRepeatedReconfigurationPreservesResolutionInvariant() {
+        for size in FFTBlockSize.allCases {
+            audioEngine.setBlockSize(size)
+            XCTAssertEqual(
+                audioEngine.frequencyResolution * audioEngine.timeResolutionMs,
+                1000,
+                accuracy: 0.1
+            )
+        }
     }
 
     // MARK: - Edge Cases

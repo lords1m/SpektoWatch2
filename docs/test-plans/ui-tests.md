@@ -27,7 +27,7 @@ For **Point-Free snapshot baselines** (PDF layout/copy regression), see [snapsho
 | `RecordingFlowScreenshotTests.swift` | Recording lifecycle: idle → start tap → in-progress → stop → recordings list → detail (~5 shots) |
 | `ExportFlowScreenshotTests.swift` | Export overlays: PDF, CSV, spectrogram PNG (open + dismiss each; ~6 shots) |
 | `WeightingPickerScreenshotTests.swift` | Playback weighting picker: Z → A → C → Z (~4 shots) |
-| `WidgetGridScreenshotTests.swift` | Widget-size grid pages and allowed widget dimensions |
+| `WidgetGridScreenshotTests.swift` | Widget-size grid pages, edit-mode resize affordances, and a drag-resize span change |
 | `WatchAppScreenshotTests.swift` | Watch app states (requires watchOS simulator) |
 
 ## Running locally

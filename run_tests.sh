@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # SpektoWatch Test Runner Script
-# Smoke subset of unit/UI classes (not the full suite).
-# For full CI parity use: xcodebuild test -testPlan spekto-watch2 (see docs/test-plans/).
+# Smoke subset of iOS unit/UI classes plus the full Watch unit suite.
+# For the full iOS suite use: xcodebuild test -testPlan spekto-watch2.
 # Manual matrix: docs/test-plans/manual-test-matrix.md
 
 set -euo pipefail
@@ -11,6 +11,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_NAME="SpektoWatch2"
 SCHEME_IOS="SpektoWatch2"
 DESTINATION_IOS="${DESTINATION_IOS:-platform=iOS Simulator,name=iPhone 16}"
+DESTINATION_WATCH="${DESTINATION_WATCH:-platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)}"
 
 echo "=========================================="
 echo "SpektoWatch Test Runner"
@@ -52,6 +53,38 @@ run_tests() {
         echo "✅ $test_type PASSED"
     else
         echo "❌ $test_type FAILED"
+        return 1
+    fi
+}
+
+run_watch_tests() {
+    echo "------------------------------------------"
+    echo "Running: WatchTests"
+    echo "------------------------------------------"
+
+    local status=0
+    if command -v xcpretty >/dev/null 2>&1; then
+        xcodebuild test \
+            -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
+            -scheme "SpektoWatchTests" \
+            -testPlan watch-tests \
+            -destination "$DESTINATION_WATCH" \
+            -resultBundlePath "$PROJECT_DIR/TestResults/WatchTests.xcresult" \
+            2>&1 | xcpretty || status=$?
+    else
+        xcodebuild test \
+            -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
+            -scheme "SpektoWatchTests" \
+            -testPlan watch-tests \
+            -destination "$DESTINATION_WATCH" \
+            -resultBundlePath "$PROJECT_DIR/TestResults/WatchTests.xcresult" \
+            || status=$?
+    fi
+
+    if [ "$status" -eq 0 ]; then
+        echo "✅ WatchTests PASSED"
+    else
+        echo "❌ WatchTests FAILED"
         return 1
     fi
 }
@@ -98,6 +131,14 @@ echo "=========================================="
 echo ""
 echo "7. UI Tests (TEST-IE-001)"
 run_tests "SpektoWatch2UITests" "SpektoWatch2UITests"
+
+echo ""
+echo "=========================================="
+echo "WATCH UNIT TESTS"
+echo "=========================================="
+echo ""
+echo "8. Watch unit tests (DESTINATION_WATCH can override the simulator)"
+run_watch_tests
 
 echo ""
 echo "=========================================="

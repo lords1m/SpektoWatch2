@@ -2,9 +2,7 @@
 //  PDFReportSnapshotTests.swift
 //  SpektoWatch2Tests
 //
-//  Example snapshot tests using the Xcode Cloud-friendly `ciAssertSnapshot`
-//  helper. Tests are stubbed (`XCTSkipUnless canImport(SnapshotTesting)`)
-//  until swift-snapshot-testing is wired into the test target.
+//  Snapshot tests using the Xcode Cloud-friendly `ciAssertSnapshot` helper.
 //
 //  See SnapshotTestSupport.swift for setup instructions and folder layout.
 //
