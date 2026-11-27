@@ -37,7 +37,10 @@ struct ModularDashboardView: View {
 
     private func setEditMode(_ value: Bool) {
         guard dashboardManager.isEditMode != value else { return }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        let animation: Animation = reduceMotion
+            ? .easeInOut(duration: 0.15)
+            : .spring(response: 0.32, dampingFraction: 0.78)
+        withAnimation(animation) {
             dashboardManager.isEditMode = value
         }
     }
@@ -58,10 +61,8 @@ struct ModularDashboardView: View {
                 .zIndex(10)
             }
         }
-        // Plain safeAreaInset, not ferriteBar: on iOS 26 safeAreaBar leaves this
-        // conditionally inserted bar horizontally offset after an exit/re-enter
-        // cycle, and the paged home doesn't scroll, so there is no edge effect
-        // to gain.
+        // Keep the conditional edit bar on safeAreaInset: safeAreaBar left it
+        // horizontally offset after an exit/re-enter cycle on iOS 26.
         .safeAreaInset(edge: .top, spacing: 0) {
             if isEditMode {
                 HomeEditBar(
@@ -214,8 +215,11 @@ struct ModularDashboardView: View {
     private var homeBottomStack: some View {
         VStack(spacing: FerriteSpace.s) {
             HomePageIndicator(
+                pageName: currentPageName,
                 count: dashboardManager.isCustomMode ? 1 : PresetCatalogue.all.count,
                 current: dashboardManager.isCustomMode ? 0 : pageSelection,
+                showsEditButton: !isEditMode,
+                onEdit: { setEditMode(true) },
                 onSelect: { index in
                     // Only the pager animates; the manager commits afterwards
                     // without an animation of its own.
@@ -233,6 +237,14 @@ struct ModularDashboardView: View {
                 onShowSettings: { viewModel.showSettings = true }
             )
         }
+    }
+
+    private var currentPageName: String {
+        if dashboardManager.isCustomMode {
+            return dashboardManager.currentLayoutName
+        }
+        guard PresetCatalogue.all.indices.contains(pageSelection) else { return "Home" }
+        return PresetCatalogue.all[pageSelection].label
     }
 
     /// Commits the settled page to the manager once the paging animation is

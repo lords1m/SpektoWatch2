@@ -11,22 +11,26 @@ struct WatchPegelmeterWidget: View {
     @State private var maxDB: Float = -.infinity
     @State private var unitLabel: String = "dB(A)"
 
+    @ScaledMetric(relativeTo: .largeTitle) private var levelReadoutSize: CGFloat = 32
+
     private let phosphor = Color(red: 0.45, green: 0.93, blue: 0.55)
     private let peakBarRange: ClosedRange<Float> = 30...110
 
     var body: some View {
         VStack(spacing: 3) {
             Text(displayValue)
-                .font(.system(size: 32, weight: .ultraLight, design: .default))
+                .font(.system(size: levelReadoutSize, weight: .ultraLight, design: .default))
                 .monospacedDigit()
                 .foregroundStyle(isLive ? phosphor : .white.opacity(0.4))
                 .minimumScaleFactor(0.5)
                 .lineLimit(1)
 
             Text(unitLabel)
-                .font(.system(size: 8, weight: .regular, design: .monospaced))
+                .font(.caption2)
                 .tracking(1.2)
                 .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
             peakBar
 
@@ -88,14 +92,17 @@ struct WatchPegelmeterWidget: View {
     private func minMaxLabel(_ caption: String, value: Float) -> some View {
         HStack(spacing: 3) {
             Text(caption)
-                .font(.system(size: 7, weight: .regular, design: .monospaced))
+                .font(.caption2)
                 .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
             Text(value.isFinite && value > -120 && value < 200
                  ? value.formatted(.number.precision(.fractionLength(0)))
                  : "—")
-                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .font(.caption2.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
     }
 

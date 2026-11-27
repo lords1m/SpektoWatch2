@@ -1,7 +1,6 @@
 import XCTest
 
-/// Captures a screenshot of every widget type at every allowed size by installing the
-/// "Screenshot-Preset: Widgetgrößen" layout and paging through the 9 resulting pages.
+/// Captures every widget-size catalog and the largest editable Home Screen widget.
 ///
 /// Evidence for M9 widget-audit hardware screenshot pass:
 ///   agent/tasks/milestone-9-widget-audit/task-11-acceptance.md
@@ -13,6 +12,18 @@ final class WidgetGridScreenshotTests: XCTestCase {
     private var app: XCUIApplication!
     private let launchWait: TimeInterval = 60
     private let viewWait: TimeInterval = 15
+    private let widgetPages = [
+        "Spektrogramm",
+        "Pegelverlauf",
+        "Frequenz-Spektrum",
+        "Pegel-Meter",
+        "Einzelwert",
+        "Tongenerator",
+        "Spektralanalyse-Labor",
+        "Audio-Editor",
+        "Aufnahmen",
+        "Einstellungen"
+    ]
     private let permissionButtonLabels = [
         "Allow",
         "Allow Once",
@@ -69,86 +80,124 @@ final class WidgetGridScreenshotTests: XCTestCase {
 
     // MARK: - Widget grid pass
 
-    /// Opens the Layouts confirmation dialog, installs the Widgetgrößen preset,
-    /// then pages through all 9 widget-type layouts capturing one screenshot each.
+    /// Captures every screenshot layout containing all catalog sizes for its widget type.
     @MainActor
     func testWidgetSizeGrid() throws {
-        try waitForWidgetSizePresetInstalled()
+        waitForWidgetSizePresetInstalled()
 
-        // AudioWidgetType.allCases order (matches DashboardManager.installWidgetSizeScreenshotPreset)
-        let pages: [(num: String, name: String)] = [
-            ("01", "Spektrogramm"),
-            ("02", "Wasserfall"),
-            ("03", "Pegelverlauf"),
-            ("04", "Frequenz-Spektrum"),
-            ("05", "Pegel-Meter"),
-            ("06", "Einzelwert"),
-            ("07", "Tongenerator"),
-            ("08", "Spektralanalyse-Labor"),
-            ("09", "Sound-Masking")
-        ]
-
-        for (index, page) in pages.enumerated() {
-            capture("M9-\(page.num)-\(page.name)-sizes")
-            if index < pages.count - 1 {
-                app.swipeLeft()
-                settle()
-            }
+        for (index, page) in widgetPages.enumerated() {
+            selectScreenshotLayout(page)
+            capture(String(format: "M9-%02d-%@-sizes", index + 1, page))
         }
     }
 
-    /// Same as testWidgetSizeGrid but also enters edit mode on each page so the
+    /// Same as testWidgetSizeGrid but also enters edit mode on each layout so the
     /// resize handles and delete circles are visible. Useful for verifying that
     /// widget chrome doesn't obscure edit affordances at small sizes.
     @MainActor
     func testWidgetSizeGridEditMode() throws {
-        try waitForWidgetSizePresetInstalled()
+        waitForWidgetSizePresetInstalled()
 
-        let pages: [(num: String, name: String)] = [
-            ("01", "Spektrogramm"),
-            ("02", "Wasserfall"),
-            ("03", "Pegelverlauf"),
-            ("04", "Frequenz-Spektrum"),
-            ("05", "Pegel-Meter"),
-            ("06", "Einzelwert"),
-            ("07", "Tongenerator"),
-            ("08", "Spektralanalyse-Labor"),
-            ("09", "Sound-Masking")
-        ]
-
-        for (index, page) in pages.enumerated() {
-            // Enter edit mode
+        for (index, page) in widgetPages.enumerated() {
+            selectScreenshotLayout(page)
             let editButton = controlElement(in: app, identifier: "editDashboardButton")
-            if editButton.waitForExistence(timeout: viewWait) {
-                editButton.tap()
-                settle()
-                capture("M9-\(page.num)-\(page.name)-edit")
-                // Exit edit mode
-                editButton.tap()
-                settle()
-            }
-
-            if index < pages.count - 1 {
-                app.swipeLeft()
-                settle()
-            }
+            XCTAssertTrue(editButton.waitForExistence(timeout: viewWait))
+            editButton.tap()
+            XCTAssertTrue(app.buttons["addWidgetButton"].waitForExistence(timeout: viewWait))
+            capture(String(format: "M9-%02d-%@-edit", index + 1, page))
+            editButton.tap()
+            XCTAssertTrue(waitForEditModeToEnd(timeout: viewWait))
         }
+    }
+
+    @MainActor
+    func testLargestWidgetScrollsClearOfDockInEditMode() throws {
+        waitForWidgetSizePresetInstalled()
+        selectScreenshotLayout("Spektrogramm")
+
+        let editButton = controlElement(in: app, identifier: "editDashboardButton")
+        XCTAssertTrue(editButton.waitForExistence(timeout: viewWait))
+        editButton.tap()
+        XCTAssertTrue(app.buttons["addWidgetButton"].waitForExistence(timeout: viewWait))
+
+        let largestResizeHandle = controlElement(
+            in: app,
+            identifier: "homeResizeHandle-Spektrogramm-4x7"
+        )
+        let largestWidgetTarget = controlElement(
+            in: app,
+            identifier: "homeWidgetEditTarget-Spektrogramm-4x7"
+        )
+        XCTAssertTrue(largestResizeHandle.waitForExistence(timeout: viewWait))
+        XCTAssertTrue(largestWidgetTarget.waitForExistence(timeout: viewWait))
+
+        let pageScrollView = app.scrollViews["homeScreenPageScrollView"]
+        XCTAssertTrue(pageScrollView.waitForExistence(timeout: viewWait))
+        let initialWidgetY = largestWidgetTarget.frame.minY
+        for _ in 0..<8 {
+            pageScrollView.swipeUp()
+            settle(0.2)
+        }
+
+        XCTAssertLessThan(largestWidgetTarget.frame.minY, initialWidgetY, "The Home Screen content should scroll")
+        XCTAssertTrue(largestResizeHandle.isHittable, "The 4×7 widget resize control should be reachable by scrolling")
+        XCTAssertTrue(largestWidgetTarget.isHittable, "The full widget edit and reorder surface should remain reachable")
+        XCTAssertTrue(controlElement(in: app, identifier: "recordButton").isHittable, "Dock controls must remain reachable")
+        capture("M9-Spektrogramm-largest-widget-edit-scrolled")
+
+        XCTAssertTrue(editButton.isHittable, "The edit-mode exit control should remain reachable")
+        editButton.tap()
+        XCTAssertTrue(waitForEditModeToEnd(timeout: viewWait))
+        XCTAssertTrue(controlElement(in: app, identifier: "recordButton").isHittable)
     }
 
     // MARK: - Helpers
 
-    /// Opens the Layouts confirmation dialog and taps "Screenshot-Preset: Widgetgrößen".
-    /// Retries once because the dialog may be dismissed by an overlapping animation on the
-    /// first tap (observed in ScreenshotCatalogTests which also uses a two-tap pattern).
-    /// Launch argument `-InstallWidgetSizeScreenshotPreset` installs layouts in
-    /// `ModularDashboardView`; wait until edit mode chrome is available.
-    private func waitForWidgetSizePresetInstalled() throws {
-        let editButton = controlElement(in: app, identifier: "editDashboardButton")
+    @MainActor
+    private func waitForWidgetSizePresetInstalled() {
         XCTAssertTrue(
-            editButton.waitForExistence(timeout: launchWait),
+            waitForPageName("Screenshot: Spektrogramm", timeout: launchWait),
             "Dashboard should load with widget-size screenshot preset"
         )
         settle(1.0)
+    }
+
+    @MainActor
+    private func selectScreenshotLayout(_ pageName: String) {
+        let layoutName = "Screenshot: \(pageName)"
+        guard !waitForPageName(layoutName, timeout: 0.1) else { return }
+
+        let layoutsButton = controlElement(in: app, identifier: "layoutsButton")
+        XCTAssertTrue(layoutsButton.waitForExistence(timeout: viewWait))
+        layoutsButton.tap()
+
+        let layoutButton = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", layoutName)
+        ).firstMatch
+        XCTAssertTrue(layoutButton.waitForExistence(timeout: viewWait), "Expected custom layout \(layoutName)")
+        layoutButton.tap()
+        XCTAssertTrue(waitForPageName(layoutName, timeout: viewWait), "Expected \(layoutName) to become active")
+    }
+
+    @MainActor
+    private func waitForPageName(_ name: String, timeout: TimeInterval) -> Bool {
+        let indicator = controlElement(in: app, identifier: "homePageIndicator")
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if indicator.exists && indicator.label.contains(name) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return indicator.exists && indicator.label.contains(name)
+    }
+
+    @MainActor
+    private func waitForEditModeToEnd(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !app.buttons["addWidgetButton"].exists { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return !app.buttons["addWidgetButton"].exists
     }
 
     /// Waits until the main dashboard chrome is on screen (deferred audio startup

@@ -36,6 +36,7 @@ struct InteractiveLiveSpectrogramView: View {
     @State private var isFrozen = false
     @State private var pickerActive = false
     @State private var pickerPoint: CGPoint?
+    @ScaledMetric(relativeTo: .caption2) private var minimumFrequencyTickSpacing: CGFloat = 18
 
     private struct Viewport { var t0: Float; var tw: Float; var f0: Float; var fh: Float }
     private var current: Viewport { Viewport(t0: tStart, tw: tWidth, f0: fStart, fh: fHeight) }
@@ -164,42 +165,53 @@ struct InteractiveLiveSpectrogramView: View {
     // MARK: - Controls
 
     private func controlBar(readout: String?) -> some View {
-        HStack(spacing: 14) {
-            Button {
-                isFrozen.toggle()
-            } label: {
-                Image(systemName: isFrozen ? "play.fill" : "pause.fill")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(Color.black.opacity(0.55)))
-                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
-            }
-            .accessibilityLabel(isFrozen ? "Fortsetzen" : "Einfrieren")
-
+        VStack(alignment: .trailing, spacing: 6) {
             if let readout {
                 Text(readout)
-                    .font(.caption.monospacedDigit())
+                    .font(FerriteFont.caption.monospacedDigit())
                     .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Capsule().fill(Color.black.opacity(0.55)))
             }
 
-            Spacer()
-
-            if isZoomed {
+            HStack(spacing: 14) {
+                Spacer()
                 Button {
-                    apply(Viewport(t0: 0, tw: 1, f0: 0, fh: 1))
+                    isFrozen.toggle()
                 } label: {
-                    Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                    Image(systemName: isFrozen ? "play.fill" : "pause.fill")
                         .font(.headline)
                         .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                         .background(Circle().fill(Color.black.opacity(0.55)))
                         .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                        .contentShape(Circle())
                 }
-                .accessibilityLabel("Ansicht zurücksetzen")
+                .buttonStyle(.plain)
+                .accessibilityLabel(isFrozen ? "Fortsetzen" : "Einfrieren")
+
+                Spacer()
+
+                if isZoomed {
+                    Button {
+                        apply(Viewport(t0: 0, tw: 1, f0: 0, fh: 1))
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Circle().fill(Color.black.opacity(0.55)))
+                            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewport.isFitted)
+                    .accessibilityLabel("Ansicht zurücksetzen")
+                }
             }
         }
         .padding(12)
@@ -263,13 +275,11 @@ struct InteractiveLiveSpectrogramView: View {
     // MARK: - Frequency tick overlay (viewport-aware)
 
     private func frequencyTicks(size: CGSize) -> some View {
-        let ticks = SpectrogramAxisMath.axisTickFrequencies(
-            scale: scale, minFrequency: minHz, maxFrequency: maxHz
-        )
+        let ticks = visibleFrequencyTickValues(height: size.height)
         return ZStack(alignment: .topLeading) {
-            ForEach(ticks, id: \.self) { f in
-                if let y = tickY(for: f, height: size.height) {
-                    Text(frequencyLabel(f))
+            ForEach(ticks, id: \.self) { frequency in
+                if let y = tickY(for: frequency, height: size.height) {
+                    Text(frequencyLabel(frequency))
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.8), radius: 2)
@@ -277,6 +287,36 @@ struct InteractiveLiveSpectrogramView: View {
                 }
             }
         }
+    }
+
+    private func visibleFrequencyTickValues(height: CGFloat) -> [Double] {
+        let ticks = SpectrogramAxisMath.axisTickFrequencies(
+            scale: scale, minFrequency: minHz, maxFrequency: maxHz
+        )
+        let positioned = ticks
+            .compactMap { frequency -> (frequency: Double, y: CGFloat)? in
+                guard let y = tickY(for: frequency, height: height) else { return nil }
+                return (frequency, y)
+            }
+            .sorted { $0.y < $1.y }
+        guard let last = positioned.last else { return [] }
+
+        var visible: [(frequency: Double, y: CGFloat)] = []
+        for tick in positioned {
+            if let previous = visible.last,
+               tick.y - previous.y < minimumFrequencyTickSpacing {
+                continue
+            }
+            visible.append(tick)
+        }
+        if visible.last?.frequency != last.frequency {
+            if let previous = visible.last,
+               last.y - previous.y < minimumFrequencyTickSpacing {
+                visible.removeLast()
+            }
+            visible.append(last)
+        }
+        return visible.map(\.frequency)
     }
 
     /// Screen-Y for a frequency, accounting for the freq viewport window.

@@ -409,6 +409,7 @@ struct LevelMeterWidget: View {
     private let live: LiveAcousticState
     private let audioEngine: AudioEngine
     @Environment(\.designNumerals) private var numerals
+    @ScaledMetric(relativeTo: .largeTitle) private var levelReadoutSize: CGFloat = 30
     var settings: [String: String] = [:]
 
     init(audioEngine: AudioEngine, settings: [String: String] = [:]) {
@@ -474,13 +475,13 @@ struct LevelMeterWidget: View {
         VStack(spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(levelText(level, minDB: minDB))
-                    .font(.numerals(numerals, size: 30, weight: .semibold))
+                    .font(.numerals(numerals, size: levelReadoutSize, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(levelColor(level, minDB: minDB))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 Text(weightingLabel)
-                    .font(.readout(size: 11))
+                    .font(FerriteFont.caption)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
             }
@@ -516,13 +517,13 @@ struct LevelMeterWidget: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(levelText(level, minDB: minDB))
-                        .font(.numerals(numerals, size: 28, weight: .semibold))
+                        .font(.numerals(numerals, size: levelReadoutSize, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(levelColor(level, minDB: minDB))
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                     Text(weightingLabel)
-                        .font(.readout(size: 10))
+                        .font(FerriteFont.caption)
                         .foregroundStyle(.tertiary)
                 }
                 // Compact label-left / value-right rows so a few stats fit
@@ -530,11 +531,11 @@ struct LevelMeterWidget: View {
                 ForEach(statKeys, id: \.self) { key in
                     HStack(spacing: 4) {
                         Text(WidgetSettings.levelMeterStatLabel(key))
-                            .font(.readout(size: 10))
+                            .font(FerriteFont.caption)
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 2)
                         Text(statValue(key))
-                            .font(.readout(size: 14, weight: .medium))
+                            .font(FerriteFont.readout.weight(.medium))
                             .foregroundStyle(statColor(key))
                     }
                 }
@@ -547,10 +548,10 @@ struct LevelMeterWidget: View {
     private func statTile(_ key: String) -> some View {
         VStack(spacing: 1) {
             Text(WidgetSettings.levelMeterStatLabel(key))
-                .font(.readout(size: 10))
+                .font(FerriteFont.caption)
                 .foregroundStyle(.secondary)
             Text(statValue(key))
-                .font(.readout(size: 15, weight: .medium))
+                .font(FerriteFont.readout.weight(.medium))
                 .foregroundStyle(statColor(key))
         }
         .frame(maxWidth: .infinity)
@@ -571,19 +572,19 @@ struct LevelMeterWidget: View {
 
     private func scaleRow(minDB: Float, maxDB: Float, peakDB: Float?) -> some View {
         HStack(spacing: 0) {
-            Text("\(Int(minDB))").font(.readout(size: 10)).foregroundStyle(.tertiary)
+            Text("\(Int(minDB))").font(FerriteFont.caption2).foregroundStyle(.tertiary)
             Spacer()
-            Text("\(Int((minDB + maxDB) / 2))").font(.readout(size: 10)).foregroundStyle(.tertiary)
+            Text("\(Int((minDB + maxDB) / 2))").font(FerriteFont.caption2).foregroundStyle(.tertiary)
             Spacer()
-            Text("\(Int(maxDB))").font(.readout(size: 10)).foregroundStyle(.tertiary)
+            Text("\(Int(maxDB))").font(FerriteFont.caption2).foregroundStyle(.tertiary)
             Text(weightingLabel)
-                .font(.readout(size: 10, weight: .medium))
+                .font(FerriteFont.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 4)
             if let peakDB, peakDB > minDB {
                 Spacer(minLength: 8)
                 Text(String(format: "Spitze %.0f", peakDB))
-                    .font(.readout(size: 10, weight: .medium))
+                    .font(FerriteFont.caption2.weight(.medium))
                     .foregroundStyle(ScientificChartPalette.secondarySeries)
             }
         }

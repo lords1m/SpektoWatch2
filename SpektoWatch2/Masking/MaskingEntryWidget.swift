@@ -39,9 +39,14 @@ struct MaskingEntryWidget: View {
                     stateReadout
                     Spacer()
                     if engine.previewPlayer.isPlaying {
-                        Text("▶ AKTIV")
-                            .font(.readout(size: 8, weight: .semibold))
-                            .foregroundStyle(.green)
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(FerriteStatus.live)
+                                .frame(width: 6, height: 6)
+                            Text("AKTIV")
+                                .font(.readout(size: 8, weight: .semibold))
+                                .foregroundStyle(FerriteColor.label)
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -80,12 +85,12 @@ struct MaskingEntryWidget: View {
     }
 
     private var dotColor: Color {
-        if engine.previewPlayer.isPlaying { return .green }
+        if engine.previewPlayer.isPlaying { return FerriteStatus.live }
         switch engine.state {
-        case .idle:                        return Color.white.opacity(0.2)
-        case .calibratingAmbient:          return .orange
-        case .waitingForTrigger, .marking: return Color(red: 0.0, green: 0.85, blue: 1.0)
-        case .ready:                       return Color(red: 1.0, green: 0.80, blue: 0.30)
+        case .idle:                        return FerriteColor.labelTertiary.opacity(0.45)
+        case .calibratingAmbient:          return FerriteStatus.warning
+        case .waitingForTrigger, .marking: return FerriteStatus.info
+        case .ready:                       return FerriteStatus.warning
         }
     }
 
@@ -99,16 +104,16 @@ struct MaskingEntryWidget: View {
                     .foregroundStyle(.secondary)
             case .calibratingAmbient(let r):
                 Text("KAL \(String(format: "%02d", r))s")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
             case .waitingForTrigger:
                 Text("\(engine.captureCount)/\(engine.minimumCaptures) CAP")
-                    .foregroundStyle(Color(red: 0.0, green: 0.85, blue: 1.0))
+                    .foregroundStyle(.secondary)
             case .marking:
                 Text("REC ●")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.primary)
             case .ready(let sug):
                 Text("\(maskerCode(sug.maskerType)) \(Int(sug.confidenceScore * 100))%")
-                    .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.30))
+                    .foregroundStyle(.primary)
             }
         }
         .font(.readout(size: 9, weight: .medium))

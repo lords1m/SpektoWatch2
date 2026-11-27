@@ -657,23 +657,38 @@ struct HomeStatusLabel: View {
 
     var body: some View {
         let masking = services.maskingEngine!
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                statusLine(masking: masking)
+                if state.isRecording { durationLabel }
+            }
+            VStack(spacing: 2) {
+                statusLine(masking: masking)
+                if state.isRecording { durationLabel }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var durationLabel: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            Text(Self.format(services.recordingManager.currentRecordingDuration))
+                .font(FerriteFont.caption.monospacedDigit())
+                .foregroundStyle(FerriteColor.labelSecondary)
+                .lineLimit(1)
+        }
+    }
+
+    private func statusLine(masking: MaskingEngine) -> some View {
         HStack(spacing: 6) {
             StatusLED(color: ControlBarStatus.color(masking: masking, state: state),
                       pulsing: state.isLiveMode || state.isRecording)
             Text(ControlBarStatus.text(masking: masking, state: state))
-                .font(.system(size: 12, weight: .semibold))
+                .font(FerriteFont.callout.weight(.semibold))
                 .foregroundStyle(FerriteColor.label)
                 .lineLimit(1)
                 .accessibilityIdentifier("controlBarStatusLabel")
-            if state.isRecording {
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(Self.format(services.recordingManager.currentRecordingDuration))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                        .foregroundStyle(FerriteColor.labelSecondary)
-                }
-            }
         }
-        .accessibilityElement(children: .combine)
     }
 
     private static func format(_ t: TimeInterval) -> String {

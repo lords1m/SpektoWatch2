@@ -11,6 +11,9 @@ struct WatchCustomMeterView: View {
     @State private var showingLayoutEditor = false
     @State private var tileRefreshRate: SingleValueRefreshRate = .default
 
+    @ScaledMetric(relativeTo: .body) private var heroWidgetHeight: CGFloat = 78
+    @ScaledMetric(relativeTo: .body) private var tileWidgetHeight: CGFloat = 48
+
     private let gridColumns = Array(
         repeating: GridItem(.flexible(), spacing: 4),
         count: WatchMeterLayoutConfig.displayColumnCount
@@ -29,33 +32,38 @@ struct WatchCustomMeterView: View {
             WatchAppBackground().ignoresSafeArea()
 
             VStack(spacing: 4) {
-                HStack {
-                    Spacer(minLength: 0)
-                    Button {
-                        showingLayoutEditor = true
-                    } label: {
-                        Label("Layout bearbeiten", systemImage: "square.grid.3x3")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("watchMeterLayoutEditButton")
-                }
-                .padding(.horizontal, 2)
+                ScrollView {
+                    VStack(spacing: 4) {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button {
+                                showingLayoutEditor = true
+                            } label: {
+                                Label("Layout bearbeiten", systemImage: "square.grid.3x3")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.75))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("watchMeterLayoutEditButton")
+                        }
+                        .padding(.horizontal, 2)
 
-                if let heroWidget {
-                    editableWidget(heroWidget, height: 78)
-                }
+                        if let heroWidget {
+                            editableWidget(heroWidget, height: heroWidgetHeight)
+                        }
 
-                if !gridWidgets.isEmpty {
-                    LazyVGrid(columns: gridColumns, spacing: 4) {
-                        ForEach(gridWidgets) { widget in
-                            editableWidget(widget, height: 48)
+                        if !gridWidgets.isEmpty {
+                            LazyVGrid(columns: gridColumns, spacing: 4) {
+                                ForEach(gridWidgets) { widget in
+                                    editableWidget(widget, height: tileWidgetHeight)
+                                }
+                            }
                         }
                     }
                 }
-
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 WatchLiveCaptureFooter()
             }
             .padding(.horizontal, 4)

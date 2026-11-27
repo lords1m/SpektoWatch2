@@ -17,5 +17,6 @@ struct WatchLiveCaptureFooter: View {
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 2)
+        .frame(minHeight: 44)
     }
 }

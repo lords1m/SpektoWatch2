@@ -166,7 +166,7 @@ struct TriggerAcquisitionView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("KALIBRIERUNG")
                     .font(.readout(size: 9, weight: .semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(String(format: "%02d", remaining))")
                         .font(.readout(size: 40, weight: .thin))
@@ -214,7 +214,7 @@ struct TriggerAcquisitionView: View {
                         .foregroundStyle(.secondary)
                     Text("\(Int(engine.convergenceScore * 100)) %")
                         .font(.readout(size: 20, weight: .thin))
-                        .foregroundStyle(engine.convergenceScore >= 0.7 ? Color(red: 0.0, green: 0.85, blue: 1.0) : .secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -222,12 +222,12 @@ struct TriggerAcquisitionView: View {
             HStack(spacing: 10) {
                 Image(systemName: engine.state == .marking ? "stop.circle.fill" : "record.circle.fill")
                     .font(.system(size: 18))
-                    .foregroundStyle(engine.state == .marking ? .red : Color(red: 0.0, green: 0.85, blue: 1.0))
+                    .foregroundStyle(engine.state == .marking ? FerriteStatus.recording : FerriteStatus.info)
                     .animation(.easeInOut(duration: 0.15), value: engine.state == .marking)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(engine.state == .marking ? "AUFZEICHNUNG LÄUFT" : "AUFNAHME-BUTTON DRÜCKEN")
                         .font(.readout(size: 10, weight: .semibold))
-                        .foregroundStyle(engine.state == .marking ? .red : Color(red: 0.0, green: 0.85, blue: 1.0))
+                        .foregroundStyle(FerriteColor.label)
                     Text(engine.state == .marking ? "Erneut drücken, wenn der Trigger endet" : "Drücken, wenn der Trigger beginnt")
                         .font(.readout(size: 9))
                         .foregroundStyle(.secondary)
@@ -236,7 +236,7 @@ struct TriggerAcquisitionView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                (engine.state == .marking ? Color.red : Color(red: 0.0, green: 0.85, blue: 1.0))
+                (engine.state == .marking ? FerriteStatus.recording : FerriteStatus.info)
                     .opacity(0.07)
             )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -255,11 +255,11 @@ struct TriggerAcquisitionView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(Color(red: 1.0, green: 0.80, blue: 0.30))
+                    .fill(FerriteStatus.warning)
                     .frame(width: 6, height: 6)
                 Text("VORSCHLAG BEREIT")
                     .font(.readout(size: 9, weight: .semibold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.30))
+                    .foregroundStyle(FerriteColor.label)
             }
             Text("Masker-Vorschlag wurde berechnet.\nSchließe dieses Fenster, um ihn anzusehen.")
                 .font(.system(size: 13))
@@ -268,7 +268,7 @@ struct TriggerAcquisitionView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(red: 1.0, green: 0.80, blue: 0.30).opacity(0.06))
+        .background(FerriteStatus.warning.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
@@ -284,7 +284,7 @@ private struct NoveltyBar: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(0.06))
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.orange.opacity(0.7))
+                    .fill(FerriteStatus.warning.opacity(0.7))
                     .frame(width: geo.size.width * CGFloat(score))
                     .animation(.easeOut(duration: 0.15), value: score)
             }

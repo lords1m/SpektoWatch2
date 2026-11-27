@@ -5,6 +5,7 @@ struct SingleValueWidget: View {
     private var live: LiveAcousticState { audioEngine.live }
     @Environment(\.designNumerals) private var numerals
     var settings: [String: String]
+    @ScaledMetric(relativeTo: .largeTitle) private var readoutSize: CGFloat = 34
 
     init(audioEngine: AudioEngine, settings: [String: String]) {
         self.audioEngine = audioEngine
@@ -94,7 +95,7 @@ struct SingleValueWidget: View {
         // what tells the otherwise-identical single-value cards apart.
         VStack(spacing: 2) {
             Text(displayValue)
-                .font(.numerals(numerals, size: 34, weight: .semibold))
+                .font(.numerals(numerals, size: readoutSize, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(isRunning ? Color.primary : Color.gray)
                 .minimumScaleFactor(0.4)
@@ -103,10 +104,10 @@ struct SingleValueWidget: View {
                 .animation(.easeOut(duration: 0.2), value: value)
 
             (Text(displayTitle) + Text("  \(unitLabel)"))
-                .font(.readout(size: 11, weight: .medium))
+                .font(FerriteFont.callout.weight(.medium))
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

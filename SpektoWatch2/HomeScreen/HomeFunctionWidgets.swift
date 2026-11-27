@@ -18,7 +18,7 @@ struct RecordingsHomeWidget: View {
             if let latest = recordings.first {
                 HStack(spacing: 10) {
                     Text(latest.laeqFast > -119 ? "\(Int(latest.laeqFast.rounded())) dB" : "— dB")
-                        .font(.readout(size: 11, weight: .semibold))
+                        .font(FerriteFont.readout.weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
                         .background(RoundedRectangle(cornerRadius: Radius.control).fill(accent.opacity(0.18)))
@@ -26,11 +26,19 @@ struct RecordingsHomeWidget: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(latest.name)
                             .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Text("\(latest.formattedDate) · \(latest.formattedDuration)")
-                            .font(.caption2)
+                            .lineLimit(2)
+                        ViewThatFits(in: .horizontal) {
+                            Text("\(latest.formattedDate) · \(latest.formattedDuration)")
+                                .font(FerriteFont.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(latest.formattedDate)
+                                Text(latest.formattedDuration)
+                            }
+                            .font(FerriteFont.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 0)
                 }

@@ -64,13 +64,13 @@ struct MaskingSuggestionView: View {
     private var spectrumHero: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                legendDot(Color(red: 0.0, green: 0.85, blue: 1.0))
+                legendDot(FerriteStatus.info)
                 Text("TRIGGER").font(.readout(size: 8)).foregroundStyle(.secondary)
                 Spacer().frame(width: 10)
-                legendDot(Color(red: 1.0, green: 0.80, blue: 0.30))
+                legendDot(FerriteStatus.warning)
                 Text("MASKER EQ").font(.readout(size: 8)).foregroundStyle(.secondary)
                 Spacer().frame(width: 10)
-                legendDot(Color(white: 0.4))
+                legendDot(FerriteColor.labelTertiary)
                 Text("MASKER NAT").font(.readout(size: 8)).foregroundStyle(.secondary)
                 Spacer()
                 Text("KONFIDENZ \(Int(suggestion.confidenceScore * 100)) %")
@@ -139,7 +139,7 @@ struct MaskingSuggestionView: View {
             if suggestion.maskerType == selectedMasker {
                 Text("↑ EMPFOHLEN")
                     .font(.readout(size: 8, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.0, green: 0.85, blue: 1.0))
+                    .foregroundStyle(FerriteColor.labelSecondary)
             }
         }
     }
@@ -185,7 +185,7 @@ struct MaskingSuggestionView: View {
             Slider(value: $volumeDB, in: -40...(-10), step: 1) { _ in
                 engine.previewPlayer.volumeDB = volumeDB
             }
-            .tint(Color(red: 1.0, green: 0.80, blue: 0.30))
+            .tint(FerriteStatus.warning)
         }
     }
 
@@ -195,7 +195,7 @@ struct MaskingSuggestionView: View {
         Button(action: togglePreview) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(preview.isPlaying ? Color.green : Color.accentColor)
+                    .fill(preview.isPlaying ? FerriteStatus.live : Color.accentColor)
                     .frame(width: 8, height: 8)
                 Text(preview.isPlaying ? "STOP" : "VORSCHAU")
                     .font(.readout(size: 12, weight: .semibold))
@@ -304,7 +304,7 @@ private struct InstrumentEQRow: View {
 
             Text(String(format: "%+.1f", gain))
                 .font(.readout(size: 10))
-                .foregroundStyle(gainColor)
+                .foregroundStyle(FerriteColor.labelSecondary)
                 .frame(width: 38, alignment: .trailing)
         }
     }
@@ -318,8 +318,8 @@ private struct InstrumentEQRow: View {
     }
 
     private var gainColor: Color {
-        if gain > 1  { return Color(red: 1.0, green: 0.80, blue: 0.30) }
-        if gain < -1 { return Color(red: 0.0, green: 0.85, blue: 1.0) }
+        if gain > 1  { return FerriteStatus.warning }
+        if gain < -1 { return FerriteStatus.info }
         return .secondary
     }
 }

@@ -77,12 +77,15 @@ struct SpectrogramWidget: View {
 
             Button { showFullscreen = true } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.caption.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
                     .background(Circle().fill(Color.black.opacity(0.5)))
                     .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Spektrogramm vergrößern")
             .padding(8)
         }
         .innerCanvas(cornerRadius: 0)

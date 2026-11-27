@@ -132,6 +132,7 @@ struct HomeScreenTileView: View {
     var onUpdateStyle: (WidgetDisplayStyle) -> Void
     var onEnterEditMode: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSettings = false
     @State private var resizeStart: HomeSpan?
     @State private var resizeTarget: HomeSpan?
@@ -221,6 +222,7 @@ struct HomeScreenTileView: View {
                         .onTapGesture { showSettings = true }
                         .accessibilityLabel("\(widget.type.rawValue) bearbeiten")
                         .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("homeWidgetEditTarget-\(widget.type.rawValue)-\(span.columns)x\(span.rows)")
                 }
             }
         }
@@ -242,7 +244,7 @@ struct HomeScreenTileView: View {
         }
         .buttonStyle(.plain)
         .offset(x: isIcon ? (size.width - metrics.iconSize) / 2 - 20 : -20, y: -20)
-        .transition(.scale.combined(with: .opacity))
+        .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
         .accessibilityIdentifier("widgetDeleteButton")
         .accessibilityLabel("\(widget.type.rawValue) entfernen")
     }
@@ -269,7 +271,7 @@ struct HomeScreenTileView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Größe von \(widget.type.rawValue)")
         .accessibilityValue("\(span.columns) Spalten, \(span.rows) Zeilen")
-        .accessibilityIdentifier("homeResizeHandle")
+        .accessibilityIdentifier("homeResizeHandle-\(widget.type.rawValue)-\(span.columns)x\(span.rows)")
         .accessibilityAction(named: "Breiter") { step(columns: 1, rows: 0) }
         .accessibilityAction(named: "Schmaler") { step(columns: -1, rows: 0) }
         .accessibilityAction(named: "Höher") { step(columns: 0, rows: 1) }
@@ -517,14 +519,16 @@ struct HomeScreenPage: View {
                     }
                 }
                 .padding(.top, FerriteSpace.m)
-                .padding(.bottom, FerriteSpace.xl)
                 .animation(.spring(response: 0.38, dampingFraction: 0.82), value: widgets.map(\.id))
                 .animation(.spring(response: 0.38, dampingFraction: 0.82), value: widgets.map(\.resolvedHomeSpan))
                 .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.86), value: resizePreview)
             }
+            // Let the last row and its resize grips scroll clear of the dock.
+            .contentMargins(.bottom, 44, for: .scrollContent)
             .scrollDisabled(resizePreview != nil)
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
+            .accessibilityIdentifier("homeScreenPageScrollView")
         }
         .onChange(of: isEditMode) { _, editing in
             if !editing { resizePreview = nil }
@@ -614,44 +618,138 @@ struct HomeWallpaper: View {
 
 // MARK: - Page indicator
 
-/// iOS page dots in a small glass capsule, with the instrument status on
-/// the left (where iOS 26 shows its search pill).
+/// Page identity, position and status beside the iOS-style page dots.
 struct HomePageIndicator<Status: View>: View {
+    let pageName: String
     let count: Int
     let current: Int
+    var showsEditButton: Bool = false
+    var onEdit: () -> Void = {}
     var onSelect: (Int) -> Void
     @ViewBuilder var status: Status
 
     var body: some View {
-        HStack(spacing: FerriteSpace.m) {
-            status
-            if count > 1 {
-                Rectangle()
-                    .fill(FerriteColor.separator)
-                    .frame(width: FerriteStroke.hairline, height: 14)
-                HStack(spacing: 8) {
-                    ForEach(0..<count, id: \.self) { index in
-                        Circle()
-                            .fill(index == current ? FerriteColor.label : FerriteColor.labelTertiary.opacity(0.45))
-                            .frame(width: 7, height: 7)
-                            .contentShape(Rectangle().inset(by: -6))
-                            .onTapGesture { onSelect(index) }
-                    }
-                }
-                .accessibilityElement()
-                .accessibilityLabel("Seite \(current + 1) von \(count)")
-                .accessibilityAdjustableAction { direction in
-                    switch direction {
-                    case .increment: if current + 1 < count { onSelect(current + 1) }
-                    case .decrement: if current > 0 { onSelect(current - 1) }
-                    @unknown default: break
-                    }
-                }
+        HStack(spacing: 0) {
+            pageContent
+            if showsEditButton {
+                editButton
             }
         }
-        .padding(.horizontal, FerriteSpace.m)
-        .frame(height: 30)
+    }
+
+    private var pageContent: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: FerriteSpace.m) {
+                status
+                if count > 1 { divider }
+                pagePicker
+            }
+            VStack(alignment: .leading, spacing: FerriteSpace.xs) {
+                pagePicker
+                status
+            }
+        }
+        .padding(.horizontal, FerriteSpace.s)
+        .padding(.vertical, FerriteSpace.xs)
+        .frame(maxWidth: .infinity, minHeight: 44)
         .ferriteGlass()
+    }
+
+    private var pagePicker: some View {
+        VStack(spacing: FerriteSpace.xs) {
+            pageIdentity
+            if count > 1 {
+                pageDots
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(pageName), \(pagePosition)")
+        .accessibilityIdentifier("homePageIndicator")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: if current + 1 < count { onSelect(current + 1) }
+            case .decrement: if current > 0 { onSelect(current - 1) }
+            @unknown default: break
+            }
+        }
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(FerriteColor.separator)
+            .frame(width: FerriteStroke.hairline, height: 14)
+    }
+
+    private var pageIdentity: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: FerriteSpace.xs) {
+                Text(pageName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                pagePositionText
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pageName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                pagePositionText
+            }
+        }
+    }
+
+    private var pagePositionText: some View {
+        Text(pagePosition)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FerriteColor.labelSecondary)
+            .fixedSize()
+    }
+
+    private var editButton: some View {
+        Button(action: onEdit) {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.ferriteGlassRound)
+        .accessibilityLabel("Home-Bildschirm bearbeiten")
+        .accessibilityIdentifier("editDashboardButton")
+    }
+
+    private var pagePosition: String {
+        "Seite \(current + 1) von \(count)"
+    }
+
+    private var pageDots: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: FerriteSpace.s) {
+                ForEach(0..<count, id: \.self) { index in pageDot(index) }
+            }
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.fixed(44), spacing: FerriteSpace.s), count: 4),
+                spacing: FerriteSpace.s
+            ) {
+                ForEach(0..<count, id: \.self) { index in pageDot(index) }
+            }
+        }
+    }
+
+    private func pageDot(_ index: Int) -> some View {
+        Button {
+            onSelect(index)
+        } label: {
+            Circle()
+                .fill(index == current ? FerriteColor.label : FerriteColor.labelTertiary.opacity(0.45))
+                .frame(width: 7, height: 7)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHidden(true)
     }
 }
 

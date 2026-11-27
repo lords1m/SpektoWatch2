@@ -4,9 +4,9 @@ import SwiftUI
 // Log x-axis (20 Hz → 20 kHz), linear dB y-axis (relative, peak = 0 dB).
 //
 // Curves:
-//   ① Trigger   (cyan)  – measured spectral shape, peak-normalised
+//   ① Trigger   (Ferrite info) – measured spectral shape, peak-normalised
 //   ② Natural   (dim)   – masker texture reference
-//   ③ EQ output (amber) – EQ-adjusted masker output
+//   ③ EQ output (Ferrite warning) – EQ-adjusted masker output
 struct MaskingSpectrumView: View {
     let triggerBands: [Float]?
     let suggestion: MaskerSuggestion?
@@ -16,11 +16,11 @@ struct MaskingSpectrumView: View {
     private let fLow: Float      = 20
     private let fHigh: Float     = 20_000
 
-    private let cyan  = Color(red: 0.0, green: 0.85, blue: 1.0)
-    private let amber = Color(red: 1.0, green: 0.80, blue: 0.30)
-    private let dim   = Color(white: 0.4, opacity: 0.7)
-    private let grid  = Color.white.opacity(0.05)
-    private let tick  = Color.white.opacity(0.35)
+    private let triggerColor = FerriteStatus.info
+    private let eqOutputColor = FerriteStatus.warning
+    private let dim = FerriteColor.labelTertiary.opacity(0.7)
+    private let grid = FerriteColor.grout.opacity(0.55)
+    private let tick = FerriteColor.labelTertiary
 
     private let centers = TriggerSpectrum.bandCenters
 
@@ -43,13 +43,13 @@ struct MaskingSpectrumView: View {
                 }
                 let normEqd = eqd.map { $0 - peak }
                 drawLine(ctx, chart, normNat, color: dim,   width: 1.0)
-                drawLine(ctx, chart, normEqd, color: amber, width: 2.0)
+                drawLine(ctx, chart, normEqd, color: eqOutputColor, width: 2.0)
             }
 
             if let b = triggerBands {
                 let norm = normalizeToZero(b)
-                drawFill(ctx, chart, norm, color: cyan.opacity(0.09))
-                drawLine(ctx, chart, norm, color: cyan.opacity(0.9), width: 1.5)
+                drawFill(ctx, chart, norm, color: triggerColor.opacity(0.09))
+                drawLine(ctx, chart, norm, color: triggerColor.opacity(0.9), width: 1.5)
             }
         }
     }

@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 
 final class ScreenshotCatalogTests: XCTestCase {
     private var app: XCUIApplication!
@@ -196,6 +197,73 @@ final class ScreenshotCatalogTests: XCTestCase {
 
         capture("10-Dashboard-Empty")
         XCTAssertTrue(emptyLabel.waitForExistence(timeout: viewWait), "Empty dashboard should be visible")
+    }
+
+    @MainActor
+    func testHomePageIdentityAndVisibleEditEntry() throws {
+        let indicator = controlElement(identifier: "homePageIndicator")
+        XCTAssertTrue(waitForIndicator("Home, Seite 1 von 8"))
+        capture("11-Home-Page-Identity")
+
+        app.swipeLeft()
+        XCTAssertTrue(waitForIndicator("Spektrogramm, Seite 2 von 8"))
+
+        tapLastPageDot(in: indicator)
+        XCTAssertTrue(waitForIndicator("Spektralanalyse-Labor, Seite 8 von 8"))
+        capture("12-Home-Page-Dot-Selection")
+
+        let editButton = controlElement(identifier: "editDashboardButton")
+        XCTAssertTrue(editButton.isHittable)
+        XCTAssertGreaterThanOrEqual(editButton.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(editButton.frame.height, 44)
+        editButton.tap()
+        XCTAssertTrue(app.buttons["addWidgetButton"].waitForExistence(timeout: viewWait))
+        XCTAssertTrue(controlElement(identifier: "recordButton").isHittable)
+
+        app.swipeRight()
+        XCTAssertTrue(waitForIndicator("Tongenerator, Seite 7 von 8"))
+        capture("13-Home-Edit-Mode-After-Swipe")
+
+        let doneButton = controlElement(identifier: "editDashboardButton")
+        XCTAssertTrue(doneButton.isHittable)
+        doneButton.tap()
+        XCTAssertTrue(waitForEditModeToEnd())
+        XCTAssertTrue(controlElement(identifier: "editDashboardButton").isHittable)
+        capture("14-Home-Edit-Mode-Exit")
+    }
+
+    @MainActor
+    private func waitForIndicator(_ label: String, timeout: TimeInterval = 12) -> Bool {
+        let indicator = controlElement(identifier: "homePageIndicator")
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if indicator.exists && indicator.label.contains(label) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return indicator.exists && indicator.label.contains(label)
+    }
+
+    @MainActor
+    private func waitForEditModeToEnd(timeout: TimeInterval = 12) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !app.buttons["addWidgetButton"].exists { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return !app.buttons["addWidgetButton"].exists
+    }
+
+    @MainActor
+    private func tapLastPageDot(in indicator: XCUIElement) {
+        let frame = indicator.frame
+        let usesGrid = frame.width < 424
+        let dotWidth = usesGrid ? CGFloat(200) : CGFloat(408)
+        let column = usesGrid ? 3 : 7
+        let x = (frame.width - dotWidth) / 2 + CGFloat(column * 52 + 22)
+        let y = frame.height - 22
+        indicator.coordinate(
+            withNormalizedOffset: CGVector(dx: x / frame.width, dy: y / frame.height)
+        ).tap()
     }
 
     private func controlElement(identifier: String) -> XCUIElement {

@@ -1233,6 +1233,9 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     let axisWidth: CGFloat = 35
     let axisHeight: CGFloat = 28
     let axisSpacing: CGFloat = 4
+    @ScaledMetric(relativeTo: .caption2) private var minimumFrequencyLabelSpacing: CGFloat = 18
+    @ScaledMetric(relativeTo: .caption2) private var minimumTimeLabelSpacing: CGFloat = 30
+    @ScaledMetric(relativeTo: .caption2) private var frequencyAxisClearance: CGFloat = 40
     @State private var axisMetrics = SpectrogramAxisMetrics()
     @State private var axisMetricsReceivedAt: Double = 0
 
@@ -1283,7 +1286,7 @@ struct HighEndSpectrogramAdapterWithAxes: View {
     private var frequencyAxisOverlay: some View {
         GeometryReader { spectroGeo in
             ZStack(alignment: .topLeading) {
-                ForEach(axisFrequencies, id: \.self) { freq in
+                ForEach(visibleAxisFrequencies(height: spectroGeo.size.height), id: \.self) { freq in
                     Text(frequencyLabel(freq))
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.9))
@@ -1329,7 +1332,8 @@ struct HighEndSpectrogramAdapterWithAxes: View {
                         let x = CGFloat((visibleEnd - tick) / span) * size.width
                         guard x >= 0 && x <= axisVisibleWidth else { continue }
 
-                        if abs(x - lastLabelX) > 28 {
+                        if x >= self.frequencyAxisClearance,
+                           abs(x - lastLabelX) >= self.minimumTimeLabelSpacing {
                             var shadowContext = context
                             shadowContext.addFilter(.shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 0))
 
@@ -1384,6 +1388,31 @@ struct HighEndSpectrogramAdapterWithAxes: View {
             minFrequency: minFreq,
             maxFrequency: maxFreq
         )
+    }
+
+    private func visibleAxisFrequencies(height: CGFloat) -> [Double] {
+        let positioned = axisFrequencies
+            .map { (frequency: $0, y: yPosition(for: $0, height: height)) }
+            .sorted { $0.y < $1.y }
+        guard let last = positioned.last else { return [] }
+
+        var visible: [(frequency: Double, y: CGFloat)] = []
+        for tick in positioned {
+            if let previous = visible.last,
+               tick.y - previous.y < minimumFrequencyLabelSpacing {
+                continue
+            }
+            visible.append(tick)
+        }
+
+        if visible.last?.frequency != last.frequency {
+            if let previous = visible.last,
+               last.y - previous.y < minimumFrequencyLabelSpacing {
+                visible.removeLast()
+            }
+            visible.append(last)
+        }
+        return visible.map(\.frequency)
     }
 
     private func xAxisTickStep(for visibleRange: Double) -> Double {

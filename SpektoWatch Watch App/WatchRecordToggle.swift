@@ -10,9 +10,9 @@ struct WatchRecordToggle: View {
     var body: some View {
         Button(action: toggleRecording) {
             Image(systemName: audioEngine.isRecording ? "stop.fill" : "record.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 22, height: 22)
+                .frame(width: 44, height: 44)
                 .watchGlass(
                     in: Circle(),
                     tint: audioEngine.isRecording ? .red : WatchStylePalette.accentBlue,
@@ -22,6 +22,7 @@ struct WatchRecordToggle: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(audioEngine.isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
+        .accessibilityHint("Aufnahme steuern")
     }
 
     private func toggleRecording() {
