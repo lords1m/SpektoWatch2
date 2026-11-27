@@ -13,7 +13,10 @@ private struct PlayPauseButton: View {
     }
 
     var body: some View {
-        if dock { dockBody } else { barBody }
+        Group {
+            if dock { dockBody } else { barBody }
+        }
+        .disabled(audioEngine.engineStatus == .starting)
     }
 
     /// Home Screen dock tile: ink squircle, white glyph; LIVE adds the
@@ -70,6 +73,8 @@ private struct PlayPauseButton: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
             }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
         .animation(.easeInOut(duration: 0.2), value: state.isLiveMode)
@@ -149,6 +154,8 @@ private struct RecordStopButton: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: isActive)
             }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!isEnabled)
@@ -166,6 +173,7 @@ struct ControlBarView: View {
     var style: Style = .bar
     /// Settings tile in the dock.
     var onShowSettings: (() -> Void)? = nil
+    var onRecordingFeedbackChange: ((String?) -> Void)? = nil
     @Environment(AppServices.self) private var services
 
     private var maskingEngine: MaskingEngine { services.maskingEngine! }
@@ -175,6 +183,11 @@ struct ControlBarView: View {
     @State private var liveActivityAlert = false
     @State private var showPersistenceError = false
     @State private var persistenceErrorMessage = ""
+    @State private var showRecordingAlert = false
+    @State private var recordingAlertTitle = ""
+    @State private var recordingAlertMessage = ""
+    @State private var recordingFeedbackMessage: String?
+    @State private var recordingFeedbackTask: Task<Void, Never>?
 
     private let footerVerticalPadding: CGFloat = 10
     private let regularControlDiameter: CGFloat = 38
@@ -322,6 +335,16 @@ struct ControlBarView: View {
         .onChange(of: services.recordingManager.liveActivityError) { _, error in
             if error != nil { liveActivityAlert = true }
         }
+        .onChange(of: audioEngine.engineStatus) { _, status in
+            guard case .error = status, services.recordingManager.isRecording else { return }
+            services.recordingManager.cancelRecordingStartup()
+            recordingAlertTitle = String(localized: "recording.start_failed.title")
+            recordingAlertMessage = String(localized: "recording.start_failed.message")
+            showRecordingAlert = true
+        }
+        .onDisappear {
+            clearRecordingStatusMessage()
+        }
         .alert("Speichern fehlgeschlagen", isPresented: $showPersistenceError) {
             Button("OK") {
                 services.recordingManager.persistenceError = nil
@@ -335,6 +358,11 @@ struct ControlBarView: View {
         } message: {
             Text(services.recordingManager.liveActivityError ?? "")
         }
+        .alert(recordingAlertTitle, isPresented: $showRecordingAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(recordingAlertMessage)
+        }
         // NOTE: No .accessibilityIdentifier("controlBarView") here — in iOS 26,
         // named container identifiers are inherited by all PlainButtonStyle descendant
         // elements, overriding the custom identifiers we set on leaf Images.
@@ -346,7 +374,7 @@ struct ControlBarView: View {
             StatusLED(color: statusColor, pulsing: state.isLiveMode || state.isRecording)
             VStack(alignment: alignment, spacing: 1) {
                 Text(statusText)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FerriteFont.caption.weight(.medium))
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -386,12 +414,11 @@ struct ControlBarView: View {
                     action: toggleMaskingCapture
                 )
             } else {
-                let canStopRecording = !(state.isRecording && services.recordingManager.currentRecordingDuration < 1.0)
                 RecordStopButton(
                     audioEngine: audioEngine,
                     diameter: diameter,
                     iconSize: iconSize,
-                    isEnabled: canStopRecording,
+                    isEnabled: true,
                     dock: dock,
                     action: toggleRecording
                 )
@@ -420,7 +447,30 @@ struct ControlBarView: View {
     }
 
     private var statusText: String {
-        ControlBarStatus.text(masking: maskingEngine, state: state)
+        if let recordingFeedbackMessage {
+            return recordingFeedbackMessage
+        }
+        return ControlBarStatus.text(masking: maskingEngine, state: state)
+    }
+
+    private func showRecordingStatusMessage(_ message: String) {
+        recordingFeedbackTask?.cancel()
+        recordingFeedbackMessage = message
+        onRecordingFeedbackChange?(message)
+        recordingFeedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            recordingFeedbackMessage = nil
+            recordingFeedbackTask = nil
+            onRecordingFeedbackChange?(nil)
+        }
+    }
+
+    private func clearRecordingStatusMessage() {
+        recordingFeedbackTask?.cancel()
+        recordingFeedbackTask = nil
+        recordingFeedbackMessage = nil
+        onRecordingFeedbackChange?(nil)
     }
 
     private var statusColor: Color {
@@ -437,30 +487,23 @@ struct ControlBarView: View {
     }
 
     private func toggleLiveMode() {
+        clearRecordingStatusMessage()
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
         if audioEngine.engineStatus == .starting {
-            print("[ControlBarView] Ignoring toggleLiveMode while starting")
             return
         }
 
-        print("[ControlBarView] toggleLiveMode - Current state:")
-        print("  engineStatus: \(audioEngine.engineStatus)")
-        print("  isRecordingToFile: \(audioEngine.recording.isRecordingToFile)")
-        print("  engineRunning: \(state.engineRunning)")
-        print("  isLiveMode: \(state.isLiveMode)")
-
         if state.isLiveMode {
-            print("[ControlBarView] Stopping live mode...")
             audioEngine.stopLiveMode()
         } else {
-            print("[ControlBarView] Starting live mode...")
             audioEngine.startLiveMode()
         }
     }
 
     private func toggleRecording() {
+        clearRecordingStatusMessage()
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
@@ -468,37 +511,31 @@ struct ControlBarView: View {
             // Allow canceling a pending recording startup; ignore only when startup
             // belongs to live mode.
             if audioEngine.recording.isRecordingToFile {
-                print("[ControlBarView] Cancelling pending recording while starting")
                 audioEngine.stopRecording()
-                services.recordingManager.stopRecording(audioEngine: audioEngine) { _ in }
-            } else {
-                print("[ControlBarView] Ignoring toggleRecording while starting live mode")
+                services.recordingManager.cancelRecordingStartup()
             }
             return
         }
-
-        print("[ControlBarView] toggleRecording - Current state:")
-        print("  engineStatus: \(audioEngine.engineStatus)")
-        print("  isRecordingToFile: \(audioEngine.recording.isRecordingToFile)")
-        print("  engineRunning: \(state.engineRunning)")
-        print("  isRecording: \(state.isRecording)")
 
         if state.isRecording {
             guard services.recordingManager.currentRecordingDuration >= 1.0 else {
                 let notificationGenerator = UINotificationFeedbackGenerator()
                 notificationGenerator.notificationOccurred(.warning)
-                print("[ControlBarView] Recording too short (min 1 second)")
+                recordingAlertTitle = String(localized: "recording.too_short.title")
+                recordingAlertMessage = String(localized: "recording.too_short.message")
+                showRecordingAlert = true
                 return
             }
 
-            print("[ControlBarView] Stopping recording...")
-            
             // Dauer vor dem Stoppen speichern
             let recordedDuration = services.recordingManager.currentRecordingDuration
             
             audioEngine.stopRecording()
 
-            services.recordingManager.stopRecording(audioEngine: audioEngine) { audioURL in
+            services.recordingManager.stopRecording(
+                audioEngine: audioEngine,
+                requireWrittenAudio: true
+            ) { audioURL in
                 if let url = audioURL {
                     // Automatisch speichern mit Zeitstempel als Name
                     let dateFormatter = DateFormatter()
@@ -541,23 +578,33 @@ struct ControlBarView: View {
                     services.recordingManager.addRecording(recording)
                     
                     // Success feedback
-                    let notificationGenerator = UINotificationFeedbackGenerator()
-                    notificationGenerator.notificationOccurred(.success)
+                    if services.recordingManager.persistenceError == nil {
+                        let notificationGenerator = UINotificationFeedbackGenerator()
+                        notificationGenerator.notificationOccurred(.success)
+                        showRecordingStatusMessage(String(localized: "recording.saved"))
+                    }
                     
-                    print("[ControlBarView] Recording automatically saved: \(recording.name)")
+                } else {
+                    recordingAlertTitle = String(localized: "recording.save_failed.title")
+                    recordingAlertMessage = String(localized: "recording.save_failed.message")
+                    showRecordingAlert = true
                 }
             }
         } else {
-            print("[ControlBarView] Starting recording...")
             audioEngine.recording.isMeasurementRecording = true
             let recordingStarted = services.recordingManager.startRecording(audioEngine: audioEngine)
-            print("[ControlBarView] RecordingManager.startRecording() returned: \(recordingStarted)")
             if recordingStarted {
-                print("[ControlBarView] Calling audioEngine.startRecording()...")
-                audioEngine.startRecording()
-                print("[ControlBarView] audioEngine.startRecording() called")
+                let engineStarted = audioEngine.startRecording()
+                if !engineStarted {
+                    services.recordingManager.cancelRecordingStartup()
+                    recordingAlertTitle = String(localized: "recording.start_failed.title")
+                    recordingAlertMessage = String(localized: "recording.start_failed.message")
+                    showRecordingAlert = true
+                }
             } else {
-                print("[ControlBarView] ERROR: RecordingManager failed to start recording!")
+                recordingAlertTitle = String(localized: "recording.start_failed.title")
+                recordingAlertMessage = String(localized: "recording.start_failed.message")
+                showRecordingAlert = true
             }
         }
     }
@@ -605,6 +652,11 @@ enum ControlBarStatus {
             let m = maskingEngine.minimumCaptures
             return n > 0 ? "\(n)/\(m) Captures · Aufnahme drücken" : "Trigger · Aufnahme drücken"
         default:
+            if state.engineStatus == .starting {
+                return state.isRecordingToFile
+                    ? String(localized: "recording.status.starting")
+                    : String(localized: "live_mode.status.starting")
+            }
             if state.isRecording { return "Aufnahme läuft" }
             if state.isLiveMode  { return "Live-Modus" }
             return "Bereit"
@@ -649,6 +701,8 @@ private struct DockTileBackground: View {
 /// status accent, word in ink, recording time while recording.
 struct HomeStatusLabel: View {
     var audioEngine: AudioEngine
+    var feedbackMessage: String? = nil
+    @Environment(\.designNumerals) private var numerals
     @Environment(AppServices.self) private var services
 
     private var state: ControlBarState {
@@ -660,15 +714,15 @@ struct HomeStatusLabel: View {
         HStack(spacing: 6) {
             StatusLED(color: ControlBarStatus.color(masking: masking, state: state),
                       pulsing: state.isLiveMode || state.isRecording)
-            Text(ControlBarStatus.text(masking: masking, state: state))
-                .font(.system(size: 12, weight: .semibold))
+            Text(feedbackMessage ?? ControlBarStatus.text(masking: masking, state: state))
+                .font(FerriteFont.caption.weight(.semibold))
                 .foregroundStyle(FerriteColor.label)
                 .lineLimit(1)
                 .accessibilityIdentifier("controlBarStatusLabel")
             if state.isRecording {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     Text(Self.format(services.recordingManager.currentRecordingDuration))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .font(.numerals(numerals, size: 12, weight: .medium))
                         .foregroundStyle(FerriteColor.labelSecondary)
                 }
             }

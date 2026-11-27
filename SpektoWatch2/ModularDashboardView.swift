@@ -11,6 +11,7 @@ struct ModularDashboardView: View {
     @Environment(AppServices.self) private var services
     @State private var showLayoutsSheet = false
     @State private var launchedFeature: FeatureLauncherDestination?
+    @State private var recordingFeedbackMessage: String?
     @AppStorage("dashboard.activePreset") private var activePresetID: String = "overview"
     @Namespace private var zoomNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -224,13 +225,17 @@ struct ModularDashboardView: View {
                     }
                 }
             ) {
-                HomeStatusLabel(audioEngine: viewModel.audioEngine)
+                HomeStatusLabel(
+                    audioEngine: viewModel.audioEngine,
+                    feedbackMessage: recordingFeedbackMessage
+                )
             }
 
             ControlBarView(
                 audioEngine: viewModel.audioEngine,
                 style: .dock,
-                onShowSettings: { viewModel.showSettings = true }
+                onShowSettings: { viewModel.showSettings = true },
+                onRecordingFeedbackChange: { recordingFeedbackMessage = $0 }
             )
         }
     }

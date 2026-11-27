@@ -94,7 +94,11 @@ final class RecordingManager: NSObject {
         return true
     }
 
-    func stopRecording(audioEngine: AudioEngine, completion: @escaping (URL?) -> Void) {
+    func stopRecording(
+        audioEngine: AudioEngine,
+        requireWrittenAudio: Bool = false,
+        completion: @escaping (URL?) -> Void
+    ) {
         guard isRecording else {
             completion(nil)
             return
@@ -114,12 +118,35 @@ final class RecordingManager: NSObject {
         #endif
 
         let engineURL = audioEngine.lastRecordingURL
-        let url = engineURL ?? pendingAudioURL
-        if engineURL != nil, let pendingAudioURL {
-            try? fileManager.removeItem(at: pendingAudioURL)
+        let writtenAudioURL = requireWrittenAudio ? verifiedWrittenAudioURL(engineURL) : engineURL
+        let url = writtenAudioURL ?? (requireWrittenAudio ? nil : pendingAudioURL)
+        if engineURL != nil || requireWrittenAudio {
+            removePendingAudioFile()
+        } else {
+            pendingAudioURL = nil
         }
-        pendingAudioURL = nil
+        if requireWrittenAudio, writtenAudioURL == nil, let engineURL {
+            removeIncompleteAudioFile(engineURL)
+        }
         completion(url)
+    }
+
+    /// Cancels a recording that never reached the audio writer, such as a
+    /// startup cancelled by the user or rejected microphone permission.
+    func cancelRecordingStartup() {
+        guard isRecording else { return }
+        isRecording = false
+        recordingStartTime = nil
+        currentRecordingDuration = 0
+        recordingTimerTask?.cancel()
+        recordingTimerTask = nil
+
+        #if canImport(ActivityKit)
+        MeasurementLiveActivityController.shared.end()
+        liveActivityAudioEngine = nil
+        #endif
+
+        removePendingAudioFile()
     }
 
     func addRecording(_ recording: Recording) {
@@ -605,6 +632,41 @@ final class RecordingManager: NSObject {
         let url = recordingsDirectory.appendingPathComponent("recording_\(UUID().uuidString).caf")
         guard !fileManager.fileExists(atPath: url.path) else { return url }
         return fileManager.createFile(atPath: url.path, contents: Data()) ? url : nil
+    }
+
+    private func removePendingAudioFile() {
+        guard let pendingAudioURL else { return }
+        self.pendingAudioURL = nil
+        guard fileManager.fileExists(atPath: pendingAudioURL.path) else { return }
+        do {
+            try fileManager.removeItem(at: pendingAudioURL)
+        } catch {
+            Logger.recording.error("Failed to remove pending recording file: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func verifiedWrittenAudioURL(_ url: URL?) -> URL? {
+        guard let url, fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let audioFile = try AVAudioFile(forReading: url)
+            guard audioFile.length > 0 else {
+                Logger.recording.error("Recording file contains no audio frames: \(url.lastPathComponent, privacy: .public)")
+                return nil
+            }
+            return url
+        } catch {
+            Logger.recording.error("Could not verify recording file \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    private func removeIncompleteAudioFile(_ url: URL) {
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            Logger.recording.error("Failed to remove incomplete audio file: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func persistRecordingFile(pathOrName: String, id: UUID) -> URL? {

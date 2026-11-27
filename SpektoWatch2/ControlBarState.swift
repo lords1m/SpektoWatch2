@@ -32,11 +32,22 @@ struct ControlBarState: Equatable {
         isRecording ? "stopButton" : "recordButton"
     }
 
+    var isStartingRecording: Bool {
+        engineStatus == .starting && isRecordingToFile
+    }
+
     var playPauseAccessibilityLabel: String {
-        isLiveMode ? "Pause" : "Play"
+        isLiveMode
+            ? String(localized: "live_mode.action.stop")
+            : String(localized: "live_mode.action.start")
     }
 
     var recordStopAccessibilityLabel: String {
-        isRecording ? "Stop" : "Aufnahme"
+        if isStartingRecording {
+            return String(localized: "recording.action.cancel_start")
+        }
+        return isRecording
+            ? String(localized: "recording.action.stop")
+            : String(localized: "recording.action.start")
     }
 }

@@ -106,6 +106,65 @@ final class RecordingManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL!.path),
                      "Audio file should exist")
     }
+
+    func testStopRecordingRequiringWrittenAudioDoesNotKeepPlaceholder() {
+        XCTAssertTrue(recordingManager.startRecording(audioEngine: audioEngine))
+
+        let expectation = XCTestExpectation(description: "Stop recording")
+        var result: URL?
+        recordingManager.stopRecording(
+            audioEngine: audioEngine,
+            requireWrittenAudio: true
+        ) { url in
+            result = url
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertNil(result, "A placeholder must not be reported as a successful recording")
+        let recordingsPath = tempDir.appendingPathComponent("Recordings")
+        let remainingFiles = try? FileManager.default.contentsOfDirectory(atPath: recordingsPath.path)
+        XCTAssertEqual(remainingFiles?.count ?? -1, 0, "The empty placeholder should be removed")
+    }
+
+    func testStopRecordingRejectsEmptyAudioFileWhenWrittenAudioIsRequired() throws {
+        XCTAssertTrue(recordingManager.startRecording(audioEngine: audioEngine))
+        let emptyAudioURL = tempDir.appendingPathComponent("empty.caf")
+        XCTAssertTrue(FileManager.default.createFile(atPath: emptyAudioURL.path, contents: Data()))
+        audioEngine.lastRecordingURL = emptyAudioURL
+
+        let expectation = XCTestExpectation(description: "Stop recording")
+        var result: URL?
+        recordingManager.stopRecording(
+            audioEngine: audioEngine,
+            requireWrittenAudio: true
+        ) { url in
+            result = url
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertNil(result, "An empty audio file must not be reported as a successful recording")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: emptyAudioURL.path))
+    }
+
+    func testCancelRecordingStartupResetsStateAndAllowsRetry() throws {
+        XCTAssertTrue(recordingManager.startRecording(audioEngine: audioEngine))
+        let recordingsPath = tempDir.appendingPathComponent("Recordings")
+        let pendingFiles = try FileManager.default.contentsOfDirectory(atPath: recordingsPath.path)
+        XCTAssertEqual(pendingFiles.count, 1)
+
+        recordingManager.cancelRecordingStartup()
+
+        XCTAssertFalse(recordingManager.isRecording)
+        XCTAssertNil(recordingManager.recordingStartDate)
+        XCTAssertEqual(recordingManager.currentRecordingDuration, 0)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: recordingsPath.path).isEmpty)
+        XCTAssertTrue(recordingManager.startRecording(audioEngine: audioEngine))
+        recordingManager.cancelRecordingStartup()
+    }
     
     /// Testet Stop ohne laufende Recording
     func testStopRecordingWithoutStart() {

@@ -2,16 +2,16 @@ import SwiftUI
 
 // MARK: - Home-screen spans
 //
-// The in-app Home Screen follows the iOS Home Screen: a 4-column grid of
-// square cells. Feature icons and single values take one cell; every other
-// widget takes a free rectangle of cells (the spectrogram at least 2×2),
-// set by dragging the widget's edges in jiggle mode.
+// The in-app Home Screen follows the iOS Home Screen: four columns in portrait
+// and six in compact-height layouts. Feature icons and single values take one
+// cell; every other widget takes a free rectangle of cells (the spectrogram at
+// least 2×2), set by dragging the widget's edges in jiggle mode.
 //
 // The span is stored next to the legacy 3-column `WidgetSize`. Widgets
 // saved before spans existed have none and get one derived from their
 // stored size, so old layouts need no migration.
 
-/// Size of a Home Screen tile in grid cells (4 columns, square rows).
+/// Size of a Home Screen tile in grid cells (square rows).
 struct HomeSpan: Codable, Equatable, Hashable {
     var columns: Int
     var rows: Int
@@ -148,24 +148,27 @@ extension WidgetConfiguration {
 
 // MARK: - Grid metrics
 
-/// iOS-style geometry: four equal column pitches across the page, square
-/// rows of the same pitch. Widgets align to the outer edges of the icons
-/// they replace, so a small widget is exactly as wide as two icons plus
-/// the gap between them.
+/// iOS-style geometry: equal column pitches across the page and square rows
+/// of the same pitch. Widgets align to the outer edges of the icons they
+/// replace, so a small widget is exactly as wide as two icons plus the gap.
 struct HomeGridMetrics: Equatable {
     static let columns = 4
+    static let landscapeColumns = 6
     /// Tallest span: a widget filling a whole page.
     static let maxRows = 7
 
     let width: CGFloat
+    let gridColumns: Int
     let margin: CGFloat
     let pitch: CGFloat
     let iconSize: CGFloat
 
-    init(width: CGFloat) {
+    init(width: CGFloat, columns: Int = HomeGridMetrics.columns) {
+        let gridColumns = max(1, columns)
         self.width = width
+        self.gridColumns = gridColumns
         margin = width >= 400 ? 20 : 16
-        pitch = (width - 2 * margin) / CGFloat(Self.columns)
+        pitch = (width - 2 * margin) / CGFloat(gridColumns)
         iconSize = min(64, (pitch * 0.68).rounded())
     }
 
@@ -203,8 +206,11 @@ enum HomeGridPacker {
         let span: HomeSpan
     }
 
-    static func pack(_ items: [(id: UUID, span: HomeSpan)]) -> (placements: [UUID: Placement], rows: Int) {
-        let columns = HomeGridMetrics.columns
+    static func pack(
+        _ items: [(id: UUID, span: HomeSpan)],
+        columns: Int = HomeGridMetrics.columns
+    ) -> (placements: [UUID: Placement], rows: Int) {
+        let columnCount = max(1, columns)
         var occupied: [[Bool]] = []
         var placements: [UUID: Placement] = [:]
 
@@ -217,14 +223,14 @@ enum HomeGridPacker {
         }
 
         for item in items {
-            let w = min(columns, max(1, item.span.columns))
+            let w = min(columnCount, max(1, item.span.columns))
             let h = max(1, item.span.rows)
             var row = 0
             var placed = false
             while !placed {
-                for column in 0...(columns - w) where isFree(column: column, row: row, width: w, height: h) {
+                for column in 0...(columnCount - w) where isFree(column: column, row: row, width: w, height: h) {
                     while occupied.count < row + h {
-                        occupied.append(Array(repeating: false, count: columns))
+                        occupied.append(Array(repeating: false, count: columnCount))
                     }
                     for r in row..<(row + h) {
                         for c in column..<(column + w) { occupied[r][c] = true }

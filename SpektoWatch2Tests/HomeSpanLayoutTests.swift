@@ -96,4 +96,29 @@ final class HomeSpanLayoutTests: XCTestCase {
         let packed = HomeGridPacker.pack([(id: id, span: HomeSpan(columns: 6, rows: 1))])
         XCTAssertEqual(packed.placements[id]?.span.columns, HomeGridMetrics.columns)
     }
+
+    func testCompactHeightGridUsesAdditionalColumnsWithoutChangingWidgetSpans() {
+        let widget = UUID()
+        let icons = (0..<3).map { _ in UUID() }
+        let packed = HomeGridPacker.pack(
+            [(id: widget, span: HomeSpan(columns: 4, rows: 1))]
+                + icons.map { (id: $0, span: HomeSpan.single) },
+            columns: HomeGridMetrics.landscapeColumns
+        )
+
+        XCTAssertEqual(packed.placements[widget]?.span.columns, 4)
+        XCTAssertEqual(packed.placements[icons[0]].map { [$0.column, $0.row] }, [4, 0])
+        XCTAssertEqual(packed.placements[icons[1]].map { [$0.column, $0.row] }, [5, 0])
+        XCTAssertEqual(packed.placements[icons[2]].map { [$0.column, $0.row] }, [0, 1])
+    }
+
+    func testLandscapeMetricsReduceCellPitchWhilePortraitKeepsFourColumns() {
+        let portrait = HomeGridMetrics(width: 390)
+        let landscape = HomeGridMetrics(width: 844, columns: HomeGridMetrics.landscapeColumns)
+
+        XCTAssertEqual(portrait.gridColumns, HomeGridMetrics.columns)
+        XCTAssertEqual(landscape.gridColumns, HomeGridMetrics.landscapeColumns)
+        XCTAssertEqual(landscape.pitch, 134, accuracy: 1)
+        XCTAssertLessThan(landscape.pitch, portrait.pitch * 2)
+    }
 }

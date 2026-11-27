@@ -46,7 +46,7 @@ struct HomeAppIcon: View {
                 }
             if showsLabel {
                 Text(label)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FerriteFont.caption.weight(.medium))
                     .foregroundStyle(FerriteColor.label)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -446,9 +446,11 @@ struct HomeScreenTileView: View {
 
 // MARK: - Page
 
-/// One Home Screen page: the tiled-wall wallpaper and its tiles, packed
-/// into the iOS 4-column grid.
+/// One Home Screen page: tiled-wall wallpaper and tiles, packed into a grid
+/// whose column count responds to the vertical size class.
 struct HomeScreenPage: View {
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     let widgets: [WidgetConfiguration]
     let isEditMode: Bool
     let isActive: Bool
@@ -483,8 +485,14 @@ struct HomeScreenPage: View {
 
     var body: some View {
         GeometryReader { geo in
-            let metrics = HomeGridMetrics(width: geo.size.width)
-            let packed = HomeGridPacker.pack(widgets.map { ($0.id, span(of: $0)) })
+            let columns = verticalSizeClass == .compact
+                ? HomeGridMetrics.landscapeColumns
+                : HomeGridMetrics.columns
+            let metrics = HomeGridMetrics(width: geo.size.width, columns: columns)
+            let packed = HomeGridPacker.pack(
+                widgets.map { ($0.id, span(of: $0)) },
+                columns: metrics.gridColumns
+            )
 
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
@@ -539,7 +547,7 @@ struct HomeScreenPage: View {
             size: frame.size,
             metrics: metrics,
             isEditMode: isEditMode,
-            maxResizeColumns: HomeGridMetrics.columns - placement.column,
+            maxResizeColumns: min(HomeGridMetrics.columns, metrics.gridColumns - placement.column),
             audioEngine: audioEngine,
             fftConfig: fftConfig,
             zoomNamespace: zoomNamespace,

@@ -148,9 +148,9 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     var settings: [String: String]
     var displayStyle: WidgetDisplayStyle
     var preferredLiveSize: WidgetSize?
-    /// Size on the 4-column Home grid, set by drag-resizing on the Home
-    /// Screen. `nil` for widgets saved before spans existed — the Home
-    /// Screen then derives one from `size` (`resolvedHomeSpan`).
+    /// Size in Home grid cells, capped at four columns and set by drag-resizing
+    /// on the Home Screen. `nil` for widgets saved before spans existed — the
+    /// Home Screen then derives one from `size` (`resolvedHomeSpan`).
     var homeSpan: HomeSpan?
 
     init(

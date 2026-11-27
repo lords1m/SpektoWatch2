@@ -251,6 +251,7 @@ class AudioEngine {
     /// locks, the last-file URLs, and the metric-key schema (extracted in
     /// Phase 3, post-3.5 shrink). Recording-mode gating stays here.
     @ObservationIgnored private let recordingWriter = RecordingWriterCoordinator()
+    @ObservationIgnored private let captureStartupLock = OSAllocatedUnfairLock<UUID?>(initialState: nil)
 
     /// Forwarders so existing call sites (ControlBarView, RecordingManager, and
     /// the `… = nil` reset sites below) keep working unchanged.
@@ -704,24 +705,30 @@ class AudioEngine {
     }
 
     /// Startet die Aufnahme (mit Speicherung in Datei)
-    func startRecording() {
+    @discardableResult
+    func startRecording() -> Bool {
         print("[AudioEngine] startRecording called")
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
         print("[AudioEngine] Current recording.isRecordingToFile: \(recording.isRecordingToFile)")
 
         if engineStatus == .starting {
             print("[AudioEngine] Engine is starting, ignoring startRecording")
-            return
+            return false
         }
 
         // Always capture measurement data when starting a recording.
         if !recording.isMeasurementRecording {
             recording.isMeasurementRecording = true
         }
-
         guard engineStatus != .running else {
             // Wenn bereits im Live-Modus, nur auf Aufnahme umschalten
             if !recording.isRecordingToFile {
+                guard !isUsingDummyData || shouldUseTestAudioCapture else {
+                    Logger.audioEngine.error("Cannot save a recording while live mode is using fallback audio")
+                    return false
+                }
+                recordingWriter.lastRecordingURL = nil
+                recordingWriter.lastMeasurementDataURL = nil
                 Logger.audioEngine.info("Switching from LIVE to RECORDING mode")
                 recording.isRecordingToFile = true
                 activeMicrophoneSource = .iPhone
@@ -730,6 +737,14 @@ class AudioEngine {
                 recording.recordingDuration = 0.0
                 resetMetrics()
                 setupRecordingFile()
+                guard lastRecordingURL != nil else {
+                    recording.isRecordingToFile = false
+                    recordingStartTime = nil
+                    recording.recordingDuration = 0
+                    closeMeasurementWriter()
+                    lastMeasurementDataURL = nil
+                    return false
+                }
                 if recording.isMeasurementRecording {
                     setupMeasurementDataFileIfNeeded()
                 } else {
@@ -737,8 +752,10 @@ class AudioEngine {
                     closeMeasurementWriter()
                 }
             }
-            return
+            return true
         }
+        recordingWriter.lastRecordingURL = nil
+        recordingWriter.lastMeasurementDataURL = nil
         Logger.audioEngine.info("Starting AudioEngine in RECORDING mode")
         recording.isRecordingToFile = true
         activeMicrophoneSource = .iPhone
@@ -748,6 +765,7 @@ class AudioEngine {
         }
         print("[AudioEngine] Set recording.isRecordingToFile = true")
         startAudioCapture()
+        return true
     }
 
     /// Starts a live measurement whose data source is the Apple Watch microphone.
@@ -788,6 +806,9 @@ class AudioEngine {
             return
         }
         isStartingCapture = true
+        let startupID = UUID()
+        captureStartupLock.withLock { $0 = startupID }
+        isUsingDummyData = false
 
         if Thread.isMainThread {
             engineStatus = .starting
@@ -804,9 +825,9 @@ class AudioEngine {
         resetMetrics()
 
         if shouldUseTestAudioCapture {
-            startTestAudioCapture()
+            startTestAudioCapture(startupID: startupID)
         } else {
-            startRealRecording()
+            startRealRecording(startupID: startupID)
         }
     }
 
@@ -823,15 +844,23 @@ class AudioEngine {
         #endif
     }
 
-    private func startTestAudioCapture() {
+    private func startTestAudioCapture(startupID: UUID) {
+        guard isCaptureStartupCurrent(startupID) else { return }
         Logger.audioEngine.info("Using test audio generator for capture")
         print("[AudioEngine] Starting test generator")
         if recording.isRecordingToFile {
             setupRecordingFile()
+            guard lastRecordingURL != nil else {
+                failCaptureStartup(startupID, message: "Recording file could not be created")
+                return
+            }
             setupMeasurementDataFileIfNeeded()
         }
         testGenerator.start()
+        isUsingDummyData = true
         let finish: () -> Void = {
+            guard self.isCaptureStartupCurrent(startupID) else { return }
+            self.finishCaptureStartup(startupID)
             print("[AudioEngine] Setting engineStatus to .running")
             self.engineStatus = .running
             self.isStartingCapture = false
@@ -859,9 +888,13 @@ class AudioEngine {
         print("[AudioEngine] Current engineStatus: \(engineStatus)")
         print("[AudioEngine] Current recording.isRecordingToFile: \(recording.isRecordingToFile)")
         Logger.audioEngine.info("Stopping AudioEngine recording")
+        let isCancellingStartup = engineStatus == .starting
         recording.isRecordingToFile = false
         print("[AudioEngine] Set recording.isRecordingToFile = false")
         stopAudioCapture()
+        if isCancellingStartup {
+            discardIncompleteRecordingFiles()
+        }
     }
 
     /// Stops a wearable-source live measurement. This does not touch
@@ -888,6 +921,7 @@ class AudioEngine {
         recordingStartTime = nil
         closeAudioFileWriter()
         closeMeasurementWriter()
+        captureStartupLock.withLock { $0 = nil }
         DispatchQueue.main.async {
             print("[AudioEngine] Setting engineStatus to .idle")
             self.engineStatus = .idle
@@ -1050,7 +1084,7 @@ class AudioEngine {
 
     // MARK: - Private Recording Methods
 
-    private func startRealRecording() {
+    private func startRealRecording(startupID: UUID) {
         let audioSession = AVAudioSession.sharedInstance()
 
         // Check permissions first (quick check on main thread)
@@ -1061,17 +1095,14 @@ class AudioEngine {
             if permission == .undetermined {
                 AVAudioApplication.requestRecordPermission { [weak self] granted in
                     guard let self = self else { return }
-                    if granted {
-                        DispatchQueue.main.async {
+                    DispatchQueue.main.async {
+                        guard self.isCaptureStartupCurrent(startupID) else { return }
+                        if granted {
                             // Continue the pending capture startup instead of re-entering
                             // startRecording(), which is ignored while engineStatus == .starting.
-                            self.startRealRecording()
-                        }
-                    } else {
-                        DispatchQueue.main.async {
-                            self.isStartingCapture = false
-                            self.recording.isRecordingToFile = false
-                            self.engineStatus = .error("Microphone permission denied")
+                            self.startRealRecording(startupID: startupID)
+                        } else {
+                            self.failCaptureStartup(startupID, message: "Microphone permission denied")
                         }
                     }
                 }
@@ -1079,26 +1110,19 @@ class AudioEngine {
             }
             if permission == .denied {
                 Logger.audioEngine.error("Microphone permission denied")
-                DispatchQueue.main.async {
-                    self.isStartingCapture = false
-                    self.recording.isRecordingToFile = false
-                    self.engineStatus = .error("Microphone permission denied")
-                }
+                failCaptureStartup(startupID, message: "Microphone permission denied")
                 return
             }
         } else {
             if audioSession.recordPermission == .undetermined {
                 audioSession.requestRecordPermission { [weak self] granted in
                     guard let self = self else { return }
-                    if granted {
-                        DispatchQueue.main.async {
-                            self.startRealRecording()
-                        }
-                    } else {
-                        DispatchQueue.main.async {
-                            self.isStartingCapture = false
-                            self.recording.isRecordingToFile = false
-                            self.engineStatus = .error("Microphone permission denied")
+                    DispatchQueue.main.async {
+                        guard self.isCaptureStartupCurrent(startupID) else { return }
+                        if granted {
+                            self.startRealRecording(startupID: startupID)
+                        } else {
+                            self.failCaptureStartup(startupID, message: "Microphone permission denied")
                         }
                     }
                 }
@@ -1106,11 +1130,7 @@ class AudioEngine {
             }
             if audioSession.recordPermission == .denied {
                 Logger.audioEngine.error("Microphone permission denied")
-                DispatchQueue.main.async {
-                    self.isStartingCapture = false
-                    self.recording.isRecordingToFile = false
-                    self.engineStatus = .error("Microphone permission denied")
-                }
+                failCaptureStartup(startupID, message: "Microphone permission denied")
                 return
             }
         }
@@ -1118,15 +1138,12 @@ class AudioEngine {
         if audioSession.recordPermission == .undetermined {
             audioSession.requestRecordPermission { [weak self] granted in
                 guard let self = self else { return }
-                if granted {
-                    DispatchQueue.main.async {
-                        self.startRealRecording()
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        self.isStartingCapture = false
-                        self.recording.isRecordingToFile = false
-                        self.engineStatus = .error("Microphone permission denied")
+                DispatchQueue.main.async {
+                    guard self.isCaptureStartupCurrent(startupID) else { return }
+                    if granted {
+                        self.startRealRecording(startupID: startupID)
+                    } else {
+                        self.failCaptureStartup(startupID, message: "Microphone permission denied")
                     }
                 }
             }
@@ -1134,11 +1151,7 @@ class AudioEngine {
         }
         if audioSession.recordPermission == .denied {
             Logger.audioEngine.error("Microphone permission denied")
-            DispatchQueue.main.async {
-                self.isStartingCapture = false
-                self.recording.isRecordingToFile = false
-                self.engineStatus = .error("Microphone permission denied")
-            }
+            failCaptureStartup(startupID, message: "Microphone permission denied")
             return
         }
         #endif
@@ -1161,24 +1174,42 @@ class AudioEngine {
 
                 // Now setup audio engine on main thread (required for AVAudioEngine)
                 DispatchQueue.main.async {
-                    self.finishAudioEngineSetup(isRecording: isRecording, dataSources: dataSources, audioSession: audioSession)
+                    guard self.isCaptureStartupCurrent(startupID) else { return }
+                    self.finishAudioEngineSetup(
+                        isRecording: isRecording,
+                        dataSources: dataSources,
+                        audioSession: audioSession,
+                        startupID: startupID
+                    )
                 }
 
             } catch {
                 DispatchQueue.main.async {
+                    guard self.isCaptureStartupCurrent(startupID) else { return }
                     Logger.audioEngine.error("Audio engine failed to start: \(error.localizedDescription)")
-                    self.engineStatus = .error(error.localizedDescription)
-                    self.isStartingCapture = false
-                    Logger.audioEngine.info("Falling back to test audio generator")
-                    self.testGenerator.start()
-                    self.engineStatus = .running
-                    self.isUsingDummyData = true
+                    if isRecording {
+                        self.failCaptureStartup(startupID, message: error.localizedDescription)
+                    } else {
+                        self.finishCaptureStartup(startupID)
+                        self.engineStatus = .error(error.localizedDescription)
+                        self.isStartingCapture = false
+                        Logger.audioEngine.info("Falling back to test audio generator")
+                        self.testGenerator.start()
+                        self.engineStatus = .running
+                        self.isUsingDummyData = true
+                    }
                 }
             }
         }
     }
 
-    private func finishAudioEngineSetup(isRecording: Bool, dataSources: [AVAudioSessionDataSourceDescription], audioSession: AVAudioSession) {
+    private func finishAudioEngineSetup(
+        isRecording: Bool,
+        dataSources: [AVAudioSessionDataSourceDescription],
+        audioSession: AVAudioSession,
+        startupID: UUID
+    ) {
+        guard isCaptureStartupCurrent(startupID) else { return }
         let signpostID = PerformanceSignpost.begin("AudioEngineSetup")
         defer { PerformanceSignpost.end("AudioEngineSetup", signpostID: signpostID) }
 
@@ -1196,13 +1227,16 @@ class AudioEngine {
             let recordingFormat = captureSession.inputFormat()
 
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-                Logger.audioEngine.warning("Invalid audio format detected - falling back to test audio")
-                testGenerator.start()
-                DispatchQueue.main.async {
-                    self.engineStatus = .running
-                    self.isStartingCapture = false
+                Logger.audioEngine.warning("Invalid audio format detected")
+                if isRecording {
+                    failCaptureStartup(startupID, message: "Invalid audio format")
+                } else {
+                    finishCaptureStartup(startupID)
+                    testGenerator.start()
+                    engineStatus = .running
+                    isStartingCapture = false
+                    isUsingDummyData = true
                 }
-                isUsingDummyData = true
                 return
             }
 
@@ -1215,6 +1249,10 @@ class AudioEngine {
                     format: recordingFormat,
                     frameCapacity: max(tapBlockSize, 4096)
                 )
+                guard lastRecordingURL != nil else {
+                    failCaptureStartup(startupID, message: "Recording file could not be created")
+                    return
+                }
                 setupMeasurementDataFileIfNeeded()
             } else {
                 closeAudioFileWriter()
@@ -1224,23 +1262,68 @@ class AudioEngine {
 
             // Install audio tap + start the capture graph.
             try captureSession.installTapAndStart(format: recordingFormat)
-            DispatchQueue.main.async {
-                self.engineStatus = .running
-                self.isStartingCapture = false
-            }
+            finishCaptureStartup(startupID)
+            engineStatus = .running
+            isStartingCapture = false
 
         } catch {
             Logger.audioEngine.error("Audio engine setup failed: \(error.localizedDescription)")
-            DispatchQueue.main.async {
-                self.engineStatus = .error(error.localizedDescription)
-                self.isStartingCapture = false
+            if isRecording {
+                failCaptureStartup(startupID, message: error.localizedDescription)
+            } else {
+                finishCaptureStartup(startupID)
+                engineStatus = .error(error.localizedDescription)
+                isStartingCapture = false
+                Logger.audioEngine.info("Falling back to test audio generator")
+                testGenerator.start()
+                engineStatus = .running
+                isUsingDummyData = true
             }
-            Logger.audioEngine.info("Falling back to test audio generator")
-            testGenerator.start()
-            DispatchQueue.main.async {
-                self.engineStatus = .running
+        }
+    }
+
+    private func isCaptureStartupCurrent(_ startupID: UUID) -> Bool {
+        captureStartupLock.withLock { $0 == startupID }
+    }
+
+    private func finishCaptureStartup(_ startupID: UUID) {
+        captureStartupLock.withLock {
+            if $0 == startupID {
+                $0 = nil
             }
-            isUsingDummyData = true
+        }
+    }
+
+    private func failCaptureStartup(_ startupID: UUID, message: String) {
+        guard isCaptureStartupCurrent(startupID) else { return }
+        finishCaptureStartup(startupID)
+        if !shouldUseTestAudioCapture {
+            captureSession.stop()
+        }
+        testGenerator.stop()
+
+        discardIncompleteRecordingFiles()
+
+        recording.isRecordingToFile = false
+        recording.isMeasurementRecording = false
+        isStartingCapture = false
+        isUsingDummyData = false
+        activeMicrophoneSource = nil
+        engineStatus = .error(message)
+    }
+
+    private func discardIncompleteRecordingFiles() {
+        let urls = [lastRecordingURL, lastMeasurementDataURL].compactMap { $0 }
+        closeAudioFileWriter()
+        closeMeasurementWriter()
+        lastRecordingURL = nil
+        lastMeasurementDataURL = nil
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                Logger.audioEngine.error("Failed to remove incomplete recording file: \(error.localizedDescription)")
+            }
         }
     }
     

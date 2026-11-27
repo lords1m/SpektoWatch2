@@ -44,6 +44,8 @@ struct GlassIconButton: View {
                         .offset(x: badgeOffset.x, y: badgeOffset.y)
                 }
             }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .modifier(HighPriorityTap(enabled: usesHighPriorityTap, action: action))
