@@ -25,29 +25,20 @@
 //          OtherClassNameTests/
 //            testBar.1.png
 //
-//  Do NOT add `__Snapshots__` itself as a target resource; add the
-//  per-class folders inside it as folder references. Names must match the
-//  test class name exactly (case-sensitive). This is the Jaanus pattern.
+//  The per-class folders must be bundled as test resources, with names
+//  matching each test class exactly (case-sensitive). This is the Jaanus
+//  pattern.
 //
-//  Xcode setup (one-time, manual):
-//  -------------------------------
-//  1. File > Add Package Dependencies... >
-//     https://github.com/pointfreeco/swift-snapshot-testing  (>= 1.17.4)
-//     Add product `SnapshotTesting` to the `SpektoWatch2Tests` target.
-//  2. Create `SpektoWatch2Tests/__Snapshots__/<TestClassName>/` directories
-//     for each snapshot test class. Drag them into the test target as
-//     folder references (blue folders).
-//  3. In the test plan, pin a single device + OS (e.g. iPhone 15 / iOS 17.5)
-//     and a single locale/region/appearance/dynamic-type. Snapshot tests
-//     are pixel-sensitive to all of these.
-//  4. Snapshots run in Xcode Cloud only (per AGENT.md, the local simulator
-//     is broken — do not run xcodebuild test locally).
+//  SnapshotTesting is linked to the SpektoWatch2Tests target, and the current
+//  baselines are included in its test resources. Run
+//  snapshots locally or in Xcode Cloud on a pinned simulator; image snapshots
+//  are sensitive to OS/Xcode, locale, region, appearance, and dynamic type.
 //
 //  Recording mode:
 //  ---------------
 //  Pass `record: true` per-call to record new baselines, or set the env var
-//  `RECORD_SNAPSHOTS=YES` on the Xcode Cloud workflow to re-record
-//  everything. Never let record mode reach main.
+//  `RECORD_SNAPSHOTS=YES` to re-record everything. Never let record mode reach
+//  the default verification workflow.
 
 #if canImport(SnapshotTesting)
 import SnapshotTesting

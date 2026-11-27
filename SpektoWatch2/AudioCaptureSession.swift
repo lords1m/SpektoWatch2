@@ -20,6 +20,7 @@ final class AudioCaptureSession {
     /// Nominal hardware sample rate used to derive the preferred IO buffer
     /// duration during session/graph prewarm.
     let nominalSampleRate: Double
+    private let audioSessionCoordinator: AudioSessionCoordinator
 
     /// Called from the input tap on the audio render thread with each captured
     /// buffer. Set by the owner before the first `installTapAndStart`.
@@ -29,9 +30,14 @@ final class AudioCaptureSession {
     /// AVAudioEngine graph-build path during deferred `AppServices.startAudio()`.
     private lazy var engine = AVAudioEngine()
 
-    init(tapBlockSize: AVAudioFrameCount, nominalSampleRate: Double) {
+    init(
+        tapBlockSize: AVAudioFrameCount,
+        nominalSampleRate: Double,
+        audioSessionCoordinator: AudioSessionCoordinator = .shared
+    ) {
         self.tapBlockSize = tapBlockSize
         self.nominalSampleRate = nominalSampleRate
+        self.audioSessionCoordinator = audioSessionCoordinator
     }
 
     /// Warms the lazy `AVAudioEngine` so the first capture start does less
@@ -54,14 +60,13 @@ final class AudioCaptureSession {
         #if DEBUG
         if UITestRuntime.useTestAudio { return }
         #endif
-        let audioSession = AVAudioSession.sharedInstance()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             do {
-                try audioSession.setCategory(.record, mode: .measurement, options: [])
                 let rate = max(1.0, self.nominalSampleRate)
-                try audioSession.setPreferredIOBufferDuration(Double(self.tapBlockSize) / rate)
-                try audioSession.setActive(true)
+                try self.audioSessionCoordinator.prewarmMeasurementCapture(
+                    preferredIOBufferDuration: Double(self.tapBlockSize) / rate
+                )
             } catch {
                 Logger.audioEngine.warning("Prewarm failed: \(error.localizedDescription)")
             }
@@ -82,43 +87,36 @@ final class AudioCaptureSession {
         stereoMode: StereoInputMode,
         selectedDataSource: AVAudioSessionDataSourceDescription?
     ) throws -> [AVAudioSessionDataSourceDescription] {
-        let audioSession = AVAudioSession.sharedInstance()
-
-        try audioSession.setCategory(.record, mode: .measurement, options: [])
         let rate = max(1.0, nominalSampleRate)
-        try audioSession.setPreferredIOBufferDuration(Double(tapBlockSize) / rate)
+        return try audioSessionCoordinator.configureMeasurementCapture(
+            preferredIOBufferDuration: Double(tapBlockSize) / rate
+        ) { audioSession in
+            var dataSources: [AVAudioSessionDataSourceDescription] = []
+            if let inputs = audioSession.availableInputs,
+               let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
+                try audioSession.setPreferredInput(builtInMic)
+                dataSources = builtInMic.dataSources ?? []
 
-        if audioSession.isInputGainSettable {
-            try audioSession.setInputGain(1.0)
-        }
-
-        try audioSession.setActive(true)
-
-        var dataSources: [AVAudioSessionDataSourceDescription] = []
-        if let inputs = audioSession.availableInputs,
-           let builtInMic = inputs.first(where: { $0.portType == .builtInMic }) {
-            try audioSession.setPreferredInput(builtInMic)
-            dataSources = builtInMic.dataSources ?? []
-
-            // Apply stereo polar pattern BEFORE reading inputNode.outputFormat.
-            // The format is only 2-channel if the pattern is set beforehand.
-            let targetOrientation: AVAudioSession.Orientation
-            switch stereoMode {
-            case .frontBottom: targetOrientation = .front
-            case .bottomBack:  targetOrientation = .back
-            case .frontBack:   targetOrientation = .bottom
+                // Apply stereo polar pattern BEFORE reading inputNode.outputFormat.
+                // The format is only 2-channel if the pattern is set beforehand.
+                let targetOrientation: AVAudioSession.Orientation
+                switch stereoMode {
+                case .frontBottom: targetOrientation = .front
+                case .bottomBack:  targetOrientation = .back
+                case .frontBack:   targetOrientation = .bottom
+                }
+                if let stereoSource = dataSources.first(where: { $0.orientation == targetOrientation }),
+                   stereoSource.supportedPolarPatterns?.contains(.stereo) == true {
+                    try stereoSource.setPreferredPolarPattern(.stereo)
+                    try audioSession.setInputDataSource(stereoSource)
+                    Logger.audioEngine.info("Stereo mic configured: orientation=\(String(describing: targetOrientation))")
+                } else if let source = selectedDataSource {
+                    // Fallback: use the previously selected source
+                    try audioSession.setInputDataSource(source)
+                }
             }
-            if let stereoSource = dataSources.first(where: { $0.orientation == targetOrientation }),
-               stereoSource.supportedPolarPatterns?.contains(.stereo) == true {
-                try stereoSource.setPreferredPolarPattern(.stereo)
-                try audioSession.setInputDataSource(stereoSource)
-                Logger.audioEngine.info("Stereo mic configured: orientation=\(String(describing: targetOrientation))")
-            } else if let source = selectedDataSource {
-                // Fallback: use the previously selected source
-                try audioSession.setInputDataSource(source)
-            }
+            return dataSources
         }
-        return dataSources
     }
 
     /// Installs the input tap (forwarding buffers to `onBuffer`) and starts the

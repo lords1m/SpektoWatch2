@@ -17,6 +17,7 @@ final class AppServices {
     let recordingManager: RecordingManager
     let fftConfiguration: FFTConfiguration
     let maskingProfileManager: MaskingProfileManager
+    let audioSessionCoordinator: AudioSessionCoordinator
 
     // MARK: - Deferred audio surfaces
     //
@@ -38,13 +39,15 @@ final class AppServices {
         connectivityManager: WatchConnectivityManager,
         recordingManager: RecordingManager,
         fftConfiguration: FFTConfiguration,
-        maskingProfileManager: MaskingProfileManager
+        maskingProfileManager: MaskingProfileManager,
+        audioSessionCoordinator: AudioSessionCoordinator = .shared
     ) {
         self.filterManager = filterManager
         self.connectivityManager = connectivityManager
         self.recordingManager = recordingManager
         self.fftConfiguration = fftConfiguration
         self.maskingProfileManager = maskingProfileManager
+        self.audioSessionCoordinator = audioSessionCoordinator
 
         // Phone-side ingest of standalone watch recordings (M21 task-5).
         // Runs on the main actor; idempotent by recording id.
@@ -82,14 +85,18 @@ final class AppServices {
 
                 let engine = AudioEngine(
                     filterManager: self.filterManager,
-                    connectivityManager: self.connectivityManager
+                    connectivityManager: self.connectivityManager,
+                    audioSessionCoordinator: self.audioSessionCoordinator
                 )
                 engine.applyFFTConfiguration(self.fftConfiguration)
                 engine.applyRealtimeHop(from: self.fftConfiguration)
                 self.observeRealtimeHopSettings(of: engine)
 
                 self.audioEngine = engine
-                self.maskingEngine = MaskingEngine(audioEngine: engine)
+                self.maskingEngine = MaskingEngine(
+                    audioEngine: engine,
+                    audioSessionCoordinator: self.audioSessionCoordinator
+                )
 
                 if Self.shouldPrewarmCaptureGraph {
                     // Defer graph prewarm so published engine state reaches
@@ -133,7 +140,8 @@ extension AppServices {
         recordingManager: RecordingManager? = nil,
         fftConfiguration: FFTConfiguration? = nil,
         maskingProfileManager: MaskingProfileManager? = nil,
-        audioEngine: AudioEngine? = nil
+        audioEngine: AudioEngine? = nil,
+        audioSessionCoordinator: AudioSessionCoordinator = .shared
     ) -> AppServices {
         let fm = filterManager ?? BandstopFilterManager()
         let cm = connectivityManager ?? WatchConnectivityManager()
@@ -146,17 +154,25 @@ extension AppServices {
             connectivityManager: cm,
             recordingManager: rm,
             fftConfiguration: cfg,
-            maskingProfileManager: mpm
+            maskingProfileManager: mpm,
+            audioSessionCoordinator: audioSessionCoordinator
         )
 
         // Tests want audio engines available synchronously.
         MetalWidgetManager.shared.prewarmSharedDevice()
-        let engine = audioEngine ?? AudioEngine(filterManager: fm, connectivityManager: cm)
+        let engine = audioEngine ?? AudioEngine(
+            filterManager: fm,
+            connectivityManager: cm,
+            audioSessionCoordinator: audioSessionCoordinator
+        )
         if shouldPrewarmCaptureGraph {
             engine.prewarmCaptureGraph()
         }
         services.audioEngine = engine
-        services.maskingEngine = MaskingEngine(audioEngine: engine)
+        services.maskingEngine = MaskingEngine(
+            audioEngine: engine,
+            audioSessionCoordinator: audioSessionCoordinator
+        )
         return services
     }
 

@@ -39,20 +39,7 @@ enum AudioWidgetType: String, Codable, CaseIterable, Identifiable {
 
     var isAvailable: Bool { !Self.deactivated.contains(self) }
 
-    static var allCases: [AudioWidgetType] {
-        [
-            .spectrogram,
-            .levelHistory,
-            .frequencyDisplay,
-            .levelMeter,
-            .singleValue,
-            .toneGenerator,
-            .spektralanalyseLab,
-            .audioEditor,
-            .recordings,
-            .settings
-        ]
-    }
+    static var allCases: [AudioWidgetType] { AudioToolCatalog.availableTypes }
 }
 
 /// Discrete grid cell occupancy for a widget. Always integer rows + columns —

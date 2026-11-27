@@ -146,6 +146,7 @@
 		9B6A1D2E9F00111100111113 /* spekto-watch2.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "spekto-watch2.xctestplan"; sourceTree = "<group>"; };
 		9B6A1D2E9F00111100111114 /* snapshots.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = snapshots.xctestplan; sourceTree = "<group>"; };
 		9B6A1D2E9F00111100111115 /* ui-tests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ui-tests.xctestplan"; sourceTree = "<group>"; };
+		9B6A1D2E9F00111100111117 /* watch-tests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "watch-tests.xctestplan"; sourceTree = "<group>"; };
 		AA11AA11AA11AA11AA110001 /* SpektoWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektoWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC11CC11CC11CC11CC110002 /* SpektoWatch Complications.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "SpektoWatch Complications.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC22CC22CC22CC22CC220001 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
@@ -370,6 +371,7 @@
 				9B6A1D2E9F00111100111113 /* spekto-watch2.xctestplan */,
 				9B6A1D2E9F00111100111114 /* snapshots.xctestplan */,
 				9B6A1D2E9F00111100111115 /* ui-tests.xctestplan */,
+				9B6A1D2E9F00111100111117 /* watch-tests.xctestplan */,
 			);
 			path = TestPlans;
 			sourceTree = "<group>";

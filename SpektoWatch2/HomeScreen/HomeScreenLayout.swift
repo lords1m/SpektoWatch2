@@ -64,7 +64,7 @@ extension WidgetConfiguration {
         let page = HomeGridMetrics.maxRows
         switch type {
         case .singleValue:
-            return (HomeSpan(columns: 1, rows: 1), HomeSpan(columns: cols, rows: 4))
+            return (.single, .single)
         case .levelMeter:
             return (HomeSpan(columns: 1, rows: 1), HomeSpan(columns: cols, rows: page))
         case .spectrogram, .waterfall, .toneGenerator, .spektralanalyseLab:

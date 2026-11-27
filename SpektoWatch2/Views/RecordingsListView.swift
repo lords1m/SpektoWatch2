@@ -25,7 +25,7 @@ struct RecordingsListView: View {
     @State private var renameDraft: String = ""
 
     // Audio editor & external import flow
-    @State private var editorSource: AudioEditorSource?
+    @State private var editorSource: AudioAsset?
     @State private var showFileImporter = false
     @State private var importError: String?
 
@@ -172,7 +172,12 @@ struct RecordingsListView: View {
                 .id(recording.id)
         } label: {
             HStack(spacing: 12) {
-                LevelChip(level: recording.laeqFast)
+                if recording.assetKind == .measurement {
+                    LevelChip(level: recording.laeqFast)
+                } else {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(.secondary)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(recording.name)
                         .font(.body)
@@ -204,7 +209,7 @@ struct RecordingsListView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
-                        if recording.spectralDataAvailable == false {
+                        if recording.assetKind == .measurement && recording.spectralDataAvailable == false {
                             Image(systemName: "waveform.badge.exclamationmark")
                                 .font(.caption2)
                                 .foregroundStyle(FerriteStatus.warning)
@@ -239,7 +244,7 @@ struct RecordingsListView: View {
         }
         .contextMenu {
             Button {
-                editorSource = .recording(recording)
+                editorSource = services.recordingManager.audioAsset(for: recording)
             } label: {
                 Label("Bearbeiten / Konvertieren", systemImage: "slider.horizontal.3")
             }
@@ -370,7 +375,14 @@ struct RecordingsListView: View {
         case .name:
             result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .levelDesc:
-            result.sort { $0.laeqFast > $1.laeqFast }
+            result.sort {
+                if $0.assetKind != $1.assetKind {
+                    return $0.assetKind == .measurement
+                }
+                return $0.assetKind == .measurement
+                    ? $0.laeqFast > $1.laeqFast
+                    : $0.startDate > $1.startDate
+            }
         case .durationDesc:
             result.sort { $0.duration > $1.duration }
         }
@@ -502,7 +514,7 @@ struct RecordingsListView: View {
         var parts: [String] = [recording.name]
         parts.append("aufgenommen am \(recording.formattedDate)")
         parts.append("Dauer \(recording.formattedDuration)")
-        if recording.laeqFast > -119 {
+        if recording.assetKind == .measurement && recording.laeqFast > -119 {
             parts.append("Mittelungspegel \(Int(recording.laeqFast.rounded())) Dezibel A")
         }
         if !recording.tags.isEmpty {
@@ -592,7 +604,7 @@ private extension RecordingsListView {
                 .appendingPathComponent("sw2_import_\(UUID().uuidString).\(ext)")
             do {
                 try FileManager.default.copyItem(at: url, to: tempURL)
-                editorSource = .externalFile(tempURL)
+                editorSource = AudioAsset(externalFile: tempURL)
             } catch {
                 importError = error.localizedDescription
             }

@@ -10,6 +10,9 @@ final class RecordingManager: NSObject {
     var isRecording = false
     var currentRecordingDuration: TimeInterval = 0
     var recordings: [Recording] = []
+    var audioAssets: [AudioAsset] {
+        recordings.map { audioAsset(for: $0) }
+    }
     var liveActivityError: String? = nil
     var persistenceError: String? = nil
 
@@ -54,6 +57,15 @@ final class RecordingManager: NSObject {
         super.init()
         loadRecordings()
         restorePendingSoftDeletesFromSidecarIfNeeded()
+    }
+
+    func audioAsset(for recording: Recording) -> AudioAsset {
+        AudioAsset(recording: recording, fileURL: url(for: recording))
+    }
+
+    func recording(for asset: AudioAsset) -> Recording? {
+        guard let id = asset.recordingID else { return nil }
+        return recordings.first { $0.id == id }
     }
 
     func startRecording(audioEngine: AudioEngine) -> Bool {
@@ -404,6 +416,7 @@ final class RecordingManager: NSObject {
             id: newID,
             name: source.name + " (Kopie)",
             description: source.description,
+            assetKind: source.assetKind,
             startDate: source.startDate,
             duration: source.duration,
             audioFileName: newAudioFileName,
@@ -449,6 +462,7 @@ final class RecordingManager: NSObject {
             id: newID,
             name: "\(source.name) (Bearbeitet)",
             description: source.description,
+            assetKind: .audioFile,
             startDate: Date(),
             duration: duration,
             audioFileName: targetName,
@@ -504,6 +518,7 @@ final class RecordingManager: NSObject {
             id: source.id,
             name: source.name,
             description: source.description,
+            assetKind: .audioFile,
             startDate: source.startDate,
             duration: duration,
             audioFileName: newAudioName,
@@ -549,6 +564,7 @@ final class RecordingManager: NSObject {
             id: newID,
             name: cleanedTitle.isEmpty ? "Import \(recordings.count + 1)" : cleanedTitle,
             description: "Importierte Audiodatei",
+            assetKind: .audioFile,
             startDate: Date(),
             duration: duration,
             audioFileName: fileName,

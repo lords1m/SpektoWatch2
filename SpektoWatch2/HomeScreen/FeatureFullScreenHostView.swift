@@ -24,42 +24,46 @@ struct FeatureFullScreenHostView: View {
     private var widget: WidgetConfiguration { destination.widget }
 
     var body: some View {
-        switch widget.type {
-        case .audioEditor:
+        switch AudioToolCatalog.descriptor(for: widget.type)?.launchDestination {
+        case .some(.audioEditor):
             AudioEditorLauncherView()
                 .environment(services)
-        case .recordings:
+        case .some(.recordings):
             RecordingsListView()
                 .environment(services)
-        case .settings:
+        case .some(.settings):
             SettingsRootView(
                 selectedMicrophoneSource: $selectedMicrophoneSource,
                 watchGain: $watchGain,
                 audioEngine: audioEngine
             )
             .environment(services)
-        default:
-            NavigationStack {
-                launchedContent
-                    .padding(12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(GlassBackground().ignoresSafeArea())
-                    .navigationTitle(widget.type.rawValue)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button {
-                                dismiss()
-                            } label: {
-                                // Plain glyph: the iOS 26 toolbar already draws the glass circle.
-                                Label("Schließen", systemImage: "xmark")
-                            }
-                            .accessibilityIdentifier("featureLauncherCloseButton")
-                        }
-                    }
-            }
-            .accessibilityIdentifier("featureFullScreenHostView")
+        case .some(.analysis), .none:
+            analysisHost
         }
+    }
+
+    private var analysisHost: some View {
+        NavigationStack {
+            launchedContent
+                .padding(12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(GlassBackground().ignoresSafeArea())
+                .navigationTitle(widget.type.rawValue)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            // Plain glyph: the iOS 26 toolbar already draws the glass circle.
+                            Label("Schließen", systemImage: "xmark")
+                        }
+                        .accessibilityIdentifier("featureLauncherCloseButton")
+                    }
+                }
+        }
+        .accessibilityIdentifier("featureFullScreenHostView")
     }
 
     @ViewBuilder

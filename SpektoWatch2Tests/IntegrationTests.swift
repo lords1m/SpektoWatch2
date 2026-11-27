@@ -7,15 +7,26 @@ import os
 @MainActor
 final class IntegrationTests: XCTestCase {
 
-    // MARK: - TEST-INT-010: Parallelbetrieb Stress-Test
+    // MARK: - TEST-INT-010: Main-actor configuration and processing
 
-    /// Testet parallele FFT-Konfiguration und Audio-Verarbeitung
-    /// HINWEIS: Test deaktiviert wegen Race-Condition in SpectrogramProcessor.aggregateByBinningFactor
-    /// Bei parallelen Rekonfigurationen (3 Threads gleichzeitig) gibt es Array-Out-of-Bounds Fehler.
-    /// Dies ist ein unrealistisches Szenario - in der echten App ändert nur der Main-Thread die Config.
-    /// Issue: SpectrogramProcessor benötigt bessere Thread-Synchronisation für Stress-Tests.
-    func testParallelConfigurationAndProcessing() throws {
-        throw XCTSkip("Temporarily disabled due to race condition in SpectrogramProcessor during extreme parallel stress")
+    /// Mirrors the app's supported contract: configuration changes and frame
+    /// processing are serialized on the main actor.
+    func testConfigurationChangesDuringProcessing() {
+        let engine = AudioEngine(
+            filterManager: BandstopFilterManager(),
+            connectivityManager: WatchConnectivityManager()
+        )
+        let samples = (0..<FFTBlockSize.size16384.rawValue).map {
+            sin(Float($0) * 0.1) * 0.5
+        }
+
+        for size in FFTBlockSize.allCases.reversed() {
+            engine.setBlockSize(size)
+            engine.processExternalAudio(Array(samples.prefix(size.rawValue)))
+
+            XCTAssertEqual(engine.currentBlockSize, size)
+            XCTAssertTrue(engine.getRecordingStatistics().peak.isFinite)
+        }
     }
 
     // MARK: - FFT Pipeline Integration

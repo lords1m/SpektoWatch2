@@ -72,6 +72,14 @@ struct RecordingDetailView: View {
     @State private var autoFitToastTask: Task<Void, Never>?
     @State private var showAudioEditor = false
 
+    private var hasMeasurementMetadata: Bool {
+        recording.assetKind == .measurement
+    }
+
+    private var visibleTabs: [DetailTab] {
+        hasMeasurementMetadata ? DetailTab.allCases : [.overview]
+    }
+
     init(recording: Recording) {
         _recording = State(initialValue: recording)
     }
@@ -81,19 +89,24 @@ struct RecordingDetailView: View {
         // onto the recordings list's stack, so the title and toolbar attach to
         // the parent bar. Wrapping it again nested two navigation containers.
         VStack(spacing: 12) {
+            if hasMeasurementMetadata {
                 Picker("Tab", selection: $selectedTab) {
-                    ForEach(DetailTab.allCases) { tab in
+                    ForEach(visibleTabs) { tab in
                         Text(tab.rawValue).tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
+            }
 
-                switch selectedTab {
-                case .overview:
-                    overviewTab
-                case .analysis:
+            switch selectedTab {
+            case .overview:
+                overviewTab
+            case .analysis:
+                if hasMeasurementMetadata {
                     analysisTab
+                } else {
+                    overviewTab
                 }
             }
             .background(GlassBackground())
@@ -116,23 +129,27 @@ struct RecordingDetailView: View {
                             Label("Audio teilen", systemImage: "square.and.arrow.up")
                         }
 
-                        Button {
-                            createPDFReport()
-                        } label: {
-                            Label("PDF erstellen", systemImage: "doc.richtext")
-                        }
-                        .disabled(activeExportKind != nil)
-
-                        Button {
-                            exportSpectrogramImage()
-                        } label: {
-                            if isExportingSpectrogram {
-                                Label("Spektrogramm wird exportiert…", systemImage: "hourglass")
-                            } else {
-                                Label("Spektrogramm exportieren", systemImage: "photo")
+                        if hasMeasurementMetadata {
+                            Button {
+                                createPDFReport()
+                            } label: {
+                                Label("PDF erstellen", systemImage: "doc.richtext")
                             }
+                            .disabled(activeExportKind != nil)
                         }
-                        .disabled(isExportingSpectrogram)
+
+                        if hasMeasurementMetadata {
+                            Button {
+                                exportSpectrogramImage()
+                            } label: {
+                                if isExportingSpectrogram {
+                                    Label("Spektrogramm wird exportiert…", systemImage: "hourglass")
+                                } else {
+                                    Label("Spektrogramm exportieren", systemImage: "photo")
+                                }
+                            }
+                            .disabled(isExportingSpectrogram)
+                        }
 
                         if spectrogramModel.hasMeasurementData {
                             Button {
@@ -151,18 +168,25 @@ struct RecordingDetailView: View {
             ActivityView(activityItems: shareItems)
         }
         .fullScreenCover(isPresented: $showAudioEditor) {
-            AudioEditorView(source: .recording(recording)) { updated in
+            AudioEditorView(source: services.recordingManager.audioAsset(for: recording)) { updated in
                 recording = updated
                 let updatedURL = services.recordingManager.url(for: updated)
                 _ = audioPlayer.loadAudio(url: updatedURL)
-                spectrogramModel.load(
-                    measurementURL: services.recordingManager.measurementURL(for: updated),
-                    audioURL: updatedURL,
-                    calibrationOffset: updated.calibrationOffset,
-                    fftBlockSize: updated.fftBlockSize,
-                    fallbackSampleRate: updated.sampleRate,
-                    weighting: playbackWeighting
-                )
+                if updated.assetKind == .measurement {
+                    spectrogramModel.load(
+                        measurementURL: services.recordingManager.measurementURL(for: updated),
+                        audioURL: updatedURL,
+                        calibrationOffset: updated.calibrationOffset,
+                        fftBlockSize: updated.fftBlockSize,
+                        fallbackSampleRate: updated.sampleRate,
+                        weighting: playbackWeighting
+                    )
+                } else {
+                    playbackAnalyzer.stop()
+                    audioPlayer.onAudioSamples = nil
+                    spectrogramModel.cancel()
+                    selectedTab = .overview
+                }
             }
             .environment(services)
         }
@@ -191,12 +215,14 @@ struct RecordingDetailView: View {
 
             // PlaybackAnalyzer suspends the live mic engine and routes
             // playback samples through the shared pipeline (M14/R1).
-            if let audioEngine {
-                playbackAnalyzer.start(engine: audioEngine, recording: recording)
-            }
-            let analyzerRef = playbackAnalyzer
-            audioPlayer.onAudioSamples = { [weak analyzerRef] samples, sampleRate in
-                analyzerRef?.processSamples(samples, sampleRate: sampleRate)
+            if hasMeasurementMetadata {
+                if let audioEngine {
+                    playbackAnalyzer.start(engine: audioEngine, recording: recording)
+                }
+                let analyzerRef = playbackAnalyzer
+                audioPlayer.onAudioSamples = { [weak analyzerRef] samples, sampleRate in
+                    analyzerRef?.processSamples(samples, sampleRate: sampleRate)
+                }
             }
             if let weighting = FrequencyWeighting(rawValue: recording.frequencyWeighting) {
                 playbackWeighting = weighting
@@ -208,16 +234,18 @@ struct RecordingDetailView: View {
             if let savedMode = WaterfallSpectrumMode(rawValue: waterfallSpectrumModeRawValue) {
                 waterfallController.display.spectrumMode = savedMode
             }
-            loadPlaybackWidgets()
-            configureSpectrogramModel()
-            spectrogramModel.load(
-                measurementURL: services.recordingManager.measurementURL(for: recording),
-                audioURL: audioURL,
-                calibrationOffset: recording.calibrationOffset,
-                fftBlockSize: recording.fftBlockSize,
-                fallbackSampleRate: recording.sampleRate,
-                weighting: playbackWeighting
-            )
+            if hasMeasurementMetadata {
+                loadPlaybackWidgets()
+                configureSpectrogramModel()
+                spectrogramModel.load(
+                    measurementURL: services.recordingManager.measurementURL(for: recording),
+                    audioURL: audioURL,
+                    calibrationOffset: recording.calibrationOffset,
+                    fftBlockSize: recording.fftBlockSize,
+                    fallbackSampleRate: recording.sampleRate,
+                    weighting: playbackWeighting
+                )
+            }
         }
         .onDisappear {
             audioPlayer.stop()
@@ -261,20 +289,22 @@ struct RecordingDetailView: View {
             VStack(spacing: 20) {
                 RecordingHeaderCard(name: recording.name, formattedDate: recording.formattedDate)
                 audioPlayerCard
-                playbackWidgetsCard
-                RecordingStatisticsCard(
-                    laeqFast: recording.laeqFast,
-                    peakLevel: recording.peakLevel,
-                    minLevel: recording.minLevel,
-                    formattedDuration: recording.formattedDuration
-                )
-                RecordingConfigurationCard(
-                    timeWeighting: recording.timeWeighting,
-                    frequencyWeighting: recording.frequencyWeighting,
-                    sampleRate: recording.sampleRate,
-                    fftBlockSize: recording.fftBlockSize,
-                    calibrationOffset: recording.calibrationOffset
-                )
+                if hasMeasurementMetadata {
+                    playbackWidgetsCard
+                    RecordingStatisticsCard(
+                        laeqFast: recording.laeqFast,
+                        peakLevel: recording.peakLevel,
+                        minLevel: recording.minLevel,
+                        formattedDuration: recording.formattedDuration
+                    )
+                    RecordingConfigurationCard(
+                        timeWeighting: recording.timeWeighting,
+                        frequencyWeighting: recording.frequencyWeighting,
+                        sampleRate: recording.sampleRate,
+                        fftBlockSize: recording.fftBlockSize,
+                        calibrationOffset: recording.calibrationOffset
+                    )
+                }
                 RecordingNotesCard(text: $recording.description) {
                     services.recordingManager.updateRecording(recording)
                 }
@@ -305,12 +335,14 @@ struct RecordingDetailView: View {
             Text("Export")
                 .font(.headline)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
-                ExportActionButton(
-                    title: "PDF",
-                    systemImage: activeExportKind == .pdf ? "hourglass" : "doc.richtext",
-                    isLoading: activeExportKind == .pdf,
-                    isDisabled: activeExportKind == .csv
-                ) { createPDFReport() }
+                if hasMeasurementMetadata {
+                    ExportActionButton(
+                        title: "PDF",
+                        systemImage: activeExportKind == .pdf ? "hourglass" : "doc.richtext",
+                        isLoading: activeExportKind == .pdf,
+                        isDisabled: activeExportKind == .csv
+                    ) { createPDFReport() }
+                }
 
                 ExportActionButton(
                     title: "Audio",
@@ -328,26 +360,28 @@ struct RecordingDetailView: View {
                     showAudioEditor = true
                 }
 
-                ExportActionButton(
-                    title: "Spektrogramm",
-                    systemImage: isExportingSpectrogram ? "hourglass" : "photo",
-                    isLoading: isExportingSpectrogram
-                ) { exportSpectrogramImage() }
+                if hasMeasurementMetadata {
+                    ExportActionButton(
+                        title: "Spektrogramm",
+                        systemImage: isExportingSpectrogram ? "hourglass" : "photo",
+                        isLoading: isExportingSpectrogram
+                    ) { exportSpectrogramImage() }
 
-                ExportActionButton(
-                    title: "CSV",
-                    systemImage: activeExportKind == .csv ? "hourglass" : "tablecells",
-                    isLoading: activeExportKind == .csv,
-                    isDisabled: !spectrogramModel.hasMeasurementData || activeExportKind == .pdf,
-                    disabledHint: spectrogramModel.hasMeasurementData ? nil : "Keine Messdaten"
-                ) { createCSVExport() }
+                    ExportActionButton(
+                        title: "CSV",
+                        systemImage: activeExportKind == .csv ? "hourglass" : "tablecells",
+                        isLoading: activeExportKind == .csv,
+                        isDisabled: !spectrogramModel.hasMeasurementData || activeExportKind == .pdf,
+                        disabledHint: spectrogramModel.hasMeasurementData ? nil : "Keine Messdaten"
+                    ) { createCSVExport() }
 
-                ExportActionButton(
-                    title: "Messdaten",
-                    systemImage: "doc.badge.arrow.up",
-                    isDisabled: !spectrogramModel.hasMeasurementData,
-                    disabledHint: "Keine Messdaten"
-                ) { shareRawMeasurementData() }
+                    ExportActionButton(
+                        title: "Messdaten",
+                        systemImage: "doc.badge.arrow.up",
+                        isDisabled: !spectrogramModel.hasMeasurementData,
+                        disabledHint: "Keine Messdaten"
+                    ) { shareRawMeasurementData() }
+                }
             }
         }
         .padding()
@@ -419,41 +453,52 @@ struct RecordingDetailView: View {
 
     private var audioPlayerCard: some View {
         VStack(spacing: 16) {
-            playbackWeightingPicker
-            if !spectrogramModel.history.isEmpty {
-                NavigableSpectrogramView(
-                    magnitudeHistory: spectrogramModel.history,
-                    dataVersion: spectrogramModel.version,
-                    duration: max(audioPlayer.duration, recording.duration),
-                    currentTime: isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime,
-                    colormapType: playbackColormapType,
-                    sampleRate: Float(recording.sampleRate),
-                    calibrationOffset: recording.calibrationOffset,
-                    axisKind: spectrogramModel.axis,
-                    markers: recording.markers ?? [],
-                    onSeek: { time in
-                        audioPlayer.scrubTime = time
-                        audioPlayer.seek(to: time)
-                    },
-                    detailTileLoader: spectrogramModel.makeDetailTileLoader()
-                )
-            } else if spectrogramModel.isLoading {
-                ZStack {
-                    Color.black
-                    ProgressView("Spektrogramm wird berechnet...")
-                        .tint(.white)
-                        .foregroundStyle(.white)
+            if hasMeasurementMetadata {
+                playbackWeightingPicker
+                if !spectrogramModel.history.isEmpty {
+                    NavigableSpectrogramView(
+                        magnitudeHistory: spectrogramModel.history,
+                        dataVersion: spectrogramModel.version,
+                        duration: max(audioPlayer.duration, recording.duration),
+                        currentTime: isDraggingSlider ? audioPlayer.scrubTime : audioPlayer.currentTime,
+                        colormapType: playbackColormapType,
+                        sampleRate: Float(recording.sampleRate),
+                        calibrationOffset: recording.calibrationOffset,
+                        axisKind: spectrogramModel.axis,
+                        markers: recording.markers ?? [],
+                        onSeek: { time in
+                            audioPlayer.scrubTime = time
+                            audioPlayer.seek(to: time)
+                        },
+                        detailTileLoader: spectrogramModel.makeDetailTileLoader()
+                    )
+                } else if spectrogramModel.isLoading {
+                    ZStack {
+                        Color.black
+                        ProgressView("Spektrogramm wird berechnet...")
+                            .tint(.white)
+                            .foregroundStyle(.white)
+                    }
+                    .frame(height: 280)
+                    .clipShape(.rect(cornerRadius: 12))
+                } else {
+                    ZStack {
+                        Color.black
+                        Text("Spektrogramm nicht verfügbar")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(height: 280)
+                    .clipShape(.rect(cornerRadius: 12))
                 }
-                .frame(height: 280)
-                .clipShape(.rect(cornerRadius: 12))
             } else {
                 ZStack {
                     Color.black
-                    Text("Spektrogramm nicht verfügbar")
+                    Text("Audiodatei ohne Messdaten")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                .frame(height: 280)
+                .frame(height: 120)
                 .clipShape(.rect(cornerRadius: 12))
             }
 

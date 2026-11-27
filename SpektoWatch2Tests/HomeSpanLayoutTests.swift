@@ -6,8 +6,16 @@ final class HomeSpanLayoutTests: XCTestCase {
     // MARK: Per-type limits
 
     func testSingleValueAndIconsTakeOneCell() {
-        let value = WidgetConfiguration(type: .singleValue, size: WidgetSize(columns: 1, rows: 1))
+        let value = WidgetConfiguration(type: .singleValue, size: WidgetSize(columns: 4, rows: 4))
         XCTAssertEqual(value.resolvedHomeSpan, HomeSpan(columns: 1, rows: 1))
+        XCTAssertEqual(
+            WidgetConfiguration.normalizedHomeSpan(
+                HomeSpan(columns: 4, rows: 4),
+                for: .singleValue,
+                settings: [:]
+            ),
+            .single
+        )
 
         let icon = WidgetConfiguration(type: .spectrogram, size: WidgetSize(columns: 3, rows: 3), displayStyle: .icon)
         XCTAssertEqual(icon.resolvedHomeSpan, .single)
@@ -59,6 +67,42 @@ final class HomeSpanLayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(WidgetConfiguration.self, from: data)
         XCTAssertEqual(decoded.homeSpan, HomeSpan(columns: 3, rows: 5))
         XCTAssertEqual(decoded.resolvedHomeSpan, HomeSpan(columns: 3, rows: 5))
+    }
+
+    @MainActor
+    func testResizeHomeWidgetClampsSpanAndSynchronizesLegacySize() throws {
+        let manager = DashboardManager()
+        let widget = WidgetConfiguration(
+            type: .spectrogram,
+            size: WidgetSize(columns: 2, rows: 2)
+        )
+        manager.widgets = [widget]
+
+        manager.resizeHomeWidget(id: widget.id, to: HomeSpan(columns: 9, rows: 20))
+
+        XCTAssertEqual(manager.widgets[0].homeSpan, HomeSpan(columns: 4, rows: 7))
+        XCTAssertEqual(manager.widgets[0].size, WidgetSize(columns: 3, rows: 4))
+
+        let data = try JSONEncoder().encode(manager.widgets[0])
+        let decoded = try JSONDecoder().decode(WidgetConfiguration.self, from: data)
+        XCTAssertEqual(decoded.homeSpan, HomeSpan(columns: 4, rows: 7))
+        XCTAssertEqual(decoded.size, WidgetSize(columns: 3, rows: 4))
+    }
+
+    @MainActor
+    func testResizeHomeWidgetIgnoresIconsAndUnknownIDs() {
+        let manager = DashboardManager()
+        let icon = WidgetConfiguration(
+            type: .spectrogram,
+            size: WidgetSize(columns: 1, rows: 1),
+            displayStyle: .icon
+        )
+        manager.widgets = [icon]
+
+        manager.resizeHomeWidget(id: icon.id, to: HomeSpan(columns: 4, rows: 4))
+        manager.resizeHomeWidget(id: UUID(), to: HomeSpan(columns: 4, rows: 4))
+
+        XCTAssertEqual(manager.widgets, [icon])
     }
 
     // MARK: Packing

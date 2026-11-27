@@ -79,6 +79,7 @@ class AudioEngine {
     @ObservationIgnored private let testGenerator: TestAudioGenerator
     @ObservationIgnored private let bandstopFilterManager: BandstopFilterManager
     @ObservationIgnored private let connectivityManager: WatchConnectivityManager
+    @ObservationIgnored private let audioSessionCoordinator: AudioSessionCoordinator
 
     // MARK: - Audio Engine
 
@@ -88,7 +89,11 @@ class AudioEngine {
     /// path during deferred `AppServices.startAudio()`. `onBuffer` is wired to
     /// `processAudioBuffer` (called on the audio render thread).
     @ObservationIgnored private lazy var captureSession: AudioCaptureSession = {
-        let session = AudioCaptureSession(tapBlockSize: tapBlockSize, nominalSampleRate: sampleRate)
+        let session = AudioCaptureSession(
+            tapBlockSize: tapBlockSize,
+            nominalSampleRate: sampleRate,
+            audioSessionCoordinator: audioSessionCoordinator
+        )
         session.onBuffer = { [weak self] buffer in
             self?.processAudioBuffer(buffer)
         }
@@ -480,7 +485,11 @@ class AudioEngine {
     var selectedDataSource: AVAudioSessionDataSourceDescription? {
         didSet {
             if let dataSource = selectedDataSource, engineStatus == .running {
-                try? AVAudioSession.sharedInstance().setInputDataSource(dataSource)
+                do {
+                    try audioSessionCoordinator.selectInputDataSource(dataSource)
+                } catch {
+                    Logger.audioEngine.error("Input source selection failed: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -494,9 +503,14 @@ class AudioEngine {
     
     // MARK: - Initialization
     
-    init(filterManager: BandstopFilterManager, connectivityManager: WatchConnectivityManager) {
+    init(
+        filterManager: BandstopFilterManager,
+        connectivityManager: WatchConnectivityManager,
+        audioSessionCoordinator: AudioSessionCoordinator = .shared
+    ) {
         self.bandstopFilterManager = filterManager
         self.connectivityManager = connectivityManager
+        self.audioSessionCoordinator = audioSessionCoordinator
 
         // Initialize processing components
         fftProcessor = FFTProcessor(fftSize: fftSize, sampleRate: processingSampleRate)
@@ -1017,7 +1031,11 @@ class AudioEngine {
            let source = availableDataSources.first(where: { $0.orientation == targetOrientation }) {
             
             if let supported = source.supportedPolarPatterns, supported.contains(.stereo) {
-                try? source.setPreferredPolarPattern(.stereo)
+                do {
+                    try audioSessionCoordinator.setPreferredPolarPattern(.stereo, for: source)
+                } catch {
+                    Logger.audioEngine.error("Stereo input configuration failed: \(error.localizedDescription)")
+                }
             }
             
             DispatchQueue.main.async {
@@ -1063,6 +1081,7 @@ class AudioEngine {
 
     /// Pre-warm audio session to reduce start latency
     func prewarmAudioSession() {
+        guard engineStatus != .running, engineStatus != .starting else { return }
         captureSession.prewarmSession()
     }
 
