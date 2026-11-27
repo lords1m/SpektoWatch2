@@ -26,6 +26,7 @@ struct Recording: Identifiable, Codable {
     let id: UUID
     var name: String
     var description: String
+    var assetKind: AudioAssetKind
     let startDate: Date
     let duration: TimeInterval
     
@@ -74,6 +75,7 @@ struct Recording: Identifiable, Codable {
         case id
         case name
         case description
+        case assetKind
         case startDate
         case duration
         case audioFileName
@@ -99,6 +101,7 @@ struct Recording: Identifiable, Codable {
         id: UUID = UUID(),
         name: String,
         description: String = "",
+        assetKind: AudioAssetKind = .measurement,
         startDate: Date,
         duration: TimeInterval,
         audioFileName: String,
@@ -122,6 +125,7 @@ struct Recording: Identifiable, Codable {
         self.id = id
         self.name = name
         self.description = description
+        self.assetKind = assetKind
         self.startDate = startDate
         self.duration = duration
         self.audioFileName = audioFileName
@@ -188,10 +192,14 @@ struct Recording: Identifiable, Codable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Aufnahme"
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        let legacyMeasurementFileName = try container.decodeIfPresent(String.self, forKey: .measurementDataFileName)
+        let isLegacyAudioImport = description == "Importierte Audiodatei" && legacyMeasurementFileName == nil
+        assetKind = try container.decodeIfPresent(AudioAssetKind.self, forKey: .assetKind)
+            ?? (isLegacyAudioImport ? .audioFile : .measurement)
         startDate = try container.decodeIfPresent(Date.self, forKey: .startDate) ?? Date()
         duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         audioFileName = try container.decodeIfPresent(String.self, forKey: .audioFileName) ?? ""
-        measurementDataFileName = try container.decodeIfPresent(String.self, forKey: .measurementDataFileName)
+        measurementDataFileName = legacyMeasurementFileName
         sampleRate = try container.decodeIfPresent(Double.self, forKey: .sampleRate) ?? 44100.0
         channelCount = try container.decodeIfPresent(Int.self, forKey: .channelCount) ?? 1
         laeqFast = try container.decodeIfPresent(Float.self, forKey: .laeqFast) ?? -120.0

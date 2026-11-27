@@ -17,11 +17,16 @@ struct RecordingsHomeWidget: View {
         VStack(alignment: .leading, spacing: 8) {
             if let latest = recordings.first {
                 HStack(spacing: 10) {
-                    Text(latest.laeqFast > -119 ? "\(Int(latest.laeqFast.rounded())) dB" : "— dB")
-                        .font(.readout(size: 11, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: Radius.control).fill(accent.opacity(0.18)))
+                    if latest.assetKind == .measurement {
+                        Text(latest.laeqFast > -119 ? "\(Int(latest.laeqFast.rounded())) dB" : "— dB")
+                            .font(.readout(size: 11, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: Radius.control).fill(accent.opacity(0.18)))
+                    } else {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(.secondary)
+                    }
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(latest.name)

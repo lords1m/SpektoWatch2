@@ -2,7 +2,7 @@ import AVFoundation
 import SwiftUI
 
 struct AudioExportSheet: View {
-    let source: AudioEditorSource
+    let source: AudioAsset
     let recipe: AudioEditRecipe
     let sourceSampleRate: Double
     let sourceChannels: Int
@@ -22,7 +22,7 @@ struct AudioExportSheet: View {
     @State private var statusBanner: String?
 
     init(
-        source: AudioEditorSource,
+        source: AudioAsset,
         recipe: AudioEditRecipe,
         sourceSampleRate: Double,
         sourceChannels: Int,
@@ -123,7 +123,7 @@ struct AudioExportSheet: View {
                     .disabled(isExporting)
                     .accessibilityIdentifier("audioExportShareButton")
 
-                    if case .recording = source {
+                    if source.recordingID != nil {
                         Button {
                             startExport(mode: .saveAsCopy)
                         } label: {
@@ -214,7 +214,7 @@ struct AudioExportSheet: View {
         progress = 0
         statusBanner = nil
 
-        let sourceURL = source.fileURL(using: services.recordingManager)
+        let sourceURL = source.fileURL
         let currentOptions = options
         let currentRecipe = recipe
 
@@ -242,7 +242,7 @@ struct AudioExportSheet: View {
                         exportedShareURL = outputURL
                         showShareSheet = true
                     case .saveAsCopy:
-                        if case .recording(let rec) = source {
+                        if let rec = services.recordingManager.recording(for: source) {
                             let saved = services.recordingManager.saveEditedCopy(
                                 from: rec,
                                 editedAudioURL: outputURL,
@@ -252,9 +252,11 @@ struct AudioExportSheet: View {
                             )
                             statusBanner = saved != nil ? "Als neue Kopie gespeichert." : nil
                             if saved == nil { errorMessage = "Kopie konnte nicht gespeichert werden." }
+                        } else {
+                            errorMessage = "Quelle ist nicht in Aufnahmen gespeichert."
                         }
                     case .replaceOriginal:
-                        if case .recording(let rec) = source {
+                        if let rec = services.recordingManager.recording(for: source) {
                             if let updated = services.recordingManager.replaceAudio(
                                 for: rec,
                                 with: outputURL,
@@ -268,6 +270,8 @@ struct AudioExportSheet: View {
                             } else {
                                 errorMessage = "Original konnte nicht ersetzt werden."
                             }
+                        } else {
+                            errorMessage = "Quelle ist nicht in Aufnahmen gespeichert."
                         }
                     case .importIntoRecordings:
                         let imported = services.recordingManager.importExternalAudio(

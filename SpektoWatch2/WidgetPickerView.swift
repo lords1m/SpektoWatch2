@@ -5,18 +5,6 @@ struct WidgetPickerView: View {
     @Environment(\.dismiss) var dismiss
     @State private var selectedStyle: WidgetDisplayStyle = .liveWidget
 
-    private struct SectionSpec: Identifiable {
-        let id: String
-        let title: String
-        let types: [AudioWidgetType]
-    }
-
-    private static let sections: [SectionSpec] = [
-        .init(id: "viz", title: "Visualisierung", types: [.spectrogram, .frequencyDisplay]),
-        .init(id: "levels", title: "Pegel & Metriken", types: [.levelHistory, .levelMeter, .singleValue]),
-        .init(id: "tools", title: "Werkzeuge & Funktionen", types: [.audioEditor, .recordings, .toneGenerator, .spektralanalyseLab, .settings])
-    ]
-
     var body: some View {
         NavigationStack {
             List {
@@ -34,21 +22,21 @@ struct WidgetPickerView: View {
                          : "Zeigt Messwerte und Steuerelemente direkt live auf dem Home-Bildschirm.")
                 }
 
-                ForEach(Self.sections) { section in
-                    Section(header: Text(section.title)) {
-                        ForEach(section.types) { type in
+                ForEach(AudioToolCatalog.categories) { category in
+                    Section(header: Text(category.title)) {
+                        ForEach(AudioToolCatalog.tools(in: category, supporting: selectedStyle)) { tool in
                             Button(action: {
                                 withAnimation(.spring()) {
-                                    dashboardManager.addWidget(type: type, displayStyle: selectedStyle)
+                                    dashboardManager.addWidget(type: tool.type, displayStyle: selectedStyle)
                                 }
                                 dismiss()
                             }) {
                                 HStack {
-                                    Image(systemName: type.sfSymbol)
+                                    Image(systemName: tool.type.sfSymbol)
                                         .foregroundStyle(.secondary)
                                         .frame(width: 26, height: 26)
                                         .background(FerriteColor.surfaceSunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                                    Text(type.rawValue)
+                                    Text(tool.type.rawValue)
                                         .foregroundStyle(.primary)
                                     Spacer()
                                     Image(systemName: "plus.circle.fill")

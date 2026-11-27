@@ -27,6 +27,7 @@ final class AudioEditorEngine {
     @ObservationIgnored private let engine = AVAudioEngine()
     @ObservationIgnored private let playerNode = AVAudioPlayerNode()
     @ObservationIgnored private let eqNode = AVAudioUnitEQ(numberOfBands: AudioUnitEQConfigurator.bandCount)
+    @ObservationIgnored private let audioSessionCoordinator: AudioSessionCoordinator
 
     @ObservationIgnored private var audioFile: AVAudioFile?
     @ObservationIgnored private var fileSampleRate: Double = 44100.0
@@ -48,7 +49,8 @@ final class AudioEditorEngine {
     /// after the session allows output: wiring it here (while live capture
     /// still holds a record-only session) bound the mixer to an output with
     /// no channels, so playback never started or stayed silent.
-    init() {
+    init(audioSessionCoordinator: AudioSessionCoordinator = .shared) {
+        self.audioSessionCoordinator = audioSessionCoordinator
         engine.attach(playerNode)
         engine.attach(eqNode)
     }
@@ -81,20 +83,22 @@ final class AudioEditorEngine {
 
     func load(url: URL, recipe: AudioEditRecipe) throws {
         stop()
+        isLoaded = false
+        audioFile = nil
+        duration = 0
         let file = try AVAudioFile(forReading: url)
         guard file.length > 0, file.processingFormat.sampleRate > 0 else {
             audioFile = nil
-            isLoaded = false
             duration = 0
             return
         }
+        try audioSessionCoordinator.activatePlayback(for: .filePlayback)
         audioFile = file
         fileSampleRate = file.processingFormat.sampleRate
         fileLength = file.length
         self.recipe = recipe
         duration = recipe.effectiveDuration
         currentTime = 0
-        activatePlaybackSession()
         reconnectGraph(to: file.processingFormat)
         applyEQParameters()
         observeConfigurationChanges()
@@ -118,7 +122,12 @@ final class AudioEditorEngine {
 
     func play() {
         guard let file = audioFile, !isPlaying, duration > 0 else { return }
-        activatePlaybackSession()
+        do {
+            try audioSessionCoordinator.activatePlayback(for: .filePlayback)
+        } catch {
+            Logger.audioEngine.error("Audio editor session activation failed: \(error.localizedDescription)")
+            return
+        }
 
         if !engine.isRunning {
             do {
@@ -361,22 +370,4 @@ final class AudioEditorEngine {
         updateTask = nil
     }
 
-    private func activatePlaybackSession() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            let needsConfig = (session.category != .playAndRecord && session.category != .playback)
-                || session.mode == .measurement
-                || (session.category == .playAndRecord && !session.categoryOptions.contains(.defaultToSpeaker))
-            if needsConfig {
-                try session.setCategory(
-                    .playAndRecord,
-                    mode: .default,
-                    options: [.defaultToSpeaker, .mixWithOthers]
-                )
-            }
-            try session.setActive(true)
-        } catch {
-            // Best effort
-        }
-    }
 }

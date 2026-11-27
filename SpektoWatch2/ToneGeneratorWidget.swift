@@ -46,6 +46,7 @@ private enum PhysicalScopeScale {
 final class ToneGenerator: @unchecked Sendable {
     @ObservationIgnored private var audioEngine: AVAudioEngine?
     @ObservationIgnored private var srcNode: AVAudioSourceNode?
+    @ObservationIgnored private let audioSessionCoordinator: AudioSessionCoordinator
 
     var isPlaying = false
 
@@ -84,20 +85,15 @@ final class ToneGenerator: @unchecked Sendable {
     }
     @ObservationIgnored private let synthLock = OSAllocatedUnfairLock<SynthState>(initialState: SynthState())
 
-    init() {}
+    init(audioSessionCoordinator: AudioSessionCoordinator = .shared) {
+        self.audioSessionCoordinator = audioSessionCoordinator
+    }
 
     func start() {
         guard !isPlaying else { return }
 
         do {
-            // Configure audio session for playback only if it is not already set up
-            // for a compatible category to avoid disrupting active microphone capture.
-            let session = AVAudioSession.sharedInstance()
-            let currentCategory = session.category
-            if currentCategory != .playAndRecord && currentCategory != .playback {
-                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
-                try session.setActive(true)
-            }
+            try audioSessionCoordinator.activatePlayback(for: .toneGenerator)
 
             audioEngine = AVAudioEngine()
             guard let engine = audioEngine,

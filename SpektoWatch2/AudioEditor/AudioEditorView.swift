@@ -2,35 +2,8 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum AudioEditorSource: Identifiable {
-    case recording(Recording)
-    case externalFile(URL)
-
-    var id: String {
-        switch self {
-        case .recording(let rec):   return "rec-\(rec.id.uuidString)"
-        case .externalFile(let url): return "file-\(url.standardizedFileURL.path)"
-        }
-    }
-
-    var displayTitle: String {
-        switch self {
-        case .recording(let rec):    return rec.name
-        case .externalFile(let url): return url.deletingPathExtension().lastPathComponent
-        }
-    }
-
-    @MainActor
-    func fileURL(using recordingManager: RecordingManager) -> URL {
-        switch self {
-        case .recording(let rec):    return recordingManager.url(for: rec)
-        case .externalFile(let url): return url
-        }
-    }
-}
-
 struct AudioEditorView: View {
-    let source: AudioEditorSource
+    let source: AudioAsset
     var onRecordingReplaced: (Recording) -> Void = { _ in }
 
     @Environment(AppServices.self) private var services
@@ -245,7 +218,7 @@ struct AudioEditorView: View {
     }
 
     private func startLoading() {
-        let url = source.fileURL(using: services.recordingManager)
+        let url = source.fileURL
         waveformTask?.cancel()
         waveformTask = Task {
             do {
@@ -316,7 +289,7 @@ struct AudioEditorLauncherView: View {
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
 
-    @State private var activeSource: AudioEditorSource?
+    @State private var activeSource: AudioAsset?
     @State private var showFileImporter = false
     @State private var importError: String?
 
@@ -337,15 +310,22 @@ struct AudioEditorLauncherView: View {
                         Text("Noch keine Aufnahmen vorhanden.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(services.recordingManager.recordings) { rec in
+                        ForEach(services.recordingManager.audioAssets) { asset in
                             Button {
-                                activeSource = .recording(rec)
+                                activeSource = asset
                             } label: {
                                 HStack(spacing: 12) {
-                                    LevelChip(level: rec.laeqFast)
+                                    if let measurement = asset.measurement {
+                                        LevelChip(level: measurement.laeqFast)
+                                    } else {
+                                        Image(systemName: "waveform")
+                                            .foregroundStyle(.secondary)
+                                    }
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(rec.name).lineLimit(1)
-                                        Text("\(rec.formattedDate) · \(rec.formattedDuration)")
+                                        Text(asset.displayTitle).lineLimit(1)
+                                        Text(asset.createdAt.map {
+                                            "\($0.formatted(date: .abbreviated, time: .shortened)) · \(asset.formattedDuration ?? "")"
+                                        } ?? asset.formattedDuration ?? "Audiodatei")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -395,7 +375,7 @@ struct AudioEditorLauncherView: View {
                 .appendingPathComponent("sw2_import_\(UUID().uuidString).\(ext)")
             do {
                 try FileManager.default.copyItem(at: url, to: tempURL)
-                activeSource = .externalFile(tempURL)
+                activeSource = AudioAsset(externalFile: tempURL)
             } catch {
                 importError = error.localizedDescription
             }
@@ -409,27 +389,27 @@ struct AudioEditorHomeWidget: View {
     @Environment(AppServices.self) private var services
     @Environment(\.designAccent) private var accent
 
-    @State private var activeSource: AudioEditorSource?
+    @State private var activeSource: AudioAsset?
     @State private var showLauncher = false
     @State private var showFileImporter = false
     @State private var importError: String?
 
-    private var latestRecording: Recording? {
-        services.recordingManager.recordings.first
+    private var latestAudioAsset: AudioAsset? {
+        services.recordingManager.audioAssets.first
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let latest = latestRecording {
+            if let latest = latestAudioAsset {
                 HStack(spacing: 8) {
                     Image(systemName: "waveform")
                         .font(.title3)
                         .foregroundStyle(accent)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(latest.name)
+                        Text(latest.displayTitle)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        Text("\(latest.formattedDuration) · \((latest.audioFileName as NSString).pathExtension.uppercased())")
+                        Text("\(latest.formattedDuration ?? "—") · \(latest.fileURL.pathExtension.uppercased())")
                             .font(.readout(size: 10))
                             .foregroundStyle(.secondary)
                     }
@@ -443,8 +423,8 @@ struct AudioEditorHomeWidget: View {
 
             HStack(spacing: 8) {
                 Button {
-                    if let latest = latestRecording {
-                        activeSource = .recording(latest)
+                    if let latest = latestAudioAsset {
+                        activeSource = latest
                     } else {
                         showLauncher = true
                     }
@@ -491,7 +471,7 @@ struct AudioEditorHomeWidget: View {
                     .appendingPathComponent("sw2_import_\(UUID().uuidString).\(ext)")
                 do {
                     try FileManager.default.copyItem(at: url, to: tempURL)
-                    activeSource = .externalFile(tempURL)
+                    activeSource = AudioAsset(externalFile: tempURL)
                 } catch {
                     importError = error.localizedDescription
                 }

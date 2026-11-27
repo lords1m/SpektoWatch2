@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Observation
+import os
 
 // Central coordinator for the adaptive masking feature.
 //
@@ -69,6 +70,7 @@ final class MaskingEngine {
 
     @ObservationIgnored private var calibrationTask: Task<Void, Never>?
     @ObservationIgnored private let calibrationDuration: Int = 10   // seconds
+    @ObservationIgnored private let audioSessionCoordinator: AudioSessionCoordinator
 
     // MARK: – AudioEngine hook (weak to avoid retain cycle)
 
@@ -76,8 +78,12 @@ final class MaskingEngine {
 
     // MARK: – Init
 
-    init(audioEngine: AudioEngine) {
+    init(
+        audioEngine: AudioEngine,
+        audioSessionCoordinator: AudioSessionCoordinator = .shared
+    ) {
         self.audioEngine = audioEngine
+        self.audioSessionCoordinator = audioSessionCoordinator
         wireAudioEngine(audioEngine)
 
         noveltyDetector.onNoveltyDetected = { [weak self] in
@@ -167,16 +173,12 @@ final class MaskingEngine {
         audioEngine?.stopLiveMode()
 
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord,
-                                    mode: .measurement,
-                                    options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try session.setActive(true)
+            try audioSessionCoordinator.activatePlayback(for: .maskingPreview)
             try previewPlayer.play(maskerType: suggestion.maskerType,
                                    eqBands: suggestion.eqBands,
                                    volumeDB: suggestion.volumedBFS)
         } catch {
-            // Restore on failure so the user isn't left in a broken state
+            Logger.audioEngine.error("Masking preview failed: \(error.localizedDescription)")
             stopPreview()
         }
     }
@@ -185,10 +187,10 @@ final class MaskingEngine {
     func stopPreview() {
         previewPlayer.stop()
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement)
-            try session.setActive(true)
-        } catch {}
+            try audioSessionCoordinator.activateMeasurementCapture()
+        } catch {
+            Logger.audioEngine.error("Masking preview session restoration failed: \(error.localizedDescription)")
+        }
         audioEngine?.startLiveMode()
     }
 

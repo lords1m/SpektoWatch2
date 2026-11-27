@@ -55,8 +55,10 @@ final class AudioPlayerManager: @unchecked Sendable {
     /// `scheduleSegment` completion from a prior segment cannot stop playback.
     @ObservationIgnored private var playbackGeneration: UInt64 = 0
     @ObservationIgnored private let processingQueue = DispatchQueue(label: "com.spektowatch.audioprocessing", qos: .userInteractive)
+    @ObservationIgnored private let audioSessionCoordinator: AudioSessionCoordinator
 
-    init() {
+    init(audioSessionCoordinator: AudioSessionCoordinator = .shared) {
+        self.audioSessionCoordinator = audioSessionCoordinator
         setupEngine()
     }
 
@@ -118,7 +120,7 @@ final class AudioPlayerManager: @unchecked Sendable {
     func play() {
         guard let file = audioFile, !isPlaying else { return }
 
-        activatePlaybackSession()
+        guard activatePlaybackSession() else { return }
 
         if !engine.isRunning {
             do {
@@ -243,22 +245,13 @@ final class AudioPlayerManager: @unchecked Sendable {
     /// After live measurement the session is often `.record` / `.measurement`.
     /// Use a category that can actually route to the speaker, matching the
     /// tone-generator and masking players.
-    private func activatePlaybackSession() {
-        let session = AVAudioSession.sharedInstance()
+    private func activatePlaybackSession() -> Bool {
         do {
-            let needsConfig = (session.category != .playAndRecord && session.category != .playback)
-                || session.mode == .measurement
-                || (session.category == .playAndRecord && !session.categoryOptions.contains(.defaultToSpeaker))
-            if needsConfig {
-                try session.setCategory(
-                    .playAndRecord,
-                    mode: .default,
-                    options: [.defaultToSpeaker, .mixWithOthers]
-                )
-            }
-            try session.setActive(true)
+            try audioSessionCoordinator.activatePlayback(for: .filePlayback)
+            return true
         } catch {
             print("[AudioPlayerManager] Session error: \(error)")
+            return false
         }
     }
 
