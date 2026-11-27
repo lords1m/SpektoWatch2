@@ -483,6 +483,25 @@ class DashboardManager {
         saveConfiguration()
     }
 
+    /// Sets a widget's span on the 4-column Home grid (drag-resize on the
+    /// Home Screen). The legacy 3-column `size` follows along so icon ↔
+    /// widget switching and the dashboard card keep a matching size.
+    func resizeHomeWidget(id: UUID, to span: HomeSpan) {
+        guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
+        let widget = widgets[index]
+        guard widget.displayStyle == .liveWidget else { return }
+        let normalized = WidgetConfiguration.normalizedHomeSpan(span, for: widget.type, settings: widget.settings)
+        guard normalized != widget.resolvedHomeSpan || widget.homeSpan == nil else { return }
+        widgets[index].homeSpan = normalized
+        widgets[index].size = WidgetConfiguration.normalizedSize(
+            for: widget.type,
+            size: WidgetConfiguration.legacySize(for: normalized),
+            settings: widget.settings,
+            displayStyle: .liveWidget
+        )
+        saveConfiguration()
+    }
+
     func updateWidgetSettings(id: UUID, settings: [String: String], displayStyle: WidgetDisplayStyle? = nil) {
         if let index = widgets.firstIndex(where: { $0.id == id }) {
             widgets[index].settings = settings

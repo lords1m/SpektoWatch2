@@ -106,10 +106,15 @@ struct WidgetCardView: View {
     // MARK: Home Screen widget
 
     private var homeHeight: CGFloat { heightOverride ?? widget.frameHeight }
-    private let homeContentInset: CGFloat = 8
+    /// A one-row tile is icon-sized: icon corner radius, tighter margins.
+    private var isCompactHomeTile: Bool { homeHeight < 100 }
+    private var homeContentInset: CGFloat { isCompactHomeTile ? 4 : 8 }
+    private var homeCornerRadius: CGFloat {
+        isCompactHomeTile ? FerriteRadius.homeIcon(homeHeight) : FerriteRadius.homeWidget
+    }
 
     private var homeWidgetBody: some View {
-        let shape = RoundedRectangle(cornerRadius: FerriteRadius.homeWidget, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: homeCornerRadius, style: .continuous)
         return VStack(spacing: 0) {
             if !hidesHeaderWhenIdle {
                 cardHeader
@@ -123,7 +128,7 @@ struct WidgetCardView: View {
             renderWidgetContent()
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: FerriteRadius.homeWidget - homeContentInset, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: max(0, homeCornerRadius - homeContentInset), style: .continuous))
                 .padding(.horizontal, homeContentInset)
                 .padding(.bottom, homeContentInset)
                 .padding(.top, hidesHeaderWhenIdle ? homeContentInset : 0)

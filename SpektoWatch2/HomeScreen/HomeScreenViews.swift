@@ -111,22 +111,33 @@ struct HomeIconPressStyle: ButtonStyle {
 
 struct HomeScreenTileView: View {
     let widget: WidgetConfiguration
-    let family: HomeTileFamily
+    /// Cells the tile occupies right now (the live preview while resizing).
+    let span: HomeSpan
     let size: CGSize
     let metrics: HomeGridMetrics
     let isEditMode: Bool
+    /// Columns from the tile's column to the right page edge: the widest it
+    /// can grow by dragging without moving.
+    let maxResizeColumns: Int
     let audioEngine: AudioEngine
     var fftConfig: FFTConfiguration
     let zoomNamespace: Namespace.ID
 
     var onLaunch: (WidgetConfiguration) -> Void
     var onDelete: (WidgetConfiguration) -> Void
-    var onResize: (WidgetSize) -> Void
+    var onResize: (HomeSpan) -> Void
+    /// Live span while an edge is dragged; `nil` when the drag ends.
+    var onResizePreview: (HomeSpan?) -> Void
     var onUpdateSettings: ([String: String]) -> Void
     var onUpdateStyle: (WidgetDisplayStyle) -> Void
     var onEnterEditMode: () -> Void
 
     @State private var showSettings = false
+    @State private var resizeStart: HomeSpan?
+    @State private var resizeTarget: HomeSpan?
+
+    private var isIcon: Bool { widget.isHomeIcon }
+    private var isResizing: Bool { resizeTarget != nil }
 
     /// Stable per-tile phase so tiles jiggle out of sync (UUID byte sum,
     /// not the per-launch-salted hashValue).
@@ -136,12 +147,25 @@ struct HomeScreenTileView: View {
         return Double(sum % 100) / 100
     }
 
+    private var canResize: Bool {
+        guard !isIcon else { return false }
+        let range = WidgetConfiguration.homeSpanRange(for: widget.type)
+        return range.min != range.max
+    }
+
     var body: some View {
         content
-            .overlay(alignment: .topLeading) {
-                if isEditMode { removeBadge }
+            .overlay {
+                if isEditMode && canResize { resizeHandles }
             }
-            .editJiggle(active: isEditMode, phase: jigglePhase, amplitude: family == .icon ? 1.6 : 0.7)
+            .overlay {
+                if let resizeTarget { resizeBadge(resizeTarget) }
+            }
+            .overlay(alignment: .topLeading) {
+                if isEditMode && !isResizing { removeBadge }
+            }
+            // Hold still while an edge is dragged, so the grip stays under the finger.
+            .editJiggle(active: isEditMode && !isResizing, phase: jigglePhase, amplitude: isIcon ? 1.6 : 0.7)
             .contextMenu {
                 if !isEditMode { menu }
             } preview: {
@@ -161,7 +185,7 @@ struct HomeScreenTileView: View {
 
     @ViewBuilder
     private var content: some View {
-        if family == .icon {
+        if isIcon {
             Button {
                 guard !isEditMode else { return }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -180,7 +204,7 @@ struct HomeScreenTileView: View {
                 fftConfig: fftConfig,
                 isEditMode: isEditMode,
                 onDelete: { onDelete(widget) },
-                onResize: onResize,
+                onResize: { _ in },
                 onUpdateSettings: onUpdateSettings,
                 onUpdateStyle: onUpdateStyle,
                 chrome: .homeWidget,
@@ -217,11 +241,124 @@ struct HomeScreenTileView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .offset(x: family == .icon ? (size.width - metrics.iconSize) / 2 - 20 : -20, y: -20)
+        .offset(x: isIcon ? (size.width - metrics.iconSize) / 2 - 20 : -20, y: -20)
         .transition(.scale.combined(with: .opacity))
         .accessibilityIdentifier("widgetDeleteButton")
         .accessibilityLabel("\(widget.type.rawValue) entfernen")
     }
+
+    // MARK: Drag-resize
+
+    private enum ResizeEdge { case trailing, bottom, corner }
+
+    /// Grips on the right edge, the bottom edge and the bottom-right corner.
+    /// Dragging snaps to whole grid cells; the page re-flows live.
+    private var resizeHandles: some View {
+        ZStack {
+            resizeGrip(.trailing)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .offset(x: 16)
+            resizeGrip(.bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .offset(y: 16)
+            resizeGrip(.corner)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .offset(x: 12, y: 12)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Größe von \(widget.type.rawValue)")
+        .accessibilityValue("\(span.columns) Spalten, \(span.rows) Zeilen")
+        .accessibilityIdentifier("homeResizeHandle")
+        .accessibilityAction(named: "Breiter") { step(columns: 1, rows: 0) }
+        .accessibilityAction(named: "Schmaler") { step(columns: -1, rows: 0) }
+        .accessibilityAction(named: "Höher") { step(columns: 0, rows: 1) }
+        .accessibilityAction(named: "Niedriger") { step(columns: 0, rows: -1) }
+    }
+
+    private func resizeGrip(_ edge: ResizeEdge) -> some View {
+        Group {
+            switch edge {
+            case .trailing:
+                Capsule().fill(FerriteColor.label).frame(width: 5, height: 30)
+                    .overlay(Capsule().strokeBorder(FerriteColor.background, lineWidth: FerriteStroke.hairline))
+            case .bottom:
+                Capsule().fill(FerriteColor.label).frame(width: 30, height: 5)
+                    .overlay(Capsule().strokeBorder(FerriteColor.background, lineWidth: FerriteStroke.hairline))
+            case .corner:
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(FerriteColor.label)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(FerriteGlass.fillStrong))
+                    .overlay(Circle().strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
+            }
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        // Beats the reorder drag and the page scroll: touching a grip resizes.
+        .highPriorityGesture(resizeGesture(edge))
+    }
+
+    private func resizeGesture(_ edge: ResizeEdge) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in
+                let start: HomeSpan
+                if let resizeStart {
+                    start = resizeStart
+                } else {
+                    start = span
+                    resizeStart = span
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                let dc = edge == .bottom ? 0 : Int((value.translation.width / metrics.pitch).rounded())
+                let dr = edge == .trailing ? 0 : Int((value.translation.height / metrics.pitch).rounded())
+                let target = constrained(HomeSpan(columns: start.columns + dc, rows: start.rows + dr))
+                guard target != resizeTarget else { return }
+                if resizeTarget != nil { UISelectionFeedbackGenerator().selectionChanged() }
+                resizeTarget = target
+                onResizePreview(target)
+            }
+            .onEnded { _ in
+                let start = resizeStart
+                let target = resizeTarget
+                resizeStart = nil
+                resizeTarget = nil
+                if let target, target != start {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    onResize(target)
+                }
+                onResizePreview(nil)
+            }
+    }
+
+    /// Per-type limits, and no wider than the room to the right page edge.
+    private func constrained(_ raw: HomeSpan) -> HomeSpan {
+        var result = WidgetConfiguration.normalizedHomeSpan(raw, for: widget.type, settings: widget.settings)
+        let minColumns = WidgetConfiguration.homeSpanRange(for: widget.type).min.columns
+        result.columns = min(result.columns, max(maxResizeColumns, minColumns))
+        return result
+    }
+
+    /// VoiceOver resize: one cell per action.
+    private func step(columns dc: Int, rows dr: Int) {
+        let target = constrained(HomeSpan(columns: span.columns + dc, rows: span.rows + dr))
+        guard target != span else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { onResize(target) }
+    }
+
+    private func resizeBadge(_ target: HomeSpan) -> some View {
+        Text(target.label)
+            .font(FerriteFont.headline.monospacedDigit())
+            .foregroundStyle(FerriteColor.label)
+            .padding(.horizontal, FerriteSpace.m)
+            .frame(height: 30)
+            .ferriteGlass()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    // MARK: Context menu
 
     @ViewBuilder
     private var menu: some View {
@@ -231,7 +368,7 @@ struct HomeScreenTileView: View {
             Label("Home-Bildschirm bearbeiten", systemImage: "apps.iphone")
         }
 
-        if family == .icon {
+        if isIcon {
             Button {
                 onLaunch(widget)
             } label: {
@@ -248,17 +385,18 @@ struct HomeScreenTileView: View {
             } label: {
                 Label("Widget bearbeiten", systemImage: "info.circle")
             }
-            let families = widget.availableHomeFamilies
-            if families.count > 1 {
+            let spans = widget.availableHomeSpans
+            if spans.count > 1 {
                 Menu {
-                    ForEach(families, id: \.family) { option in
+                    ForEach(spans, id: \.self) { option in
                         Button {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { onResize(option.size) }
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { onResize(option) }
                         } label: {
-                            if option.family == family {
-                                Label(option.family.label, systemImage: "checkmark")
+                            let title = option.familyName.map { "\($0) (\(option.label))" } ?? option.label
+                            if option == span {
+                                Label(title, systemImage: "checkmark")
                             } else {
-                                Label(option.family.label, systemImage: option.family.symbol)
+                                Text(title)
                             }
                         }
                     }
@@ -278,7 +416,7 @@ struct HomeScreenTileView: View {
         Button(role: .destructive) {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { onDelete(widget) }
         } label: {
-            Label(family == .icon ? "Vom Home-Bildschirm entfernen" : "Widget entfernen",
+            Label(isIcon ? "Vom Home-Bildschirm entfernen" : "Widget entfernen",
                   systemImage: "minus.circle")
         }
     }
@@ -287,7 +425,7 @@ struct HomeScreenTileView: View {
     /// 15 Hz subscriptions) just to show the context-menu snapshot.
     @ViewBuilder
     private var preview: some View {
-        if family == .icon {
+        if isIcon {
             HomeIconGlyph(symbol: widget.type.sfSymbol, line: widget.type.homeIconLine, size: metrics.iconSize * 1.25)
         } else {
             let shape = RoundedRectangle(cornerRadius: FerriteRadius.homeWidget, style: .continuous)
@@ -299,7 +437,7 @@ struct HomeScreenTileView: View {
                 FerriteStatusBadge(state: .live)
             }
             .foregroundStyle(FerriteColor.label)
-            .frame(width: size.width, height: min(size.height, 360))
+            .frame(width: max(size.width, 160), height: min(max(size.height, 120), 360))
             .background(FerriteColor.surface, in: shape)
             .overlay(shape.strokeBorder(FerriteColor.label, lineWidth: FerriteStroke.hairline))
         }
@@ -322,18 +460,31 @@ struct HomeScreenPage: View {
 
     var onLaunch: (WidgetConfiguration) -> Void
     var onDelete: (WidgetConfiguration) -> Void
-    var onResize: (UUID, WidgetSize) -> Void
+    var onResize: (UUID, HomeSpan) -> Void
     var onUpdateSettings: (UUID, [String: String]) -> Void
     var onUpdateStyle: (UUID, WidgetDisplayStyle) -> Void
     var onSetEditMode: (Bool) -> Void
     var onSaveOrder: () -> Void
 
     @State private var dropTargetID: UUID?
+    /// Span of the widget whose edge is being dragged; the grid re-flows
+    /// around it live and the span is saved when the finger lifts.
+    @State private var resizePreview: ResizePreview?
+
+    private struct ResizePreview: Equatable {
+        let id: UUID
+        let span: HomeSpan
+    }
+
+    private func span(of widget: WidgetConfiguration) -> HomeSpan {
+        if let resizePreview, resizePreview.id == widget.id { return resizePreview.span }
+        return widget.resolvedHomeSpan
+    }
 
     var body: some View {
         GeometryReader { geo in
             let metrics = HomeGridMetrics(width: geo.size.width)
-            let packed = HomeGridPacker.pack(widgets.map { ($0.id, $0.homeFamily) })
+            let packed = HomeGridPacker.pack(widgets.map { ($0.id, span(of: $0)) })
 
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
@@ -358,35 +509,46 @@ struct HomeScreenPage: View {
 
                     ForEach(widgets) { widget in
                         if let placement = packed.placements[widget.id] {
-                            let frame = metrics.frame(column: placement.column, row: placement.row, family: placement.family)
-                            tile(widget, family: placement.family, frame: frame, metrics: metrics)
+                            let frame = metrics.frame(column: placement.column, row: placement.row,
+                                                      span: placement.span, isIcon: widget.isHomeIcon)
+                            tile(widget, placement: placement, frame: frame, metrics: metrics)
+                                .zIndex(resizePreview?.id == widget.id ? 1 : 0)
                         }
                     }
                 }
                 .padding(.top, FerriteSpace.m)
                 .padding(.bottom, FerriteSpace.xl)
                 .animation(.spring(response: 0.38, dampingFraction: 0.82), value: widgets.map(\.id))
-                .animation(.spring(response: 0.38, dampingFraction: 0.82), value: widgets.map(\.homeFamily))
+                .animation(.spring(response: 0.38, dampingFraction: 0.82), value: widgets.map(\.resolvedHomeSpan))
+                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.86), value: resizePreview)
             }
+            .scrollDisabled(resizePreview != nil)
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
+        }
+        .onChange(of: isEditMode) { _, editing in
+            if !editing { resizePreview = nil }
         }
     }
 
     @ViewBuilder
-    private func tile(_ widget: WidgetConfiguration, family: HomeTileFamily, frame: CGRect, metrics: HomeGridMetrics) -> some View {
+    private func tile(_ widget: WidgetConfiguration, placement: HomeGridPacker.Placement, frame: CGRect, metrics: HomeGridMetrics) -> some View {
         let view = HomeScreenTileView(
             widget: widget,
-            family: family,
+            span: placement.span,
             size: frame.size,
             metrics: metrics,
             isEditMode: isEditMode,
+            maxResizeColumns: HomeGridMetrics.columns - placement.column,
             audioEngine: audioEngine,
             fftConfig: fftConfig,
             zoomNamespace: zoomNamespace,
             onLaunch: onLaunch,
             onDelete: onDelete,
             onResize: { onResize(widget.id, $0) },
+            onResizePreview: { span in
+                resizePreview = span.map { ResizePreview(id: widget.id, span: $0) }
+            },
             onUpdateSettings: { onUpdateSettings(widget.id, $0) },
             onUpdateStyle: { onUpdateStyle(widget.id, $0) },
             onEnterEditMode: { onSetEditMode(true) }
@@ -401,7 +563,7 @@ struct HomeScreenPage: View {
                     draggedWidget = widget
                     return NSItemProvider(object: widget.id.uuidString as NSString)
                 } preview: {
-                    if family == .icon {
+                    if widget.isHomeIcon {
                         HomeIconGlyph(symbol: widget.type.sfSymbol, line: widget.type.homeIconLine, size: metrics.iconSize)
                     } else {
                         RoundedRectangle(cornerRadius: FerriteRadius.homeWidget, style: .continuous)

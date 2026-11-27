@@ -148,6 +148,10 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
     var settings: [String: String]
     var displayStyle: WidgetDisplayStyle
     var preferredLiveSize: WidgetSize?
+    /// Size on the 4-column Home grid, set by drag-resizing on the Home
+    /// Screen. `nil` for widgets saved before spans existed — the Home
+    /// Screen then derives one from `size` (`resolvedHomeSpan`).
+    var homeSpan: HomeSpan?
 
     init(
         type: AudioWidgetType,
@@ -155,9 +159,11 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         gridPosition: GridPosition = GridPosition(index: 0),
         settings: [String: String] = [:],
         displayStyle: WidgetDisplayStyle = .liveWidget,
-        preferredLiveSize: WidgetSize? = nil
+        preferredLiveSize: WidgetSize? = nil,
+        homeSpan: HomeSpan? = nil
     ) {
         self.id = UUID()
+        self.homeSpan = homeSpan
         self.type = type
         self.displayStyle = displayStyle
         self.preferredLiveSize = preferredLiveSize
@@ -186,6 +192,7 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         case settings
         case displayStyle
         case preferredLiveSize
+        case homeSpan
     }
 
     init(from decoder: Decoder) throws {
@@ -196,6 +203,7 @@ struct WidgetConfiguration: Identifiable, Codable, Equatable {
         self.settings = try container.decode([String: String].self, forKey: .settings)
         self.displayStyle = try container.decodeIfPresent(WidgetDisplayStyle.self, forKey: .displayStyle) ?? .liveWidget
         self.preferredLiveSize = try container.decodeIfPresent(WidgetSize.self, forKey: .preferredLiveSize)
+        self.homeSpan = try container.decodeIfPresent(HomeSpan.self, forKey: .homeSpan)
         let rawSize = try container.decode(WidgetSize.self, forKey: .size)
         self.size = WidgetConfiguration.normalizedSize(
             for: self.type,

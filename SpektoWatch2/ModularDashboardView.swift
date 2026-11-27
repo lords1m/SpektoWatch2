@@ -183,9 +183,9 @@ struct ModularDashboardView: View {
             draggedWidget: $viewModel.draggedWidget,
             onLaunch: { launchedFeature = FeatureLauncherDestination(widget: $0) },
             onDelete: { viewModel.deleteWidget($0) },
-            onResize: { id, size in
+            onResize: { id, span in
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-                    dashboardManager.resizeWidget(id: id, to: size)
+                    dashboardManager.resizeHomeWidget(id: id, to: span)
                 }
             },
             onUpdateSettings: { id, settings in
