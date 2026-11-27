@@ -26,3 +26,29 @@ xcodebuild test \
 ```
 
 For snapshot-only or UI-only runs, use [snapshots](snapshot-testing.md) or [ui-tests](ui-tests.md).
+
+## Watch unit tests
+
+**File:** `TestPlans/watch-tests.xctestplan`  
+**xcodebuild:** `-testPlan watch-tests` (default on schemes `SpektoWatchTests` and `SpektoWatch Watch App`)
+
+Target: `SpektoWatchTests` (not parallelized).
+
+```sh
+xcodebuild test \
+  -project SpektoWatch2.xcodeproj \
+  -scheme SpektoWatchTests \
+  -testPlan watch-tests \
+  -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)'
+```
+
+## Scheme ↔ plan mapping
+
+| Scheme | Test plans (default first) |
+|---|---|
+| `SpektoWatch2` | `spekto-watch2`, `ui-tests`, `snapshots` |
+| `SpektoWatch2UITests` | `ui-tests` |
+| `SpektoWatchTests` | `watch-tests` |
+| `SpektoWatch Watch App` | `watch-tests` |
+
+The plans list the test targets; the schemes carry no separate `Testables`.

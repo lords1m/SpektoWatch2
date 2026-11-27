@@ -174,14 +174,6 @@
 			);
 			target = 37969D312F2E096A009D1923 /* SpektoWatch2Tests */;
 		};
-		37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-				Managers/RecordingManager.swift,
-			);
-			target = 3795235A2F2234F90079C93F /* SpektoWatch2 */;
-		};
 		CC11CC11CC11CC11CC11000E /* Exceptions for "SpektoWatch Complications" folder in "SpektoWatch Complications" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -202,9 +194,6 @@
 		};
 		3795235D2F2234F90079C93F /* SpektoWatch2 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				37B766B12F2909AD007386AA /* Exceptions for "SpektoWatch2" folder in "SpektoWatch2" target */,
-			);
 			path = SpektoWatch2;
 			sourceTree = "<group>";
 		};
@@ -870,7 +859,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_OPTIMIZATION_LEVEL = 1;
+				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
 					"$(inherited)",
@@ -888,7 +877,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
@@ -1088,7 +1077,6 @@
 				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "SpektoWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpektoWatch verwendet das Mikrofon der Apple Watch, um Live-Spektrogramme und Schallpegelmessungen zu erstellen und eigenständige Aufnahmen zu speichern.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -1124,7 +1112,6 @@
 				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "SpektoWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = SpektoWatch;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpektoWatch verwendet das Mikrofon der Apple Watch, um Live-Spektrogramme und Schallpegelmessungen zu erstellen und eigenständige Aufnahmen zu speichern.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";

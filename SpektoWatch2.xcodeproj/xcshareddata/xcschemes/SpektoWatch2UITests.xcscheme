@@ -34,19 +34,6 @@
             default = "YES">
          </TestPlanReference>
       </TestPlans>
-      <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "37969D4C2F2E0982009D1923"
-               BuildableName = "SpektoWatch2UITests.xctest"
-               BlueprintName = "SpektoWatch2UITests"
-               ReferencedContainer = "container:SpektoWatch2.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

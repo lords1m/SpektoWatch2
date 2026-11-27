@@ -49,29 +49,6 @@
             reference = "container:TestPlans/snapshots.xctestplan">
          </TestPlanReference>
       </TestPlans>
-      <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "37969D312F2E096A009D1923"
-               BuildableName = "SpektoWatch2Tests.xctest"
-               BlueprintName = "SpektoWatch2Tests"
-               ReferencedContainer = "container:SpektoWatch2.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "37969D4C2F2E0982009D1923"
-               BuildableName = "SpektoWatch2UITests.xctest"
-               BlueprintName = "SpektoWatch2UITests"
-               ReferencedContainer = "container:SpektoWatch2.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

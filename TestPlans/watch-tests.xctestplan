@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "E3F4A5B6-7890-12CD-EF01-34567890CDEF",
+      "name" : "Watch Tests",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:SpektoWatch2.xcodeproj",
+        "identifier" : "AA11AA11AA11AA11AA110003",
+        "name" : "SpektoWatchTests"
+      }
+    }
+  ],
+  "version" : 1
+}

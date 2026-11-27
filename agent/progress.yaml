@@ -1144,8 +1144,9 @@ tasks:
       name: "Acceptance, Automated Tests & Hardware Verification"
       status: in_progress
       file: agent/tasks/milestone-23-home-screen-dual-mode-widgets/task-6-acceptance-and-ui-tests.md
+      notes: "Scope refreshed 2026-11-27 to the rebuilt iOS-style Home Screen (swipeable preset pages on a 4-column grid, long-press jiggle edit, Liquid Glass depth, free drag-resize via HomeSpan; header pill + PresetRailView unmounted). Adds HomeSpanLayoutTests, drag-resize UI + hardware checks, and repair of UI tests that tap editDashboardButton to enter edit mode or query identifiers the app no longer sets (keineWidgetsLabel, exportPDFButton, exportCSVButton, exportSpectrogramButton)."
 
-updated_at: 2026-11-25
+updated_at: 2026-11-27
 last_completed_task: M23/task-5-home-screen-default-landing-page
 current_milestone: M22
 current_task: task-7-acceptance-and-ui-tests
@@ -1353,7 +1354,11 @@ active_context:
     M10 (iOS Standalone Widgets) deferred 2026-05-30 by user direction.
     Active focus: M22 (Audio Editor & Format Converter) tasks 1–6 complete;
     current task M22/task-7 acceptance + UI tests. M23 (Home-Screen Launcher &
-    Dual-Mode Widgets) tasks 1–5 complete; task-6 acceptance open. Hardware
+    Dual-Mode Widgets) tasks 1–5 complete; task-6 acceptance open, scope
+    refreshed 2026-11-27 for the rebuilt Home Screen incl. drag-resize.
+    Xcode project config cleanup done 2026-11-27 (stale exceptions, watch
+    plists, Debug -Onone, watch-tests plan wired to schemes); needs a build
+    check on macOS. Hardware
     acceptance also open for M20/task-2 and M21/task-6.
     Liquid Glass system adoption planned in
     agent/design/liquid-glass-system-adoption.md (5 phases; Phase 1 design-
