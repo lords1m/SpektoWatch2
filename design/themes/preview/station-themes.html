@@ -1,0 +1,555 @@
+<title>Ferrite Station Themes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Source+Serif+4:opsz,wght@8..60,600&family=Nunito:wght@800&family=Barlow+Condensed:wght@700;800&display=swap">
+<style>
+/* Layout: Ferrite page chrome (Paradestraße: white tile, black ink) framing five station specimens, each a pair of phones (Hell / Dunkel) plus a spec rail. */
+:root {
+  --page: #FFFFFF; --page-raised: #F5F5F5; --ink: #000000; --ink-2: #4D4D4D; --rule: #D4D4D4; --grout: #E6E6E6;
+  --f-sans: -apple-system, "SF Pro Text", Inter, system-ui, sans-serif;
+  --f-serif: "New York", ui-serif, "Source Serif 4", Georgia, serif;
+  --f-rounded: ui-rounded, "SF Pro Rounded", Nunito, system-ui, sans-serif;
+  --f-cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #000000; --page-raised: #0D0D0D; --ink: #FFFFFF; --ink-2: #B3B3B3; --rule: #333333; --grout: #1A1A1A; color-scheme: dark } }
+:root[data-theme="dark"] { --page: #000000; --page-raised: #0D0D0D; --ink: #FFFFFF; --ink-2: #B3B3B3; --rule: #333333; --grout: #1A1A1A; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--page); color: var(--ink); font-family: var(--f-sans); font-size: 15px; line-height: 1.5;
+  background-image: linear-gradient(var(--grout) 1px, transparent 1px), linear-gradient(90deg, var(--grout) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 48px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+.intro { background: var(--page); border: 1px solid var(--ink); padding: 24px; display: grid; gap: 12px; }
+.eyebrow-page { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+.eyebrow-page::before { content: ""; width: 24px; height: 6px; background: var(--ink); }
+h1 { font-size: clamp(32px, 6vw, 56px); line-height: 1.02; letter-spacing: -1.5px; margin: 0; font-weight: 800; text-wrap: balance; }
+.intro p { margin: 0; max-width: 64ch; color: var(--ink-2); }
+.stations { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.stations a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border: 2px solid var(--ink); border-radius: 2px;
+  color: var(--ink); text-decoration: none; font-weight: 700; font-size: 14px; background: var(--page); }
+.stations a:hover { background: var(--page-raised); }
+.stations a:focus-visible, .primary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.stations .b { font-size: 12px; font-weight: 800; padding: 2px 6px; border-radius: 2px; }
+
+.theme { margin-top: 48px; background: var(--page); border: 1px solid var(--ink); padding: 24px; display: grid; gap: 16px; }
+.theme-head { display: flex; align-items: center; gap: 16px; }
+.badge { flex: none; width: 48px; height: 48px; display: grid; place-items: center; font-weight: 800; font-size: 17px; border-radius: 2px; }
+.th-text { min-width: 0; }
+.theme h2 { margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.5px; font-weight: 800; }
+.src { margin: 2px 0 0; color: var(--ink-2); font-size: 13px; font-weight: 600; letter-spacing: .2px; }
+.desc { margin: 0; max-width: 68ch; }
+.theme-body { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 32px; align-items: start; }
+@media (max-width: 860px) { .theme-body { grid-template-columns: minmax(0, 1fr); } }
+.phones { display: flex; flex-wrap: wrap; gap: 20px; }
+.phone-wrap { margin: 0; display: grid; gap: 8px; justify-items: center; }
+.phone-wrap figcaption { font-size: 12px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-2); }
+
+.specs { display: grid; gap: 10px; min-width: 0; }
+.specs h4 { margin: 8px 0 0; font-size: 12px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+.ramp { display: flex; height: 32px; border: 1px solid var(--ink); }
+.ramp .sw { flex: 1; }
+.ramp-l { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); }
+.chips { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.chips li { display: grid; grid-template-columns: 20px 20px 84px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.chip { width: 20px; height: 20px; border: 1px solid var(--rule); }
+.chip-l { font-weight: 600; }
+code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.file { margin: 0; }
+.note { margin-top: 48px; font-size: 13px; color: var(--ink-2); max-width: 72ch; }
+
+/* ---------- phone specimen: all colours come from the theme's own tokens set inline ---------- */
+.phone { width: 244px; border-radius: 40px; padding: 8px; background: #111; box-shadow: 0 0 0 1px #3a3a3a, 0 18px 40px rgba(0,0,0,.22); }
+.screen { position: relative; overflow: hidden; border-radius: 32px; background: var(--background); color: var(--label);
+  padding: 14px 12px 18px; display: grid; gap: 10px; font-family: var(--f-sans); isolation: isolate; }
+.motif { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.motif canvas { width: 100%; height: 100%; display: block; }
+.topbar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.dots { width: 34px; height: 10px; background: linear-gradient(90deg, var(--label) 0 22px, transparent 22px 25px, var(--label) 25px); border-radius: 2px; opacity: .85; }
+.scr-title { margin: 6px 4px 0; font-family: var(--title-font); font-weight: var(--title-w); font-size: 30px; line-height: 1.05; letter-spacing: -.4px; }
+.card { position: relative; background: var(--surface); border: 1px solid var(--label); border-radius: var(--card-r); padding: 12px; display: grid; gap: 8px; }
+.eyebrow { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+.eb-tile { width: 10px; height: 10px; background: var(--kennfarbe); flex: none; }
+.hero { display: flex; align-items: baseline; gap: 6px; }
+.num { font-size: 46px; font-weight: 800; letter-spacing: -1.2px; line-height: 1; font-variant-numeric: tabular-nums; font-family: var(--f-sans); }
+.unit { font-size: 13px; color: var(--labelSecondary); letter-spacing: .2px; }
+.meter { display: grid; grid-template-columns: repeat(20, 1fr); gap: 2px; }
+.meter i { aspect-ratio: 1 / 1.6; background: var(--surfaceSunken); }
+.meter i.on { background: var(--kennfarbe); }
+.sub { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--labelSecondary); font-variant-numeric: tabular-nums; }
+.tert { color: var(--labelTertiary); font-weight: 500; }
+.canvas-box { position: relative; border: 1px solid var(--separator); line-height: 0; background: var(--canvas); }
+.spec { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+.tk { position: absolute; left: 4px; font-size: 9px; font-weight: 700; line-height: 1; color: var(--canvasLabel); background: var(--canvas); padding: 2px 3px; font-variant-numeric: tabular-nums; letter-spacing: .4px; }
+.t1 { top: 4px; } .t2 { top: 44%; } .t3 { bottom: 4px; }
+.primary { display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: max(2px, var(--card-r)); padding: 12px;
+  background: var(--kennfarbe); color: var(--onKennfarbe); font: 700 14px/1.2 var(--f-sans); cursor: pointer; }
+.rec { width: 10px; height: 10px; border-radius: 50%; background: var(--onKennfarbe); }
+.row { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 0 4px; color: var(--labelSecondary); }
+.right { margin-left: auto; }
+.live-dot { width: 8px; height: 8px; background: var(--live); flex: none; }
+.rivets { display: none; }
+
+/* Museumsinsel: quiet outline so the sky is not cut up; serif title */
+.t-museumsinsel .card { border-color: var(--separator); }
+/* Märkisches Museum: the green frame on the hero card */
+.t-maerkisches-museum .hero-card { border: 2px solid var(--kennfarbe); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 4px var(--separator); padding: 14px; }
+/* Paulsternstraße: rounded hero digits */
+.t-paulsternstrasse .num { font-family: var(--f-rounded); }
+/* Heidelberger Platz: chandelier glow from above in dark */
+.t-heidelberger-platz.m-dark .card { background: radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--kennfarbe) 14%, transparent), transparent 70%), var(--surface); }
+/* Schlesisches Tor: rivet flange, condensed signage, 8pt bar */
+.t-schlesisches-tor .rivets { display: block; position: absolute; left: 6px; right: 6px; top: 4px; height: 4px;
+  background: radial-gradient(circle at 2px 2px, var(--separator) 1.5px, transparent 2px) 0 0 / 12px 4px repeat-x; }
+.t-schlesisches-tor .hero-card { padding-top: 16px; }
+.t-schlesisches-tor .eyebrow { font-family: var(--f-cond); font-size: 13px; letter-spacing: .8px; }
+.t-schlesisches-tor .eb-tile { width: 18px; height: 8px; }
+.t-schlesisches-tor .num { font-family: var(--f-cond); font-size: 54px; letter-spacing: -.5px; }
+.t-schlesisches-tor .scr-title { text-transform: uppercase; letter-spacing: .5px; }
+
+@media (prefers-reduced-motion: no-preference) { .stations a { transition: background .2s; } }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <div class="eyebrow-page">Ferrite · Bahnhofsthemen</div>
+    <h1>Five stations, five looks</h1>
+    <p>Ferrite's default comes from the white tile hall of U-Bahnhof Paradestraße. Each theme below takes a different Berlin station as its source, with the same token slots, a station colour (<i>Kennfarbe</i>) instead of ink, its own spectral ramp and a decorative motif. Every phone shows the same screen so the looks compare directly.</p>
+    <ul class="stations">
+      <li><a href="#museumsinsel"><span class="b" style="background:#A0581C;color:#fff">U5</span>Museumsinsel</a></li>
+      <li><a href="#maerkisches-museum"><span class="b" style="background:#FF3B1F;color:#000">U2</span>Märkisches Museum</a></li>
+      <li><a href="#paulsternstrasse"><span class="b" style="background:#2F9BFF;color:#000">U7</span>Paulsternstraße</a></li>
+      <li><a href="#heidelberger-platz"><span class="b" style="background:#00A06A;color:#000">U3</span>Heidelberger Platz</a></li>
+      <li><a href="#schlesisches-tor"><span class="b" style="background:#5CC23A;color:#000">U1</span>Schlesisches Tor</a></li>
+    </ul>
+  </header>
+
+  <section class="theme" id="museumsinsel">
+    <header class="theme-head">
+      <span class="badge" style="background:#A0581C;color:#fff">U5</span>
+      <div class="th-text">
+        <h2>Museumsinsel</h2>
+        <p class="src">Max Dudler, 2021</p>
+      </div>
+    </header>
+    <p class="desc">A blue barrel vault with more than 6,600 points of light, after Schinkel's 1816 night sky for <i>Die Zauberflöte</i>. The chart canvas stays night even in light mode.</p>
+    <div class="theme-body">
+      <div class="phones">
+      <figure class="phone-wrap">
+        <div class="phone t-museumsinsel m-light" style="--background:#F4F2EC;--backgroundRaised:#EAE7DE;--surface:#FFFFFF;--surfaceSunken:#E2DED2;--canvas:#0A1338;--canvasLabel:#F4EEDC;--separator:#CFCAB9;--grout:#1F2C66;--label:#0E1A4A;--labelSecondary:#3E4870;--labelTertiary:#535C80;--kennfarbe:#F2C14E;--onKennfarbe:#0E1A4A;--live:#5CC23A;--title-font:var(--f-serif);--title-w:600;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#050A20", "#0A1338", "#1B2D7A", "#2F4FB8", "#5B7FD6", "#9DB4EA", "#E8D9A8", "#F2C14E", "#FFF6DC"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Hell</figcaption>
+      </figure>
+      <figure class="phone-wrap">
+        <div class="phone t-museumsinsel m-dark" style="--background:#0A1338;--backgroundRaised:#0F1A45;--surface:#111D4C;--surfaceSunken:#1A2860;--canvas:#070D29;--separator:#2A3A78;--grout:#1F2C66;--label:#F4EEDC;--labelSecondary:#C3C8DE;--labelTertiary:#9AA2C4;--kennfarbe:#F2C14E;--onKennfarbe:#0A1338;--canvasLabel:#F4EEDC;--live:#5CC23A;--title-font:var(--f-serif);--title-w:600;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#050A20", "#0A1338", "#1B2D7A", "#2F4FB8", "#5B7FD6", "#9DB4EA", "#E8D9A8", "#F2C14E", "#FFF6DC"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Dunkel</figcaption>
+      </figure></div>
+      <aside class="specs">
+        <h4>Spektral-Rampe</h4>
+        <div class="ramp"><span class="sw" style="background:#050A20" title="#050A20"></span><span class="sw" style="background:#0A1338" title="#0A1338"></span><span class="sw" style="background:#1B2D7A" title="#1B2D7A"></span><span class="sw" style="background:#2F4FB8" title="#2F4FB8"></span><span class="sw" style="background:#5B7FD6" title="#5B7FD6"></span><span class="sw" style="background:#9DB4EA" title="#9DB4EA"></span><span class="sw" style="background:#E8D9A8" title="#E8D9A8"></span><span class="sw" style="background:#F2C14E" title="#F2C14E"></span><span class="sw" style="background:#FFF6DC" title="#FFF6DC"></span></div>
+        <div class="ramp-l"><span>Stille</span><span>Signal</span></div>
+        <h4>Tokens · hell / dunkel</h4>
+        <ul class="chips"><li><span class="chip" style="background:#F4F2EC"></span><span class="chip" style="background:#0A1338"></span><span class="chip-l">Grund</span><code>#F4F2EC / #0A1338</code></li><li><span class="chip" style="background:#FFFFFF"></span><span class="chip" style="background:#111D4C"></span><span class="chip-l">Fläche</span><code>#FFFFFF / #111D4C</code></li><li><span class="chip" style="background:#0E1A4A"></span><span class="chip" style="background:#F4EEDC"></span><span class="chip-l">Text</span><code>#0E1A4A / #F4EEDC</code></li><li><span class="chip" style="background:#F2C14E"></span><span class="chip" style="background:#F2C14E"></span><span class="chip-l">Kennfarbe</span><code>#F2C14E / #F2C14E</code></li></ul>
+        <h4>Spec</h4>
+        <p class="file"><code>design/themes/museumsinsel.md</code></p>
+      </aside>
+    </div>
+  </section>
+  <section class="theme" id="maerkisches-museum">
+    <header class="theme-head">
+      <span class="badge" style="background:#FF3B1F;color:#000">U2</span>
+      <div class="th-text">
+        <h2>Märkisches Museum</h2>
+        <p class="src">Alfred Grenander, 1913</p>
+      </div>
+    </header>
+    <p class="desc">Grenander's green-fired glazed tile and green-framed wall panels. One glaze, cream joints, and the frame as the ornament.</p>
+    <div class="theme-body">
+      <div class="phones">
+      <figure class="phone-wrap">
+        <div class="phone t-maerkisches-museum m-light" style="--background:#F2EFE3;--backgroundRaised:#E9E5D6;--surface:#FBF9F2;--surfaceSunken:#E0DBC9;--canvas:#F2EFE3;--separator:#CFC8B2;--grout:#D8D2BE;--label:#14271E;--labelSecondary:#3D4F45;--labelTertiary:#4F5F55;--kennfarbe:#2E6B4F;--onKennfarbe:#FFFFFF;--canvasLabel:#14271E;--live:#5CC23A;--title-font:var(--f-sans);--title-w:700;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0C1A14", "#173A2B", "#22573F", "#2E6B4F", "#4E9A74", "#8CC39A", "#C9DDA6", "#EFE9C8", "#FBF9F2"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Hell</figcaption>
+      </figure>
+      <figure class="phone-wrap">
+        <div class="phone t-maerkisches-museum m-dark" style="--background:#0C1A14;--backgroundRaised:#10221A;--surface:#132820;--surfaceSunken:#1B3529;--canvas:#0C1A14;--separator:#2A4A3A;--grout:#234033;--label:#EEF0E4;--labelSecondary:#BCC7BC;--labelTertiary:#93A398;--kennfarbe:#4E9A74;--onKennfarbe:#000000;--canvasLabel:#EEF0E4;--live:#5CC23A;--title-font:var(--f-sans);--title-w:700;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0C1A14", "#173A2B", "#22573F", "#2E6B4F", "#4E9A74", "#8CC39A", "#C9DDA6", "#EFE9C8", "#FBF9F2"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Dunkel</figcaption>
+      </figure></div>
+      <aside class="specs">
+        <h4>Spektral-Rampe</h4>
+        <div class="ramp"><span class="sw" style="background:#0C1A14" title="#0C1A14"></span><span class="sw" style="background:#173A2B" title="#173A2B"></span><span class="sw" style="background:#22573F" title="#22573F"></span><span class="sw" style="background:#2E6B4F" title="#2E6B4F"></span><span class="sw" style="background:#4E9A74" title="#4E9A74"></span><span class="sw" style="background:#8CC39A" title="#8CC39A"></span><span class="sw" style="background:#C9DDA6" title="#C9DDA6"></span><span class="sw" style="background:#EFE9C8" title="#EFE9C8"></span><span class="sw" style="background:#FBF9F2" title="#FBF9F2"></span></div>
+        <div class="ramp-l"><span>Stille</span><span>Signal</span></div>
+        <h4>Tokens · hell / dunkel</h4>
+        <ul class="chips"><li><span class="chip" style="background:#F2EFE3"></span><span class="chip" style="background:#0C1A14"></span><span class="chip-l">Grund</span><code>#F2EFE3 / #0C1A14</code></li><li><span class="chip" style="background:#FBF9F2"></span><span class="chip" style="background:#132820"></span><span class="chip-l">Fläche</span><code>#FBF9F2 / #132820</code></li><li><span class="chip" style="background:#14271E"></span><span class="chip" style="background:#EEF0E4"></span><span class="chip-l">Text</span><code>#14271E / #EEF0E4</code></li><li><span class="chip" style="background:#2E6B4F"></span><span class="chip" style="background:#4E9A74"></span><span class="chip-l">Kennfarbe</span><code>#2E6B4F / #4E9A74</code></li></ul>
+        <h4>Spec</h4>
+        <p class="file"><code>design/themes/maerkisches-museum.md</code></p>
+      </aside>
+    </div>
+  </section>
+  <section class="theme" id="paulsternstrasse">
+    <header class="theme-head">
+      <span class="badge" style="background:#2F9BFF;color:#000">U7</span>
+      <div class="th-text">
+        <h2>Paulsternstraße</h2>
+        <p class="src">Rainer G. Rümmler, 1984</p>
+      </div>
+    </header>
+    <p class="desc">A carriage ride to Spandau told in white and red flower mosaics on dark blue. Two accents: red for action, meadow green for live.</p>
+    <div class="theme-body">
+      <div class="phones">
+      <figure class="phone-wrap">
+        <div class="phone t-paulsternstrasse m-light" style="--background:#FAF8F3;--backgroundRaised:#F0EEE8;--surface:#FFFFFF;--surfaceSunken:#E7E5DF;--canvas:#FAF8F3;--separator:#D3D1CB;--grout:#DCDAD3;--label:#0F1B3D;--labelSecondary:#3B4670;--labelTertiary:#56608A;--kennfarbe:#D42F25;--onKennfarbe:#FFFFFF;--canvasLabel:#0F1B3D;--live:#6BBF59;--title-font:var(--f-rounded);--title-w:800;--card-r:6px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0A1230", "#15265C", "#1F5A6E", "#3E8F55", "#8DBF3F", "#F0C419", "#F07A1E", "#E0352B", "#FFF4EC"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Hell</figcaption>
+      </figure>
+      <figure class="phone-wrap">
+        <div class="phone t-paulsternstrasse m-dark" style="--background:#0F1B3D;--backgroundRaised:#142350;--surface:#172856;--surfaceSunken:#203468;--canvas:#0A1230;--separator:#324A85;--grout:#2A3E75;--label:#FFFFFF;--labelSecondary:#C9D2EA;--labelTertiary:#A0ACD0;--kennfarbe:#E8453A;--onKennfarbe:#000000;--canvasLabel:#FFFFFF;--live:#6BBF59;--title-font:var(--f-rounded);--title-w:800;--card-r:6px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0A1230", "#15265C", "#1F5A6E", "#3E8F55", "#8DBF3F", "#F0C419", "#F07A1E", "#E0352B", "#FFF4EC"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Dunkel</figcaption>
+      </figure></div>
+      <aside class="specs">
+        <h4>Spektral-Rampe</h4>
+        <div class="ramp"><span class="sw" style="background:#0A1230" title="#0A1230"></span><span class="sw" style="background:#15265C" title="#15265C"></span><span class="sw" style="background:#1F5A6E" title="#1F5A6E"></span><span class="sw" style="background:#3E8F55" title="#3E8F55"></span><span class="sw" style="background:#8DBF3F" title="#8DBF3F"></span><span class="sw" style="background:#F0C419" title="#F0C419"></span><span class="sw" style="background:#F07A1E" title="#F07A1E"></span><span class="sw" style="background:#E0352B" title="#E0352B"></span><span class="sw" style="background:#FFF4EC" title="#FFF4EC"></span></div>
+        <div class="ramp-l"><span>Stille</span><span>Signal</span></div>
+        <h4>Tokens · hell / dunkel</h4>
+        <ul class="chips"><li><span class="chip" style="background:#FAF8F3"></span><span class="chip" style="background:#0F1B3D"></span><span class="chip-l">Grund</span><code>#FAF8F3 / #0F1B3D</code></li><li><span class="chip" style="background:#FFFFFF"></span><span class="chip" style="background:#172856"></span><span class="chip-l">Fläche</span><code>#FFFFFF / #172856</code></li><li><span class="chip" style="background:#0F1B3D"></span><span class="chip" style="background:#FFFFFF"></span><span class="chip-l">Text</span><code>#0F1B3D / #FFFFFF</code></li><li><span class="chip" style="background:#D42F25"></span><span class="chip" style="background:#E8453A"></span><span class="chip-l">Kennfarbe</span><code>#D42F25 / #E8453A</code></li></ul>
+        <h4>Spec</h4>
+        <p class="file"><code>design/themes/paulsternstrasse.md</code></p>
+      </aside>
+    </div>
+  </section>
+  <section class="theme" id="heidelberger-platz">
+    <header class="theme-head">
+      <span class="badge" style="background:#00A06A;color:#000">U3</span>
+      <div class="th-text">
+        <h2>Heidelberger Platz</h2>
+        <p class="src">Wilhelm Leitgebel, 1913</p>
+      </div>
+    </header>
+    <p class="desc">Cross-groined vaults on squat piers under large chandeliers. Brass light, lime plaster, serif titles.</p>
+    <div class="theme-body">
+      <div class="phones">
+      <figure class="phone-wrap">
+        <div class="phone t-heidelberger-platz m-light" style="--background:#F1EADC;--backgroundRaised:#E8DFCD;--surface:#FAF5EA;--surfaceSunken:#DDD2BC;--canvas:#F1EADC;--separator:#C9BCA0;--grout:#D6CAB2;--label:#231C14;--labelSecondary:#4E4335;--labelTertiary:#625543;--kennfarbe:#B8862B;--onKennfarbe:#000000;--canvasLabel:#231C14;--live:#5CC23A;--title-font:var(--f-serif);--title-w:600;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0E0B08", "#2A2117", "#4A3A25", "#7A5A2C", "#A8782F", "#D9A441", "#F0CE7A", "#FBEBC0", "#FFFBEF"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Hell</figcaption>
+      </figure>
+      <figure class="phone-wrap">
+        <div class="phone t-heidelberger-platz m-dark" style="--background:#15110C;--backgroundRaised:#1C1711;--surface:#201A13;--surfaceSunken:#2C241A;--canvas:#0E0B08;--separator:#3E3426;--grout:#2E2619;--label:#F3EAD8;--labelSecondary:#C9BDA5;--labelTertiary:#A0937A;--kennfarbe:#D9A441;--onKennfarbe:#000000;--canvasLabel:#F3EAD8;--live:#5CC23A;--title-font:var(--f-serif);--title-w:600;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0E0B08", "#2A2117", "#4A3A25", "#7A5A2C", "#A8782F", "#D9A441", "#F0CE7A", "#FBEBC0", "#FFFBEF"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Dunkel</figcaption>
+      </figure></div>
+      <aside class="specs">
+        <h4>Spektral-Rampe</h4>
+        <div class="ramp"><span class="sw" style="background:#0E0B08" title="#0E0B08"></span><span class="sw" style="background:#2A2117" title="#2A2117"></span><span class="sw" style="background:#4A3A25" title="#4A3A25"></span><span class="sw" style="background:#7A5A2C" title="#7A5A2C"></span><span class="sw" style="background:#A8782F" title="#A8782F"></span><span class="sw" style="background:#D9A441" title="#D9A441"></span><span class="sw" style="background:#F0CE7A" title="#F0CE7A"></span><span class="sw" style="background:#FBEBC0" title="#FBEBC0"></span><span class="sw" style="background:#FFFBEF" title="#FFFBEF"></span></div>
+        <div class="ramp-l"><span>Stille</span><span>Signal</span></div>
+        <h4>Tokens · hell / dunkel</h4>
+        <ul class="chips"><li><span class="chip" style="background:#F1EADC"></span><span class="chip" style="background:#15110C"></span><span class="chip-l">Grund</span><code>#F1EADC / #15110C</code></li><li><span class="chip" style="background:#FAF5EA"></span><span class="chip" style="background:#201A13"></span><span class="chip-l">Fläche</span><code>#FAF5EA / #201A13</code></li><li><span class="chip" style="background:#231C14"></span><span class="chip" style="background:#F3EAD8"></span><span class="chip-l">Text</span><code>#231C14 / #F3EAD8</code></li><li><span class="chip" style="background:#B8862B"></span><span class="chip" style="background:#D9A441"></span><span class="chip-l">Kennfarbe</span><code>#B8862B / #D9A441</code></li></ul>
+        <h4>Spec</h4>
+        <p class="file"><code>design/themes/heidelberger-platz.md</code></p>
+      </aside>
+    </div>
+  </section>
+  <section class="theme" id="schlesisches-tor">
+    <header class="theme-head">
+      <span class="badge" style="background:#5CC23A;color:#000">U1</span>
+      <div class="th-text">
+        <h2>Schlesisches Tor</h2>
+        <p class="src">Elevated line, 1902</p>
+      </div>
+    </header>
+    <p class="desc">Riveted steel viaduct six metres above Kreuzberg, with brick and sandstone. Built to read in daylight.</p>
+    <div class="theme-body">
+      <div class="phones">
+      <figure class="phone-wrap">
+        <div class="phone t-schlesisches-tor m-light" style="--background:#EFE8DC;--backgroundRaised:#E5DCCB;--surface:#F8F3EA;--surfaceSunken:#DAD0BC;--canvas:#EFE8DC;--separator:#C5B9A2;--grout:#D2C7B2;--label:#1E2224;--labelSecondary:#464C50;--labelTertiary:#53595D;--kennfarbe:#A6402A;--onKennfarbe:#FFFFFF;--canvasLabel:#1E2224;--live:#5CC23A;--title-font:var(--f-cond);--title-w:800;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0F1113", "#262B2F", "#3F474D", "#6B3A2C", "#A6402A", "#D0704A", "#E3A877", "#EFD8B4", "#FBF5EA"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Hell</figcaption>
+      </figure>
+      <figure class="phone-wrap">
+        <div class="phone t-schlesisches-tor m-dark" style="--background:#121416;--backgroundRaised:#181B1E;--surface:#1C2023;--surfaceSunken:#272C30;--canvas:#0F1113;--separator:#3A4146;--grout:#2A3035;--label:#F0EADF;--labelSecondary:#C2BFB7;--labelTertiary:#9C9A94;--kennfarbe:#C4563A;--onKennfarbe:#000000;--canvasLabel:#F0EADF;--live:#5CC23A;--title-font:var(--f-cond);--title-w:800;--card-r:0px">
+          <div class="screen">
+            <div class="motif"></div>
+            <div class="topbar"><span>9:41</span><span class="dots" aria-hidden="true"></span></div>
+            <h3 class="scr-title">Pegel</h3>
+            <div class="card hero-card">
+              <div class="rivets" aria-hidden="true"></div>
+              <div class="eyebrow"><span class="eb-tile"></span>LIVE · LAEQ</div>
+              <div class="hero"><span class="num">62,4</span><span class="unit">dB(A)</span></div>
+              <div class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub"><span>Max 78,1</span><span class="tert">seit 00:04:12</span></div>
+            </div>
+            <div class="card canvas-card">
+              <div class="eyebrow"><span class="eb-tile"></span>SPEKTROGRAMM</div>
+              <div class="canvas-box"><canvas class="spec" width="240" height="96" data-ramp='["#0F1113", "#262B2F", "#3F474D", "#6B3A2C", "#A6402A", "#D0704A", "#E3A877", "#EFD8B4", "#FBF5EA"]'></canvas>
+                <span class="tk t1">8k</span><span class="tk t2">1k</span><span class="tk t3">125</span></div>
+            </div>
+            <button class="primary" type="button"><span class="rec"></span>Aufnahme starten</button>
+            <div class="row"><span class="live-dot"></span><span>Mikrofon bereit</span><span class="tert right">48 kHz</span></div>
+          </div>
+        </div>
+        <figcaption>Dunkel</figcaption>
+      </figure></div>
+      <aside class="specs">
+        <h4>Spektral-Rampe</h4>
+        <div class="ramp"><span class="sw" style="background:#0F1113" title="#0F1113"></span><span class="sw" style="background:#262B2F" title="#262B2F"></span><span class="sw" style="background:#3F474D" title="#3F474D"></span><span class="sw" style="background:#6B3A2C" title="#6B3A2C"></span><span class="sw" style="background:#A6402A" title="#A6402A"></span><span class="sw" style="background:#D0704A" title="#D0704A"></span><span class="sw" style="background:#E3A877" title="#E3A877"></span><span class="sw" style="background:#EFD8B4" title="#EFD8B4"></span><span class="sw" style="background:#FBF5EA" title="#FBF5EA"></span></div>
+        <div class="ramp-l"><span>Stille</span><span>Signal</span></div>
+        <h4>Tokens · hell / dunkel</h4>
+        <ul class="chips"><li><span class="chip" style="background:#EFE8DC"></span><span class="chip" style="background:#121416"></span><span class="chip-l">Grund</span><code>#EFE8DC / #121416</code></li><li><span class="chip" style="background:#F8F3EA"></span><span class="chip" style="background:#1C2023"></span><span class="chip-l">Fläche</span><code>#F8F3EA / #1C2023</code></li><li><span class="chip" style="background:#1E2224"></span><span class="chip" style="background:#F0EADF"></span><span class="chip-l">Text</span><code>#1E2224 / #F0EADF</code></li><li><span class="chip" style="background:#A6402A"></span><span class="chip" style="background:#C4563A"></span><span class="chip-l">Kennfarbe</span><code>#A6402A / #C4563A</code></li></ul>
+        <h4>Spec</h4>
+        <p class="file"><code>design/themes/schlesisches-tor.md</code></p>
+      </aside>
+    </div>
+  </section>
+  <p class="note">Contrast is checked for every theme: body text at least 7:1 and secondary text at least 4.5:1 on all four grounds, and text on the Kennfarbe at least 4.5:1. The preview uses web stand-ins for New York, SF Pro Rounded and SF Pro Condensed. In the app these are the built-in SF designs. Tokens: <code>design/themes/station-themes.tokens.json</code>.</p>
+</div>
+
+<script>
+(function () {
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function hex(h) { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function rampAt(stops, v) {
+    v = Math.min(1, Math.max(0, v)); var p = v * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(p)), f = p - i;
+    var a = stops[i], b = stops[i + 1]; return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+  // One shared, seeded field so every theme shows the same recording.
+  var W = 240, H = 96, field = new Float32Array(W * H), r = rng(1913);
+  var notes = [0.22, 0.30, 0.26, 0.36, 0.28, 0.33];
+  for (var x = 0; x < W; x++) {
+    var n = Math.floor(x / 40), f0 = notes[n % notes.length], age = (x % 40) / 40, env = Math.exp(-age * 2.2) * 0.9 + 0.1;
+    for (var y = 0; y < H; y++) {
+      var pos = 1 - y / H, v = 0.06 + 0.10 * r() + 0.18 * Math.exp(-pos * 9);
+      for (var h = 1; h <= 7; h++) {
+        var hp = f0 + Math.log2(h) * 0.2, d = (pos - hp) * H;
+        v += env * (0.95 / Math.pow(h, 0.7)) * Math.exp(-(d * d) / 3.2);
+      }
+      if (age < 0.05) v += 0.35 * r();
+      field[y * W + x] = Math.min(1, v);
+    }
+  }
+  document.querySelectorAll('canvas.spec').forEach(function (c) {
+    var stops = JSON.parse(c.dataset.ramp).map(hex), ctx = c.getContext('2d'), img = ctx.createImageData(W, H);
+    var stars = c.closest('.t-museumsinsel') ? rng(6662) : null, starCol = stars ? hex(getComputedStyle(c).getPropertyValue('--canvasLabel').trim()) : null;
+    for (var i = 0; i < W * H; i++) {
+      var col = rampAt(stops, field[i]);
+      if (stars && field[i] < 0.24 && stars() < 0.012) col = starCol;
+      img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  });
+
+  // Decorative motifs on the screen wall.
+  document.querySelectorAll('.phone').forEach(function (ph) {
+    var host = ph.querySelector('.motif'), cv = document.createElement('canvas'); host.appendChild(cv);
+    var cs = getComputedStyle(ph), tok = function (n) { return cs.getPropertyValue('--' + n).trim(); };
+    var w = host.clientWidth, h = host.clientHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = w * dpr; cv.height = h * dpr; var g = cv.getContext('2d'); g.scale(dpr, dpr);
+    var cls = ph.className;
+    if (cls.indexOf('t-museumsinsel') > -1) {
+      var s = rng(1816); g.fillStyle = tok('label');
+      for (var i = 0; i < (w * h) / 576; i++) { g.globalAlpha = 0.08 + s() * 0.12; g.beginPath(); g.arc(s() * w, s() * h, 0.6 + s() * 0.6, 0, 7); g.fill(); }
+    } else if (cls.indexOf('t-maerkisches-museum') > -1) {
+      g.strokeStyle = tok('grout'); g.lineWidth = 1; g.globalAlpha = 0.6;
+      for (var y = 0, row = 0; y < h; y += 12, row++) {
+        g.beginPath(); g.moveTo(0, y + .5); g.lineTo(w, y + .5); g.stroke();
+        for (var x = (row % 2) * 12; x < w; x += 24) { g.beginPath(); g.moveTo(x + .5, y); g.lineTo(x + .5, y + 12); g.stroke(); }
+      }
+    } else if (cls.indexOf('t-paulsternstrasse') > -1) {
+      g.globalAlpha = 0.14;
+      for (var y = 24, row = 0; y < h; y += 48, row++) for (var x = (row % 2) * 48 + 12; x < w; x += 96) {
+        g.fillStyle = tok('kennfarbe'); g.fillRect(x - 3, y - 9, 6, 6); g.fillRect(x - 3, y + 3, 6, 6); g.fillRect(x - 9, y - 3, 6, 6); g.fillRect(x + 3, y - 3, 6, 6);
+        g.fillStyle = tok('label'); g.fillRect(x - 3, y - 3, 6, 6);
+      }
+    } else if (cls.indexOf('t-heidelberger-platz') > -1) {
+      g.strokeStyle = tok('grout'); g.lineWidth = 1;
+      for (var row = 0; row < 2; row++) for (var x = 0; x < w; x += 48) {
+        var y = row * 48;
+        g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 24, y + 30, x + 48, y + 48); g.stroke();
+        g.beginPath(); g.moveTo(x + 48, y); g.quadraticCurveTo(x + 24, y + 30, x, y + 48); g.stroke();
+        g.beginPath(); g.arc(x + 24, y + 48, 24, Math.PI, 0); g.stroke();
+      }
+    } else if (cls.indexOf('t-schlesisches-tor') > -1) {
+      g.strokeStyle = tok('grout'); g.lineWidth = 1;
+      for (var x = 0; x < w; x += 48) { g.beginPath(); g.moveTo(x + .5, 0); g.lineTo(x + .5, h); g.stroke(); }
+      for (var y = 0; y < h; y += 48) { g.beginPath(); g.moveTo(0, y + .5); g.lineTo(w, y + .5); g.stroke(); }
+    }
+  });
+})();
+</script>
